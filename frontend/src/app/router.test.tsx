@@ -47,8 +47,8 @@ afterEach(() => {
 
 describe('routes', () => {
   it.each([
-    ['/', '채용 대시보드'],
-    ['/hr', '채용 대시보드'],
+    ['/', '채용'],
+    ['/hr', '채용'],
     ['/hr/settings', '설정'],
     ['/hr/recruitments/1/posting', '공고 편집'],
     ['/hr/recruitments/1/posting/publish', '공고 게시'],
