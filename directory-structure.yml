@@ -1,0 +1,198 @@
+# 저장소에서 관리하는 디렉터리와 파일 목록.
+# 디렉터리 키는 /로 끝나며, 파일 값은 null, 빈 디렉터리 값은 {}이다.
+# 폴더 유지용 파일, 의존성 설치 폴더, 빌드 결과, 캐시, 개인 기획 산출물은 제외한다.
+HireMate/:
+  .githooks/:
+    commit-msg: null
+    pre-push: null
+  .github/:
+    workflows/:
+      commit-convention.yml: null
+      secret-scan.yml: null
+    pull_request_template.md: null
+  ai/:
+    src/:
+      hiremate_ai/:
+        agents/:
+          analysis/:
+            application/: {}
+            assessment/: {}
+            interview/: {}
+          generation/:
+            communication/: {}
+            interview/: {}
+            posting/: {}
+            report/: {}
+          root/: {}
+        api/:
+          health.py: null
+        db/: {}
+        llm/: {}
+        tools/: {}
+        worker/: {}
+        config.py: null
+        main.py: null
+    tests/:
+      test_health.py: null
+    .python-version: null
+    pyproject.toml: null
+    uv.lock: null
+  backend/:
+    config/:
+      checkstyle/:
+        checkstyle.xml: null
+        suppressions.xml: null
+    gradle/:
+      wrapper/:
+        gradle-wrapper.jar: null
+        gradle-wrapper.properties: null
+    src/:
+      main/:
+        java/:
+          com/:
+            hiremate/:
+              activity/:
+                application/: {}
+                domain/: {}
+              ai/:
+                api/: {}
+                application/: {}
+                infra/: {}
+              apply/:
+                api/: {}
+                application/: {}
+                domain/: {}
+              assessment/:
+                api/: {}
+                application/: {}
+                domain/: {}
+              auth/:
+                api/: {}
+                application/: {}
+                config/:
+                  SecurityConfig.java: null
+                domain/: {}
+              company/:
+                api/: {}
+                application/: {}
+                domain/: {}
+              dashboard/:
+                api/: {}
+                application/: {}
+              file/:
+                application/: {}
+                domain/: {}
+                infra/: {}
+              global/:
+                config/: {}
+                error/: {}
+              interview/:
+                api/: {}
+                application/: {}
+                domain/: {}
+              job/:
+                application/: {}
+                infra/: {}
+              mail/:
+                application/: {}
+                infra/: {}
+              notice/:
+                api/: {}
+                application/: {}
+                domain/: {}
+              posting/:
+                api/: {}
+                application/: {}
+                domain/: {}
+              recruit/:
+                api/: {}
+                application/: {}
+                domain/: {}
+              report/:
+                api/: {}
+                application/: {}
+                domain/: {}
+              screening/:
+                api/: {}
+                application/: {}
+                domain/: {}
+              HireMateApplication.java: null
+        resources/:
+          db/:
+            migration/:
+              V1__create_event_publication.sql: null
+          application.yml: null
+      test/:
+        java/:
+          com/:
+            hiremate/:
+              HireMateApplicationTests.java: null
+              ModularityTests.java: null
+              TestcontainersConfiguration.java: null
+    build.gradle: null
+    gradlew: null
+    gradlew.bat: null
+    settings.gradle: null
+  frontend/:
+    public/:
+      favicon.svg: null
+    src/:
+      app/:
+        HrLayout.tsx: null
+        providers.tsx: null
+        router.test.tsx: null
+        router.tsx: null
+      features/:
+        apply/: {}
+        assessment/: {}
+        chat/: {}
+        company/: {}
+        dashboard/: {}
+        interview/: {}
+        notice/: {}
+        posting/: {}
+        recruit/: {}
+        report/: {}
+        screening/: {}
+      lib/:
+        api/:
+          client.ts: null
+          schema.d.ts: null
+        utils.test.ts: null
+        utils.ts: null
+      pages/:
+        careers/:
+          ApplyPage.tsx: null
+          PostingPage.tsx: null
+        hr/:
+          DashboardPage.tsx: null
+          PostingEditorPage.tsx: null
+          ReportPage.tsx: null
+          SettingsPage.tsx: null
+          StageClosePage.tsx: null
+          StagePage.tsx: null
+      test/:
+        setup.ts: null
+      index.css: null
+      main.tsx: null
+    .nvmrc: null
+    .prettierignore: null
+    .prettierrc.json: null
+    components.json: null
+    eslint.config.js: null
+    index.html: null
+    package-lock.json: null
+    package.json: null
+    tsconfig.app.json: null
+    tsconfig.json: null
+    tsconfig.node.json: null
+    vite.config.ts: null
+  .editorconfig: null
+  .gitattributes: null
+  .gitignore: null
+  AGENTS.md: null
+  CLAUDE.md: null
+  compose.yaml: null
+  CONTRIBUTING.md: null
+  directory-structure.yml: null
+  README.md: null
