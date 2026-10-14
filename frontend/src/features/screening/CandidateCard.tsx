@@ -14,6 +14,8 @@ import {
   type StageOverview,
 } from '@/features/screening/api'
 import { AssessmentViewer } from '@/features/assessment/AssessmentViewer'
+import { scheduleLabel, useInterview } from '@/features/interview/api'
+import { InterviewViewer } from '@/features/interview/InterviewViewer'
 import { DocumentViewer } from '@/features/screening/DocumentViewer'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
@@ -68,11 +70,26 @@ export function CandidateCard({
               <div>
                 <h3 className="text-lg font-bold">{detail.data.row.name}</h3>
                 <p className="text-xs text-muted-foreground">
-                  {careerLabel(detail.data.row)} · 지원 {formatMonthDay(detail.data.submittedAt)}
+                  {overview.type === 'INTERVIEW' ? (
+                    <InterviewSubtitle
+                      stageId={overview.stageId}
+                      applicationId={applicationId}
+                      fallback={careerLabel(detail.data.row)}
+                    />
+                  ) : (
+                    `${careerLabel(detail.data.row)} · 지원 ${formatMonthDay(detail.data.submittedAt)}`
+                  )}
                 </p>
               </div>
             </div>
-            {overview.type === 'ASSESSMENT' ? (
+            {overview.type === 'INTERVIEW' ? (
+              <InterviewViewer
+                stageId={overview.stageId}
+                recruitmentId={overview.recruitmentId}
+                detail={detail.data}
+                editable={editable}
+              />
+            ) : overview.type === 'ASSESSMENT' ? (
               <AssessmentViewer
                 stageId={overview.stageId}
                 recruitmentId={overview.recruitmentId}
@@ -90,6 +107,20 @@ export function CandidateCard({
       </div>
     </div>
   )
+}
+
+/** 면접 전형은 이름 아래에 면접 일정을 보여 준다. 일정이 없으면 경력을 보여 준다. */
+function InterviewSubtitle({
+  stageId,
+  applicationId,
+  fallback,
+}: {
+  stageId: string
+  applicationId: string
+  fallback: string
+}) {
+  const interview = useInterview(stageId, applicationId)
+  return <>{scheduleLabel(interview.data?.schedule ?? null) || `${fallback} · 면접 일정 미정`}</>
 }
 
 function MemoButton({

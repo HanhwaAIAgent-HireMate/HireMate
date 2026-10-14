@@ -20,6 +20,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/interview/questions/{questionId}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["answer"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates/{applicationId}/memo": {
         parameters: {
             query?: never;
@@ -29,6 +45,22 @@ export interface paths {
         };
         get?: never;
         put: operations["memo"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/candidates/{applicationId}/interview/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["schedule"];
         post?: never;
         delete?: never;
         options?: never;
@@ -324,6 +356,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/candidates/{applicationId}/interview/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addQuestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/candidates/{applicationId}/interview/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["generate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/assessment/results/{applicationId}/file": {
         parameters: {
             query?: never;
@@ -612,6 +676,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/candidates/{applicationId}/interview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["view"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/candidates/{applicationId}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates/{applicationId}/analysis": {
         parameters: {
             query?: never;
@@ -756,6 +852,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/interview/questions/{questionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/files/{fileId}": {
         parameters: {
             query?: never;
@@ -825,8 +937,43 @@ export interface components {
             /** Format: date-time */
             sentAt: string | null;
         };
+        AnswerRequest: {
+            answer: string;
+        };
+        InterviewView: {
+            /** Format: uuid */
+            applicationId: string;
+            schedule: components["schemas"]["Schedule"] | null;
+            questions: components["schemas"]["Question"][];
+            previous: components["schemas"]["PreviousInterview"][];
+        };
+        PreviousInterview: {
+            /** Format: uuid */
+            stageId: string;
+            stageName: string;
+            schedule: components["schemas"]["Schedule"] | null;
+            questions: components["schemas"]["Question"][];
+        };
+        Question: {
+            /** Format: uuid */
+            questionId: string;
+            text: string;
+            /** @enum {string} */
+            source: "AI" | "MANUAL";
+            answer: string;
+        };
+        Schedule: {
+            /** Format: date-time */
+            scheduledAt: string | null;
+            interviewers: string;
+        };
         MemoRequest: {
             memo: string;
+        };
+        ScheduleRequest: {
+            /** Format: date-time */
+            scheduledAt: string | null;
+            interviewers: string;
         };
         ManualResultRequest: {
             total: number | null;
@@ -1023,6 +1170,12 @@ export interface components {
             text: string;
             status: string | null;
         };
+        QuestionRequest: {
+            text: string;
+        };
+        GenerateRequest: {
+            focus: string | null;
+        };
         TablePreview: {
             fileName: string;
             columns: string[];
@@ -1191,6 +1344,19 @@ export interface components {
             documents: components["schemas"]["ApplicantDocument"][];
             memo: string;
         };
+        StageCandidateView: {
+            /** Format: uuid */
+            stageId: string;
+            stageName: string;
+            /** @enum {string} */
+            stageType: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
+            /** @enum {string} */
+            decision: "PENDING" | "PASS" | "FAIL";
+            /** @enum {string|null} */
+            finalResult: "PENDING" | "PASS" | "FAIL" | null;
+            score: number | null;
+            memo: string;
+        };
         CandidateAnalysis: {
             conditions: components["schemas"]["Condition"][];
             notable: components["schemas"]["Finding"][];
@@ -1328,8 +1494,8 @@ export interface components {
         };
         CsrfToken: {
             headerName: string;
-            token: string;
             parameterName: string;
+            token: string;
         };
         CsrfResponse: {
             token: string;
@@ -1372,6 +1538,33 @@ export interface operations {
             };
         };
     };
+    answer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                questionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
+                };
+            };
+        };
+    };
     memo: {
         parameters: {
             query?: never;
@@ -1394,6 +1587,33 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    schedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
+                };
             };
         };
     };
@@ -1905,6 +2125,60 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    addQuestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuestionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
+                };
+            };
+        };
+    };
+    generate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
+                };
             };
         };
     };
@@ -2433,6 +2707,52 @@ export interface operations {
             };
         };
     };
+    view: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
+                };
+            };
+        };
+    };
+    history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageCandidateView"][];
+                };
+            };
+        };
+    };
     analysis: {
         parameters: {
             query?: never;
@@ -2629,6 +2949,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CsrfResponse"];
+                };
+            };
+        };
+    };
+    delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                questionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
                 };
             };
         };
