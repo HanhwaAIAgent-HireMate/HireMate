@@ -42,6 +42,10 @@ management:
     web:
       exposure:
         include: health, info
+  health:
+    mail:
+      # 메일 서버 장애로 앱 전체를 DOWN으로 보지 않는다. 발송 실패는 건별로 기록하고 다시 보낼 수 있다
+      enabled: false
 
 hiremate:
   mail:
