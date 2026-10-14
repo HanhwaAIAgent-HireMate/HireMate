@@ -11,6 +11,10 @@ spring:
     data:
       redis:
         namespace: hiremate:sessions
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 70MB
   jpa:
     open-in-view: false
     hibernate:
@@ -32,6 +36,10 @@ management:
         include: health, info
 
 hiremate:
+  ai:
+    # stub: backend 안의 개발용 응답, remote: ai 서버(ai/) 호출
+    mode: ${HIREMATE_AI_MODE:stub}
+    base-url: ${HIREMATE_AI_BASE_URL:http://localhost:8001}
   files:
     # 로컬 개발용 파일 저장 위치. 운영은 비공개 S3를 쓴다
     local-dir: ${HIREMATE_FILES_DIR:${user.home}/.hiremate/files}
