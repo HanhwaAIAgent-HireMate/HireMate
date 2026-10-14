@@ -251,7 +251,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["recruitments"];
         put?: never;
         post: operations["create"];
         delete?: never;
@@ -952,6 +952,51 @@ export interface components {
             text: string;
             source: string;
         };
+        DashboardStep: {
+            /** Format: uuid */
+            stageId: string;
+            name: string;
+            /** @enum {string} */
+            type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
+            /** @enum {string} */
+            status: "PENDING" | "ACTIVE" | "CONFIRMED" | "DONE";
+            /** Format: int64 */
+            targetCount: number | null;
+        };
+        DashboardView: {
+            counts: components["schemas"]["StatusCounts"];
+            items: components["schemas"]["RecruitmentCard"][];
+        };
+        RecruitmentCard: {
+            /** Format: uuid */
+            recruitmentId: string;
+            /** Format: uuid */
+            postingId: string;
+            title: string;
+            /** @enum {string} */
+            status: "DRAFT" | "PUBLISHED" | "IN_PROGRESS" | "CLOSED";
+            /** Format: int64 */
+            applicantCount: number;
+            /** Format: date-time */
+            closeAt: string | null;
+            /** Format: uuid */
+            currentStageId: string | null;
+            steps: components["schemas"]["DashboardStep"][];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        StatusCounts: {
+            /** Format: int64 */
+            all: number;
+            /** Format: int64 */
+            draft: number;
+            /** Format: int64 */
+            published: number;
+            /** Format: int64 */
+            inProgress: number;
+            /** Format: int64 */
+            closed: number;
+        };
         ApplicationPage: {
             /** Format: int64 */
             total: number;
@@ -989,8 +1034,8 @@ export interface components {
         };
         CsrfToken: {
             headerName: string;
-            token: string;
             parameterName: string;
+            token: string;
         };
         CsrfResponse: {
             token: string;
@@ -1417,6 +1462,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    recruitments: {
+        parameters: {
+            query?: {
+                status?: "DRAFT" | "PUBLISHED" | "IN_PROGRESS" | "CLOSED";
+                query?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DashboardView"];
+                };
             };
         };
     };
