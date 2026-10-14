@@ -1,0 +1,28 @@
+name: commit-convention
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    name: PR 제목 형식
+    runs-on: ubuntu-latest
+    steps:
+      # PR에서 검사 스크립트를 고쳐 통과시키지 못하도록 base 브랜치의 스크립트를 쓴다.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Conventional Commits 형식 검사
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PR_TITLE" > "$RUNNER_TEMP/pr-title"
+          sh .githooks/commit-msg "$RUNNER_TEMP/pr-title" || {
+            echo "::error::PR 제목이 커밋 양식을 따르지 않습니다. 예: feat(be): 지원서 접수 API 추가"
+            exit 1
+          }
