@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 export function CandidateItem({
   row,
   documentStage,
+  scoreStage,
   bordered,
   active,
   checkbox,
@@ -20,6 +21,8 @@ export function CandidateItem({
 }: {
   row: CandidateRow
   documentStage: boolean
+  /** 평가 전형이면 오른쪽에 총점을, 결과가 없으면 "결과 없음"을 붙인다 */
+  scoreStage?: boolean
   /** 선택 지원자 카드처럼 테두리가 기본으로 있는 모양 */
   bordered?: boolean
   active?: boolean
@@ -63,9 +66,16 @@ export function CandidateItem({
           {careerLabel(row)}
         </div>
       </div>
-      {row.score !== null && (
-        <span className="text-sm font-bold tabular-nums">{Number(row.score)}</span>
-      )}
+      {scoreStage &&
+        (row.score !== null ? (
+          <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs font-bold tabular-nums">
+            {Number(row.score)}
+          </span>
+        ) : (
+          <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+            결과 없음
+          </span>
+        ))}
       {action}
     </div>
   )

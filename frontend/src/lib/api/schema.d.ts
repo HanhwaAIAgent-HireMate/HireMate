@@ -36,6 +36,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/assessment/results/{applicationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["result"];
+        put: operations["save"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/posting": {
         parameters: {
             query?: never;
@@ -302,6 +318,54 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["promote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/assessment/results/{applicationId}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["file"];
+        put?: never;
+        post: operations["attach"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/assessment/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/assessment/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["importResults"];
         delete?: never;
         options?: never;
         head?: never;
@@ -764,6 +828,32 @@ export interface components {
         MemoRequest: {
             memo: string;
         };
+        ManualResultRequest: {
+            total: number | null;
+            areas: {
+                [key: string]: number;
+            };
+            grade: string | null;
+            url: string | null;
+            note: string | null;
+        };
+        AssessmentResultView: {
+            /** Format: uuid */
+            applicationId: string;
+            total: number | null;
+            areas: {
+                [key: string]: number;
+            };
+            grade: string | null;
+            /** Format: uuid */
+            fileId: string | null;
+            fileName: string | null;
+            url: string | null;
+            note: string | null;
+            source: string;
+            /** Format: date-time */
+            registeredAt: string;
+        };
         PostingContentRequest: {
             title: string;
             jobCategory: string;
@@ -932,6 +1022,37 @@ export interface components {
             label: string;
             text: string;
             status: string | null;
+        };
+        TablePreview: {
+            fileName: string;
+            columns: string[];
+            rows: string[][];
+        };
+        ImportRequest: {
+            /** @enum {string} */
+            identifierType: "EMAIL" | "APPLICATION_NO";
+            entries: components["schemas"]["ImportRow"][];
+        };
+        ImportRow: {
+            identifier: string;
+            /** Format: uuid */
+            applicationId: string | null;
+            total: number | null;
+            areas: {
+                [key: string]: number;
+            };
+            grade: string | null;
+        };
+        ImportResult: {
+            /** Format: int32 */
+            matched: number;
+            /** Format: int32 */
+            total: number;
+            matches: {
+                [key: string]: string;
+            };
+            unmatched: string[];
+            saved: boolean;
         };
         PublishRequest: {
             /** Format: date-time */
@@ -1207,8 +1328,8 @@ export interface components {
         };
         CsrfToken: {
             headerName: string;
-            parameterName: string;
             token: string;
+            parameterName: string;
         };
         CsrfResponse: {
             token: string;
@@ -1273,6 +1394,56 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    result: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AssessmentResultView"];
+                };
+            };
+        };
+    };
+    save: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualResultRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AssessmentResultView"];
+                };
             };
         };
     };
@@ -1734,6 +1905,116 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+        };
+    };
+    attach: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AssessmentResultView"];
+                };
+            };
+        };
+    };
+    preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TablePreview"];
+                };
+            };
+        };
+    };
+    importResults: {
+        parameters: {
+            query?: {
+                dryRun?: boolean;
+            };
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ImportResult"];
+                };
             };
         };
     };

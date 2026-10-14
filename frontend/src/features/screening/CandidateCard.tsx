@@ -13,6 +13,7 @@ import {
   useSaveMemo,
   type StageOverview,
 } from '@/features/screening/api'
+import { AssessmentViewer } from '@/features/assessment/AssessmentViewer'
 import { DocumentViewer } from '@/features/screening/DocumentViewer'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
@@ -71,11 +72,19 @@ export function CandidateCard({
                 </p>
               </div>
             </div>
-            <DocumentViewer
-              stageId={overview.stageId}
-              recruitmentId={overview.recruitmentId}
-              detail={detail.data}
-            />
+            {overview.type === 'ASSESSMENT' ? (
+              <AssessmentViewer
+                stageId={overview.stageId}
+                recruitmentId={overview.recruitmentId}
+                detail={detail.data}
+              />
+            ) : (
+              <DocumentViewer
+                stageId={overview.stageId}
+                recruitmentId={overview.recruitmentId}
+                detail={detail.data}
+              />
+            )}
           </div>
         )}
       </div>
