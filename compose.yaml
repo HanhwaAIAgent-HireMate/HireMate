@@ -1,0 +1,24 @@
+# 로컬 개발용 PostgreSQL(pgvector) · Redis
+# backend는 실행할 때 자동으로 띄운다. ai만 개발할 때는 저장소 루트에서 `docker compose up -d`.
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: hiremate
+      POSTGRES_USER: hiremate
+      POSTGRES_PASSWORD: hiremate
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    labels:
+      # pgvector 이미지를 Spring Boot가 PostgreSQL로 인식하게 한다
+      org.springframework.boot.service-connection: postgres
+
+  redis:
+    image: redis:8
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres-data:
