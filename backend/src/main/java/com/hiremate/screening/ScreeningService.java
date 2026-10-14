@@ -304,9 +304,16 @@ public class ScreeningService {
     /** 지원자의 이전 전형 메모와 결과. 다음 전형 화면에서 함께 본다. */
     @Transactional(readOnly = true)
     public List<StageCandidateView> history(UUID companyId, UUID applicationId) {
-        return candidates.findByApplicationIdAndCompanyId(applicationId, companyId).stream()
-                .map(candidate -> new StageCandidateView(candidate.getStageId(), candidate.getDecision(),
-                        candidate.getFinalResult(), candidate.getScore(), candidate.getMemo()))
+        List<StageCandidate> found = candidates.findByApplicationIdAndCompanyId(applicationId, companyId);
+        if (found.isEmpty()) {
+            return List.of();
+        }
+        RecruitmentInfo recruitment = recruits.get(companyId, found.getFirst().getRecruitmentId());
+        return recruitment.stages().stream()
+                .flatMap(stage -> found.stream().filter(candidate -> candidate.getStageId().equals(stage.id()))
+                        .map(candidate -> new StageCandidateView(stage.id(), stage.name(), stage.type(),
+                                candidate.getDecision(), candidate.getFinalResult(), candidate.getScore(),
+                                candidate.getMemo())))
                 .toList();
     }
 

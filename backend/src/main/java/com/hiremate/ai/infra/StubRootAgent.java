@@ -87,6 +87,9 @@ class StubRootAgent implements RootAgent {
             return decided(context, message.contains("불합격한") ? Decision.FAIL : Decision.PASS);
         }
         List<CandidateRow> mentioned = mentioned(context, message);
+        if (context.stageType() == StageType.INTERVIEW && asksQuestions(message)) {
+            return interviewQuestions(context, mentioned);
+        }
         if (!mentioned.isEmpty()) {
             return analyze(context, message, mentioned);
         }
@@ -120,11 +123,11 @@ class StubRootAgent implements RootAgent {
     private static Optional<ChatPlan> edit(ChatContext context, String message) {
         if (message.contains("비워")) {
             return Optional.of(new ChatPlan(Intent.EDIT, null, EditAction.CLEAR, List.of(),
-                    "선택 지원자를 비웠어요. [되돌리기]로 돌아갈 수 있어요.", List.of(), List.of(), List.of()));
+                    "선택 지원자를 비웠어요. [되돌리기]로 돌아갈 수 있어요.", List.of(), List.of(), List.of(), List.of()));
         }
         if (message.contains("되돌려") || message.contains("이전 선택")) {
             return Optional.of(new ChatPlan(Intent.EDIT, null, EditAction.RESTORE, List.of(),
-                    "이전 선택 지원자로 되돌렸어요.", List.of(), List.of(), List.of()));
+                    "이전 선택 지원자로 되돌렸어요.", List.of(), List.of(), List.of(), List.of()));
         }
         boolean remove = message.contains("빼") || message.contains("제외");
         boolean add = message.contains("추가") || message.contains("넣어");
@@ -155,7 +158,7 @@ class StubRootAgent implements RootAgent {
         return Optional.of(new ChatPlan(Intent.EDIT, null, remove ? EditAction.REMOVE : EditAction.ADD,
                 targets.stream().map(CandidateRow::applicationId).toList(),
                 names + " 님을 선택 지원자" + (remove ? "에서 뺐어요." : "에 넣었어요.") + " 지금 **" + after + "명**이에요.",
-                List.of(), List.of(), List.of()));
+                List.of(), List.of(), List.of(), List.of()));
     }
 
     /** 지원자 찾기. 제출 문서와 점수로 후보를 고르고, 근거 문장을 붙여 리스트에 표시한다. */
@@ -230,7 +233,27 @@ class StubRootAgent implements RootAgent {
             case NARROW -> base.size() + "명 중 **{count}명**으로 좁혔어요.";
         };
         List<UUID> targets = matches.stream().map(match -> match.row().applicationId()).toList();
-        return new ChatPlan(Intent.FIND, mode, null, targets, message0, items, sources, agents);
+        return new ChatPlan(Intent.FIND, mode, null, targets, message0, items, sources, agents, List.of());
+    }
+
+    private static boolean asksQuestions(String message) {
+        boolean question = message.contains("질문") && (message.contains("만들") || message.contains("추천")
+                || message.contains("생성") || message.contains("다시"));
+        return question || message.contains("면접") && message.contains("확인");
+    }
+
+    /** 면접 전형에서 맞춤 질문을 만들어 카드에 넣는다. 대상이 없으면 결정하지 않은 지원자 전원이다. */
+    private static ChatPlan interviewQuestions(ChatContext context, List<CandidateRow> mentioned) {
+        List<CandidateRow> targets = !mentioned.isEmpty() ? mentioned
+                : !context.checked().isEmpty()
+                        ? context.candidates().stream().filter(row -> context.checked().contains(row.applicationId()))
+                                .toList()
+                        : context.candidates().stream().filter(row -> row.decision() == Decision.PENDING).limit(20)
+                                .toList();
+        return new ChatPlan(Intent.ANSWER, null, null, List.of(),
+                "이전 전형 결과를 보고 " + targets.size() + "명의 맞춤 질문을 만들어 카드에 넣었어요.", List.of(),
+                List.of("이력서", "평가 결과", "면접 답변 기록"), List.of("Interview Agent"),
+                targets.stream().map(CandidateRow::applicationId).toList());
     }
 
     /** 평가 결과와 지원서가 엇갈리는 후보. 평가 점수와 서류 점수 차이가 15점 이상인 지원자를 고른다. */
@@ -255,7 +278,7 @@ class StubRootAgent implements RootAgent {
                     null);
         }).toList();
         return new ChatPlan(Intent.FIND, mode, null, found.stream().map(CandidateRow::applicationId).toList(),
-                "평가 결과와 지원서 차이가 큰 **{count}명**을 골랐어요.", items, List.of("평가 결과", "이력서"), agents);
+                "평가 결과와 지원서 차이가 큰 **{count}명**을 골랐어요.", items, List.of("평가 결과", "이력서"), agents, List.of());
     }
 
     /** 특정 지원자 분석 · 의견 · 비교 · 면접 질문. 화면은 바꾸지 않고 대화로 답한다. */
