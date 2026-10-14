@@ -20,7 +20,7 @@ export const useHeaderStore = create<HeaderState>((set) => ({
 }))
 
 /** 화면이 열려 있는 동안 헤더에 채용 경로를 표시한다. */
-export function useHeaderCrumb(crumb: HeaderCrumb | null) {
+export function useHeaderCrumb(crumb: HeaderCrumb | null | undefined) {
   const setCrumb = useHeaderStore((state) => state.setCrumb)
   const title = crumb?.title
   const status = crumb?.status

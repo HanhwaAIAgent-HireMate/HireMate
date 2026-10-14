@@ -26,7 +26,9 @@ function mockServer(loggedIn: boolean) {
           }),
         )
       }
-      return Promise.resolve(Response.json({ name: 'OO핀테크' }))
+      if (url.endsWith('/api/companies/me/profile'))
+        return Promise.resolve(Response.json({ name: 'OO핀테크' }))
+      return Promise.resolve(Response.json({ code: 'NOT_FOUND' }, { status: 404 }))
     }),
   )
 }
@@ -48,8 +50,9 @@ describe('routes', () => {
     ['/', '채용 대시보드'],
     ['/hr', '채용 대시보드'],
     ['/hr/settings', '설정'],
-    ['/hr/recruitments/new', '공고 편집'],
     ['/hr/recruitments/1/posting', '공고 편집'],
+    ['/hr/recruitments/1/posting/publish', '공고 게시'],
+    ['/hr/recruitments/1/posting/status', '공고 · 지원 접수'],
     ['/hr/recruitments/1/stages/2', '공통 전형 화면'],
     ['/hr/recruitments/1/stages/2/close', '전형 종료'],
     ['/hr/recruitments/1/report', '채용 리포트'],
