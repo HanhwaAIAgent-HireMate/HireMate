@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/stages/{stageId}/candidates/{applicationId}/memo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["memo"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/posting": {
         parameters: {
             query?: never;
@@ -62,6 +78,150 @@ export interface paths {
         get?: never;
         put: operations["updateNoticeTemplate"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/selection/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/selection/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["remove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/selection/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["clear"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/selection/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["finish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["decide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/decisions/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["revert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/candidates/{applicationId}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["promote"];
         delete?: never;
         options?: never;
         head?: never;
@@ -228,6 +388,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["selection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["candidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/candidates/{applicationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/candidates/{applicationId}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["analysis"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/applications": {
         parameters: {
             query?: never;
@@ -377,6 +617,9 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        MemoRequest: {
+            memo: string;
+        };
         PostingContentRequest: {
             title: string;
             jobCategory: string;
@@ -491,6 +734,28 @@ export interface components {
             closing: string;
             requiredText: string;
         };
+        Targets: {
+            applicationIds: string[];
+        };
+        FinishResponse: {
+            /** Format: uuid */
+            nextStageId: string | null;
+        };
+        DecisionRequest: {
+            applicationIds: string[];
+            /** @enum {string} */
+            decision: "PENDING" | "PASS" | "FAIL";
+        };
+        DecisionCounts: {
+            /** Format: int64 */
+            pending: number;
+            /** Format: int64 */
+            pass: number;
+            /** Format: int64 */
+            fail: number;
+            /** Format: int64 */
+            total: number;
+        };
         PublishRequest: {
             /** Format: date-time */
             openAt: string;
@@ -546,6 +811,107 @@ export interface components {
             email: string;
             password: string;
         };
+        StageOverview: {
+            /** Format: uuid */
+            stageId: string;
+            name: string;
+            /** @enum {string} */
+            type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
+            /** @enum {string} */
+            status: "PENDING" | "ACTIVE" | "CONFIRMED" | "DONE";
+            last: boolean;
+            /** Format: uuid */
+            recruitmentId: string;
+            recruitmentTitle: string;
+            /** @enum {string} */
+            recruitmentStatus: "DRAFT" | "PUBLISHED" | "IN_PROGRESS" | "CLOSED";
+            /** Format: uuid */
+            postingId: string;
+            /** Format: int64 */
+            applicantCount: number;
+            steps: components["schemas"]["StageStep"][];
+            counts: components["schemas"]["DecisionCounts"];
+            /** Format: int64 */
+            selectedCount: number;
+            canRestore: boolean;
+            hasScores: boolean;
+            /** Format: date-time */
+            confirmedAt: string | null;
+        };
+        StageStep: {
+            /** Format: uuid */
+            stageId: string;
+            name: string;
+            /** @enum {string} */
+            type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
+            /** @enum {string} */
+            status: "PENDING" | "ACTIVE" | "CONFIRMED" | "DONE";
+            /** Format: int64 */
+            targetCount: number | null;
+        };
+        CandidatePage: {
+            /** Format: int64 */
+            total: number;
+            items: components["schemas"]["CandidateRow"][];
+        };
+        CandidateRow: {
+            /** Format: uuid */
+            applicationId: string;
+            name: string;
+            /** Format: int32 */
+            careerYears: number | null;
+            lastCompany: string | null;
+            /** @enum {string} */
+            decision: "PENDING" | "PASS" | "FAIL";
+            selected: boolean;
+            aiSelected: boolean;
+            aboveLine: boolean;
+            score: number | null;
+            /** @enum {string} */
+            analysisStatus: "PENDING" | "DONE" | "FAILED";
+        };
+        ApplicantDocument: {
+            /** @enum {string} */
+            type: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            /** Format: uuid */
+            fileId: string;
+            fileName: string;
+            /** Format: int64 */
+            size: number;
+            text: string;
+        };
+        CandidateDetail: {
+            row: components["schemas"]["CandidateRow"];
+            email: string;
+            phone: string;
+            /** Format: date-time */
+            submittedAt: string;
+            certificates: string | null;
+            documents: components["schemas"]["ApplicantDocument"][];
+            memo: string;
+        };
+        CandidateAnalysis: {
+            conditions: components["schemas"]["Condition"][];
+            notable: components["schemas"]["Finding"][];
+            checks: components["schemas"]["Finding"][];
+            highlights: components["schemas"]["Evidence"][];
+            agent: string;
+            stub: boolean;
+        };
+        Condition: {
+            label: string;
+            met: boolean;
+            requirement: string;
+        };
+        Evidence: {
+            /** @enum {string} */
+            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            sentence: string;
+        };
+        Finding: {
+            text: string;
+            source: string;
+        };
         ApplicationPage: {
             /** Format: int64 */
             total: number;
@@ -583,8 +949,8 @@ export interface components {
         };
         CsrfToken: {
             headerName: string;
-            parameterName: string;
             token: string;
+            parameterName: string;
         };
         CsrfResponse: {
             token: string;
@@ -600,6 +966,31 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    memo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get: {
         parameters: {
             query?: never;
@@ -759,6 +1150,207 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["NoticeTemplateInfo"];
                 };
+            };
+        };
+    };
+    restore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Targets"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    clear: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    add: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Targets"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    finish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["FinishResponse"];
+                };
+            };
+        };
+    };
+    decide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Targets"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DecisionCounts"];
+                };
+            };
+        };
+    };
+    promote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -1035,6 +1627,122 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["MemberResponse"];
+                };
+            };
+        };
+    };
+    overview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageOverview"];
+                };
+            };
+        };
+    };
+    selection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CandidatePage"];
+                };
+            };
+        };
+    };
+    candidates: {
+        parameters: {
+            query?: {
+                query?: string;
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CandidatePage"];
+                };
+            };
+        };
+    };
+    detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CandidateDetail"];
+                };
+            };
+        };
+    };
+    analysis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CandidateAnalysis"];
                 };
             };
         };

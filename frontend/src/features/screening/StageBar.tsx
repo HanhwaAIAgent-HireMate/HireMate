@@ -1,0 +1,136 @@
+import { useState } from 'react'
+import { Link, useNavigate } from 'react-router'
+import { toast } from 'sonner'
+
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { useDecisionActions, type StageOverview } from '@/features/screening/api'
+import { errorMessage } from '@/lib/api/client'
+
+/** Stage 바 (COM-01): 전형 이름 · 종류 · 결정 현황 · [전형 결과 확정] */
+export function StageBar({
+  overview,
+  extraAction,
+}: {
+  overview: StageOverview
+  extraAction?: React.ReactNode
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const { counts } = overview
+  const closePath = `/hr/recruitments/${overview.recruitmentId}/stages/${overview.stageId}/close`
+
+  return (
+    <div className="flex items-center gap-3 border-b px-5 py-3">
+      <h1 className="text-lg font-bold">{overview.name}</h1>
+      <span className="rounded-md border px-1.5 py-0.5 text-[11px] font-semibold tracking-wide text-muted-foreground">
+        {overview.type}
+      </span>
+      <div className="ml-auto flex items-center gap-4 text-sm">
+        <Count color="bg-muted-foreground/40" label="미결정" value={counts.pending} />
+        <Count color="bg-pass-foreground" label="합격" value={counts.pass} />
+        <Count color="bg-fail-foreground" label="불합격" value={counts.fail} />
+        {overview.status === 'ACTIVE' &&
+          (extraAction ?? <Button onClick={() => setConfirming(true)}>전형 결과 확정</Button>)}
+        {overview.status === 'CONFIRMED' && (
+          <Button asChild>
+            <Link to={closePath}>안내 · 전형 종료</Link>
+          </Button>
+        )}
+        {overview.status === 'DONE' && (
+          <span className="text-sm text-muted-foreground">종료된 전형</span>
+        )}
+      </div>
+      <ConfirmDialog
+        overview={overview}
+        open={confirming}
+        onOpenChange={setConfirming}
+        closePath={closePath}
+      />
+    </div>
+  )
+}
+
+function Count({ color, label, value }: { color: string; label: string; value: number }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+      <span className={`size-1.5 rounded-full ${color}`} />
+      {label}
+      <span className="font-bold text-foreground">{value}</span>
+    </span>
+  )
+}
+
+/** STG-08 전형 결과 확정. 합격자만 다음 전형으로 넘어가고 미결정은 불합격으로 확정된다. */
+function ConfirmDialog({
+  overview,
+  open,
+  onOpenChange,
+  closePath,
+}: {
+  overview: StageOverview
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  closePath: string
+}) {
+  const navigate = useNavigate()
+  const { confirm } = useDecisionActions(overview.stageId)
+  const { pass, fail, pending } = overview.counts
+  const index = overview.steps.findIndex((step) => step.stageId === overview.stageId)
+  const next = overview.steps[index + 1]
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{overview.name} 결과를 확정할까요?</AlertDialogTitle>
+        </AlertDialogHeader>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-pass p-4">
+            <div className="text-xs font-semibold text-pass-foreground">합격</div>
+            <div className="mt-1 text-2xl font-bold">
+              {pass} <span className="text-sm font-normal text-muted-foreground">명</span>
+            </div>
+          </div>
+          <div className="rounded-xl bg-fail p-4">
+            <div className="text-xs font-semibold text-fail-foreground">불합격</div>
+            <div className="mt-1 text-2xl font-bold">
+              {fail + pending} <span className="text-sm font-normal text-muted-foreground">명</span>
+            </div>
+            {pending > 0 && (
+              <div className="mt-0.5 text-xs text-muted-foreground">미결정 {pending}명 포함</div>
+            )}
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {next
+            ? `합격 ${pass}명은 ${next.name}로 넘어가요.`
+            : `마지막 전형이라 합격 ${pass}명이 최종 합격이에요.`}
+        </p>
+        <AlertDialogFooter>
+          <AlertDialogCancel>취소</AlertDialogCancel>
+          <Button
+            disabled={confirm.isPending}
+            onClick={() =>
+              confirm.mutate(undefined, {
+                onSuccess: () => {
+                  onOpenChange(false)
+                  void navigate(closePath)
+                },
+                onError: (error) => toast.error(errorMessage(error)),
+              })
+            }
+          >
+            확정
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}

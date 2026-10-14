@@ -14,8 +14,9 @@ export default defineConfig({
   },
   server: {
     // 개발 중 /api 요청을 Spring(8080)으로 넘긴다. 배포 후에는 Nginx가 같은 일을 한다.
+    // 8080을 다른 프로그램이 쓰면 API_PROXY_TARGET=http://localhost:8095 처럼 바꿔 띄운다.
     proxy: {
-      '/api': 'http://localhost:8080',
+      '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:8080',
     },
   },
   test: {
