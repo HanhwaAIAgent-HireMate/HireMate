@@ -228,6 +228,50 @@ class ScreeningTests extends IntegrationTest {
         assertThat(result.path("areas").path("의사소통능력").asInt()).isEqualTo(70);
     }
 
+    @Test
+    @DisplayName("면접 전형은 맞춤 질문을 만들고 질문별 답변을 기록하며, 다음 면접에서 이전 기록을 보여 준다")
+    void interviewQuestionsAndAnswers() throws Exception {
+        Stage stage = startDocumentStage(1, "전형은 서류, 1차 면접, 최종 면접 순으로 해줘");
+        TestApi hr = stage.hr();
+        String id = stage.ids().getFirst();
+        String first = passAndFinish(hr, stage.path(), id);
+
+        String card = first + "/candidates/" + id + "/interview";
+        JsonNode generated = json(expect(hr.post(card + "/generate", Map.of()), 200));
+        assertThat(generated.path("questions").size()).isPositive();
+        assertThat(generated.path("questions").get(0).path("source").asString()).isEqualTo("AI");
+        JsonNode added = json(expect(hr.post(card + "/questions", Map.of("text", "가장 어려웠던 장애 대응은?")), 200));
+        String questionId = added.path("questions").get(0).path("questionId").asString();
+        expect(hr.put(first + "/interview/questions/" + questionId + "/answer", Map.of("answer", "짧음")), 200);
+        JsonNode scheduled = json(expect(hr.put(card + "/schedule",
+                Map.of("scheduledAt", "2026-10-31T05:00:00Z", "interviewers", "면접관 2명")), 200));
+        assertThat(scheduled.path("schedule").path("interviewers").asString()).isEqualTo("면접관 2명");
+
+        JsonNode chat = json(expect(hr.post(first + "/chat",
+                Map.of("message", "지원자별 맞춤 질문 만들어줘", "mentionIds", List.of(), "checkedIds", List.of())), 200));
+        assertThat(chat.path("agents").get(0).asString()).isEqualTo("Interview Agent");
+        assertThat(chat.path("items").get(0).path("label").asString()).isEqualTo("지원자1");
+
+        String last = passAndFinish(hr, first, id);
+        JsonNode next = json(expect(hr.get(last + "/candidates/" + id + "/interview"), 200));
+        assertThat(next.path("previous").get(0).path("stageName").asString()).isEqualTo("1차 면접");
+        assertThat(next.path("previous").get(0).path("questions").size()).isPositive();
+        JsonNode recommended = json(expect(hr.post(last + "/candidates/" + id + "/interview/generate",
+                Map.of("focus", "확인 안 된 부분 중심으로")), 200));
+        assertThat(recommended.path("questions").toString()).contains("충분히 확인하지 못한");
+        JsonNode history = json(expect(hr.get(last + "/candidates/" + id + "/history"), 200));
+        assertThat(history.size()).isEqualTo(3);
+    }
+
+    private static String passAndFinish(TestApi hr, String stagePath, String applicationId) throws Exception {
+        expect(hr.post(stagePath + "/decisions", Map.of("applicationIds", List.of(applicationId), "decision", "PASS")),
+                204);
+        expect(hr.post(stagePath + "/confirm", null), 200);
+        expect(hr.post(stagePath + "/notices/prepare", null), 200);
+        expect(hr.post(stagePath + "/notices/PASS/send", null), 200);
+        return "/api/stages/" + json(expect(hr.post(stagePath + "/finish", null), 200)).path("nextStageId").asString();
+    }
+
     private static JsonNode awaitReport(TestApi hr, String recruitmentId) throws Exception {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {

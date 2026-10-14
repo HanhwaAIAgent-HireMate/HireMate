@@ -5,6 +5,7 @@ import com.hiremate.screening.CandidateDetail;
 import com.hiremate.screening.CandidatePage;
 import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
+import com.hiremate.screening.StageCandidateView;
 import com.hiremate.screening.StageOverview;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
@@ -99,6 +100,14 @@ public class StageController {
     public CandidateDetail detail(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID applicationId) {
         return screening.detail(member.companyId(), stageId, applicationId);
+    }
+
+    /** 지원자의 전형별 결과 · 점수 · 메모 (지원자 카드의 전형 결과 탭). */
+    @GetMapping("/candidates/{applicationId}/history")
+    public List<StageCandidateView> history(AuthenticatedMember member, @PathVariable UUID stageId,
+            @PathVariable UUID applicationId) {
+        screening.detail(member.companyId(), stageId, applicationId);
+        return screening.history(member.companyId(), applicationId);
     }
 
     @PutMapping("/candidates/{applicationId}/memo")
