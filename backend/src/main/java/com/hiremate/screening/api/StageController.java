@@ -6,7 +6,6 @@ import com.hiremate.screening.CandidatePage;
 import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.StageOverview;
-import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -112,13 +111,7 @@ public class StageController {
     /** 전형 결과 확정. 확정 직전 인원을 돌려준다. */
     @PostMapping("/confirm")
     public StageOverview.DecisionCounts confirm(AuthenticatedMember member, @PathVariable UUID stageId) {
-        return screening.confirm(member.companyId(), stageId, member.memberId());
-    }
-
-    /** 전형 종료. 다음 전형이 있으면 그 ID를, 채용이 끝났으면 null을 돌려준다. */
-    @PostMapping("/finish")
-    public FinishResponse finish(AuthenticatedMember member, @PathVariable UUID stageId) {
-        return new FinishResponse(screening.finish(member.companyId(), stageId, member.memberId()).orElse(null));
+        return screening.confirm(member.companyId(), stageId, member.memberId(), member.name());
     }
 
     public record Targets(@NotEmpty @Size(max = 500) List<@NotNull UUID> applicationIds) {
@@ -129,8 +122,5 @@ public class StageController {
     }
 
     public record MemoRequest(@NotNull @Size(max = 5000) String memo) {
-    }
-
-    public record FinishResponse(@Schema(nullable = true) UUID nextStageId) {
     }
 }
