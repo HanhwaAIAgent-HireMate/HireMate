@@ -43,6 +43,7 @@ class StubRootAgent implements RootAgent {
     private static final Pattern BLOCKED = Pattern.compile(
             "나이|연령|\\d+\\s*(살|세)|성별|남자|여자|남성|여성|출신|고향|지역|결혼|혼인|기혼|미혼|자녀|키가|키\\s|몸무게|체중|외모|신체|장애");
     private static final Pattern FIND = Pattern.compile("찾아|보여|골라|추려|있어\\?|있나|있는 사람|누구");
+    private static final Pattern MISMATCH = Pattern.compile("차이|상충|엇갈|다른 특징|안 맞");
     private static final Pattern MIN_SCORE = Pattern.compile("(\\d{2,3})\\s*점\\s*이상");
     private static final Pattern WORD = Pattern.compile("[가-힣]{2,}|[A-Za-z][A-Za-z+#.]+");
     private static final Pattern PARTICLE = Pattern.compile("(이|가|을|를|은|는|도|만|의|과|와|에서|에|로|으로|이랑|랑)$");
@@ -170,6 +171,9 @@ class StubRootAgent implements RootAgent {
         List<CandidateRow> base = pool.toList();
         List<String> agents = new ArrayList<>(List.of("Application Agent"));
 
+        if (MISMATCH.matcher(message).find() && (message.contains("평가") || message.contains("점수"))) {
+            return mismatch(context, base, mode);
+        }
         List<CandidateRow> scored = base;
         Matcher minimum = MIN_SCORE.matcher(message);
         if (minimum.find()) {
@@ -227,6 +231,31 @@ class StubRootAgent implements RootAgent {
         };
         List<UUID> targets = matches.stream().map(match -> match.row().applicationId()).toList();
         return new ChatPlan(Intent.FIND, mode, null, targets, message0, items, sources, agents);
+    }
+
+    /** 평가 결과와 지원서가 엇갈리는 후보. 평가 점수와 서류 점수 차이가 15점 이상인 지원자를 고른다. */
+    private static ChatPlan mismatch(ChatContext context, List<CandidateRow> base, SelectionMode mode) {
+        List<CandidateRow> found = base.stream()
+                .filter(row -> row.score() != null && context.documentScores().containsKey(row.applicationId()))
+                .filter(row -> Math.abs(row.score().doubleValue()
+                        - context.documentScores().get(row.applicationId())) >= 15)
+                .sorted(Comparator.comparing((CandidateRow row) -> Math.abs(row.score().doubleValue()
+                        - context.documentScores().get(row.applicationId()))).reversed())
+                .toList();
+        List<String> agents = List.of("Assessment Agent", "Application Agent");
+        if (found.isEmpty()) {
+            return ChatPlan.answer(Intent.ANSWER, "평가 결과와 지원서 차이가 큰 지원자를 찾지 못했어요. 선택 지원자는 그대로예요.",
+                    List.of(), List.of(), agents);
+        }
+        List<ChatItem> items = found.stream().limit(5).map(row -> {
+            int document = context.documentScores().get(row.applicationId());
+            String direction = row.score().doubleValue() > document ? "평가가 지원서보다 높음" : "지원서에 비해 평가가 낮음";
+            return new ChatItem(row.applicationId(), row.name(),
+                    "평가 " + row.score().stripTrailingZeros().toPlainString() + "점 · 서류 " + document + "점, " + direction,
+                    null);
+        }).toList();
+        return new ChatPlan(Intent.FIND, mode, null, found.stream().map(CandidateRow::applicationId).toList(),
+                "평가 결과와 지원서 차이가 큰 **{count}명**을 골랐어요.", items, List.of("평가 결과", "이력서"), agents);
     }
 
     /** 특정 지원자 분석 · 의견 · 비교 · 면접 질문. 화면은 바꾸지 않고 대화로 답한다. */

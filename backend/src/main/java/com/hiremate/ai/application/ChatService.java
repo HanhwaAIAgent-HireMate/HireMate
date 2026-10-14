@@ -10,7 +10,9 @@ import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.CandidateRow;
 import com.hiremate.screening.ScreeningService;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -48,8 +50,12 @@ public class ChatService {
                 .filter(other -> other.seq() < stage.seq())
                 .map(StageInfo::type)
                 .toList();
+        Map<UUID, Integer> documentScores = new HashMap<>();
+        applications.applicants(companyId, recruitment.id()).stream()
+                .filter(applicant -> applicant.documentScore() != null)
+                .forEach(applicant -> documentScores.put(applicant.applicationId(), applicant.documentScore()));
         ChatContext context = new ChatContext(stageId, stage.name(), stage.type(), previous, candidates,
-                applications.documents(companyId, recruitment.id()), mentions, checked,
+                applications.documents(companyId, recruitment.id()), documentScores, mentions, checked,
                 companies.profile(companyId), postings.draftContext(companyId, recruitment.id()).content(), message);
         ChatPlan plan = root.plan(context);
 
