@@ -1,0 +1,40 @@
+# OS · IDE
+.DS_Store
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# 환경 변수 (예시 파일 .env.example 만 커밋)
+.env
+.env.*
+!.env.example
+
+# backend (Gradle)
+backend/.gradle/
+backend/build/
+backend/bin/
+backend/out/
+backend/var/
+
+# ai (Python)
+ai/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# frontend (Node)
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+*.log
+
+# AI 도구 개인 설정
+.claude/settings.local.json
+CLAUDE.local.md
+
+# 기획 산출물 (저장소에 올리지 않음)
+output/
