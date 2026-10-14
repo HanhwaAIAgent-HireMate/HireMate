@@ -75,5 +75,22 @@ ci: 커밋 메시지 검사 추가
 | push | `main` 직접 push 차단 | `.githooks/pre-push` |
 | PR | PR 제목 형식 | `.github/workflows/commit-convention.yml` |
 | PR, `main` push | 비밀키 유출 (gitleaks) | `.github/workflows/secret-scan.yml` |
+| 빌드 | Java 코드 스타일 (Checkstyle) | `backend/config/checkstyle/` |
 
 GitHub Free 플랜의 private 저장소라 서버에서 브랜치 보호를 강제할 수 없다. 검사를 우회하지 않는 것이 팀 규칙이다.
+
+## Java 코드 스타일
+
+Google Java Style을 기반으로 들여쓰기 4칸, 한 줄 120자로 바꾼 Checkstyle 규칙을 쓴다. 위반이 하나라도 있으면 빌드가 실패한다.
+
+- 테스트 메서드 이름은 영어로 쓰고, 한국어 설명은 `@DisplayName`에 쓴다.
+- 약어도 단어처럼 쓴다: `HrManager`, `AiClient` (`HRManager`, `AIClient`는 위반)
+- 규칙 예외는 `backend/config/checkstyle/suppressions.xml`에만 추가하고 PR 본문에 이유를 적는다.
+  코드 안의 `@SuppressWarnings("checkstyle:...")`나 `CHECKSTYLE.OFF` 주석은 동작하지 않는다.
+
+IntelliJ에서 규칙에 맞게 자동 정렬하려면:
+
+1. `CheckStyle-IDEA` 플러그인을 설치한다.
+2. Settings → Tools → Checkstyle에서 버전 14.3.0을 고르고 `backend/config/checkstyle/checkstyle.xml`을 추가한다.
+3. Settings → Editor → Code Style → Java → ⚙ → Import Scheme → CheckStyle Configuration으로 같은 파일을 가져온다.
+   이후 Reformat Code와 Optimize Imports가 규칙에 맞게 동작한다.

@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+    "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+    "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<!--
+    Checkstyle 규칙 예외는 이 파일에만 추가한다. 추가할 때는 PR 본문에 이유를 적는다.
+    예: <suppress checks="AbbreviationAsWordInName" files="[\\/]generated[\\/]"/>
+-->
+<suppressions>
+</suppressions>
