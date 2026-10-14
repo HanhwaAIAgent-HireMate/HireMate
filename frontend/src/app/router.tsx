@@ -22,7 +22,7 @@ export const routes: RouteObject[] = [
     element: <HrLayout />,
     children: [
       { index: true, element: <DashboardPage /> },
-      { path: 'settings', element: <SettingsPage /> },
+      { path: 'settings/:section?', element: <SettingsPage /> },
       { path: 'recruitments/new', element: <PostingEditorPage /> },
       { path: 'recruitments/:recruitmentId/posting', element: <PostingEditorPage /> },
       { path: 'recruitments/:recruitmentId/stages/:stageId', element: <StagePage /> },
