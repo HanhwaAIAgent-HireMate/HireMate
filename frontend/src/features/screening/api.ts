@@ -165,3 +165,17 @@ export function careerLabel(
   if (row.careerYears === 0) return '신입'
   return [`경력 ${row.careerYears}년`, row.lastCompany].filter(Boolean).join(' · ')
 }
+
+/** 전형 지원자 전체 (결과 등록 창처럼 한 번에 다 보여 줄 때) */
+export function useAllCandidates(stageId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...stageKeys.all(stageId), 'all-candidates'],
+    enabled,
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/stages/{stageId}/candidates', {
+          params: { path: { stageId }, query: { page: 0, size: 200 } },
+        }),
+      ),
+  })
+}

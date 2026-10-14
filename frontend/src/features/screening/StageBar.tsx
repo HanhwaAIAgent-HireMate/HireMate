@@ -11,18 +11,16 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { RegisterDialog } from '@/features/assessment/RegisterDialog'
 import { useDecisionActions, type StageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
 
 /** Stage 바 (COM-01): 전형 이름 · 종류 · 결정 현황 · [전형 결과 확정] */
-export function StageBar({
-  overview,
-  extraAction,
-}: {
-  overview: StageOverview
-  extraAction?: React.ReactNode
-}) {
+export function StageBar({ overview }: { overview: StageOverview }) {
   const [confirming, setConfirming] = useState(false)
+  const [registering, setRegistering] = useState(false)
+  // 평가 전형은 결과가 없으면 [평가 결과 등록]으로 시작한다 (STG-10)
+  const assessment = overview.type === 'ASSESSMENT'
   const { counts } = overview
   const closePath = `/hr/recruitments/${overview.recruitmentId}/stages/${overview.stageId}/close`
 
@@ -36,8 +34,17 @@ export function StageBar({
         <Count color="bg-muted-foreground/40" label="미결정" value={counts.pending} />
         <Count color="bg-pass-foreground" label="합격" value={counts.pass} />
         <Count color="bg-fail-foreground" label="불합격" value={counts.fail} />
-        {overview.status === 'ACTIVE' &&
-          (extraAction ?? <Button onClick={() => setConfirming(true)}>전형 결과 확정</Button>)}
+        {overview.status === 'ACTIVE' && assessment && (
+          <Button
+            variant={overview.hasScores ? 'outline' : 'default'}
+            onClick={() => setRegistering(true)}
+          >
+            평가 결과 등록
+          </Button>
+        )}
+        {overview.status === 'ACTIVE' && (!assessment || overview.hasScores) && (
+          <Button onClick={() => setConfirming(true)}>전형 결과 확정</Button>
+        )}
         {overview.status === 'CONFIRMED' && (
           <Button asChild>
             <Link to={closePath}>안내 · 전형 종료</Link>
@@ -53,6 +60,9 @@ export function StageBar({
         onOpenChange={setConfirming}
         closePath={closePath}
       />
+      {assessment && (
+        <RegisterDialog overview={overview} open={registering} onOpenChange={setRegistering} />
+      )}
     </div>
   )
 }

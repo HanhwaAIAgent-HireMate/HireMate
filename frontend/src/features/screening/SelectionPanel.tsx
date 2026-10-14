@@ -81,6 +81,7 @@ export function SelectionPanel({
             key={row.applicationId}
             row={row}
             documentStage={false}
+            scoreStage={overview.type === 'ASSESSMENT'}
             bordered
             checkbox={
               editable

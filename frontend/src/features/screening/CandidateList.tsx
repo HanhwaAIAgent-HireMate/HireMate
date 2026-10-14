@@ -153,6 +153,7 @@ export function CandidateList({
             <CandidateItem
               row={row}
               documentStage={documentStage}
+              scoreStage={overview.type === 'ASSESSMENT'}
               active={openId === row.applicationId}
               action={action(row)}
               onOpen={() => open({ applicationId: row.applicationId, name: row.name })}
