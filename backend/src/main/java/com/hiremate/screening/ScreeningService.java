@@ -113,15 +113,16 @@ public class ScreeningService {
     @Transactional(readOnly = true)
     public CandidatePage selection(UUID companyId, UUID stageId) {
         StageContext context = context(companyId, stageId);
-        List<StageCandidate> selected = candidates.findByStageIdAndCompanyId(stageId, companyId).stream()
-                .filter(StageCandidate::isSelected)
-                .sorted(Comparator.comparing(StageCandidate::getSelectedAt))
+        List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
+        Map<UUID, StageCandidate> byApplication = all.stream()
+                .collect(Collectors.toMap(StageCandidate::getApplicationId, Function.identity()));
+        // 넣은 순서대로, 한 번에 넣었으면 리스트 순서대로 둔다
+        List<CandidateRow> listed = rows(context, all);
+        List<CandidateRow> selected = listed.stream()
+                .filter(CandidateRow::selected)
+                .sorted(Comparator.comparing(row -> byApplication.get(row.applicationId()).getSelectedAt()))
                 .toList();
-        Map<UUID, ApplicantInfo> infos = infos(context);
-        List<CandidateRow> rows = selected.stream()
-                .map(candidate -> toRow(context.type(), candidate, infos.get(candidate.getApplicationId())))
-                .toList();
-        return new CandidatePage(rows.size(), rows);
+        return new CandidatePage(selected.size(), selected);
     }
 
     /** HR이 직접 넣는다. 테두리 없이 들어가고, 서류 전형의 기준 미달 지원자는 ↑로 올린 뒤에만 넣는다. */
