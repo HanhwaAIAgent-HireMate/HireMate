@@ -110,6 +110,41 @@ class ScreeningTests extends IntegrationTest {
                 404);
     }
 
+    @Test
+    @DisplayName("AI Chat은 찾기 · 좁히기 · 편집을 서버 검증으로 실행하고, 차별 조건과 없는 자료 질문은 실행하지 않는다")
+    void chatFindsNarrowsEditsAndBlocks() throws Exception {
+        Stage stage = startDocumentStage(3);
+        String chat = stage.path() + "/chat";
+
+        JsonNode found = json(expect(stage.hr().post(chat, chatBody("Java 경험이 있는 지원자 찾아줘", List.of())), 200));
+        assertThat(found.path("intent").asString()).isEqualTo("FIND");
+        assertThat(found.path("message").asString()).contains("3명 중", "2명");
+        JsonNode selection = json(expect(stage.hr().get(stage.path() + "/selection"), 200));
+        assertThat(selection.path("total").asLong()).isEqualTo(2);
+        assertThat(selection.path("items").get(0).path("aiSelected").asBoolean()).isTrue();
+
+        JsonNode removed = json(expect(stage.hr().post(chat,
+                chatBody("이 지원자 빼줘", List.of(stage.ids().get(1)))), 200));
+        assertThat(removed.path("intent").asString()).isEqualTo("EDIT");
+        assertThat(json(expect(stage.hr().get(stage.path() + "/selection"), 200)).path("total").asLong()).isEqualTo(1);
+
+        JsonNode blocked = json(expect(stage.hr().post(chat, chatBody("30살 이하 남자 지원자 찾아줘", List.of())), 200));
+        assertThat(blocked.path("intent").asString()).isEqualTo("BLOCKED");
+        JsonNode unavailable = json(expect(stage.hr().post(chat,
+                chatBody("평가 결과는 좋은데 지원서와 차이가 큰 사람 있어?", List.of())), 200));
+        assertThat(unavailable.path("message").asString()).contains("아직 평가 결과가 없어요");
+
+        JsonNode analysis = json(expect(stage.hr().post(chat,
+                chatBody("강점과 확인할 점은?", List.of(stage.ids().getFirst()))), 200));
+        assertThat(analysis.path("intent").asString()).isEqualTo("ANSWER");
+        assertThat(analysis.path("selectionChanged").asBoolean()).isFalse();
+        assertThat(json(expect(stage.hr().get(stage.path() + "/selection"), 200)).path("total").asLong()).isEqualTo(1);
+    }
+
+    private static Map<String, Object> chatBody(String message, List<String> mentions) {
+        return Map.of("message", message, "mentionIds", mentions, "checkedIds", List.of());
+    }
+
     private Stage startDocumentStage(int applicants) throws Exception {
         TestApi hr = newHr();
         ApplyTests.Posting posting = ApplyTests.publish(hr, false);

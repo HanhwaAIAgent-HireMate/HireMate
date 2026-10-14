@@ -124,6 +124,20 @@ public class ApplicationService {
                 .toList();
     }
 
+    /** 채용 지원자 전원의 제출 문서. AI Chat이 후보의 근거를 찾을 때 쓴다. */
+    @Transactional(readOnly = true)
+    public Map<UUID, List<ApplicantDocument>> documents(UUID companyId, UUID recruitmentId) {
+        List<UUID> ids = applications.findByRecruitmentIdAndCompanyId(recruitmentId, companyId).stream()
+                .map(JobApplication::getId)
+                .toList();
+        return documents.findByApplicationIdIn(ids).stream()
+                .sorted(Comparator.comparing(ApplicationDocument::getType))
+                .collect(Collectors.groupingBy(ApplicationDocument::getApplicationId,
+                        Collectors.mapping(document -> new ApplicantDocument(document.getType(), document.getFileId(),
+                                document.getFileName(), document.getSizeBytes(), document.getText()),
+                                Collectors.toList())));
+    }
+
     /** 제출 문서 본문에 낱말이 들어 있는 지원서. */
     @Transactional(readOnly = true)
     public List<UUID> searchDocuments(UUID companyId, UUID recruitmentId, String keyword) {
