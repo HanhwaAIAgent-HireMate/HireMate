@@ -12,7 +12,7 @@ AI는 분석 · 탐색 · 초안 작성을 돕되 채용 결정은 담당자가 
 |---|---|---|
 | `backend/` | 업무 서버. 채용 · 전형 데이터, 권한 검증, 상태 변경 실행 | Spring Boot (Java) |
 | `ai/` | AI API · AI 워커. Root Agent, 분석 · 생성 Agent | Python, FastAPI, LangGraph |
-| `frontend/` | HR 콘솔 · 채용 페이지 | Next.js (React) |
+| `frontend/` | HR 콘솔 · 채용 페이지 | React + Vite (SPA) |
 
 ## 작업 규칙
 
@@ -21,11 +21,11 @@ AI는 분석 · 탐색 · 초안 작성을 돕되 채용 결정은 담당자가 
 - 커밋 메시지와 PR 제목은 `<type>(<scope>): <제목>` 형식을 따른다. 예: `feat(be): 지원서 접수 API 추가`
 - 커밋하기 전에 바꾼 영역의 검사를 통과시킨다.
 
-  | 영역 | 명령 |
-  |---|---|
-  | `backend/` | `cd backend && ./gradlew check` |
-  | `ai/` | 설정 후 추가 |
-  | `frontend/` | 설정 후 추가 |
+  | 영역 | 검사 | 자동 수정 |
+  |---|---|---|
+  | `backend/` | `cd backend && ./gradlew check` | 없음 (IntelliJ Reformat Code) |
+  | `frontend/` | `cd frontend && npm run check` | `npm run format` |
+  | `ai/` | `cd ai && uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest` | `uv run ruff format && uv run ruff check --fix` |
 
 - 훅이나 검사가 실패하면 코드를 고친다. `--no-verify`로 건너뛰지 않는다.
 - 검사 규칙을 바꾸거나 끄지 않는다. `checkstyle.xml`, `suppressions.xml`, 린트 설정, `.githooks/`,
@@ -48,3 +48,58 @@ AI는 분석 · 탐색 · 초안 작성을 돕되 채용 결정은 담당자가 
 8. `backend/`는 기능별 패키지(모듈)로 나눈다. 의존 방향은 진입(인증, AI 연동) → 업무 → 공통(로그, 파일, 대기열, 메일)이다.
    다른 모듈의 테이블이나 Repository를 직접 쓰지 않고, 그 모듈이 공개한 서비스만 호출한다.
 9. 외부에 공개되는 것은 Nginx뿐이다. AI 서버, DB, Redis는 내부망에 둔다. 지원자 파일은 비공개 S3에 두고 서명 URL로만 연다.
+
+## 영역별 구조
+
+새 파일은 아래 위치에 둔다. 맞는 위치가 없으면 새 폴더를 만들지 말고 사람에게 묻는다.
+
+### backend/
+
+```
+src/main/java/com/hiremate/
+├── auth, ai                    진입: 인증 · 권한, AI 서버 연동
+├── company, recruit, posting,  업무 모듈. 모듈마다 package-info.java에 책임과 FR 번호가 있다
+│   apply, dashboard, screening,
+│   assessment, interview, notice, report
+├── activity, file, job, mail   공통 모듈
+└── global                      전역 기술 설정 (업무 로직 금지)
+```
+
+- 모듈 최상위 패키지의 타입이 다른 모듈에 공개하는 API다. 하위 패키지는 모듈 안에서만 쓴다. `ModularityTests`가 위반을 잡는다.
+- 모듈 안은 `api`(Controller, 요청 · 응답 DTO), `application`(서비스), `domain`(Entity, Repository), `infra`(외부 연동, 필요할 때만)로 나눈다.
+- 스키마는 `src/main/resources/db/migration`의 Flyway 파일(`V{번호}__{설명}.sql`)로만 바꾼다. `ddl-auto=validate`라 Entity와 스키마가 다르면 앱이 뜨지 않는다.
+- DB나 Redis가 필요한 테스트는 `TestcontainersConfiguration`을 `@Import`한다.
+- `auth/config/SecurityConfig`는 모든 요청을 허용하는 임시 설정이다. 인증 작업이 아니면 고치지 않는다.
+
+### frontend/
+
+```
+src/
+├── app/            라우터, Provider
+├── pages/          라우트 단위 화면 (hr: HR 콘솔, careers: 채용 페이지)
+├── features/       기능 단위 컴포넌트 · 훅
+├── components/ui/  shadcn/ui 컴포넌트
+└── lib/            유틸, API 클라이언트(lib/api)
+```
+
+- API는 `lib/api/client.ts`의 `api`로만 호출한다. 타입은 `npm run api:generate`로 만든 `lib/api/schema.d.ts`를 쓰고, 이 파일은 직접 고치지 않는다.
+- 서버 상태는 TanStack Query, 전역 클라이언트 상태는 Zustand, 폼은 React Hook Form + Zod를 쓴다.
+- UI는 shadcn/ui 컴포넌트를 먼저 쓴다. 추가는 `npx shadcn add <이름>`으로 한다.
+
+### ai/
+
+```
+src/hiremate_ai/
+├── main.py         FastAPI 앱
+├── config.py       설정 (환경 변수)
+├── api/            라우터
+├── agents/         root · analysis · generation
+├── tools/          Agent 도구
+├── llm/            모델 클라이언트
+├── db/             ai 스키마
+└── worker/         분석 작업 소비자
+```
+
+- 설정은 `config.py`의 `settings`로만 읽는다. `os.environ`을 직접 쓰지 않는다.
+- 함수에는 타입 힌트를 단다. mypy가 검사한다.
+- 테이블은 `ai` 스키마에 둔다. backend가 Flyway로 관리하는 `public` 스키마에는 쓰지 않는다. 마이그레이션은 Alembic으로 한다.

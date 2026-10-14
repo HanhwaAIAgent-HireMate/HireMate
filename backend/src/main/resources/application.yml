@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: hiremate-backend
+  docker:
+    compose:
+      # 로컬 실행 시 저장소 루트의 compose.yaml(PostgreSQL, Redis)을 띄우고, 앱을 꺼도 컨테이너는 남긴다
+      file: ../compose.yaml
+      lifecycle-management: start-only
+  jpa:
+    open-in-view: false
+    hibernate:
+      # 스키마는 Flyway 마이그레이션(db/migration)으로만 바꾼다
+      ddl-auto: validate
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
