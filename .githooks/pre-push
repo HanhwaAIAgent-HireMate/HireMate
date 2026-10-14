@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# main 브랜치에 직접 push하지 못하게 막는다. 변경은 PR로만 반영한다.
+# GitHub Free 플랜의 private 저장소라 서버의 브랜치 보호를 쓸 수 없어서 로컬에서 막는다.
+
+while read -r _local_ref _local_sha remote_ref remote_sha; do
+  [ "$remote_ref" = "refs/heads/main" ] || continue
+
+  # 원격에 main이 아직 없으면(빈 저장소에 처음 올릴 때) 허용한다.
+  [ -z "$(printf '%s' "$remote_sha" | tr -d 0)" ] && continue
+
+  cat >&2 <<EOF
+main 브랜치에는 직접 push할 수 없습니다.
+작업 브랜치를 만들어 PR을 올려 주세요.
+
+  git switch -c feat/12-apply-api
+  git push -u origin feat/12-apply-api
+EOF
+  exit 1
+done
+
+exit 0

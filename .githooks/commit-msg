@@ -1,0 +1,33 @@
+#!/bin/sh
+#
+# 커밋 메시지가 Conventional Commits 형식인지 검사한다.
+#   <type>(<scope>): <제목>
+# CI(.github/workflows/commit-convention.yml)도 이 스크립트로 PR 제목을 검사한다.
+
+types='feat|fix|refactor|perf|test|docs|style|chore|build|ci|revert'
+scopes='be|fe|ai|infra'
+
+# 주석(#)과 빈 줄을 건너뛴 첫 줄이 제목이다.
+subject=$(grep -v '^#' "$1" | grep -v '^[[:space:]]*$' | head -n 1)
+
+# git이 자동으로 만드는 메시지는 통과시킨다.
+case "$subject" in
+  'Merge '* | 'Revert "'* | 'fixup! '* | 'squash! '* | 'amend! '*) exit 0 ;;
+esac
+
+if printf '%s\n' "$subject" | grep -Eq "^($types)(\(($scopes)\))?!?: [^[:space:]]"; then
+  exit 0
+fi
+
+cat >&2 <<EOF
+커밋 메시지 형식이 맞지 않습니다: "$subject"
+
+  <type>(<scope>): <제목>
+
+  type  : feat fix refactor perf test docs style chore build ci revert
+  scope : be fe ai infra (생략 가능)
+  예시  : feat(be): 지원서 접수 API 추가
+
+자세한 규칙은 CONTRIBUTING.md를 확인하세요.
+EOF
+exit 1
