@@ -75,7 +75,11 @@ ci: 커밋 메시지 검사 추가
 | push | `main` 직접 push 차단 | `.githooks/pre-push` |
 | PR | PR 제목 형식 | `.github/workflows/commit-convention.yml` |
 | PR, `main` push | 비밀키 유출 (gitleaks) | `.github/workflows/secret-scan.yml` |
+| PR, `main` push | backend, frontend, ai 코드 품질 및 테스트 | `.github/workflows/code-quality.yml` |
 | 빌드 | Java 코드 스타일 (Checkstyle) | `backend/config/checkstyle/` |
+
+코드 품질 CI는 변경한 경로와 관계없이 세 영역을 병렬 검사한다. backend의 `./gradlew check`는
+Checkstyle과 테스트를 실행하며, Testcontainers가 러너의 Docker로 PostgreSQL과 Redis를 띄운다.
 
 GitHub Free 플랜의 private 저장소라 서버에서 브랜치 보호를 강제할 수 없다. 검사를 우회하지 않는 것이 팀 규칙이다.
 
@@ -94,3 +98,28 @@ IntelliJ에서 규칙에 맞게 자동 정렬하려면:
 2. Settings → Tools → Checkstyle에서 버전 14.3.0을 고르고 `backend/config/checkstyle/checkstyle.xml`을 추가한다.
 3. Settings → Editor → Code Style → Java → ⚙ → Import Scheme → CheckStyle Configuration으로 같은 파일을 가져온다.
    이후 Reformat Code와 Optimize Imports가 규칙에 맞게 동작한다.
+
+## Frontend 코드 검사
+
+```bash
+cd frontend
+npm ci
+npm run check
+```
+
+타입 정보를 사용하는 ESLint, Prettier 포맷, Vitest 테스트, TypeScript 타입 검사와 Vite 빌드를 모두 실행한다.
+포맷은 `npm run format`으로 고친다.
+
+## AI 코드 검사
+
+```bash
+cd ai
+uv sync --locked
+uv run --locked ruff check
+uv run --locked ruff format --check
+uv run --locked mypy
+uv run --locked pytest
+```
+
+Python 버전은 `ai/.python-version`, 의존성 버전은 `ai/uv.lock`을 따른다.
+포맷과 자동 수정 가능한 린트 위반은 `uv run ruff format`과 `uv run ruff check --fix`로 고친다.
