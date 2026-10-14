@@ -212,6 +212,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["chat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates/{applicationId}/promote": {
         parameters: {
             query?: never;
@@ -755,6 +771,30 @@ export interface components {
             fail: number;
             /** Format: int64 */
             total: number;
+        };
+        ChatRequest: {
+            message: string;
+            mentionIds: string[];
+            checkedIds: string[];
+        };
+        ChatAnswer: {
+            /** @enum {string} */
+            intent: "FIND" | "ANSWER" | "EDIT" | "CLARIFY" | "BLOCKED";
+            /** @enum {string|null} */
+            mode: "REPLACE" | "ADD" | "NARROW" | null;
+            message: string;
+            items: components["schemas"]["ChatItem"][];
+            sources: string[];
+            agents: string[];
+            selectionChanged: boolean;
+            stub: boolean;
+        };
+        ChatItem: {
+            /** Format: uuid */
+            applicationId: string | null;
+            label: string;
+            text: string;
+            status: string | null;
         };
         PublishRequest: {
             /** Format: date-time */
@@ -1329,6 +1369,32 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["DecisionCounts"];
+                };
+            };
+        };
+    };
+    chat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ChatAnswer"];
                 };
             };
         };

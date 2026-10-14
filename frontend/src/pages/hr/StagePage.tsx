@@ -69,7 +69,7 @@ export function StagePage() {
           )}
           <DecisionBar stageId={data.stageId} editable={editable} names={names} />
         </section>
-        <ChatPanel />
+        <ChatPanel overview={data} />
       </div>
     </div>
   )
