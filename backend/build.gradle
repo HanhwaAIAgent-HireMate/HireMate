@@ -31,6 +31,12 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${springdocVersion}"
 
+    // 안내 메일 발송 (로컬은 compose의 Mailpit)
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+
+    // 제출 PDF의 텍스트 추출 (지원자 카드 문서 Viewer와 분석 근거)
+    implementation 'org.apache.pdfbox:pdfbox:3.0.7'
+
     // AI 서버 호출 · Chat 스트리밍 중계
     implementation 'org.springframework.boot:spring-boot-starter-webclient'
 

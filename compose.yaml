@@ -1,4 +1,4 @@
-# 로컬 개발용 PostgreSQL(pgvector) · Redis
+# 로컬 개발용 PostgreSQL(pgvector) · Redis · Mailpit
 # backend는 실행할 때 자동으로 띄운다. ai만 개발할 때는 저장소 루트에서 `docker compose up -d`.
 services:
   postgres:
@@ -19,6 +19,13 @@ services:
     image: redis:8
     ports:
       - "6379:6379"
+
+  # 로컬 메일 확인용 SMTP 서버. 보낸 메일은 http://localhost:8025 에서 본다
+  mailpit:
+    image: axllent/mailpit:v1.31
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
 
 volumes:
   postgres-data:
