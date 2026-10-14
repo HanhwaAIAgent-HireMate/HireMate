@@ -4,6 +4,7 @@ import com.hiremate.file.application.FileStorage;
 import com.hiremate.file.domain.StoredFile;
 import com.hiremate.file.domain.StoredFileRepository;
 import com.hiremate.global.ApiException;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,17 @@ public class FileService {
         StoredFile file = new StoredFile(companyId, originalName, contentType, content.length);
         storage.save(file.getStorageKey(), content);
         return toInfo(files.save(file));
+    }
+
+    /** PDF만 받는다. 확장자, 형식 표시와 관계없이 파일 내용이 PDF가 아니면 400을 돌려준다. */
+    @Transactional
+    public StoredFileInfo storePdf(UUID companyId, String originalName, byte[] content) {
+        if (content.length < 5 || !new String(content, 0, 5, StandardCharsets.US_ASCII)
+                .equals("%PDF-")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FILE", "Only PDF files are allowed.");
+        }
+        String name = originalName == null || originalName.isBlank() ? "document.pdf" : originalName;
+        return store(companyId, name, "application/pdf", content);
     }
 
     @Transactional(readOnly = true)
