@@ -193,6 +193,41 @@ class ScreeningTests extends IntegrationTest {
         assertThat(report.path("content").path("finalists").get(0).path("name").asString()).isEqualTo("지원자1");
     }
 
+    @Test
+    @DisplayName("평가 전형은 결과표를 이메일로 맞춰 점수를 등록하고, 점수 높은 순으로 보여 준다")
+    void assessmentResultsAreImported() throws Exception {
+        Stage stage = startDocumentStage(2, "전형은 서류, 직무역량 평가 순으로 해줘");
+        TestApi hr = stage.hr();
+        // 결정은 선택 지원자에 넣지 않아도 체크만으로 할 수 있다
+        expect(hr.post(stage.path() + "/decisions", Map.of("applicationIds", stage.ids(), "decision", "PASS")), 204);
+        expect(hr.post(stage.path() + "/confirm", null), 200);
+        expect(hr.post(stage.path() + "/notices/prepare", null), 200);
+        expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
+        String assessment = "/api/stages/" + json(expect(hr.post(stage.path() + "/finish", null), 200))
+                .path("nextStageId").asString();
+
+        JsonNode preview = json(expect(hr.multipart(assessment + "/assessment/preview", Map.of("file",
+                new TestApi.FilePart("result.csv", "text/csv",
+                        "이메일,총점\napplicant1@example.com,72\napplicant2@example.com,91\nghost@example.com,50\n"
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8)))), 200));
+        assertThat(preview.path("columns").get(1).asString()).isEqualTo("총점");
+        List<Map<String, Object>> entries = List.of(
+                Map.of("identifier", "applicant1@example.com", "total", 72, "areas", Map.of("의사소통능력", 70)),
+                Map.of("identifier", "applicant2@example.com", "total", 91, "areas", Map.of()),
+                Map.of("identifier", "ghost@example.com", "total", 50, "areas", Map.of()));
+        JsonNode dryRun = json(expect(hr.post(assessment + "/assessment/import?dryRun=true",
+                Map.of("identifierType", "EMAIL", "entries", entries)), 200));
+        assertThat(dryRun.path("matched").asInt()).isEqualTo(2);
+        assertThat(dryRun.path("unmatched").get(0).asString()).isEqualTo("ghost@example.com");
+        expect(hr.post(assessment + "/assessment/import", Map.of("identifierType", "EMAIL", "entries", entries)), 200);
+
+        JsonNode list = json(expect(hr.get(assessment + "/candidates"), 200));
+        assertThat(list.path("items").get(0).path("name").asString()).isEqualTo("지원자2");
+        assertThat(list.path("items").get(0).path("score").asInt()).isEqualTo(91);
+        JsonNode result = json(expect(hr.get(assessment + "/assessment/results/" + stage.ids().getFirst()), 200));
+        assertThat(result.path("areas").path("의사소통능력").asInt()).isEqualTo(70);
+    }
+
     private static JsonNode awaitReport(TestApi hr, String recruitmentId) throws Exception {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {
@@ -210,8 +245,12 @@ class ScreeningTests extends IntegrationTest {
     }
 
     private Stage startDocumentStage(int applicants) throws Exception {
+        return startDocumentStage(applicants, null);
+    }
+
+    private Stage startDocumentStage(int applicants, String stagePlan) throws Exception {
         TestApi hr = newHr();
-        ApplyTests.Posting posting = ApplyTests.publish(hr, false);
+        ApplyTests.Posting posting = ApplyTests.publish(hr, false, stagePlan);
         for (int i = 1; i <= applicants; i++) {
             Map<String, Object> form = ApplyTests.form("applicant" + i + "@example.com", false);
             form.put("name", "지원자" + i);

@@ -94,13 +94,18 @@ class ApplyTests extends IntegrationTest {
     }
 
     static Posting publish(TestApi hr, boolean requirePortfolio) throws Exception {
+        return publish(hr, requirePortfolio, null);
+    }
+
+    static Posting publish(TestApi hr, boolean requirePortfolio, String stagePlan) throws Exception {
         JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
         String id = draft.path("recruitmentId").asString();
         String base = "/api/recruitments/" + id + "/posting";
         expect(hr.put(base, Map.of("title", "백엔드 개발자", "jobCategory", "개발", "employmentType", "정규직",
                 "career", "경력 3년 이상", "location", "서울", "intro", "", "duties", List.of("결제 시스템 개발"),
                 "qualifications", List.of("Java Spring"), "preferred", List.of(), "benefits", List.of())), 200);
-        expect(hr.post(base + "/ai-requests", Map.of("message", "전형은 서류, 1차 면접 순으로 해줘")), 200);
+        expect(hr.post(base + "/ai-requests",
+                Map.of("message", stagePlan == null ? "전형은 서류, 1차 면접 순으로 해줘" : stagePlan)), 200);
         expect(hr.post(base + "/suggestion/apply", null), 200);
         if (requirePortfolio) {
             expect(hr.post(base + "/ai-requests", Map.of("message", "포트폴리오도 필수로 받아줘")), 200);
