@@ -17,6 +17,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useHeaderCrumb } from '@/app/header-store'
+import { DOCUMENT_LABELS, useApplications } from '@/features/apply/api'
 import { useClosePosting, usePosting, type Posting } from '@/features/posting/api'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import { WorkflowStepper } from '@/features/recruit/WorkflowStepper'
@@ -47,6 +48,8 @@ export function PostingStatusPage() {
 
 function StatusView({ posting }: { posting: Posting }) {
   const close = useClosePosting(posting.recruitmentId)
+  const applications = useApplications(posting.recruitmentId, 20)
+  const total = applications.data?.total
   const url = `${window.location.origin}${careersPath(posting.postingId)}`
   const accepting = posting.status === 'PUBLISHED'
   const stages = posting.stages.map((stage) => ({
@@ -62,7 +65,9 @@ function StatusView({ posting }: { posting: Posting }) {
 
   return (
     <div>
-      <WorkflowStepper items={[{ key: 'posting', label: '공고', state: 'active' }, ...stages]} />
+      <WorkflowStepper
+        items={[{ key: 'posting', label: '공고', count: total, state: 'active' }, ...stages]}
+      />
       <div className="flex items-center gap-2 border-b px-5 py-4">
         <h1 className="text-lg font-bold">공고 · 지원 접수</h1>
         {posting.closeAt && (
@@ -125,6 +130,13 @@ function StatusView({ posting }: { posting: Posting }) {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="rounded-xl border p-4">
+            <div className="text-xs text-muted-foreground">총 지원자</div>
+            <div className="mt-1 flex items-baseline gap-1">
+              <span className="text-2xl font-bold">{total ?? '-'}</span>
+              <span className="text-xs text-muted-foreground">명</span>
+            </div>
+          </div>
+          <div className="rounded-xl border p-4">
             <div className="text-xs text-muted-foreground">마감까지</div>
             <div className="mt-1 flex items-baseline gap-1.5">
               <span className="text-2xl font-bold">
@@ -137,6 +149,34 @@ function StatusView({ posting }: { posting: Posting }) {
               )}
             </div>
           </div>
+        </div>
+        <div className="rounded-xl border">
+          <div className="border-b px-4 py-2.5 text-xs font-medium text-muted-foreground">
+            최근 지원자
+          </div>
+          {applications.data?.items.length === 0 && (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              아직 지원자가 없어요.
+            </p>
+          )}
+          <ul className="divide-y">
+            {applications.data?.items.map((item) => (
+              <li key={item.applicationId} className="flex items-center gap-4 px-4 py-2.5 text-sm">
+                <span className="w-16 font-semibold">{item.name}</span>
+                <span className="w-24 text-xs text-muted-foreground">
+                  {formatShortDateTime(item.submittedAt)}
+                </span>
+                <span className="flex flex-1 flex-wrap gap-1">
+                  {item.documents.map((document) => (
+                    <span key={document} className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                      {DOCUMENT_LABELS[document]}
+                    </span>
+                  ))}
+                </span>
+                <span className="text-xs text-muted-foreground">접수 완료</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </div>

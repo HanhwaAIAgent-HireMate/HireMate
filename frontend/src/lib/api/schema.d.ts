@@ -164,6 +164,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/postings/{postingId}/applications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/files": {
         parameters: {
             query?: never;
@@ -206,6 +222,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recruitments/{recruitmentId}/applications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["document"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -458,6 +506,13 @@ export interface components {
             stub: boolean;
             posting: components["schemas"]["PostingView"];
         };
+        SubmittedApplication: {
+            /** Format: int32 */
+            applicationNo: number;
+            name: string;
+            companyName: string;
+            postingTitle: string;
+        };
         CompanyFileInfo: {
             /** Format: uuid */
             fileId: string;
@@ -491,6 +546,21 @@ export interface components {
             email: string;
             password: string;
         };
+        ApplicationPage: {
+            /** Format: int64 */
+            total: number;
+            items: components["schemas"]["ApplicationSummary"][];
+        };
+        ApplicationSummary: {
+            /** Format: uuid */
+            applicationId: string;
+            /** Format: int32 */
+            applicationNo: number;
+            name: string;
+            /** Format: date-time */
+            submittedAt: string;
+            documents: ("RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE")[];
+        };
         PublicPostingView: {
             /** Format: uuid */
             postingId: string;
@@ -512,9 +582,9 @@ export interface components {
             type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
         };
         CsrfToken: {
+            headerName: string;
             parameterName: string;
             token: string;
-            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -830,6 +900,46 @@ export interface operations {
             };
         };
     };
+    submit: {
+        parameters: {
+            query: {
+                name: string;
+                email: string;
+                phone: string;
+                certificates?: string;
+                consentPrivacy: boolean;
+                consentAi: boolean;
+            };
+            header?: never;
+            path: {
+                postingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    resume: string;
+                    /** Format: binary */
+                    coverLetter: string;
+                    /** Format: binary */
+                    portfolio?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SubmittedApplication"];
+                };
+            };
+        };
+    };
     files: {
         parameters: {
             query: {
@@ -925,6 +1035,55 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["MemberResponse"];
+                };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApplicationPage"];
+                };
+            };
+        };
+    };
+    document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+                applicationId: string;
+                type: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
                 };
             };
         };
