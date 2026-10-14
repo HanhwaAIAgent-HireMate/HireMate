@@ -124,6 +124,12 @@ public class ApplicationService {
                 .toList();
     }
 
+    /** 제출 문서 본문에 낱말이 들어 있는 지원서. */
+    @Transactional(readOnly = true)
+    public List<UUID> searchDocuments(UUID companyId, UUID recruitmentId, String keyword) {
+        return documents.searchText(recruitmentId, companyId, keyword);
+    }
+
     @Transactional(readOnly = true)
     public ApplicantDetail detail(UUID companyId, UUID applicationId) {
         JobApplication application = application(companyId, applicationId);
