@@ -4,6 +4,70 @@
  */
 
 export interface paths {
+    "/api/companies/me/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["profile"];
+        put: operations["updateProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/posting-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["postingSettings"];
+        put: operations["updatePostingSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/notice-templates/{type}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateNoticeTemplate"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["files"];
+        put?: never;
+        post: operations["uploadFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/signup": {
         parameters: {
             query?: never;
@@ -30,6 +94,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/notice-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["noticeTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/files/{fileId}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fileContent"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -68,6 +164,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/companies/me/files/{fileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteFile"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/logout": {
         parameters: {
             query?: never;
@@ -89,6 +201,65 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ProfileRequest: {
+            intro: string;
+            culture: string;
+            talents: components["schemas"]["TalentItem"][];
+            benefits: string[];
+        };
+        TalentItem: {
+            title: string;
+            description: string;
+        };
+        CompanyProfile: {
+            /** Format: uuid */
+            companyId: string;
+            name: string;
+            intro: string;
+            culture: string;
+            talents: components["schemas"]["Talent"][];
+            benefits: string[];
+        };
+        Talent: {
+            title: string;
+            description: string;
+        };
+        PostingSettingsRequest: {
+            writingStyle: string;
+            requiredNotices: string[];
+        };
+        PostingSettings: {
+            sections: string[];
+            writingStyle: string;
+            requiredNotices: string[];
+        };
+        NoticeTemplateRequest: {
+            subject: string;
+            greeting: string;
+            aiGuide: string;
+            closing: string;
+            requiredText: string;
+        };
+        NoticeTemplateInfo: {
+            /** @enum {string} */
+            type: "NEXT_STAGE" | "REJECT" | "FINAL_PASS" | "FINAL_REJECT";
+            subject: string;
+            greeting: string;
+            aiGuide: string;
+            closing: string;
+            requiredText: string;
+        };
+        CompanyFileInfo: {
+            /** Format: uuid */
+            fileId: string;
+            /** @enum {string} */
+            category: "INTRO" | "POSTING";
+            name: string;
+            /** Format: int64 */
+            size: number;
+            /** Format: date-time */
+            uploadedAt: string;
+        };
         SignupRequest: {
             companyName: string;
             name: string;
@@ -98,13 +269,13 @@ export interface components {
         };
         MemberResponse: {
             /** Format: uuid */
-            memberId?: string;
+            memberId: string;
             /** Format: uuid */
-            companyId?: string;
-            name?: string;
-            email?: string;
+            companyId: string;
+            name: string;
+            email: string;
             /** @enum {string} */
-            role?: "HR" | "INTERVIEWER";
+            role: "HR" | "INTERVIEWER";
         };
         LoginRequest: {
             /** Format: email */
@@ -112,14 +283,14 @@ export interface components {
             password: string;
         };
         CsrfToken: {
-            headerName?: string;
-            token?: string;
-            parameterName?: string;
+            headerName: string;
+            parameterName: string;
+            token: string;
         };
         CsrfResponse: {
-            token?: string;
-            headerName?: string;
-            parameterName?: string;
+            token: string;
+            headerName: string;
+            parameterName: string;
         };
     };
     responses: never;
@@ -130,6 +301,171 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CompanyProfile"];
+                };
+            };
+        };
+    };
+    updateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CompanyProfile"];
+                };
+            };
+        };
+    };
+    postingSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PostingSettings"];
+                };
+            };
+        };
+    };
+    updatePostingSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostingSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PostingSettings"];
+                };
+            };
+        };
+    };
+    updateNoticeTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type: "NEXT_STAGE" | "REJECT" | "FINAL_PASS" | "FINAL_REJECT";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoticeTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NoticeTemplateInfo"];
+                };
+            };
+        };
+    };
+    files: {
+        parameters: {
+            query: {
+                category: "INTRO" | "POSTING";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CompanyFileInfo"][];
+                };
+            };
+        };
+    };
+    uploadFile: {
+        parameters: {
+            query: {
+                category: "INTRO" | "POSTING";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CompanyFileInfo"];
+                };
+            };
+        };
+    };
     signup: {
         parameters: {
             query?: never;
@@ -178,6 +514,48 @@ export interface operations {
             };
         };
     };
+    noticeTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NoticeTemplateInfo"][];
+                };
+            };
+        };
+    };
+    fileContent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+        };
+    };
     me: {
         parameters: {
             query?: never;
@@ -217,6 +595,26 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["CsrfResponse"];
                 };
+            };
+        };
+    };
+    deleteFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
