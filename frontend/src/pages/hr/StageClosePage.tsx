@@ -1,8 +1,306 @@
+import { ArrowRight, Check, Send } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { Link, useNavigate, useParams } from 'react-router'
+import { toast } from 'sonner'
+
+import { useHeaderCrumb } from '@/app/header-store'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { NOTICE_STATUS, useFinishStage, useNotices, type Notice } from '@/features/notice/api'
+import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
+import { useStageOverview, type StageOverview } from '@/features/screening/api'
+import { errorMessage } from '@/lib/api/client'
+import { formatShortDateTime } from '@/lib/format'
+import { cn } from '@/lib/utils'
+
+// STG-09 · FIN-01 전형 종료 3단계: 결과 확정 → 합격 · 불합격 안내 → 전형 종료 (마지막 전형은 채용 종료)
 export function StageClosePage() {
+  const { stageId = '' } = useParams()
+  const overview = useStageOverview(stageId)
+  const confirmed =
+    overview.data && overview.data.status !== 'ACTIVE' && overview.data.status !== 'PENDING'
+  const notices = useNotices(stageId, Boolean(confirmed))
+  useHeaderCrumb(
+    overview.data && {
+      title: overview.data.recruitmentTitle,
+      status: RECRUITMENT_STATUS_LABELS[overview.data.recruitmentStatus],
+      careersPath: careersPath(overview.data.postingId),
+    },
+  )
+
+  if (!overview.data) {
+    return (
+      <div className="p-6">
+        <h1 className="sr-only">전형 종료</h1>
+        <Skeleton className="h-60 w-full" />
+      </div>
+    )
+  }
+  if (!confirmed) {
+    return (
+      <div className="p-6">
+        <h1 className="text-lg font-bold">전형 종료</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          전형 결과를 먼저 확정해 주세요.{' '}
+          <Link
+            className="underline"
+            to={`/hr/recruitments/${overview.data.recruitmentId}/stages/${stageId}`}
+          >
+            전형 화면으로
+          </Link>
+        </p>
+      </div>
+    )
+  }
+  return <CloseSteps overview={overview.data} notices={notices.data} />
+}
+
+function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: Notice[] }) {
+  const navigate = useNavigate()
+  const finish = useFinishStage(overview.stageId)
+  const done = overview.status === 'DONE'
+  const allSent = Boolean(
+    notices?.every((notice) => notice.status === 'SENT' || notice.status === 'EMPTY'),
+  )
+  const index = overview.steps.findIndex((step) => step.stageId === overview.stageId)
+  const next = overview.steps[index + 1]
+  const { counts } = overview
+  const step = done ? 4 : allSent ? 3 : 2
+  const sentGroups =
+    notices?.filter((notice) => notice.status === 'SENT' || notice.status === 'EMPTY').length ?? 0
+  const sentPeople = notices?.reduce((sum, notice) => sum + notice.sentCount, 0) ?? 0
+  const waiting =
+    notices
+      ?.filter((notice) => notice.status !== 'SENT')
+      .reduce((sum, notice) => sum + notice.recipientCount - notice.sentCount, 0) ?? 0
+  const base = `/hr/recruitments/${overview.recruitmentId}/stages/${overview.stageId}`
+
+  const onFinish = () =>
+    finish.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.nextStageId) {
+          toast.success(`${next?.name ?? '다음 전형'}을 시작했어요.`)
+          void navigate(`/hr/recruitments/${overview.recruitmentId}/stages/${result.nextStageId}`)
+        } else {
+          toast.success('채용을 종료했어요. Report Agent가 최종 리포트를 쓰고 있어요.')
+          void navigate(`/hr/recruitments/${overview.recruitmentId}/report`)
+        }
+      },
+      onError: (error) => toast.error(errorMessage(error)),
+    })
+
   return (
-    <section className="p-6">
-      <h1 className="text-2xl font-bold">전형 종료</h1>
-      <p className="text-muted-foreground">결과 확정 → 합격 · 불합격 안내 → 전형 종료</p>
+    <div>
+      <div className="flex items-center gap-4 border-b px-6 py-4">
+        <h1 className="text-xl font-bold">{overview.name} 종료</h1>
+        <ol className="ml-auto flex items-center gap-2 text-sm">
+          {['결과 확정', '합격·불합격 안내', overview.last ? '채용 종료' : '전형 종료'].map(
+            (label, i) => (
+              <li key={label} className="flex items-center gap-2">
+                {i > 0 && <span className="h-px w-8 bg-border" />}
+                <span
+                  className={cn(
+                    'flex size-5 items-center justify-center rounded-full text-[11px] font-bold',
+                    i + 1 < step
+                      ? 'bg-pass-foreground text-white'
+                      : i + 1 === step
+                        ? 'bg-foreground text-background'
+                        : 'border text-muted-foreground',
+                  )}
+                >
+                  {i + 1 < step ? <Check className="size-3" /> : i + 1}
+                </span>
+                <span className={cn(i + 1 === step ? 'font-semibold' : 'text-muted-foreground')}>
+                  {label}
+                </span>
+              </li>
+            ),
+          )}
+        </ol>
+      </div>
+      <div className="mx-auto grid max-w-[1100px] grid-cols-3 items-start gap-4 p-6">
+        <StepCard title="① 결과 확정" badge={<Badge done>완료</Badge>}>
+          <div className="grid grid-cols-3 gap-2">
+            <Stat label="대상" value={counts.total} />
+            <Stat label="합격" value={counts.pass} />
+            <Stat
+              label="불합격"
+              value={counts.fail}
+              note={
+                overview.undecidedAtConfirm > 0
+                  ? `미결정 ${overview.undecidedAtConfirm}명 포함`
+                  : undefined
+              }
+            />
+          </div>
+          <p className="mt-4 border-t pt-3 text-xs text-muted-foreground">
+            {[
+              overview.confirmedByName,
+              overview.confirmedAt && formatShortDateTime(overview.confirmedAt),
+            ]
+              .filter(Boolean)
+              .join(' · ')}{' '}
+            확정
+          </p>
+        </StepCard>
+        <StepCard
+          title="② 합격·불합격 안내"
+          active={step === 2}
+          badge={step > 2 ? <Badge done>완료</Badge> : <Badge active>진행 중</Badge>}
+        >
+          <div className="space-y-2.5">
+            {!notices && <Skeleton className="h-20 w-full" />}
+            {notices?.map((notice) => (
+              <div
+                key={notice.group}
+                className={cn(
+                  'rounded-lg border p-3',
+                  notice.status === 'DRAFT' && 'border-foreground',
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">{notice.label}</span>
+                  <span
+                    className={cn(
+                      'rounded-md px-1.5 py-0.5 text-xs font-semibold',
+                      NOTICE_STATUS[notice.status].className,
+                    )}
+                  >
+                    {NOTICE_STATUS[notice.status].label}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {notice.group === 'PASS' ? '합격' : '불합격'} {notice.recipientCount}명
+                  {notice.group === 'PASS' &&
+                    notice.recipientCount > 0 &&
+                    (next ? ` · ${next.name} 안내` : ' · 최종 합격 안내')}
+                </p>
+                {(notice.status === 'DRAFT' || notice.status === 'PARTIAL') && (
+                  <Button size="sm" className="mt-2.5" asChild>
+                    <Link to={`${base}/close/notices/${notice.group}`}>
+                      초안 확인·수정 <ArrowRight />
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+          {notices && (
+            <p className="mt-4 flex items-center gap-1.5 border-t pt-3 text-xs text-muted-foreground">
+              <Send className="size-3.5" />
+              발송 {sentGroups} / {notices.length} 그룹 · {sentPeople}명 발송, {waiting}명 대기
+            </p>
+          )}
+        </StepCard>
+        <StepCard
+          title={overview.last ? '③ 채용 종료' : '③ 전형 종료'}
+          active={step === 3}
+          badge={
+            done ? (
+              <Badge done>완료</Badge>
+            ) : step === 3 ? (
+              <Badge active>진행 중</Badge>
+            ) : (
+              <Badge>대기</Badge>
+            )
+          }
+        >
+          <dl className="space-y-2 text-sm">
+            <Row label="지원" value={`${counts.total}명`} />
+            <Row
+              label={overview.last ? '최종 합격' : `합격 → ${next?.name ?? '다음 전형'}`}
+              value={`${counts.pass}명`}
+            />
+            <Row
+              label={overview.last ? `${overview.name} 불합격` : '불합격'}
+              value={`${counts.fail}명`}
+            />
+          </dl>
+          <Button
+            className="mt-4 w-full"
+            disabled={!allSent || done || finish.isPending}
+            onClick={onFinish}
+          >
+            {done
+              ? '종료한 전형이에요'
+              : overview.last
+                ? '채용 종료'
+                : '전형 종료 · 다음 전형 시작'}
+          </Button>
+          {!allSent && !done && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              안내를 모두 보내면 종료할 수 있어요.
+            </p>
+          )}
+        </StepCard>
+      </div>
+    </div>
+  )
+}
+
+function StepCard({
+  title,
+  badge,
+  active,
+  children,
+}: {
+  title: string
+  badge: ReactNode
+  active?: boolean
+  children: ReactNode
+}) {
+  return (
+    <section className={cn('rounded-xl border p-4', active && 'border-foreground')}>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-bold">{title}</h2>
+        {badge}
+      </div>
+      {children}
     </section>
+  )
+}
+
+function Badge({
+  done,
+  active,
+  children,
+}: {
+  done?: boolean
+  active?: boolean
+  children: ReactNode
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold',
+        done
+          ? 'bg-pass text-pass-foreground'
+          : active
+            ? 'bg-foreground text-background'
+            : 'bg-muted text-muted-foreground',
+      )}
+    >
+      {done && <Check className="size-3" />}
+      {children}
+    </span>
+  )
+}
+
+function Stat({ label, value, note }: { label: string; value: number; note?: string }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-2xl font-bold">{value}</div>
+      {note && <div className="text-[11px] text-muted-foreground">{note}</div>}
+    </div>
+  )
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-bold">{value}</dd>
+    </div>
   )
 }

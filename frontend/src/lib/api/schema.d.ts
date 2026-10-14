@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/stages/{stageId}/notices/{group}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["edit"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates/{applicationId}/memo": {
         parameters: {
             query?: never;
@@ -142,6 +158,54 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/notices/{group}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["send"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/notices/{group}/ai-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["revise"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/notices/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["prepare"];
         delete?: never;
         options?: never;
         head?: never;
@@ -436,6 +500,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["notices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates": {
         parameters: {
             query?: never;
@@ -476,6 +556,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["analysis"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recruitments/{recruitmentId}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["report"];
         put?: never;
         post?: never;
         delete?: never;
@@ -633,6 +729,38 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        NoticeEditRequest: {
+            subject: string;
+            greeting: string;
+            content: string;
+            closing: string;
+        };
+        NoticeView: {
+            /** Format: uuid */
+            noticeId: string;
+            /** Format: uuid */
+            stageId: string;
+            /** @enum {string} */
+            group: "PASS" | "FAIL";
+            /** @enum {string} */
+            templateType: "NEXT_STAGE" | "REJECT" | "FINAL_PASS" | "FINAL_REJECT";
+            label: string;
+            subject: string;
+            greeting: string;
+            content: string;
+            closing: string;
+            requiredText: string;
+            /** Format: int32 */
+            recipientCount: number;
+            /** @enum {string} */
+            status: "DRAFT" | "SENT" | "PARTIAL" | "EMPTY";
+            /** Format: int32 */
+            sentCount: number;
+            /** Format: int32 */
+            failedCount: number;
+            /** Format: date-time */
+            sentAt: string | null;
+        };
         MemoRequest: {
             memo: string;
         };
@@ -752,6 +880,15 @@ export interface components {
         };
         Targets: {
             applicationIds: string[];
+        };
+        NoticeAiRequest: {
+            message: string;
+        };
+        NoticeAiAnswer: {
+            reply: string;
+            content: string;
+            agent: string;
+            stub: boolean;
         };
         FinishResponse: {
             /** Format: uuid */
@@ -877,6 +1014,9 @@ export interface components {
             hasScores: boolean;
             /** Format: date-time */
             confirmedAt: string | null;
+            confirmedByName: string | null;
+            /** Format: int64 */
+            undecidedAtConfirm: number;
         };
         StageStep: {
             /** Format: uuid */
@@ -997,6 +1137,39 @@ export interface components {
             /** Format: int64 */
             closed: number;
         };
+        Finalist: {
+            name: string;
+            reason: string;
+            sources: string[];
+        };
+        ReportContent: {
+            summary: string;
+            /** Format: int64 */
+            applicantCount: number;
+            /** Format: int64 */
+            finalCount: number;
+            stages: components["schemas"]["ReportStage"][];
+            finalists: components["schemas"]["Finalist"][];
+            notes: string[];
+        };
+        ReportStage: {
+            name: string;
+            /** Format: int64 */
+            target: number;
+            /** Format: int64 */
+            pass: number;
+            /** Format: int64 */
+            fail: number;
+        };
+        ReportView: {
+            /** Format: uuid */
+            recruitmentId: string;
+            title: string;
+            /** Format: date-time */
+            generatedAt: string;
+            agent: string;
+            content: components["schemas"]["ReportContent"];
+        };
         ApplicationPage: {
             /** Format: int64 */
             total: number;
@@ -1051,6 +1224,33 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    edit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                group: "PASS" | "FAIL";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoticeEditRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NoticeView"];
+                };
+            };
+        };
+    };
     memo: {
         parameters: {
             query?: never;
@@ -1323,6 +1523,78 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    send: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                group: "PASS" | "FAIL";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NoticeView"];
+                };
+            };
+        };
+    };
+    revise: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                group: "PASS" | "FAIL";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoticeAiRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NoticeAiAnswer"];
+                };
+            };
+        };
+    };
+    prepare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NoticeView"][];
+                };
             };
         };
     };
@@ -1809,6 +2081,28 @@ export interface operations {
             };
         };
     };
+    notices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NoticeView"][];
+                };
+            };
+        };
+    };
     candidates: {
         parameters: {
             query?: {
@@ -1877,6 +2171,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CandidateAnalysis"];
+                };
+            };
+        };
+    };
+    report: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ReportView"];
                 };
             };
         };

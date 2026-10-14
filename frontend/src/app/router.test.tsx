@@ -55,6 +55,7 @@ describe('routes', () => {
     ['/hr/recruitments/1/posting/status', '공고 · 지원 접수'],
     ['/hr/recruitments/1/stages/2', '공통 전형 화면'],
     ['/hr/recruitments/1/stages/2/close', '전형 종료'],
+    ['/hr/recruitments/1/stages/2/close/notices/PASS', '안내 초안'],
     ['/hr/recruitments/1/report', '채용 리포트'],
     ['/careers/1', '채용 공고'],
     ['/careers/1/apply', '지원서'],

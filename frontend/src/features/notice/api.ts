@@ -1,0 +1,78 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+
+import { api, unwrap, type Schemas } from '@/lib/api/client'
+import { stageKeys } from '@/features/screening/api'
+
+export type Notice = Schemas['NoticeView']
+export type NoticeGroup = Notice['group']
+
+export const noticeKeys = { all: (stageId: string) => ['stage', stageId, 'notices'] as const }
+
+/** 결과를 확정한 전형의 안내 초안. 처음 열면 양식으로 초안을 만들고 Communication Agent가 내용을 채운다. */
+export function useNotices(stageId: string, enabled = true) {
+  return useQuery({
+    queryKey: noticeKeys.all(stageId),
+    enabled,
+    queryFn: () =>
+      unwrap(api.POST('/api/stages/{stageId}/notices/prepare', { params: { path: { stageId } } })),
+  })
+}
+
+export function useEditNotice(stageId: string, group: NoticeGroup) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { subject: string; greeting: string; content: string; closing: string }) =>
+      unwrap(
+        api.PUT('/api/stages/{stageId}/notices/{group}', {
+          params: { path: { stageId, group } },
+          body,
+        }),
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: noticeKeys.all(stageId) }),
+  })
+}
+
+export function useSendNotice(stageId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (group: NoticeGroup) =>
+      unwrap(
+        api.POST('/api/stages/{stageId}/notices/{group}/send', {
+          params: { path: { stageId, group } },
+        }),
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: noticeKeys.all(stageId) }),
+  })
+}
+
+export function useNoticeAiRequest(stageId: string, group: NoticeGroup) {
+  return useMutation({
+    mutationFn: (message: string) =>
+      unwrap(
+        api.POST('/api/stages/{stageId}/notices/{group}/ai-requests', {
+          params: { path: { stageId, group } },
+          body: { message },
+        }),
+      ),
+  })
+}
+
+/** 전형 종료. 다음 전형이 있으면 그 ID를 돌려준다. */
+export function useFinishStage(stageId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      unwrap(api.POST('/api/stages/{stageId}/finish', { params: { path: { stageId } } })),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: stageKeys.all(stageId) })
+      void queryClient.invalidateQueries({ queryKey: ['recruitments'] })
+    },
+  })
+}
+
+export const NOTICE_STATUS: Record<Notice['status'], { label: string; className: string }> = {
+  DRAFT: { label: '초안 확인 중', className: 'bg-amber-100 text-amber-700' },
+  SENT: { label: '발송 완료', className: 'bg-pass text-pass-foreground' },
+  PARTIAL: { label: '일부 실패', className: 'bg-fail text-fail-foreground' },
+  EMPTY: { label: '대상 없음', className: 'bg-muted text-muted-foreground' },
+}
