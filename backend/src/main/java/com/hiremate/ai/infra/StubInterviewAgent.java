@@ -63,7 +63,8 @@ class StubInterviewAgent implements InterviewAgent {
     }
 
     private static String shorten(String text) {
-        String trimmed = text.strip().replaceAll("\\s+", " ");
+        // 질문 안에 다시 따옴표로 인용하므로 원문의 따옴표는 뺀다
+        String trimmed = text.strip().replaceAll("[\"“”]", "").replaceAll("\\s+", " ");
         return trimmed.length() > 36 ? trimmed.substring(0, 35) + "…" : trimmed;
     }
 }

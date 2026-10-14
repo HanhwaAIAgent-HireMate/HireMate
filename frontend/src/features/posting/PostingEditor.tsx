@@ -174,7 +174,8 @@ export function PostingEditor({
                   value={shown.title}
                   disabled={locked('title')}
                   onChange={(event) => update({ title: event.target.value })}
-                  className="min-w-0 flex-1 bg-transparent outline-none"
+                  style={{ width: `calc(${textWidth(shown.title || '채용명') * 0.92}em + 2px)` }}
+                  className="max-w-full min-w-0 bg-transparent outline-none"
                 />
                 <span className="shrink-0">채용</span>
               </div>
@@ -188,7 +189,7 @@ export function PostingEditor({
                     disabled={locked(tag.key)}
                     onChange={(event) => update({ [tag.key]: event.target.value })}
                     style={{
-                      width: `${Math.max(shown[tag.key].length, tag.placeholder.length / 1.6) + 3}ch`,
+                      width: `calc(${textWidth(shown[tag.key] || tag.placeholder)}em + 1.25rem)`,
                     }}
                     className={cn(
                       'h-7 rounded-md bg-muted px-2 text-xs outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring',
@@ -305,6 +306,11 @@ export function PostingEditor({
       </div>
     </div>
   )
+}
+
+/** 글자 수로 입력칸 너비(em)를 잡는다. 한글은 1em, 나머지는 0.6em 정도다. */
+function textWidth(text: string) {
+  return [...text].reduce((sum, char) => sum + (/[\u3131-\uD79D]/.test(char) ? 1 : 0.6), 0)
 }
 
 function pick(content: PostingContent, fields: Set<string>): Partial<PostingContent> {
