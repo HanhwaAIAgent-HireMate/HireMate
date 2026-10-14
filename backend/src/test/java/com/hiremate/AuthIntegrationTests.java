@@ -248,7 +248,7 @@ class AuthIntegrationTests {
         signup(client, email);
         login(client, email, PASSWORD, csrf(client));
         for (String path : List.of("/api/companies", "/api/companies/1", "/api/recruitments/1/unknown",
-                "/api/stages/1")) {
+                "/api/stages/1/unknown")) {
             assertThat(send(client, "GET", path, null, null).statusCode()).isEqualTo(404);
         }
         assertThat(send(client, "GET", "/v3/api-docs", null, null).statusCode()).isEqualTo(200);
