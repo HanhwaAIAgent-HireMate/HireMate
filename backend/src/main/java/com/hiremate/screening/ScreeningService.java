@@ -87,7 +87,8 @@ public class ScreeningService {
                 postings.view(companyId, recruitment.id()).postingId(),
                 applications.count(companyId, recruitment.id()), steps, counts(current),
                 current.stream().filter(StageCandidate::isSelected).count(), snapshots.existsById(stageId),
-                current.stream().anyMatch(candidate -> candidate.getScore() != null), stage.confirmedAt());
+                current.stream().anyMatch(candidate -> candidate.getScore() != null), stage.confirmedAt(),
+                stage.confirmedByName(), current.stream().filter(StageCandidate::isUndecidedAtConfirm).count());
     }
 
     /**
@@ -255,10 +256,10 @@ public class ScreeningService {
 
     /** 전형 결과 확정. 합격자만 다음 전형 대상이 되고, 불합격과 미결정은 모두 불합격으로 확정된다 (FR-24). */
     @Transactional
-    public StageOverview.DecisionCounts confirm(UUID companyId, UUID stageId, UUID memberId) {
+    public StageOverview.DecisionCounts confirm(UUID companyId, UUID stageId, UUID memberId, String memberName) {
         List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
         StageOverview.DecisionCounts before = counts(all);
-        recruits.confirmStage(companyId, stageId, memberId);
+        recruits.confirmStage(companyId, stageId, memberId, memberName);
         all.forEach(StageCandidate::confirm);
         snapshots.deleteById(stageId);
         activity.record(companyId, memberId, "CONFIRM_STAGE", "STAGE", stageId,

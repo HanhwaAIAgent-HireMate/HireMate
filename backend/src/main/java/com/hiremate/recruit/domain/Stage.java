@@ -44,6 +44,9 @@ public class Stage {
 
     private UUID confirmedBy;
 
+    @Column(length = 100)
+    private String confirmedByName;
+
     private Instant doneAt;
 
     public Stage(UUID recruitmentId, int seq, String name, StageType type) {
@@ -59,10 +62,11 @@ public class Stage {
         this.status = StageStatus.ACTIVE;
     }
 
-    public void confirm(UUID memberId) {
+    public void confirm(UUID memberId, String memberName) {
         this.status = StageStatus.CONFIRMED;
         this.confirmedAt = Instant.now();
         this.confirmedBy = memberId;
+        this.confirmedByName = memberName;
     }
 
     public void finish() {

@@ -108,12 +108,12 @@ public class RecruitService {
 
     /** 진행 중인 전형의 결과를 확정한다. */
     @Transactional
-    public StageInfo confirmStage(UUID companyId, UUID stageId, UUID memberId) {
+    public StageInfo confirmStage(UUID companyId, UUID stageId, UUID memberId, String memberName) {
         Stage stage = stage(companyId, stageId);
         if (stage.getStatus() != StageStatus.ACTIVE) {
             throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "The stage is not in progress.");
         }
-        stage.confirm(memberId);
+        stage.confirm(memberId, memberName);
         return toInfo(stage);
     }
 
@@ -185,6 +185,7 @@ public class RecruitService {
 
     private static StageInfo toInfo(Stage stage) {
         return new StageInfo(stage.getId(), stage.getRecruitmentId(), stage.getSeq(), stage.getName(),
-                stage.getType(), stage.getStatus(), stage.getConfirmedAt(), stage.getDoneAt());
+                stage.getType(), stage.getStatus(), stage.getConfirmedAt(), stage.getConfirmedByName(),
+                stage.getDoneAt());
     }
 }
