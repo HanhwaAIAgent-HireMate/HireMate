@@ -1,8 +1,8 @@
 """Communication Agent 라우터. backend의 CommunicationAgent 메서드와 같은 계약이다."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from hiremate_ai.agents.generation.communication.writer import NoticeDraftContext, write_notice
+from hiremate_ai.agents.generation.communication.writer import NoticeCheckError, NoticeDraftContext, write_notice
 from hiremate_ai.contract import ContractModel
 from hiremate_ai.llm.client import LlmDep
 
@@ -25,5 +25,9 @@ class Draft(ContractModel):
 
 @router.post("/agents/communication/write")
 async def write(body: WriteRequest, llm: LlmDep) -> Draft:
-    written = await write_notice(llm, body.notice, body.request)
+    try:
+        written = await write_notice(llm, body.notice, body.request)
+    except NoticeCheckError as error:
+        # backend는 오류 응답을 502 AI_UNAVAILABLE로 바꾸고, HR은 본문을 직접 쓴다
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return Draft(reply=written.reply, content=written.content)

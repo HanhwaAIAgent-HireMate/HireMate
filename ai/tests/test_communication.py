@@ -3,6 +3,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hiremate_ai.agents.generation.communication.checks import problems, tidy
 from hiremate_ai.agents.generation.communication.writer import NoticeBody
 from hiremate_ai.api.communication import router
 from hiremate_ai.llm.client import get_llm
@@ -77,3 +78,61 @@ def test_write_rejects_unknown_template_type() -> None:
 
     assert response.status_code == 422
     assert llm.calls == []
+
+
+def test_tidy_fixes_number_and_punctuation_spacing() -> None:
+    tidied = tidy(" 다음 전형은 1 차 면접입니다.일정은 11 월 3 일에 안내드리겠습니다,곧 연락드리겠습니다. ")
+
+    assert tidied == "다음 전형은 1차 면접입니다. 일정은 11월 3일에 안내드리겠습니다, 곧 연락드리겠습니다."
+
+
+def test_problems_passes_clean_content() -> None:
+    assert problems("서류 전형에 합격하셨습니다. 다음 전형은 1차 면접입니다.", source="다음 전형: 1차 면접") == []
+    assert problems("면접은 11월 3일입니다.", source="일정: 11 월 3 일") == []
+
+
+def test_problems_finds_rule_violations() -> None:
+    found = problems("안녕하세요. {지원자명}님, 일정과場所は 11월 3일입니다. 감사합니다.", source="다음 전형: 1차 면접")
+
+    assert found == [
+        "한국어가 아닌 문자(한자, 일본어)를 썼다: 場所は",
+        "중괄호 변수를 썼다: {지원자명}",
+        "인사말로 시작한다",
+        "맺음말로 끝난다",
+        "주어진 정보에 없는 날짜나 시각을 썼다: 11월, 3일",
+    ]
+
+
+def test_write_tidies_spacing_without_retry() -> None:
+    llm = FakeLlm(NoticeBody(content="다음 전형은 1 차 면접입니다."))
+
+    response = client(llm).post("/agents/communication/write", json={"notice": notice(), "request": None})
+
+    assert response.json()["content"] == "다음 전형은 1차 면접입니다."
+    assert len(llm.calls) == 1
+
+
+def test_write_retries_once_with_reasons() -> None:
+    llm = FakeLlm(
+        NoticeBody(content="안녕하세요. 서류 전형에 합격하셨습니다."),
+        NoticeBody(content="서류 전형에 합격하셨습니다."),
+    )
+
+    response = client(llm).post("/agents/communication/write", json={"notice": notice(), "request": None})
+
+    assert response.json()["content"] == "서류 전형에 합격하셨습니다."
+    assert len(llm.calls) == 2
+    assert "안녕하세요. 서류 전형에 합격하셨습니다." in llm.calls[1].user
+    assert "인사말로 시작한다" in llm.calls[1].user
+
+
+def test_write_fails_when_retry_breaks_rules_again() -> None:
+    llm = FakeLlm(
+        NoticeBody(content="안녕하세요. 합격입니다."), NoticeBody(content="일정과場所は 별도로 안내드립니다.")
+    )
+
+    response = client(llm).post("/agents/communication/write", json={"notice": notice(), "request": None})
+
+    assert response.status_code == 422
+    assert "한국어가 아닌 문자" in response.json()["detail"]
+    assert len(llm.calls) == 2
