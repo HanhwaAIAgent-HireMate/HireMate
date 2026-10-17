@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from hiremate_ai.agents.generation.communication.checks import problems, tidy
 from hiremate_ai.contract import ContractModel
 from hiremate_ai.llm.client import LlmClient
 
@@ -91,10 +92,32 @@ SYSTEM = """너는 기업 인사팀이 지원자에게 보내는 채용 안내 �
 5. 3~5문장의 정중하고 자연스러운 한국어로 쓴다. 한자나 외국어를 섞지 않는다."""
 
 
+class NoticeCheckError(RuntimeError):
+    """다시 써도 본문이 작성 규칙을 지키지 못했을 때. HR이 직접 쓴다."""
+
+
 async def write_notice(llm: LlmClient, notice: NoticeDraftContext, request: str | None) -> WrittenNotice:
-    """안내 본문을 쓴다. request가 있으면 HR의 수정 요청대로 지금 본문을 고친 전체 본문을 쓴다."""
-    body = await llm.structured(NoticeBody, agent=AGENT, system=SYSTEM, user=_user_prompt(notice, request))
-    return WrittenNotice(reply=DRAFTED_REPLY if request is None else REVISED_REPLY, content=body.content)
+    """안내 본문을 쓴다. request가 있으면 HR의 수정 요청대로 지금 본문을 고친 전체 본문을 쓴다.
+
+    본문이 작성 규칙을 어기면 이유를 붙여 한 번만 다시 쓰게 하고, 그래도 어기면 NoticeCheckError를 낸다.
+    """
+    user = _user_prompt(notice, request)
+    content = await _write(llm, user)
+    if found := problems(content, user):
+        content = await _write(llm, _retry_prompt(user, content, found))
+        if found := problems(content, user):
+            raise NoticeCheckError("다시 써도 작성 규칙을 지키지 못했다: " + "; ".join(found))
+    return WrittenNotice(reply=DRAFTED_REPLY if request is None else REVISED_REPLY, content=content)
+
+
+async def _write(llm: LlmClient, user: str) -> str:
+    body = await llm.structured(NoticeBody, agent=AGENT, system=SYSTEM, user=user)
+    return tidy(body.content)
+
+
+def _retry_prompt(user: str, content: str, found: list[str]) -> str:
+    reasons = "\n".join(f"- {reason}" for reason in found)
+    return f"{user}\n\n앞서 쓴 본문:\n{content}\n\n앞서 쓴 본문의 문제:\n{reasons}\n문제를 고쳐 본문 전체를 다시 쓴다."
 
 
 def _user_prompt(notice: NoticeDraftContext, request: str | None) -> str:
