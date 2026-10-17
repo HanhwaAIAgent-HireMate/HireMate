@@ -68,7 +68,7 @@ class ReportListener {
         ReportContent content = agent.write(new ReportInput(recruitment.title(),
                 applications.count(companyId, recruitment.id()), stages, finalists, undecided));
         reports.save(companyId, recruitment.id(), content,
-                settings.isStub() ? "Report Agent · 개발용" : "Report Agent");
+                settings.isStub(AiAgent.REPORT) ? "Report Agent · 개발용" : "Report Agent");
     }
 
     private ReportInput.FinalistInput finalist(UUID companyId, ApplicantInfo applicant,

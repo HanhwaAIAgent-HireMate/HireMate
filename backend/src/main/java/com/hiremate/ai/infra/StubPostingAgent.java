@@ -1,5 +1,7 @@
 package com.hiremate.ai.infra;
 
+import com.hiremate.ai.application.AiAgent;
+import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.PostingAgent;
 import com.hiremate.posting.DocumentType;
 import com.hiremate.posting.PostingContent;
@@ -17,7 +19,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,7 +26,7 @@ import org.springframework.stereotype.Component;
  * 전형 절차 말하기 · 빼기, 필수 제출 서류, 각 칸에 줄 더하기, 채용명 · 고용 형태 · 경력 · 근무지를 다룬다.
  */
 @Component
-@ConditionalOnProperty(name = "hiremate.ai.mode", havingValue = "stub", matchIfMissing = true)
+@ConditionalOnAiMode(agent = AiAgent.POSTING, mode = AiMode.STUB)
 class StubPostingAgent implements PostingAgent {
 
     private static final Pattern STAGE_PLAN = Pattern.compile("전형(?:은|을|는)?\\s*(.+?)\\s*순(?:서)?(?:으로|로)?");
