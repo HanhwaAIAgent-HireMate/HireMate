@@ -1,0 +1,17 @@
+{
+  "conditions": [
+    {"label": "Java·Spring", "met": true, "requirement": "Java · Spring Boot 기반 서버 개발 경력 3년 이상"},
+    {"label": "RDBMS·설계와", "met": false, "requirement": "RDBMS 설계와 운영 경험"}
+  ],
+  "notable": [
+    {"text": "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다.", "source": "이력서"}
+  ],
+  "checks": [
+    {"text": "\"RDBMS 설계와 운영 경험\"의 근거가 제출 문서에 없어요. 면접에서 확인이 필요해요.", "source": "공고 · 자격 요건"}
+  ],
+  "highlights": [
+    {"document": "RESUME", "sentence": "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다."}
+  ],
+  "agent": "Application Agent",
+  "stub": false
+}
