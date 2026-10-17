@@ -138,6 +138,7 @@ src/hiremate_ai/
 ├── api/
 │   └── health.py               헬스 체크 라우터
 ├── agents/
+│   ├── guardrails.py           차별 조건 판정, 근거 문장 확인
 │   ├── root/                   대상 확인, 요청 분류, 실행 계획, 결과 정리
 │   ├── analysis/
 │   │   ├── application/        지원 문서 분석
@@ -149,7 +150,7 @@ src/hiremate_ai/
 │       ├── communication/      안내 초안
 │       └── report/             최종 리포트 초안
 ├── tools/                      Agent 도구
-├── llm/                        모델 클라이언트 (LlmClient, 테스트용 FakeLlm)
+├── llm/                        모델 클라이언트 (LlmClient, 테스트용 FakeLlm), 프롬프트 자료 블록, 호출 로그
 ├── db/                         ai 스키마 (Base, 세션)
 │   └── migrations/             Alembic 리비전
 └── worker/                     분석 작업 소비자
@@ -164,8 +165,13 @@ src/hiremate_ai/
   공통 타입을 조합한다. 계약 타입을 바꾸면 `contract/`의 샘플도 고친다 (`contract/README.md`).
 - backend 연동 엔드포인트는 `POST /agents/{agent}/{method}`다. 요청 본문은 backend Agent 인터페이스 메서드의
   매개변수 이름을 키로 한 JSON 객체, 응답은 반환 타입의 JSON이다.
-- 모델은 `llm.client`의 `LlmClient`로만 부른다. 라우터는 `LlmDep`으로 받고, 테스트는 `app.dependency_overrides[get_llm]`에
-  `FakeLlm`을 넣는다.
+- 모델은 `llm.client`의 `LlmClient`로만 부른다. 호출은 `ai.llm_calls`에 기록된다. 라우터는 `LlmDep`으로 받고,
+  테스트는 `app.dependency_overrides[get_llm]`에 `FakeLlm`을 넣는다. 실제 모델 연결 설정은 `ai/.env.example`에 있다.
+- 제출 문서, URL 본문, 평가 메모는 `llm.prompt`의 `document_block`, `data_block`으로 감싸 넣고 system에 `UNTRUSTED_RULE`을 넣는다.
+  분석 Agent에는 쓰기 도구를 주지 않는다 (규칙 5).
+- 차별 조건 요청은 `agents.guardrails.blocked_attribute`로 판정해 `BLOCKED_REPLY`로 답한다 (규칙 6).
+  모델이 낸 근거 문장은 `evidence_source`, `verified_evidence`로 원문에 있는지 확인하고 없으면 버린다 (규칙 7).
+- Agent 테스트는 `tests/samples`의 가상 지원자(`sample_applicants` 등 fixture)를 쓴다. 지원자별 정답은 `tests/samples/README.md`에 있다.
 - 테이블은 `db.base.Base`를 상속해 `db/` 아래 모듈에 둔다. 라우터는 `SessionDep`으로 세션을 받는다.
   리비전은 `uv run alembic revision --autogenerate -m "<설명>"`으로 만들고 헤드를 하나로 유지한다.
   DB 테스트는 `db_session` fixture를 쓴다(Testcontainers, Docker 필요).

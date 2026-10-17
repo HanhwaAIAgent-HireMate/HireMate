@@ -33,7 +33,8 @@ cd frontend && npm install && npm run dev
 
 # ai: http://localhost:8001
 # ai만 개발할 때는 먼저 저장소 루트에서 docker compose up -d
-cd ai && uv sync && uv run uvicorn hiremate_ai.main:app --reload --port 8001
+# 모델 연결은 ai/.env.example을 ai/.env로 복사해 채운다
+cd ai && uv sync && uv run alembic upgrade head && uv run uvicorn hiremate_ai.main:app --reload --port 8001
 ```
 
 ## 규칙
