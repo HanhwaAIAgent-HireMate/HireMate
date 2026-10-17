@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from hiremate_ai.agents.generation.communication.writer import WrittenNotice
+from hiremate_ai.agents.generation.communication.writer import NoticeBody
 from hiremate_ai.api.communication import router
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
@@ -32,7 +32,7 @@ def client(llm: FakeLlm) -> TestClient:
 
 
 def test_write_returns_draft_from_model() -> None:
-    llm = FakeLlm(WrittenNotice(reply="초안을 만들었어요.", content="서류 전형에 합격하셨습니다."))
+    llm = FakeLlm(NoticeBody(content="서류 전형에 합격하셨습니다."))
 
     response = client(llm).post("/agents/communication/write", json={"notice": notice(), "request": None})
 
@@ -42,31 +42,28 @@ def test_write_returns_draft_from_model() -> None:
     assert call.agent == "communication"
     assert "다음 전형 안내 (합격)" in call.user
     assert "예시 기업" in call.user
-    assert "1차 면접" in call.user
+    assert "다음 전형: 1차 면접" in call.user
     assert "HR 요청" not in call.user
 
 
-def test_write_marks_missing_next_stage() -> None:
-    llm = FakeLlm(WrittenNotice(reply="초안을 만들었어요.", content="최종 합격을 축하드립니다."))
+def test_write_does_not_send_next_stage_for_rejection() -> None:
+    llm = FakeLlm(NoticeBody(content="이번에는 함께하기 어렵게 되었습니다."))
 
-    client(llm).post(
-        "/agents/communication/write",
-        json={"notice": notice(templateType="FINAL_PASS", nextStageName=None), "request": None},
-    )
+    client(llm).post("/agents/communication/write", json={"notice": notice(templateType="REJECT"), "request": None})
 
-    assert "최종 합격 안내" in llm.calls[0].user
-    assert "다음 전형: (없음)" in llm.calls[0].user
+    assert "불합격 안내" in llm.calls[0].user
+    assert "1차 면접" not in llm.calls[0].user
 
 
 def test_write_sends_current_content_and_request_when_revising() -> None:
-    llm = FakeLlm(WrittenNotice(reply="더 따뜻하게 바꿨어요.", content="고친 본문"))
+    llm = FakeLlm(NoticeBody(content="고친 본문"))
 
     response = client(llm).post(
         "/agents/communication/write",
         json={"notice": notice(content="지금 본문입니다."), "request": "더 따뜻하게 써 줘"},
     )
 
-    assert response.json()["content"] == "고친 본문"
+    assert response.json() == {"reply": "요청하신 대로 고쳤어요.", "content": "고친 본문"}
     assert "지금 본문입니다." in llm.calls[0].user
     assert "HR 요청: 더 따뜻하게 써 줘" in llm.calls[0].user
 
