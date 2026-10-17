@@ -31,7 +31,7 @@ public class PostingAiService {
         PostingView posting = result.suggestion() == null
                 ? postings.view(companyId, recruitmentId)
                 : postings.suggest(companyId, recruitmentId, result.suggestion());
-        return new PostingAiAnswer(result.reply(), "Posting Agent", settings.isStub(), posting);
+        return new PostingAiAnswer(result.reply(), "Posting Agent", settings.isStub(AiAgent.POSTING), posting);
     }
 
     public record PostingAiAnswer(String reply, String agent, boolean stub, PostingView posting) {

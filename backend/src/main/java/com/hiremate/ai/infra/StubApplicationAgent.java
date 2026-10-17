@@ -1,5 +1,7 @@
 package com.hiremate.ai.infra;
 
+import com.hiremate.ai.application.AiAgent;
+import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.ApplicationAgent;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicantDocument;
@@ -15,7 +17,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -23,7 +24,7 @@ import org.springframework.stereotype.Component;
  * 낱말이 문서에 얼마나 나오는지로 서류 점수(0~100)를 매긴다. 60점 이상을 AI 기준 통과로 본다 (OI-02 개발용 기본값).
  */
 @Component
-@ConditionalOnProperty(name = "hiremate.ai.mode", havingValue = "stub", matchIfMissing = true)
+@ConditionalOnAiMode(agent = AiAgent.APPLICATION, mode = AiMode.STUB)
 class StubApplicationAgent implements ApplicationAgent {
 
     static final int PASS_SCORE = 60;

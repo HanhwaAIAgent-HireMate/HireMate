@@ -1,17 +1,18 @@
 package com.hiremate.ai.infra;
 
+import com.hiremate.ai.application.AiAgent;
+import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.ReportAgent;
 import com.hiremate.ai.application.ReportInput;
 import com.hiremate.report.ReportContent;
 import java.util.ArrayList;
 import java.util.List;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /** 개발용 Report Agent. 확정 결과의 숫자와 분석 근거를 그대로 옮겨 요약한다. 근거가 없으면 없다고 적는다. */
 @Component
-@ConditionalOnProperty(name = "hiremate.ai.mode", havingValue = "stub", matchIfMissing = true)
+@ConditionalOnAiMode(agent = AiAgent.REPORT, mode = AiMode.STUB)
 class StubReportAgent implements ReportAgent {
 
     @Override
