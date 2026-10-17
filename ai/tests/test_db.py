@@ -1,6 +1,8 @@
+from alembic.autogenerate import compare_metadata
 from alembic.config import Config
+from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.db.base import SCHEMA, Base, load_models
@@ -31,3 +33,23 @@ async def test_session_factory_connects(database_url: str) -> None:
     async with session_factory(database_url)() as session:
         assert await session.scalar(text("SELECT 1")) == 1
     await session_factory(database_url).kw["bind"].dispose()
+
+
+def test_models_match_migrations(database_url: str) -> None:
+    load_models()
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            context = MigrationContext.configure(
+                connection,
+                opts={"include_schemas": True, "include_name": include_ai_schema, "version_table_schema": SCHEMA},
+            )
+            differences = compare_metadata(context, Base.metadata)
+    finally:
+        engine.dispose()
+
+    assert differences == [], "모델과 마이그레이션이 다르다. uv run alembic revision --autogenerate로 리비전을 만든다"
+
+
+def include_ai_schema(name: str | None, type_: str, parent_names: object) -> bool:
+    return name == SCHEMA if type_ == "schema" else True
