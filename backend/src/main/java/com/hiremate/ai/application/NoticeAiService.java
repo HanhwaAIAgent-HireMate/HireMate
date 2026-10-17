@@ -38,7 +38,8 @@ public class NoticeAiService {
     /** 자연어 수정 요청. 수정안만 돌려주고 저장하지 않는다. HR이 적용하면 화면이 저장한다. */
     public NoticeAiAnswer revise(UUID companyId, UUID stageId, NoticeGroup group, String message) {
         CommunicationAgent.Draft draft = agent.write(notices.draftContext(companyId, stageId, group), message);
-        return new NoticeAiAnswer(draft.reply(), draft.content(), "Communication Agent", settings.isStub());
+        return new NoticeAiAnswer(draft.reply(), draft.content(), "Communication Agent",
+                settings.isStub(AiAgent.COMMUNICATION));
     }
 
     public record NoticeAiAnswer(String reply, String content, String agent, boolean stub) {
