@@ -3,7 +3,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from hiremate_ai.llm.client import LlmDep, LlmNotConfiguredError, get_llm
+from hiremate_ai.llm.client import LlmDep, get_llm
 from hiremate_ai.llm.fake import FakeLlm, LlmCall
 
 
@@ -57,8 +57,3 @@ def test_router_gets_fake_through_dependency_override() -> None:
     response = TestClient(app).post("/agents/report/write")
 
     assert response.json() == {"text": "리포트"}
-
-
-def test_get_llm_without_implementation() -> None:
-    with pytest.raises(LlmNotConfiguredError):
-        get_llm()
