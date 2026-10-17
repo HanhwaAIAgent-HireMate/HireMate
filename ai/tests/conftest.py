@@ -4,10 +4,14 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from testcontainers.community.postgres import PostgresContainer
 
+from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
+
 AI_DIR = Path(__file__).resolve().parents[1]
+SAMPLES_DIR = AI_DIR / "tests" / "samples"
 
 # compose.yaml과 같은 이미지
 POSTGRES_IMAGE = "pgvector/pgvector:pg17"
@@ -48,3 +52,21 @@ async def db_session(database_url: str) -> AsyncIterator[AsyncSession]:
             await session.close()
             await transaction.rollback()
     await engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def sample_posting() -> PostingContent:
+    """가상 공고: 결제 플랫폼 백엔드 개발자 (tests/samples/README.md)."""
+    return PostingContent.model_validate_json((SAMPLES_DIR / "posting.json").read_bytes())
+
+
+@pytest.fixture(scope="session")
+def sample_company() -> CompanyProfile:
+    return CompanyProfile.model_validate_json((SAMPLES_DIR / "company.json").read_bytes())
+
+
+@pytest.fixture(scope="session")
+def sample_applicants() -> dict[str, ApplicantDetail]:
+    """가상 지원자 8명. 이름으로 찾는다. 지원자별 정답은 tests/samples/README.md에 있다."""
+    applicants = TypeAdapter(list[ApplicantDetail]).validate_json((SAMPLES_DIR / "applicants.json").read_bytes())
+    return {applicant.info.name: applicant for applicant in applicants}
