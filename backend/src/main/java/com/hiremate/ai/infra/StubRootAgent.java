@@ -1,7 +1,5 @@
 package com.hiremate.ai.infra;
 
-import com.hiremate.ai.application.AiAgent;
-import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.CandidateAnalyst;
 import com.hiremate.ai.application.ChatContext;
@@ -31,6 +29,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -38,7 +37,7 @@ import org.springframework.stereotype.Component;
  * 차별 조건(나이 · 성별 · 출신 지역 · 혼인 여부 · 신체 조건) 탐색은 실행하지 않는다 (아키텍처 규칙 6).
  */
 @Component
-@ConditionalOnAiMode(agent = AiAgent.ROOT, mode = AiMode.STUB)
+@ConditionalOnProperty(name = "hiremate.ai.mode", havingValue = "stub", matchIfMissing = true)
 class StubRootAgent implements RootAgent {
 
     private static final Pattern BLOCKED = Pattern.compile(

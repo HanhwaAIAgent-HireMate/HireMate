@@ -117,6 +117,6 @@ public class ChatService {
         String message = plan.message().replace("{count}", String.valueOf(applied))
                 .replace("{total}", String.valueOf(total));
         return new ChatAnswer(plan.intent(), plan.mode(), message, plan.items(), plan.sources(), plan.agents(),
-                changed, settings.isStub(AiAgent.ROOT));
+                changed, settings.isStub());
     }
 }
