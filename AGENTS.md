@@ -13,7 +13,6 @@ AI는 분석, 탐색, 초안 작성을 돕되 채용 결정은 담당자가 직�
 | `backend/` | 업무 서버. 채용, 전형 데이터, 권한 검증, 상태 변경 실행 | Spring Boot (Java) |
 | `ai/` | AI API, AI 워커. Root Agent, 분석, 생성 Agent | Python, FastAPI, LangGraph |
 | `frontend/` | HR 콘솔, 채용 페이지 | React + Vite (SPA) |
-| `contract/` | `backend/`와 `ai/`가 주고받는 JSON 샘플. 양쪽 테스트가 같은 샘플로 왕복 검사한다 | JSON |
 
 ## 작업 규칙
 
@@ -75,9 +74,6 @@ src/main/java/com/hiremate/
 - 스키마는 `src/main/resources/db/migration`의 Flyway 파일(`V{번호}__{설명}.sql`)로만 바꾼다. `ddl-auto=validate`라 Entity와 스키마가 다르면 앱이 뜨지 않는다.
 - DB나 Redis가 필요한 테스트는 `TestcontainersConfiguration`을 `@Import`한다.
 - `auth/config/SecurityConfig`는 모든 요청을 허용하는 임시 설정이다. 인증 작업이 아니면 고치지 않는다.
-- AI Agent 구현은 `ai/infra`에 둔다. stub은 `@ConditionalOnAiMode(agent = ..., mode = AiMode.STUB)`,
-  ai 서버를 부르는 구현은 `mode = AiMode.REMOTE`로 달고 `AiServerClient`로만 호출한다.
-  연동 방식은 `hiremate.ai.agents.{key}`로 Agent마다 바꾼다(없으면 `hiremate.ai.mode`).
 
 현재 모듈별 하위 패키지는 다음과 같다. 각 `package-info.java`에 해당 계층의 책임과 예정 엔티티가 적혀 있다.
 
@@ -134,7 +130,6 @@ src/
 src/hiremate_ai/
 ├── main.py                     FastAPI 앱
 ├── config.py                   설정 (환경 변수)
-├── contract.py                 backend와 주고받는 공통 계약 타입
 ├── api/
 │   └── health.py               헬스 체크 라우터
 ├── agents/
@@ -149,9 +144,8 @@ src/hiremate_ai/
 │       ├── communication/      안내 초안
 │       └── report/             최종 리포트 초안
 ├── tools/                      Agent 도구
-├── llm/                        모델 클라이언트 (LlmClient, 테스트용 FakeLlm)
-├── db/                         ai 스키마 (Base, 세션)
-│   └── migrations/             Alembic 리비전
+├── llm/                        모델 클라이언트
+├── db/                         ai 스키마
 └── worker/                     분석 작업 소비자
 ```
 
@@ -160,12 +154,3 @@ src/hiremate_ai/
 - 설정은 `config.py`의 `settings`로만 읽는다. `os.environ`을 직접 쓰지 않는다.
 - 함수에는 타입 힌트를 단다. mypy가 검사한다.
 - 테이블은 `ai` 스키마에 둔다. backend가 Flyway로 관리하는 `public` 스키마에는 쓰지 않는다. 마이그레이션은 Alembic으로 한다.
-- 여러 Agent가 같이 쓰는 backend 타입은 `contract.py`에 있다. 한 Agent만 쓰는 요청, 응답 타입은 그 Agent의 라우터 파일에 두고
-  공통 타입을 조합한다. 계약 타입을 바꾸면 `contract/`의 샘플도 고친다 (`contract/README.md`).
-- backend 연동 엔드포인트는 `POST /agents/{agent}/{method}`다. 요청 본문은 backend Agent 인터페이스 메서드의
-  매개변수 이름을 키로 한 JSON 객체, 응답은 반환 타입의 JSON이다.
-- 모델은 `llm.client`의 `LlmClient`로만 부른다. 라우터는 `LlmDep`으로 받고, 테스트는 `app.dependency_overrides[get_llm]`에
-  `FakeLlm`을 넣는다.
-- 테이블은 `db.base.Base`를 상속해 `db/` 아래 모듈에 둔다. 라우터는 `SessionDep`으로 세션을 받는다.
-  리비전은 `uv run alembic revision --autogenerate -m "<설명>"`으로 만들고 헤드를 하나로 유지한다.
-  DB 테스트는 `db_session` fixture를 쓴다(Testcontainers, Docker 필요).
