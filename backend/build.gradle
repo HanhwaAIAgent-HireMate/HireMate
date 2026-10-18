@@ -108,6 +108,4 @@ tasks.named('compileJava') {
 
 tasks.named('test') {
     useJUnitPlatform()
-    // ContractSampleTests가 읽는 ai 서버 계약 샘플. 샘플만 바뀌어도 테스트를 다시 돌린다
-    inputs.dir(new File(rootDir.parentFile, 'contract')).withPathSensitivity(PathSensitivity.RELATIVE)
 }
