@@ -1,7 +1,5 @@
 package com.hiremate.ai.infra;
 
-import com.hiremate.ai.application.AiAgent;
-import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.CandidateAnalyst;
 import com.hiremate.apply.ApplicantDetail;
@@ -17,6 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -24,7 +23,7 @@ import org.springframework.stereotype.Component;
  * 근거 문장을 찾지 못한 조건은 확인 필요로 둔다.
  */
 @Component
-@ConditionalOnAiMode(agent = AiAgent.CANDIDATE_ANALYST, mode = AiMode.STUB)
+@ConditionalOnProperty(name = "hiremate.ai.mode", havingValue = "stub", matchIfMissing = true)
 class StubCandidateAnalyst implements CandidateAnalyst {
 
     private static final Pattern WORD = Pattern.compile("[가-힣]{2,}|[A-Za-z][A-Za-z+#.]{1,}");

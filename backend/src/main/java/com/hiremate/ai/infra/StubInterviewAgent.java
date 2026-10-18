@@ -1,7 +1,5 @@
 package com.hiremate.ai.infra;
 
-import com.hiremate.ai.application.AiAgent;
-import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.InterviewAgent;
 import com.hiremate.apply.ApplicantDetail;
@@ -11,6 +9,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -18,7 +17,7 @@ import org.springframework.stereotype.Component;
  * 이전 면접에서 답이 짧았던 질문은 다시 확인하는 질문으로 만든다.
  */
 @Component
-@ConditionalOnAiMode(agent = AiAgent.INTERVIEW, mode = AiMode.STUB)
+@ConditionalOnProperty(name = "hiremate.ai.mode", havingValue = "stub", matchIfMissing = true)
 class StubInterviewAgent implements InterviewAgent {
 
     private static final int SHORT_ANSWER = 15;

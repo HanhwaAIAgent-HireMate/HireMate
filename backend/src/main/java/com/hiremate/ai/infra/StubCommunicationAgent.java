@@ -1,14 +1,13 @@
 package com.hiremate.ai.infra;
 
-import com.hiremate.ai.application.AiAgent;
-import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CommunicationAgent;
 import com.hiremate.notice.NoticeDraftContext;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /** 개발용 Communication Agent. 양식 유형에 맞는 기본 문장을 쓰고, 말투 · 길이 · 덧붙임 요청을 규칙으로 반영한다. */
 @Component
-@ConditionalOnAiMode(agent = AiAgent.COMMUNICATION, mode = AiMode.STUB)
+@ConditionalOnProperty(name = "hiremate.ai.mode", havingValue = "stub", matchIfMissing = true)
 class StubCommunicationAgent implements CommunicationAgent {
 
     @Override
