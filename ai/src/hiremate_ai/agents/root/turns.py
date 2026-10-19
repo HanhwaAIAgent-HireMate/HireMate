@@ -3,11 +3,12 @@
 지원자 문서 본문은 넣지 않는다. 값은 JSON으로 저장할 수 있는 글자와 숫자만 쓴다.
 """
 
+from collections.abc import Sequence
 from typing import TypedDict
 from uuid import UUID
 
 from hiremate_ai.agents.root.targets import Targets
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan
 
 
 class TurnItem(TypedDict):
@@ -52,3 +53,19 @@ def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan) -> Tu
 
 def remember(turns: list[Turn], turn: Turn, limit: int) -> list[Turn]:
     return [*turns, turn][-limit:]
+
+
+def from_history(context: ChatContext, turns: Sequence[Turn], ref: str, ordinal: int | None) -> list[CandidateRow]:
+    """앞 대화가 가리키는 지원자. result는 직전 찾기 결과, subject는 직전에 다룬 지원자다.
+
+    순서를 주면 그 사람만 고른다. 지금 전형에 없는 지원자는 뺀다.
+    """
+    wanted = (lambda turn: turn["intent"] == "FIND") if ref == "result" else (lambda turn: True)
+    turn = next((turn for turn in reversed(turns) if turn["targets"] and wanted(turn)), None)
+    if turn is None:
+        return []
+    ids = turn["targets"]
+    if ordinal is not None:
+        ids = ids[ordinal - 1 : ordinal] if 1 <= ordinal <= len(ids) else []
+    by_id = {str(row.application_id): row for row in context.candidates}
+    return [by_id[application_id] for application_id in ids if application_id in by_id]
