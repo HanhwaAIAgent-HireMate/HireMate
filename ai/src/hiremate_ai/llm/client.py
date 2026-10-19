@@ -63,6 +63,8 @@ def get_llm() -> LlmClient:
         api_key=settings.llm_api_key,
         timeout=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
+        max_tokens=settings.llm_max_tokens,
+        temperature=settings.llm_temperature,
     )
     return ChatLlm(
         model,
