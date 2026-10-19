@@ -1,5 +1,6 @@
 """요청 분류. 모델을 한 번 불러 요청 종류와 경로별 값을 받고, 없는 자료 · 결정 요청 · 되묻기는 코드가 바로 답한다."""
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -20,6 +21,11 @@ NO_INTERVIEW = "아직 면접 답변 기록이 없어요. @로 지원자를 골�
 
 _STAGE_LABELS = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
 
+# 모델이 자료가 필요하다고 해도 문장에 그 자료를 가리키는 낱말이 있을 때만 "아직 없다"고 답한다.
+# 잘못 막으면 정상 요청이 되묻기로 끝나고, 놓치면 경로가 자료가 없다고 정직하게 답한다
+_ASSESSMENT_WORDS = re.compile(r"평가|과제|점수|\d+\s*점")
+_INTERVIEW_WORDS = re.compile(r"답변|면접\s*기록")
+
 
 class RootRoute(BaseModel):
     """분류 결과. 해당하지 않는 칸은 기본값으로 둔다."""
@@ -37,7 +43,12 @@ class RootRoute(BaseModel):
     uses_checked: bool = Field(default=False, description="EDIT: 체크한 지원자를 가리킴")
     interview_questions: bool = Field(default=False, description="ANSWER: 면접 질문을 만들거나 고쳐 달라는 요청")
     all_candidates: bool = Field(default=False, description="ANSWER: 전형 지원자 모두를 가리킴")
-    needs: list[StageType] = Field(default=[], description="질문에 필요한 전형 자료")
+    needs_assessment: bool = Field(
+        default=False, description="요청에 평가 결과, 평가 점수, 과제, 'N점'이 직접 나오면 true"
+    )
+    needs_interview: bool = Field(
+        default=False, description="요청에 '면접 답변'이나 '면접 기록'이 직접 나오면 true. 면접 질문 만들기는 false"
+    )
     clarify: str | None = Field(default=None, description="CLARIFY: 되물을 말")
 
 
@@ -73,14 +84,16 @@ ANSWER
 - all_candidates: "다들", "전원", "모두"처럼 전형 지원자 모두를 가리킬 때.
 
 공통
-- needs: 답하는 데 필요한 전형 자료. 평가 결과, 과제, 평가 점수가 필요하면 ASSESSMENT, 면접 답변이 필요하면 INTERVIEW.
-  지원서만 보면 되면 비운다.
+- needs_assessment: 요청 문장에 평가 결과, 평가 점수, 과제, "N점"이 직접 나올 때만 true.
+- needs_interview: 요청 문장에 "면접 답변"이나 "면접 기록"이 직접 나올 때만 true.
+  면접 질문을 만들어 달라는 요청은 false다.
+- 서류, 지원서, 이력서, 자기소개서, 인재상만 나오면 두 칸 모두 false다.
 - 해당하지 않는 칸은 기본값으로 둔다.
 
 예
 - "결제 시스템을 만들어 본 사람 보여줘" → FIND, REPLACE, concepts ["결제 시스템 개발 경험"]
 - "그중에 리더 경험 있는 사람만" → FIND, NARROW, concepts ["리더 경험"]
-- "과제 점수는 높은데 자기소개서와 다른 사람" → FIND, REPLACE, score_gap, needs [ASSESSMENT]
+- "과제 점수는 높은데 자기소개서와 다른 사람" → FIND, REPLACE, score_gap, needs_assessment
 - "@김하늘 강점이 뭐야?" → ANSWER
 - "@김하늘 빼줘" → EDIT, REMOVE
 - "선택한 사람 다 지워줘" → EDIT, CLEAR
@@ -104,14 +117,25 @@ async def classify(llm: LlmClient, context: ChatContext, targets: Targets) -> Ro
     return await llm.structured(RootRoute, agent="root", system=ROUTE_SYSTEM, user=route_prompt(context, targets))
 
 
+def required_data(route: RootRoute, message: str) -> set[StageType]:
+    """요청에 필요한 전형 자료. 모델이 표시하고 문장에도 그 자료를 가리키는 낱말이 있는 것만 친다."""
+    required = set()
+    if route.needs_assessment and _ASSESSMENT_WORDS.search(message):
+        required.add(StageType.ASSESSMENT)
+    if route.needs_interview and _INTERVIEW_WORDS.search(message):
+        required.add(StageType.INTERVIEW)
+    return required
+
+
 def precheck(route: RootRoute, context: ChatContext) -> ChatPlan | None:
     """결정 요청, 아직 없는 전형 자료, 되묻기는 경로를 타지 않고 바로 답한다. 해당 없으면 None."""
     if route.kind == "DECISION":
         return ChatPlan.answer(Intent.CLARIFY, DECISION_REPLY)
     available = {context.stage_type, *context.previous_types}
-    if StageType.ASSESSMENT in route.needs and StageType.ASSESSMENT not in available:
+    missing = required_data(route, context.message) - available
+    if StageType.ASSESSMENT in missing:
         return ChatPlan.answer(Intent.CLARIFY, NO_ASSESSMENT)
-    if StageType.INTERVIEW in route.needs and StageType.INTERVIEW not in available:
+    if StageType.INTERVIEW in missing:
         return ChatPlan.answer(Intent.CLARIFY, NO_INTERVIEW)
     if route.kind == "CLARIFY":
         return ChatPlan.answer(Intent.CLARIFY, route.clarify or DEFAULT_CLARIFY)
