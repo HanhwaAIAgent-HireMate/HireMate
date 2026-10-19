@@ -1,11 +1,13 @@
 """요청 분류. 모델을 한 번 불러 요청 종류와 경로별 값을 받고, 없는 자료 · 결정 요청 · 되묻기는 코드가 바로 답한다."""
 
 import re
+from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.root.targets import Targets
+from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent, SelectionMode
 from hiremate_ai.contract import StageType
 from hiremate_ai.llm.client import LlmClient
@@ -18,6 +20,9 @@ DEFAULT_CLARIFY = (
 NOT_UNDERSTOOD = "요청을 이해하지 못했어요. " + DEFAULT_CLARIFY
 NO_ASSESSMENT = "아직 평가 결과가 없어요. 지원서에서 협업 경험이 약한 지원자를 찾아볼까요?"
 NO_INTERVIEW = "아직 면접 답변 기록이 없어요. @로 지원자를 골라 면접에서 확인할 점을 물어볼 수 있어요."
+NO_PREVIOUS = "앞 대화에서 가리킨 지원자를 찾지 못했어요. @로 골라 다시 말씀해 주세요."
+# 분류 프롬프트에 넣는 최근 턴 수
+RECENT_TURNS = 3
 
 _STAGE_LABELS = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
 
@@ -53,6 +58,10 @@ class RootRoute(BaseModel):
         default=False, description="요청에 '면접 답변'이나 '면접 기록'이 직접 나오면 true. 면접 질문 만들기는 false"
     )
     clarify: str | None = Field(default=None, description="CLARIFY: 되물을 말")
+    previous_ref: Literal["none", "result", "subject"] = Field(
+        default="none", description="앞 대화를 가리킴: result는 직전 찾기 결과, subject는 직전에 다룬 지원자"
+    )
+    ordinal: int | None = Field(default=None, description="'두 번째'처럼 순서를 말하면 그 번호")
 
 
 ROUTE_SYSTEM = """너는 채용 담당자가 전형 화면의 AI Chat에 쓴 요청을 분류한다.
@@ -87,6 +96,12 @@ ANSWER
 - interview_questions: 면접 질문을 만들거나 고쳐 달라는 요청.
 - all_candidates: "다들", "전원", "모두"처럼 전형 지원자 모두를 가리킬 때.
 
+앞 대화
+- 이름이나 @ 없이 앞 대화의 지원자를 가리키면 previous_ref를 쓴다.
+  "방금 찾은 사람들", "그중 두 번째 사람"(설명 · 편집 요청)은 result, "아까 그 사람", "그 지원자"는 subject.
+  "두 번째", "첫 번째"처럼 순서가 있으면 ordinal에 번호를 적는다.
+- "그중 ~만", "그중에 ~ 있는 사람"처럼 조건으로 좁히는 찾기는 previous_ref 없이 FIND NARROW다.
+
 공통
 - needs_assessment: 요청 문장에 평가 결과, 평가 점수, 과제, "N점"이 직접 나올 때만 true.
 - needs_interview: 요청 문장에 "면접 답변"이나 "면접 기록"이 직접 나올 때만 true.
@@ -105,21 +120,32 @@ ANSWER
 - "체크한 사람들 합격 처리해" → DECISION"""
 
 
-def route_prompt(context: ChatContext, targets: Targets) -> str:
-    """분류에 필요한 것만 넣는다. 지원자 문서는 넣지 않는다."""
+def route_prompt(context: ChatContext, targets: Targets, turns: Sequence[Turn] = ()) -> str:
+    """분류에 필요한 것만 넣는다. 지원자 문서는 넣지 않는다. 앞 대화는 질문과 다룬 지원자 이름만."""
     previous = ", ".join(_STAGE_LABELS[stage] for stage in context.previous_types) or "없음"
     names = ", ".join(row.name for row in targets.rows) or "없음"
-    return (
+    prompt = (
         f"질문: {context.message}\n"
         f"현재 전형: {context.stage_name} ({_STAGE_LABELS[context.stage_type]})\n"
         f"끝난 전형: {previous}\n"
         f"대상 지원자: {names}\n"
         f"체크한 지원자: {len(context.checked)}명"
     )
+    if turns:
+        by_id = {str(row.application_id): row.name for row in context.candidates}
+        lines = []
+        for number, turn in enumerate(turns[-RECENT_TURNS:], start=1):
+            people = ", ".join(by_id[target] for target in turn["targets"] if target in by_id) or "없음"
+            label = "찾기 결과" if turn["intent"] == "FIND" else "대상"
+            lines.append(f'{number}. "{turn["message"]}" → {label}: {people}')
+        prompt += "\n앞 대화 (오래된 것부터):\n" + "\n".join(lines)
+    return prompt
 
 
-async def classify(llm: LlmClient, context: ChatContext, targets: Targets) -> RootRoute:
-    return await llm.structured(RootRoute, agent="root", system=ROUTE_SYSTEM, user=route_prompt(context, targets))
+async def classify(llm: LlmClient, context: ChatContext, targets: Targets, turns: Sequence[Turn] = ()) -> RootRoute:
+    return await llm.structured(
+        RootRoute, agent="root", system=ROUTE_SYSTEM, user=route_prompt(context, targets, turns)
+    )
 
 
 def required_data(route: RootRoute, message: str) -> set[StageType]:

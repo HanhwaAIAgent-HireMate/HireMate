@@ -18,10 +18,10 @@ from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.answer import plan_answer, plan_questions
 from hiremate_ai.agents.root.edit import plan_edit
 from hiremate_ai.agents.root.find import plan_find
-from hiremate_ai.agents.root.route import NOT_UNDERSTOOD, RootRoute, classify, precheck
+from hiremate_ai.agents.root.route import NO_PREVIOUS, NOT_UNDERSTOOD, RootRoute, classify, precheck
 from hiremate_ai.agents.root.targets import Targets, resolve
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
-from hiremate_ai.agents.root.turns import Turn, remember, turn_of
+from hiremate_ai.agents.root.turns import Turn, from_history, remember, turn_of
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import StageType
@@ -68,12 +68,21 @@ def build_root_graph(
 
     async def route(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         context = runtime.context
+        targets, turns = _targets(state), state.get("turns") or []
         try:
-            decided = await classify(llm, context, _targets(state))
+            decided = await classify(llm, context, targets, turns)
         except LlmOutputError:
             return {"plan": ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)}
         early = precheck(decided, context)
-        return {"route": decided, "plan": early} if early else {"route": decided}
+        if early:
+            return {"route": decided, "plan": early}
+        if decided.previous_ref != "none" and not targets.rows:
+            # 이름 없이 앞 대화의 지원자를 가리키면 대화방 기록에서 찾는다. 대상은 여전히 코드가 정한다
+            rows = from_history(context, turns, decided.previous_ref, decided.ordinal)
+            if not rows:
+                return {"route": decided, "plan": ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)}
+            return {"route": decided, "targets": Targets(rows=rows, ambiguous=[])}
+        return {"route": decided}
 
     def edit(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         return {"plan": plan_edit(_route(state), runtime.context, _targets(state))}
