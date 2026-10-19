@@ -880,7 +880,7 @@ Interview Agent
 지원자별 맞춤 질문
 ```
 
-면접 Stage 화면에서 바로 만들거나, AI Chat 요청을 받은 Root Agent가 Interview Agent를 부른다.
+면접 전형을 시작하면 지원자별 질문을 만들어 두고, AI Chat 요청을 받은 Root Agent가 필요한 자료와 Agent를 골라 확인할 점을 정리해 Interview Agent를 부른다.
 
 면접 질문은 모든 사람에게 동일하게 생성하기보다 이전 전형에서 확인된 내용 중 실제 면접에서 추가 검증할 가치가 있는 부분을 중심으로 제안한다.
 
