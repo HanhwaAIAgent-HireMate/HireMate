@@ -6,14 +6,16 @@
 import asyncio
 from collections.abc import Sequence
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.guardrails import evidence_source
+from hiremate_ai.agents.root.edit import SAME_NAME
 from hiremate_ai.agents.root.route import RootRoute
-from hiremate_ai.agents.root.targets import Targets
+from hiremate_ai.agents.root.targets import Targets, checked
 from hiremate_ai.agents.root.toolkit import RootToolContext, RootToolkit, candidate_ref, resolve_ref, scope_of
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem, ChatPlan, Intent
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem, ChatPlan, Decision, Intent
 from hiremate_ai.contract import DocumentType, StageType
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import LlmClient
@@ -22,6 +24,16 @@ from hiremate_ai.llm.client import LlmClient
 ANSWER_TIMEOUT_SECONDS = 45.0
 TEXT_LENGTH = 120
 NOT_FINISHED = "자료를 다 확인하지 못했어요. 질문을 좁혀 다시 물어봐 주세요."
+# 면접 질문: 이 인원까지는 지원자마다 확인할 점을 정리하고, 넘으면 HR 문장으로 한꺼번에 만든다
+FOCUS_LIMIT = 3
+BULK_LIMIT = 20
+NO_QUESTION_TARGET = "누구의 면접 질문을 만들까요? @로 고르거나 체크해 주세요."
+FOCUSED = "{count}명의 맞춤 질문을 만들어 카드에 넣었어요. 질문을 만든 이유는 아래와 같아요."
+BULK = (
+    "{count}명은 한 번에 자세히 살펴보기 어려워 지원 서류를 기준으로 질문을 만들었어요. "
+    "특정 지원자는 @로 골라 물어보면 이전 전형까지 확인해 만들어요."
+)
+INTERVIEW_AGENT = "Interview Agent"
 INTERVIEW_SOURCE = "면접 기록"
 # 하위 Agent를 감싼 도구. 부르면 답의 agents에 이 이름이 들어간다
 SUB_AGENT_TOOLS = {"analyze_application": "Application Agent", "analyze_assessment": "Assessment Agent"}
@@ -61,6 +73,24 @@ class RootAnswer(BaseModel):
     items: list[AnswerItem] = Field(default=[], description="지원자별 · 항목별 근거")
 
 
+FOCUS_SYSTEM = """너는 면접 질문을 만들기 전에 지원자마다 면접에서 더 확인할 점을 정리한다. 질문 문장은 만들지 않는다.
+
+- 요청에 필요한 자료만 도구로 고른다. 서류만 보면 되는 요청이면 면접 기록이나 전형 결과를 읽지 않아도 된다.
+- focus는 "확인할 점 + 근거 요약 + 담당자가 준 방향"을 한두 문장으로 쓴다.
+- reasons에는 확인할 점마다 근거 문장(도구 결과의 문장 그대로)과 출처를 단다. 근거가 없으면 status=CHECK다.
+- 지원자는 C1 같은 번호로만 가리킨다."""
+
+
+class QuestionFocusItem(BaseModel):
+    candidate: str = Field(description="지원자 번호(C1 같은)")
+    focus: str = Field(description="면접에서 확인할 점과 근거 요약, 담당자가 준 방향. 한두 문장")
+    reasons: list[AnswerItem] = Field(default=[], description="확인할 점마다의 근거")
+
+
+class RootQuestionFocus(BaseModel):
+    items: list[QuestionFocusItem]
+
+
 async def plan_answer(
     llm: LlmClient, route: RootRoute, context: ChatContext, targets: Targets, toolkit: RootToolkit
 ) -> ChatPlan:
@@ -75,6 +105,66 @@ async def plan_answer(
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
     items, sources = verify_items(answered.items, context)
     return ChatPlan.answer(Intent.ANSWER, answered.message, items, sources, sub_agents(scope.called))
+
+
+async def plan_questions(
+    llm: LlmClient, route: RootRoute, context: ChatContext, targets: Targets, toolkit: RootToolkit
+) -> ChatPlan:
+    """면접 전형의 면접 질문 요청. 질문은 backend가 Interview Agent로 만들고, Root는 대상과 확인할 점만 정한다.
+
+    3명 이하는 도구 루프로 지원자마다 확인할 점(question_focus)과 이유를 정리한다.
+    4명 이상은 HR 문장으로 한꺼번에 만든다.
+    """
+    if targets.ambiguous:
+        return ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names=", ".join(targets.ambiguous)))
+    rows = targets.rows or checked(context)
+    if not rows and route.all_candidates:
+        rows = [row for row in context.candidates if row.decision is Decision.PENDING][:BULK_LIMIT]
+    if not rows:
+        return ChatPlan.answer(Intent.CLARIFY, NO_QUESTION_TARGET)
+    ids = [row.application_id for row in rows]
+    if len(rows) > FOCUS_LIMIT:
+        return _questions_plan(BULK.format(count=len(rows)), ids, {}, [], [], [INTERVIEW_AGENT])
+
+    scope = scope_of(context)
+    agent = llm.tool_agent(
+        RootQuestionFocus, agent="root", system=FOCUS_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
+    )
+    prompt = answer_prompt(context, Targets(rows=rows, ambiguous=[]))
+    try:
+        async with asyncio.timeout(ANSWER_TIMEOUT_SECONDS):
+            result = await agent.run(prompt, context=scope)
+    except (LlmOutputError, TimeoutError):
+        return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+    focus: dict[UUID, str] = {}
+    reasons: list[AnswerItem] = []
+    for item in result.items:
+        row = resolve_ref(context, item.candidate)
+        if row is None or row.application_id not in ids:
+            continue
+        if item.focus.strip():
+            focus[row.application_id] = item.focus.strip()
+        reasons += [reason.model_copy(update={"candidate": item.candidate}) for reason in item.reasons]
+    items, sources = verify_items(reasons, context)
+    agents = [*sub_agents(scope.called), INTERVIEW_AGENT]
+    return _questions_plan(FOCUSED.format(count=len(rows)), ids, focus, items, sources, agents)
+
+
+def _questions_plan(
+    message: str, ids: list[UUID], focus: dict[UUID, str], items: list[ChatItem], sources: list[str], agents: list[str]
+) -> ChatPlan:
+    return ChatPlan(
+        intent=Intent.ANSWER,
+        mode=None,
+        edit=None,
+        targets=[],
+        message=message,
+        items=items,
+        sources=sources,
+        agents=agents,
+        question_targets=ids,
+        question_focus=focus,
+    )
 
 
 def answer_prompt(context: ChatContext, targets: Targets) -> str:

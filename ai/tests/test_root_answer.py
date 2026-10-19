@@ -1,5 +1,5 @@
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from uuid import UUID, uuid4
 
 import pytest
@@ -8,11 +8,17 @@ from root_context import make_context
 
 from hiremate_ai.agents.root import answer
 from hiremate_ai.agents.root.answer import (
+    BULK,
+    FOCUSED,
+    NO_QUESTION_TARGET,
     NOT_FINISHED,
     AnswerEvidence,
     AnswerItem,
+    QuestionFocusItem,
     RootAnswer,
+    RootQuestionFocus,
     plan_answer,
+    plan_questions,
 )
 from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.targets import resolve
@@ -27,6 +33,7 @@ from hiremate_ai.agents.root.types import (
 )
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
@@ -230,3 +237,119 @@ async def test_agents_from_called_tools(
     plan = await ask(llm, context, toolkit)
 
     assert plan.agents == ["Application Agent"]
+
+
+QUESTIONS = RootRoute(kind="ANSWER", interview_questions=True)
+FOCUS = "정산 배치를 줄일 때의 설계 판단과 장애 대응을 기술 심화로 확인"
+
+
+def interview_context(
+    applicants: Applicants,
+    company: CompanyProfile,
+    posting: PostingContent,
+    *,
+    mentions: Sequence[str] = (),
+    checked: Sequence[str] = (),
+) -> ChatContext:
+    return make_context(
+        applicants,
+        company,
+        posting,
+        message="면접 질문 만들어줘",
+        stage_type=StageType.INTERVIEW,
+        previous_types=(StageType.DOCUMENT,),
+        mentions=mentions,
+        checked=checked,
+    )
+
+
+def focused(*items: QuestionFocusItem) -> RootQuestionFocus:
+    return RootQuestionFocus(items=list(items))
+
+
+async def make_questions(llm: FakeLlm, route: RootRoute, context: ChatContext) -> ChatPlan:
+    return await plan_questions(llm, route, context, resolve(context), default_toolkit())
+
+
+async def test_focus_for_mentioned(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting, mentions=["정유민"])
+    reason = AnswerItem(
+        label="확인할 점", text="파티셔닝 기준", status="OK", evidence=[AnswerEvidence(sentence=BATCH, source="이력서")]
+    )
+    llm = FakeLlm(
+        ToolCall("get_candidate_documents", {"candidate": "C1"}),
+        focused(QuestionFocusItem(candidate="C1", focus=FOCUS, reasons=[reason])),
+    )
+
+    plan = await make_questions(llm, QUESTIONS, context)
+
+    jung = sample_applicants["정유민"].info.application_id
+    assert plan.intent is Intent.ANSWER
+    assert plan.question_targets == [jung]
+    assert plan.question_focus == {jung: FOCUS}
+    assert plan.message == FOCUSED.format(count=1)
+    assert (plan.items[0].application_id, plan.items[0].status) == (jung, "OK")
+    assert plan.sources == ["이력서"]
+    assert plan.agents == ["Interview Agent"]
+    assert plan.targets == []
+
+
+async def test_untargeted_refine_clarifies(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    llm = FakeLlm()
+
+    plan = await make_questions(llm, QUESTIONS, context)
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, NO_QUESTION_TARGET)
+    assert llm.calls == []
+
+
+async def test_bulk_skips_tool_loop(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    llm = FakeLlm()
+
+    plan = await make_questions(llm, RootRoute(kind="ANSWER", interview_questions=True, all_candidates=True), context)
+
+    assert len(plan.question_targets) == 8
+    assert plan.question_focus == {}
+    assert plan.message == BULK.format(count=8)
+    assert plan.agents == ["Interview Agent"]
+    assert llm.calls == []
+
+
+async def test_checked_targets_and_other_candidates_ignored(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting, checked=["김하늘", "박서준"])
+    llm = FakeLlm(
+        focused(
+            QuestionFocusItem(candidate="C2", focus="은행 계정계 장애 대응 경험을 구체적으로"),
+            QuestionFocusItem(candidate="C5", focus="대상이 아닌 지원자"),
+        )
+    )
+
+    plan = await make_questions(llm, QUESTIONS, context)
+
+    kim = sample_applicants["김하늘"].info.application_id
+    park = sample_applicants["박서준"].info.application_id
+    assert plan.question_targets == [kim, park]
+    assert plan.question_focus == {kim: "은행 계정계 장애 대응 경험을 구체적으로"}
+
+
+async def test_focus_failure_clarifies(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    def broken(call: LlmCall) -> RootQuestionFocus:
+        raise LlmOutputError("RootQuestionFocus 형식의 답을 받지 못했다")
+
+    context = interview_context(sample_applicants, sample_company, sample_posting, mentions=["정유민"])
+
+    plan = await make_questions(FakeLlm(broken), QUESTIONS, context)
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
