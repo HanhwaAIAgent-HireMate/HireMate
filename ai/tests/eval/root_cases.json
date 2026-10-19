@@ -1,7 +1,12 @@
 [
   {"id": "find-finance", "message": "금융 도메인과 관련된 경험이 있는 지원자 보여줘",
+   "include": ["정유민", "김하늘", "한예린"], "exclude": ["박서준", "이도윤", "최지우"],
    "expect": {"kind": "FIND", "mode": "REPLACE"}},
   {"id": "find-traffic", "message": "대용량 트래픽 처리해 본 사람 찾아줘",
+   "include": ["정유민", "박서준"], "exclude": ["이도윤", "최지우", "서민재"],
+   "expect": {"kind": "FIND", "mode": "REPLACE"}},
+  {"id": "find-collab", "message": "협업을 강조한 지원자 찾아줘",
+   "include": ["서민재"], "exclude": ["윤태오"],
    "expect": {"kind": "FIND", "mode": "REPLACE"}},
   {"id": "find-narrow", "message": "그중에 Spring 경험 있는 사람만 남겨줘",
    "expect": {"kind": "FIND", "mode": "NARROW"}},
