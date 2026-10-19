@@ -154,3 +154,22 @@ async def test_interview_records(
     assert "정산 배치 개선 과정은?" in result
     assert "파티셔닝" in result
     assert "면접 기록이 없어요" in result
+
+
+async def test_interview_records_unavailable_after_interview_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="확인",
+        stage_type=StageType.ASSESSMENT,
+        previous_types=(StageType.DOCUMENT, StageType.INTERVIEW),
+    )
+
+    llm, _ = await run_tools(context, ToolCall("get_interview_records", {"candidate": "C1"}))
+
+    result = llm.calls[-1].user
+    assert "불러오지 못했어요" in result
+    assert "면접 기록이 없어요" not in result

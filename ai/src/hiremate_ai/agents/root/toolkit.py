@@ -232,7 +232,11 @@ async def get_interview_records(candidate: str, runtime: ToolRuntime[RootToolCon
         return OUT_OF_SCOPE
     view = context.chat.interviews.get(row.application_id)
     if view is None or not (view.questions or view.previous):
-        return f"{_who(context.chat, row)}: 면접 기록이 없어요."
+        chat = context.chat
+        if chat.stage_type is not StageType.INTERVIEW and StageType.INTERVIEW in chat.previous_types:
+            # 면접 기록은 면접 전형 화면에서만 받는다. 없다고 단정하지 않게 한다
+            return f"{_who(chat, row)}: 이전 면접 기록은 이 전형에서 불러오지 못했어요. 기록이 없다는 뜻은 아니에요."
+        return f"{_who(chat, row)}: 면접 기록이 없어요."
     sections = [_who(context.chat, row)]
     for previous in view.previous:
         sections.append(f"[{previous.stage_name}]\n" + _questions(previous.questions))

@@ -36,6 +36,9 @@ BULK = (
 )
 INTERVIEW_AGENT = "Interview Agent"
 INTERVIEW_SOURCE = "면접 기록"
+RESULT_SOURCE = "전형 결과"
+COMPANY_SOURCE = "회사 소개"
+POSTING_SOURCE = "공고"
 # 하위 Agent를 감싼 도구. 부르면 답의 agents에 이 이름이 들어간다
 SUB_AGENT_TOOLS = {"analyze_application": "Application Agent", "analyze_assessment": "Assessment Agent"}
 
@@ -102,12 +105,14 @@ async def plan_answer(
     agent = llm.tool_agent(
         RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
     )
+    # 멘션 · 이름이 없으면 체크한 지원자를 대상으로 본다
+    rows = targets.rows or checked(context)
     try:
         async with asyncio.timeout(ANSWER_TIMEOUT_SECONDS):
-            answered = await agent.run(answer_prompt(context, targets), context=scope)
+            answered = await agent.run(answer_prompt(context, Targets(rows=rows, ambiguous=[])), context=scope)
     except (LlmOutputError, TimeoutError):
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
-    only = targets.rows[0] if len(targets.rows) == 1 else None
+    only = rows[0] if len(rows) == 1 else None
     items, sources = verify_items(answered.items, context, only)
     message = readable(answered.message, context)
     return ChatPlan.answer(Intent.ANSWER, message, items, sources, sub_agents(scope.called))
@@ -242,18 +247,57 @@ def _mentioned_row(context: ChatContext, text: str, only: CandidateRow | None) -
 
 
 def _verified_source(context: ChatContext, row: CandidateRow | None, evidence: AnswerEvidence) -> str | None:
-    """근거가 원문에 있으면 출처 이름(문서는 실제 문서로 고친다), 없으면 None. 문서 · 면접이 아닌 출처는 그대로 둔다."""
-    source = evidence.source.strip()
+    """근거가 원문에 있으면 출처 이름(문서는 실제 문서로 고친다), 없으면 None.
+
+    출처는 정해 둔 이름으로 맞춘다("이력서 경력란" → 이력서). 맞출 수 없는 출처의 근거는 버린다.
+    전형 결과(점수 · 결정)는 코드가 준 값이라 그대로 둔다.
+    """
+    source = _canonical_source(evidence.source)
     if source in _DOCUMENT_LABELS:
         if row is None:
             return None
         found = evidence_source(evidence.sentence, context.documents.get(row.application_id, []))
         return found.label if found else None
-    if source in (INTERVIEW_SOURCE, "면접 답변"):
-        if row is None:
-            return None
-        return INTERVIEW_SOURCE if _in_interviews(context, row, evidence.sentence) else None
-    return source
+    if source == INTERVIEW_SOURCE:
+        return INTERVIEW_SOURCE if row is not None and _in_interviews(context, row, evidence.sentence) else None
+    if source == COMPANY_SOURCE:
+        return source if _contains(_company_text(context), evidence.sentence) else None
+    if source == POSTING_SOURCE:
+        return source if _contains(_posting_text(context), evidence.sentence) else None
+    return source if source == RESULT_SOURCE else None
+
+
+def _canonical_source(source: str) -> str | None:
+    compact = "".join(source.split())
+    for label in ("자기소개서", "이력서", "포트폴리오", "자격증"):
+        if label in compact:
+            return label
+    if "자소서" in compact:
+        return "자기소개서"
+    if "면접" in compact:
+        return INTERVIEW_SOURCE
+    for label in (RESULT_SOURCE, COMPANY_SOURCE, POSTING_SOURCE):
+        if "".join(label.split()) in compact:
+            return label
+    return None
+
+
+def _company_text(context: ChatContext) -> str:
+    company = context.company
+    talents = " ".join(f"{talent.title} {talent.description}" for talent in company.talents)
+    return " ".join([company.name, company.intro, company.culture, talents, *company.benefits])
+
+
+def _posting_text(context: ChatContext) -> str:
+    posting = context.posting
+    return " ".join(
+        [posting.title, posting.intro, *posting.duties, *posting.qualifications, *posting.preferred, *posting.benefits]
+    )
+
+
+def _contains(text: str, sentence: str) -> bool:
+    needle = "".join(sentence.split())
+    return bool(needle) and needle in "".join(text.split())
 
 
 def _in_interviews(context: ChatContext, row: CandidateRow, sentence: str) -> bool:

@@ -411,3 +411,50 @@ def test_readable_keeps_name_with_digits(
 
     assert readable("C9 지원자1의 강점", context) == "지원자1의 강점"
     assert readable("C1 정유민은, C9는", context) == "정유민은, 지원자1는"
+
+
+async def test_source_label_variants_are_checked(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(sample_applicants, sample_company, sample_posting)
+
+    def item(sentence: str, source: str) -> AnswerItem:
+        return AnswerItem(
+            candidate="C1",
+            label=source,
+            text="근거",
+            status="OK",
+            evidence=[AnswerEvidence(sentence=sentence, source=source)],
+        )
+
+    llm = FakeLlm(
+        answered(
+            item("10년 동안 증권사 시스템을 설계했습니다.", "이력서 경력란"),
+            item(RETRO, "자소서"),
+            item("팀을 잘 이끈다", "느낌"),
+            item("고객 신뢰를 최우선으로", "회사 소개"),
+            item("가장 큰 결제 회사입니다", "회사 소개"),
+        )
+    )
+
+    plan = await ask(llm, context)
+
+    assert [entry.status for entry in plan.items] == ["CHECK", "OK", "CHECK", "OK", "CHECK"]
+    assert plan.sources == ["자기소개서", "회사 소개"]
+
+
+async def test_checked_applicants_are_answer_targets(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="체크한 두 사람 비교해줘",
+        checked=["김하늘", "박서준"],
+    )
+    llm = FakeLlm(answered(message="비교했어요."))
+
+    await ask(llm, context)
+
+    assert "C2 김하늘, C3 박서준" in llm.calls[0].user
