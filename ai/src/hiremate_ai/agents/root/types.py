@@ -114,6 +114,7 @@ class ChatContext(ContractModel):
 
     stage_id: UUID
     recruitment_id: UUID
+    thread_id: str  # 대화방 id. backend가 기업 · 전형 · 담당자로 만든다
     stage_name: str
     stage_type: StageType
     previous_types: list[StageType]
@@ -176,3 +177,14 @@ class ChatPlan(ContractModel):
             question_targets=[],
             question_focus={},
         )
+
+
+class ChatHistoryTurn(ContractModel):
+    """대화방의 지난 턴 하나 (ai.application.ChatHistoryTurn). 화면이 대화 기록을 다시 보여 줄 때 쓴다.
+
+    plan.message의 {count}는 backend가 대상 수로, {total}은 그때 전형 인원(total)으로 바꾼다.
+    """
+
+    message: str
+    plan: ChatPlan
+    total: int

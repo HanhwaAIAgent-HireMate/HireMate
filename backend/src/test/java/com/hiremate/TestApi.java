@@ -39,6 +39,10 @@ final class TestApi {
         csrf = null;
     }
 
+    UUID memberId() {
+        return UUID.fromString(member.path("memberId").asString());
+    }
+
     UUID companyId() {
         return UUID.fromString(member.path("companyId").asString());
     }

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.ChatContext;
+import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
@@ -37,6 +38,7 @@ class ContractSampleTests {
             "ApplicantDetail", ApplicantDetail.class,
             "CandidateAnalysis", CandidateAnalysis.class,
             "ChatContext", ChatContext.class,
+            "ChatHistoryTurn", ChatHistoryTurn.class,
             "ChatPlan", ChatPlan.class,
             "CompanyProfile", CompanyProfile.class,
             "PostingContent", PostingContent.class);

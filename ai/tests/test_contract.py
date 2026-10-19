@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan
+from hiremate_ai.agents.root.types import ChatContext, ChatHistoryTurn, ChatPlan
 from hiremate_ai.contract import ApplicantDetail, CandidateAnalysis, CompanyProfile, PostingContent
 
 CONTRACT_DIR = Path(__file__).resolve().parents[2] / "contract"
@@ -14,6 +14,7 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "ApplicantDetail": ApplicantDetail,
     "CandidateAnalysis": CandidateAnalysis,
     "ChatContext": ChatContext,
+    "ChatHistoryTurn": ChatHistoryTurn,
     "ChatPlan": ChatPlan,
     "CompanyProfile": CompanyProfile,
     "PostingContent": PostingContent,

@@ -127,6 +127,7 @@ public class RecruitService {
             throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_CONFIRMED", "Confirm the stage results first.");
         }
         stage.finish();
+        events.publishEvent(new StageFinished(stageId, companyId));
         Recruitment recruitment = recruitment(companyId, stage.getRecruitmentId());
         Optional<Stage> next = stages.findByRecruitmentIdOrderBySeq(stage.getRecruitmentId()).stream()
                 .filter(candidate -> candidate.getSeq() > stage.getSeq())
