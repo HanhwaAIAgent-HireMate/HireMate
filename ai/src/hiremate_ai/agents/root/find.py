@@ -19,7 +19,7 @@ from hiremate_ai.agents.root.types import (
     Intent,
     SelectionMode,
 )
-from hiremate_ai.contract import StageType
+from hiremate_ai.contract import DocumentType, StageType
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
@@ -30,6 +30,7 @@ ITEM_LIMIT = 5
 RECHECK_LIMIT = 30
 EVIDENCE_LENGTH = 48
 LIMIT_NOTE = " 조건에 가까운 30명 중에서 골랐어요."
+_DOCUMENT_LABELS = {document.label for document in DocumentType}
 REPLACED = "지원자 {total}명 중 조건에 맞는 **{count}명**을 선택했어요."
 ADDED = "조건에 맞는 **{count}명**을 선택 지원자에 더했어요."
 NARROWED = "{pool}명 중 **{{count}}명**으로 좁혔어요."
@@ -41,14 +42,14 @@ RECHECK_SYSTEM = """너는 채용 담당자의 지원자 찾기 요청에서, �
 - 요청의 조건을 모두 충족하는 근거 문장이 있으면 met=true, 아니면 met=false다.
 - 도메인 경험은 그 업계의 회사나 서비스에서 일한 경력이다.
   다른 업계에서 비슷한 기능을 만든 일, 개인 · 학교 프로젝트, 데이터를 분석만 한 일은 그 도메인 경험이 아니다.
-- 근거 문장(sentence)은 주어진 문장 하나를 글자 그대로 옮긴다. met=false면 비운다.
+- 근거는 후보 블록의 문장 번호(sentence_no) 하나로 답한다. met=false면 비운다.
 - application_id는 후보 블록의 id를 그대로 쓴다."""
 
 
 class RecheckItem(BaseModel):
     application_id: str = Field(description="후보 블록의 id")
     met: bool = Field(description="요청의 조건을 모두 충족하는 근거가 있으면 true")
-    sentence: str | None = Field(default=None, description="근거 문장. 주어진 문장을 글자 그대로")
+    sentence_no: int | None = Field(default=None, description="근거 문장의 번호 (후보 블록 안의 1, 2, ...)")
 
 
 class RecheckResult(BaseModel):
@@ -127,11 +128,17 @@ async def plan_find(llm: LlmClient, route: RootRoute, context: ChatContext, tool
 async def recheck(
     llm: LlmClient, context: ChatContext, concepts: list[str], matches: list[CandidateMatch]
 ) -> list[tuple[UUID, str, str]]:
-    """모델이 충족한다고 판정하고 근거 문장이 원문에 있는 후보만 (id, 문장, 출처)로 돌려준다. 검색 순서를 지킨다."""
+    """모델이 충족한다고 판정한 후보만 (id, 근거 문장, 출처)로 돌려준다. 검색 순서를 지킨다.
+
+    모델은 문장을 옮겨 쓰지 않고 번호로만 답한다. 제출 문서에서 온 문장은 원문에 있는지 한 번 더 확인한다 (규칙 7).
+    """
     blocks = "\n\n".join(
         data_block(
             "candidate",
-            "\n".join(f"- [{sourced.source}] {sourced.sentence}" for sourced in match.sentences),
+            "\n".join(
+                f"{number}. [{sourced.source}] {sourced.sentence}"
+                for number, sourced in enumerate(match.sentences, start=1)
+            ),
             id=str(match.application_id),
         )
         for match in matches
@@ -144,11 +151,16 @@ async def recheck(
     verified = []
     for match in matches:
         item = judged.get(str(match.application_id))
-        if item is None or not item.met or not item.sentence:
+        if item is None or not item.met or item.sentence_no is None:
             continue
-        source = evidence_source(item.sentence, context.documents.get(match.application_id, []))
-        if source is not None:
-            verified.append((match.application_id, item.sentence.strip(), source.label))
+        if not 1 <= item.sentence_no <= len(match.sentences):
+            continue
+        sourced = match.sentences[item.sentence_no - 1]
+        if sourced.source in _DOCUMENT_LABELS:
+            found = evidence_source(sourced.sentence, context.documents.get(match.application_id, []))
+            if found is None:
+                continue
+        verified.append((match.application_id, sourced.sentence, sourced.source))
     return verified
 
 

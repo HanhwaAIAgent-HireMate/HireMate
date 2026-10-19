@@ -75,14 +75,8 @@ async def test_find_flows_to_plan(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험자 찾아줘")
-    sentence = "간편결제 정산 시스템을 Spring Boot로 새로 만들었습니다."
-    recheck = RecheckResult(
-        results=[
-            RecheckItem(
-                application_id=str(sample_applicants["김하늘"].info.application_id), met=True, sentence=sentence
-            )
-        ]
-    )
+    application_id = str(sample_applicants["김하늘"].info.application_id)
+    recheck = RecheckResult(results=[RecheckItem(application_id=application_id, met=True, sentence_no=1)])
     llm = FakeLlm(RootRoute(kind="FIND", mode=SelectionMode.REPLACE, concepts=["금융 도메인 경험"]), recheck)
 
     plan = await run_plan(llm, context)
