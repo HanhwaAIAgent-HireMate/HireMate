@@ -1,9 +1,10 @@
 from root_context import make_context
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY
+from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import PENDING, build_root_graph, run_plan
 from hiremate_ai.agents.root.route import DECISION_REPLY, NOT_UNDERSTOOD, RootRoute
-from hiremate_ai.agents.root.types import ChatPlan, EditAction, Intent
+from hiremate_ai.agents.root.types import ChatPlan, EditAction, Intent, SelectionMode
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.fake import FakeLlm, LlmCall
@@ -59,16 +60,35 @@ async def test_precheck_answers_without_path(
     assert plan == ChatPlan.answer(Intent.CLARIFY, DECISION_REPLY)
 
 
-async def test_find_and_answer_are_pending(
+async def test_answer_is_pending(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="@정유민 강점이 뭐야?")
+
+    plan = await run_plan(FakeLlm(RootRoute(kind="ANSWER")), context)
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, PENDING)
+    assert "지원자 찾기" in PENDING.split("준비 중")[1]
+
+
+async def test_find_flows_to_plan(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험자 찾아줘")
-    llm = FakeLlm(RootRoute(kind="FIND", concepts=["금융 도메인 경험"]), RootRoute(kind="ANSWER"))
+    sentence = "간편결제 정산 시스템을 Spring Boot로 새로 만들었습니다."
+    recheck = RecheckResult(
+        results=[
+            RecheckItem(
+                application_id=str(sample_applicants["김하늘"].info.application_id), met=True, sentence=sentence
+            )
+        ]
+    )
+    llm = FakeLlm(RootRoute(kind="FIND", mode=SelectionMode.REPLACE, concepts=["금융 도메인 경험"]), recheck)
 
-    found = await run_plan(llm, context)
-    answered = await run_plan(llm, context)
+    plan = await run_plan(llm, context)
 
-    assert found == answered == ChatPlan.answer(Intent.CLARIFY, PENDING)
+    assert (plan.intent, plan.mode) == (Intent.FIND, SelectionMode.REPLACE)
+    assert plan.targets == [sample_applicants["김하늘"].info.application_id]
 
 
 async def test_state_does_not_keep_chat_context(
