@@ -1,13 +1,27 @@
+from collections.abc import Mapping, Sequence
 from typing import Any
+from uuid import UUID, uuid4
 
-from root_context import make_context
+from root_context import extra_row, make_context
 
-from hiremate_ai.agents.root.find import candidate_pool, plan_find
-from hiremate_ai.agents.root.route import DEFAULT_CLARIFY, RootRoute
-from hiremate_ai.agents.root.toolkit import default_toolkit
+from hiremate_ai.agents.root.find import (
+    LIMIT_NOTE,
+    NOT_FOUND,
+    RECHECK_LIMIT,
+    RecheckItem,
+    RecheckResult,
+    candidate_pool,
+    plan_find,
+)
+from hiremate_ai.agents.root.route import DEFAULT_CLARIFY, NOT_UNDERSTOOD, RootRoute
+from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, Intent, SelectionMode
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
-from hiremate_ai.llm.fake import FakeLlm
+from hiremate_ai.llm.chat import LlmOutputError
+from hiremate_ai.llm.fake import FakeLlm, LlmCall
+from hiremate_ai.llm.prompt import UNTRUSTED_RULE
+from hiremate_ai.tools.candidates import CandidateMatch, SourcedSentence
+from hiremate_ai.tools.scope import ToolScope
 
 type Applicants = dict[str, ApplicantDetail]
 
@@ -128,3 +142,190 @@ async def test_narrow_and_add_messages(
     assert names(context, narrowed) == ["정유민"]
     assert narrowed.message == "3명 중 **{count}명**으로 좁혔어요."
     assert added.message == "조건에 맞는 **{count}명**을 선택 지원자에 더했어요."
+
+
+FINANCE = RootRoute(kind="FIND", mode=SelectionMode.REPLACE, concepts=["금융 도메인 경험"])
+SENTENCES = {
+    "정유민": "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다.",
+    "김하늘": "간편결제 정산 시스템을 Spring Boot로 새로 만들었습니다.",
+    "한예린": "가맹점 정산 시스템을 Java와 Spring Batch로 개발했습니다.",
+}
+
+
+def rechecked(applicants: Applicants, met: Mapping[str, str | None], *extra: RecheckItem) -> RecheckResult:
+    return RecheckResult(
+        results=[
+            RecheckItem(
+                application_id=str(applicants[name].info.application_id), met=sentence is not None, sentence=sentence
+            )
+            for name, sentence in met.items()
+        ]
+        + list(extra)
+    )
+
+
+class SpySearch:
+    """받은 조건과 후보를 기록하고, 정해 둔 결과를 돌려준다."""
+
+    def __init__(self, matches: list[CandidateMatch] | None = None) -> None:
+        self.matches = matches or []
+        self.calls: list[tuple[list[str], list[UUID]]] = []
+
+    async def __call__(self, scope: ToolScope, concepts: Sequence[str], pool: Sequence[UUID]) -> list[CandidateMatch]:
+        self.calls.append((list(concepts), list(pool)))
+        return self.matches
+
+
+async def test_finance_keeps_rechecked(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+    llm = FakeLlm(rechecked(sample_applicants, {**SENTENCES, "박서준": None, "이도윤": None}))
+
+    plan = await plan_find(llm, FINANCE, context, default_toolkit())
+
+    assert names(context, plan) == ["정유민", "김하늘", "한예린"]
+    assert [item.label for item in plan.items] == ["정유민", "김하늘", "한예린"]
+    assert plan.items[1].text == SENTENCES["김하늘"]
+    assert plan.sources == ["이력서"]
+    assert plan.agents == []
+    assert [call.agent for call in llm.calls] == ["root"]
+
+
+async def test_recheck_drops_unverified_sentence(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+    made_up = {"정유민": SENTENCES["정유민"], "박서준": "카드사에서 결제 시스템을 5년 운영했습니다."}
+
+    plan = await plan_find(FakeLlm(rechecked(sample_applicants, made_up)), FINANCE, context, default_toolkit())
+
+    assert names(context, plan) == ["정유민"]
+
+
+async def test_recheck_ignores_unknown_ids(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+    result = rechecked(
+        sample_applicants,
+        {"정유민": SENTENCES["정유민"]},
+        RecheckItem(application_id=str(uuid4()), met=True, sentence=SENTENCES["김하늘"]),
+        RecheckItem(application_id="not-a-uuid", met=True, sentence=SENTENCES["한예린"]),
+    )
+
+    plan = await plan_find(FakeLlm(result), FINANCE, context, default_toolkit())
+
+    assert names(context, plan) == ["정유민"]
+
+
+async def test_recheck_prompt_uses_data_blocks(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+    llm = FakeLlm(rechecked(sample_applicants, {"정유민": SENTENCES["정유민"]}))
+
+    await plan_find(llm, FINANCE, context, default_toolkit())
+
+    call = llm.calls[0]
+    assert call.user.count("<data") == 6
+    assert "금융 도메인 경험" in call.user
+    assert "금융 경험 있는 사람 찾아줘" in call.user
+    assert "정유민" not in call.user
+    assert UNTRUSTED_RULE in call.system
+
+
+async def test_none_met_answers_not_found(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+
+    plan = await plan_find(FakeLlm(rechecked(sample_applicants, {"박서준": None})), FINANCE, context, default_toolkit())
+
+    assert plan == ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
+
+
+async def test_no_search_match_skips_model(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="양자 컴퓨팅 경험자 찾아줘")
+    llm = FakeLlm()
+
+    plan = await plan_find(llm, RootRoute(kind="FIND", concepts=["양자 컴퓨팅"]), context, default_toolkit())
+
+    assert plan == ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
+    assert llm.calls == []
+
+
+async def test_recheck_error_clarifies(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    def broken(call: LlmCall) -> RecheckResult:
+        raise LlmOutputError("RecheckResult 형식의 답을 받지 못했다")
+
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+
+    plan = await plan_find(FakeLlm(broken), FINANCE, context, default_toolkit())
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
+
+
+async def test_recheck_limit(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    rows = [extra_row(f"지원자{number}") for number in range(30)]
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘", extra_rows=rows
+    )
+    first = sample_applicants["정유민"].info.application_id
+    matches = [CandidateMatch(application_id=first, sentences=[SourcedSentence(SENTENCES["정유민"], "이력서")], hits=2)]
+    matches += [
+        CandidateMatch(
+            application_id=row.application_id,
+            sentences=[SourcedSentence("결제 시스템을 만들었습니다", "이력서")],
+            hits=1,
+        )
+        for row in context.candidates
+        if row.application_id != first
+    ]
+    llm = FakeLlm(rechecked(sample_applicants, {"정유민": SENTENCES["정유민"]}))
+
+    plan = await plan_find(llm, FINANCE, context, RootToolkit(search=SpySearch(matches)))
+
+    assert len(matches) > RECHECK_LIMIT
+    assert llm.calls[0].user.count("<data") == RECHECK_LIMIT
+    assert names(context, plan) == ["정유민"]
+    assert plan.message.endswith(LIMIT_NOTE)
+
+
+async def test_use_talents_adds_concepts(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="우리 회사가 중요하게 보는 사람")
+    search = SpySearch()
+
+    await plan_find(FakeLlm(), RootRoute(kind="FIND", use_talents=True), context, RootToolkit(search=search))
+
+    concepts = search.calls[0][0]
+    assert len(concepts) == len(sample_company.talents)
+    for concept, talent in zip(concepts, sample_company.talents, strict=True):
+        assert talent.title in concept
+        assert talent.description in concept
+
+
+async def test_scores_then_search(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = assessment_context(sample_applicants, sample_company, sample_posting)
+    search = SpySearch()
+
+    await plan_find(
+        FakeLlm(),
+        RootRoute(kind="FIND", min_score=80, concepts=["금융 도메인 경험"]),
+        context,
+        RootToolkit(search=search),
+    )
+
+    pool = search.calls[0][1]
+    by_id = {row.application_id: row.name for row in context.candidates}
+    assert [by_id[application_id] for application_id in pool] == ["정유민", "박서준"]
