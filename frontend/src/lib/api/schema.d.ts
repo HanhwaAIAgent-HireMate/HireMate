@@ -331,10 +331,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["history"];
         put?: never;
         post: operations["chat"];
-        delete?: never;
+        delete: operations["forget"];
         options?: never;
         head?: never;
         patch?: never;
@@ -683,7 +683,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["history"];
+        get: operations["history_1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1305,6 +1305,10 @@ export interface components {
             /** @enum {string} */
             analysisStatus: "PENDING" | "DONE" | "FAILED";
         };
+        ChatTurn: {
+            message: string;
+            answer: components["schemas"]["ChatAnswer"];
+        };
         ApplicantDocument: {
             /** @enum {string} */
             type: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
@@ -1475,8 +1479,8 @@ export interface components {
         };
         CsrfToken: {
             headerName: string;
-            token: string;
             parameterName: string;
+            token: string;
         };
         CsrfResponse: {
             token: string;
@@ -2062,6 +2066,28 @@ export interface operations {
             };
         };
     };
+    history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ChatTurn"][];
+                };
+            };
+        };
+    };
     chat: {
         parameters: {
             query?: never;
@@ -2085,6 +2111,26 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["ChatAnswer"];
                 };
+            };
+        };
+    };
+    forget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -2684,7 +2730,7 @@ export interface operations {
             };
         };
     };
-    history: {
+    history_1: {
         parameters: {
             query?: never;
             header?: never;

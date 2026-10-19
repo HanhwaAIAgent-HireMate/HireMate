@@ -2,8 +2,14 @@ import { AlertCircle, ArrowUp, AtSign, Check, History, Sparkles, X } from 'lucid
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { AgentChip } from '@/features/posting/AiRequestPanel'
-import { useChat, useMentionCandidates, type ChatAnswer } from '@/features/chat/api'
-import { useChatStore, type ChatMessage } from '@/features/chat/store'
+import {
+  useChat,
+  useChatHistory,
+  useForgetChat,
+  useMentionCandidates,
+  type ChatAnswer,
+} from '@/features/chat/api'
+import { turnsToMessages, useChatStore, type ChatMessage } from '@/features/chat/store'
 import { careerLabel, type StageOverview } from '@/features/screening/api'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
@@ -30,7 +36,9 @@ const EXAMPLES: Record<StageOverview['type'], string[]> = {
 export function ChatPanel({ overview }: { overview: StageOverview }) {
   const stageId = overview.stageId
   const messages = useChatStore((state) => state.threads[stageId] ?? EMPTY)
-  const { append, clear } = useChatStore()
+  const { append, seed, clear } = useChatStore()
+  const history = useChatHistory(stageId)
+  const forget = useForgetChat(stageId)
   const { mentions, removeMention, addMention, checked } = useStageUi()
   const chat = useChat(stageId)
   const [text, setText] = useState('')
@@ -39,6 +47,10 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
   const input = useRef<HTMLInputElement>(null)
   const mentionQuery = /@([^\s@]*)$/.exec(text)?.[1]
   const suggestions = useMentionCandidates(stageId, mentionQuery ?? '', mentionQuery !== undefined)
+
+  useEffect(() => {
+    if (history.data) seed(stageId, turnsToMessages(history.data))
+  }, [history.data, seed, stageId])
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
@@ -79,7 +91,8 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
         <button
           aria-label="대화 지우기"
           title="대화 지우기"
-          onClick={() => clear(stageId)}
+          disabled={forget.isPending}
+          onClick={() => forget.mutate(undefined, { onSuccess: () => clear(stageId) })}
           className="text-muted-foreground hover:text-foreground"
         >
           <History className="size-4" />
