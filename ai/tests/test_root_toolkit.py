@@ -105,3 +105,10 @@ def test_default_toolkit_uses_keyword_search() -> None:
 
     assert toolkit.search is keyword_search
     assert tuple(toolkit.answer_tools) == ()
+
+
+def test_english_synonyms() -> None:
+    from hiremate_ai.agents.root.toolkit import concept_terms
+
+    assert "collaboration" in concept_terms("협업 경험")
+    assert "payment" in concept_terms("금융 도메인 경험")
