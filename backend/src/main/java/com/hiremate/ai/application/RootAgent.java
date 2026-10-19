@@ -1,7 +1,19 @@
 package com.hiremate.ai.application;
 
+import java.util.List;
+import java.util.UUID;
+
 /** Root Agent (Recruitment Orchestrator). 요청을 해석해 실행 계획을 만든다. 지원자를 직접 고르거나 상태를 바꾸지 않는다. */
 public interface RootAgent {
 
     ChatPlan plan(ChatContext context);
+
+    /** 대화방의 지난 턴. 대화방이 없으면 빈 목록이다. */
+    List<ChatHistoryTurn> history(String threadId);
+
+    /** 대화방 하나를 지운다 ([대화 지우기]). */
+    void forget(String threadId);
+
+    /** 전형의 대화방을 모두 지운다 (전형 종료). */
+    void forgetStage(UUID stageId);
 }

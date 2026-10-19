@@ -5,6 +5,7 @@ import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.CandidateAnalyst;
 import com.hiremate.ai.application.ChatContext;
+import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatItem;
 import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.ChatPlan.EditAction;
@@ -64,6 +65,20 @@ class StubRootAgent implements RootAgent {
 
     StubRootAgent(CandidateAnalyst analyst) {
         this.analyst = analyst;
+    }
+
+    /** 개발용 Root는 대화를 기억하지 않는다. */
+    @Override
+    public List<ChatHistoryTurn> history(String threadId) {
+        return List.of();
+    }
+
+    @Override
+    public void forget(String threadId) {
+    }
+
+    @Override
+    public void forgetStage(UUID stageId) {
     }
 
     @Override

@@ -67,6 +67,7 @@ def make_context(
     return ChatContext(
         stage_id=STAGE_ID,
         recruitment_id=first.info.recruitment_id,
+        thread_id=f"{company.company_id}:{STAGE_ID}:test",
         stage_name="서류 전형" if stage_type is StageType.DOCUMENT else "1차 면접",
         stage_type=stage_type,
         previous_types=list(previous_types),

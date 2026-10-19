@@ -4,7 +4,7 @@
 """
 
 from collections.abc import Sequence
-from typing import TypedDict
+from typing import Any, TypedDict
 from uuid import UUID
 
 from hiremate_ai.agents.root.targets import Targets
@@ -25,6 +25,7 @@ class Turn(TypedDict):
     items: list[TurnItem]
     focus: dict[str, str]
     total: int  # 그때 전형 인원
+    plan: dict[str, Any]  # 화면에 다시 보여 줄 계획 (ChatPlan JSON)
 
 
 def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan) -> Turn:
@@ -48,6 +49,7 @@ def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan) -> Tu
         ],
         focus={str(application_id): focus for application_id, focus in plan.question_focus.items()},
         total=len(context.candidates),
+        plan=plan.model_dump(mode="json"),
     )
 
 

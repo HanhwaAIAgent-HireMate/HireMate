@@ -47,7 +47,8 @@ public class ChatService {
         this.settings = settings;
     }
 
-    public ChatAnswer chat(UUID companyId, UUID stageId, String message, List<UUID> mentions, List<UUID> checked) {
+    public ChatAnswer chat(UUID companyId, UUID stageId, UUID memberId, String message, List<UUID> mentions,
+            List<UUID> checked) {
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         StageInfo stage = recruitment.stage(stageId).orElseThrow();
         List<CandidateRow> candidates = screening.candidates(companyId, stageId, null, 0, 1000).items();
@@ -62,7 +63,8 @@ public class ChatService {
         Map<UUID, InterviewView> interviewViews = stage.type() == StageType.INTERVIEW
                 ? interviews.views(companyId, stageId, candidates.stream().map(CandidateRow::applicationId).toList())
                 : Map.of();
-        ChatContext context = new ChatContext(stageId, recruitment.id(), stage.name(), stage.type(), previous,
+        ChatContext context = new ChatContext(stageId, recruitment.id(), threadId(companyId, stageId, memberId),
+                stage.name(), stage.type(), previous,
                 candidates, applications.documents(companyId, recruitment.id()), documentScores, interviewViews,
                 mentions, checked, companies.profile(companyId),
                 postings.draftContext(companyId, recruitment.id()).content(), message);
@@ -120,6 +122,26 @@ public class ChatService {
             default -> throw new IllegalStateException("Unknown edit " + plan.edit());
         }
         return plan.targets().size();
+    }
+
+    /** 담당자의 이 전형 대화 기록. 다른 기업의 전형이면 찾을 수 없다. */
+    public List<ChatTurn> history(UUID companyId, UUID stageId, UUID memberId) {
+        recruits.getByStage(companyId, stageId);
+        return root.history(threadId(companyId, stageId, memberId)).stream()
+                .map(turn -> new ChatTurn(turn.message(),
+                        answer(turn.plan(), false, turn.plan().targets().size(), turn.total())))
+                .toList();
+    }
+
+    /** [대화 지우기]: 담당자의 이 전형 대화방을 지운다. */
+    public void forget(UUID companyId, UUID stageId, UUID memberId) {
+        recruits.getByStage(companyId, stageId);
+        root.forget(threadId(companyId, stageId, memberId));
+    }
+
+    /** 대화방은 담당자별 · 전형별이다. 기업까지 넣어 다른 기업의 대화방과 섞이지 않게 한다. */
+    private static String threadId(UUID companyId, UUID stageId, UUID memberId) {
+        return companyId + ":" + stageId + ":" + memberId;
     }
 
     private ChatAnswer answer(ChatPlan plan, boolean changed, int applied, int total) {
