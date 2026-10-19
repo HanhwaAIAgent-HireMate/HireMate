@@ -3,6 +3,8 @@ package com.hiremate.ai;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.ai.application.CandidateAnalysis;
+import com.hiremate.ai.application.ChatContext;
+import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.posting.PostingContent;
@@ -34,6 +36,8 @@ class ContractSampleTests {
     private static final Map<String, Class<?>> SAMPLES = Map.of(
             "ApplicantDetail", ApplicantDetail.class,
             "CandidateAnalysis", CandidateAnalysis.class,
+            "ChatContext", ChatContext.class,
+            "ChatPlan", ChatPlan.class,
             "CompanyProfile", CompanyProfile.class,
             "PostingContent", PostingContent.class);
 

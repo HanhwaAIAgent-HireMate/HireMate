@@ -160,7 +160,7 @@ src/hiremate_ai/
 - 설정은 `config.py`의 `settings`로만 읽는다. `os.environ`을 직접 쓰지 않는다.
 - 함수에는 타입 힌트를 단다. mypy가 검사한다.
 - 테이블은 `ai` 스키마에 둔다. backend가 Flyway로 관리하는 `public` 스키마에는 쓰지 않는다. 마이그레이션은 Alembic으로 한다.
-- 여러 Agent가 같이 쓰는 backend 타입은 `contract.py`에 있다. 한 Agent만 쓰는 요청, 응답 타입은 그 Agent의 라우터 파일에 두고
+- 여러 Agent가 같이 쓰는 backend 타입은 `contract.py`에 있다. 한 Agent만 쓰는 요청, 응답 타입은 그 Agent 패키지 안(라우터 파일, 패키지 안 여러 모듈이 같이 쓰면 `types.py`)에 두고
   공통 타입을 조합한다. 계약 타입을 바꾸면 `contract/`의 샘플도 고친다 (`contract/README.md`).
 - backend 연동 엔드포인트는 `POST /agents/{agent}/{method}`다. 요청 본문은 backend Agent 인터페이스 메서드의
   매개변수 이름을 키로 한 JSON 객체, 응답은 반환 타입의 JSON이다.
