@@ -16,6 +16,7 @@ from hiremate_ai.agents.root.edit import SAME_NAME
 from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.targets import Targets, checked
 from hiremate_ai.agents.root.toolkit import RootToolContext, RootToolkit, candidate_ref, resolve_ref, scope_of
+from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem, ChatPlan, Decision, Intent
 from hiremate_ai.contract import DocumentType, StageType
 from hiremate_ai.llm.chat import LlmOutputError
@@ -56,6 +57,8 @@ ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확�
 - 지원자에 관한 항목은 candidate에 반드시 그 지원자 번호를 적는다. 여러 지원자를 비교하면 지원자마다 항목을 따로 만든다.
 - 근거 문장(evidence.sentence)은 도구 결과의 문장을 글자 그대로 옮기고, 출처(source)를 적는다.
   출처는 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, 회사 소개, 공고 가운데 하나다.
+- 앞 대화나 이전에 만든 면접 질문의 이유를 물으면 get_previous_turns로 그때 정리한 확인할 점과 근거를 보고 답한다.
+  이유를 새로 지어내지 않는다.
 - 채용 결정, 점수 변경, 상태 변경은 하지 않는다. 그런 요청은 담당자가 화면에서 한다고 안내한다.
 - message는 담당자에게 하는 짧은 답이고, items는 지원자별 · 항목별 근거다."""
 
@@ -99,9 +102,14 @@ class RootQuestionFocus(BaseModel):
 
 
 async def plan_answer(
-    llm: LlmClient, route: RootRoute, context: ChatContext, targets: Targets, toolkit: RootToolkit
+    llm: LlmClient,
+    route: RootRoute,
+    context: ChatContext,
+    targets: Targets,
+    toolkit: RootToolkit,
+    turns: Sequence[Turn] = (),
 ) -> ChatPlan:
-    scope = scope_of(context)
+    scope = scope_of(context, turns)
     agent = llm.tool_agent(
         RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
     )
@@ -119,7 +127,12 @@ async def plan_answer(
 
 
 async def plan_questions(
-    llm: LlmClient, route: RootRoute, context: ChatContext, targets: Targets, toolkit: RootToolkit
+    llm: LlmClient,
+    route: RootRoute,
+    context: ChatContext,
+    targets: Targets,
+    toolkit: RootToolkit,
+    turns: Sequence[Turn] = (),
 ) -> ChatPlan:
     """면접 전형의 면접 질문 요청. 질문은 backend가 Interview Agent로 만들고, Root는 대상과 확인할 점만 정한다.
 
@@ -137,7 +150,7 @@ async def plan_questions(
     if len(rows) > FOCUS_LIMIT:
         return _questions_plan(BULK.format(count=len(rows)), ids, {}, [], [], [INTERVIEW_AGENT])
 
-    scope = scope_of(context)
+    scope = scope_of(context, turns)
     agent = llm.tool_agent(
         RootQuestionFocus, agent="root", system=FOCUS_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
     )

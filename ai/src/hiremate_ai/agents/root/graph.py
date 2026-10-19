@@ -92,10 +92,10 @@ def build_root_graph(
 
     async def answer(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         context = runtime.context
-        decided, targets = _route(state), _targets(state)
+        decided, targets, turns = _route(state), _targets(state), state.get("turns") or []
         if decided.interview_questions and context.stage_type is StageType.INTERVIEW:
-            return {"plan": await plan_questions(llm, decided, context, targets, tools)}
-        return {"plan": await plan_answer(llm, decided, context, targets, tools)}
+            return {"plan": await plan_questions(llm, decided, context, targets, tools, turns)}
+        return {"plan": await plan_answer(llm, decided, context, targets, tools, turns)}
 
     def record(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         turn = turn_of(runtime.context, state.get("targets"), _plan(state))
