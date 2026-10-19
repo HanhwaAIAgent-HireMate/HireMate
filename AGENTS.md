@@ -150,7 +150,7 @@ src/hiremate_ai/
 │       ├── communication/      안내 초안
 │       └── report/             최종 리포트 초안
 ├── tools/                      Agent 도구
-├── llm/                        모델 클라이언트 (LlmClient, 테스트용 FakeLlm), 프롬프트 자료 블록, 호출 로그
+├── llm/                        모델 클라이언트 (LlmClient, 도구 루프 Agent, 테스트용 FakeLlm), 프롬프트 자료 블록, 호출 로그
 ├── db/                         ai 스키마 (Base, 세션)
 │   └── migrations/             Alembic 리비전
 └── worker/                     분석 작업 소비자
@@ -158,6 +158,8 @@ src/hiremate_ai/
 
 - 분석 Agent는 자료가 들어올 때 지원자 프로필을 갱신한다. 생성 Agent는 초안만 만들고 게시나 발송은 수행하지 않는다.
 - Root Agent는 분석과 생성 작업을 연결한다. 지원자를 직접 분석하거나 채용 상태를 변경하지 않는다.
+- 하위 Agent(분석, 생성)는 패키지 최상위에 async 함수로 기능을 공개한다. Root Agent는 그 함수를 import해 부르거나
+  `@tool`로 감싸 도구 루프에 준다. ai 서버 안에서 Agent끼리 HTTP로 부르지 않는다.
 - 설정은 `config.py`의 `settings`로만 읽는다. `os.environ`을 직접 쓰지 않는다.
 - 함수에는 타입 힌트를 단다. mypy가 검사한다.
 - 테이블은 `ai` 스키마에 둔다. backend가 Flyway로 관리하는 `public` 스키마에는 쓰지 않는다. 마이그레이션은 Alembic으로 한다.
@@ -167,8 +169,17 @@ src/hiremate_ai/
   매개변수 이름을 키로 한 JSON 객체, 응답은 반환 타입의 JSON이다.
 - 모델은 `llm.client`의 `LlmClient`로만 부른다. 호출은 `ai.llm_calls`에 기록된다. 라우터는 `LlmDep`으로 받고,
   테스트는 `app.dependency_overrides[get_llm]`에 `FakeLlm`을 넣는다. 실제 모델 연결 설정은 `ai/.env.example`에 있다.
+- 한 번 묻고 형식대로 받으면 `structured`, 모델이 도구를 골라 가며 자료를 확인해야 하면 `tool_agent`(도구 루프, ReAct)를 쓴다.
+  도구 루프는 Root Agent의 B 분석 · 생성 경로에만 쓴다. A 지원자 찾기는 같은 질문에 같은 후보가 나오도록 코드 검색으로,
+  C 선택 지원자 편집은 명령 변환으로 처리한다. `create_agent`나 `ChatOpenAI`를 직접 쓰지 않는다.
+  호출 로그, 도구 결과 감싸기, 호출 상한(`LLM_AGENT_MAX_CALLS`)이 빠진다.
+- LangGraph 그래프를 만드는 함수는 `LlmClient`를 인자로 받는다. 노드는 그것으로 모델을 부르고, 테스트는 `FakeLlm`을 넘긴다.
+  `FakeLlm`에는 모델 호출 순서대로 응답을 넣는다. 도구 루프에서는 `ToolCall`이 도구 호출, output 형식의 값이 최종 답이다.
+- 도구는 `langchain.tools`의 `@tool`을 단 async 함수로, 여러 Agent가 쓰면 `tools/`에, 한 Agent만 쓰면 그 Agent 패키지에 둔다.
+  조회 범위(기업, 채용, 전형)는 도구 인자로 받지 않고 `ToolRuntime`의 `context`로 받는다. 값은 코드가
+  `ToolAgent.run(context=...)`으로 넣는다 (규칙 4). 도구 루프에는 조회 도구만 준다. 선택 편집은 도구가 아니라 응답의 명령으로 낸다.
 - 제출 문서, URL 본문, 평가 메모는 `llm.prompt`의 `document_block`, `data_block`으로 감싸 넣고 system에 `UNTRUSTED_RULE`을 넣는다.
-  분석 Agent에는 쓰기 도구를 주지 않는다 (규칙 5).
+  도구 루프는 도구 결과를 자동으로 감싸고 `UNTRUSTED_RULE`을 붙인다. 분석 Agent에는 쓰기 도구를 주지 않는다 (규칙 5).
 - 차별 조건 요청은 `agents.guardrails.blocked_attribute`로 판정해 `BLOCKED_REPLY`로 답한다 (규칙 6).
   모델이 낸 근거 문장은 `evidence_source`, `verified_evidence`로 원문에 있는지 확인하고 없으면 버린다 (규칙 7).
 - Agent 테스트는 `tests/samples`의 가상 지원자(`sample_applicants` 등 fixture)를 쓴다. 지원자별 정답은 `tests/samples/README.md`에 있다.
