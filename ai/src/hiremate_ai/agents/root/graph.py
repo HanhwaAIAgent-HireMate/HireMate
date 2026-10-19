@@ -11,14 +11,18 @@ from langgraph.runtime import Runtime
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.edit import plan_edit
+from hiremate_ai.agents.root.find import plan_find
 from hiremate_ai.agents.root.route import NOT_UNDERSTOOD, RootRoute, classify, precheck
 from hiremate_ai.agents.root.targets import Targets, resolve
+from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import LlmClient
 
-# 찾기(A)와 분석 · 생성(B)을 붙이기 전까지의 답
-PENDING = "지원자 찾기와 분석은 아직 준비 중이에요. 선택 지원자 넣기, 빼기, 비우기, 되돌리기는 지금 쓸 수 있어요."
+# 분석 · 생성(B)을 붙이기 전까지의 답
+PENDING = (
+    "지원자 분석은 아직 준비 중이에요. 지원자 찾기와 선택 지원자 넣기, 빼기, 비우기, 되돌리기는 지금 쓸 수 있어요."
+)
 
 
 class RootState(TypedDict, total=False):
@@ -27,8 +31,14 @@ class RootState(TypedDict, total=False):
     plan: ChatPlan
 
 
-def build_root_graph(llm: LlmClient) -> CompiledStateGraph[RootState, ChatContext, RootState, RootState]:
-    """노드는 llm으로 모델을 부른다. 테스트는 FakeLlm을 넘긴다. 실행할 때 context에 ChatContext를 준다."""
+def build_root_graph(
+    llm: LlmClient, toolkit: RootToolkit | None = None
+) -> CompiledStateGraph[RootState, ChatContext, RootState, RootState]:
+    """노드는 llm으로 모델을 부른다. 테스트는 FakeLlm을 넘긴다. 실행할 때 context에 ChatContext를 준다.
+
+    toolkit을 주지 않으면 ChatContext 문서로 동작하는 임시 도구를 쓴다.
+    """
+    tools = toolkit or default_toolkit()
 
     def guard(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         context = runtime.context
@@ -48,6 +58,9 @@ def build_root_graph(llm: LlmClient) -> CompiledStateGraph[RootState, ChatContex
     def edit(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         return {"plan": plan_edit(state["route"], runtime.context, state["targets"])}
 
+    async def find(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        return {"plan": await plan_find(llm, state["route"], runtime.context, tools)}
+
     def pending(state: RootState) -> RootState:
         return {"plan": ChatPlan.answer(Intent.CLARIFY, PENDING)}
 
@@ -57,23 +70,25 @@ def build_root_graph(llm: LlmClient) -> CompiledStateGraph[RootState, ChatContex
     def after_route(state: RootState) -> str:
         if "plan" in state:
             return END
-        return "edit" if state["route"].kind == "EDIT" else "pending"
+        return {"EDIT": "edit", "FIND": "find"}.get(state["route"].kind, "pending")
 
     graph: StateGraph[RootState, ChatContext, RootState, RootState] = StateGraph(RootState, context_schema=ChatContext)
     graph.add_node("guard", guard)
     graph.add_node("route", route)
     graph.add_node("edit", edit)
+    graph.add_node("find", find)
     graph.add_node("pending", pending)
     graph.add_edge(START, "guard")
     graph.add_conditional_edges("guard", after_guard)
     graph.add_conditional_edges("route", after_route)
     graph.add_edge("edit", END)
+    graph.add_edge("find", END)
     graph.add_edge("pending", END)
     return graph.compile()
 
 
-async def run_plan(llm: LlmClient, context: ChatContext) -> ChatPlan:
-    state: dict[str, Any] = await build_root_graph(llm).ainvoke({}, context=context)
+async def run_plan(llm: LlmClient, context: ChatContext, toolkit: RootToolkit | None = None) -> ChatPlan:
+    state: dict[str, Any] = await build_root_graph(llm, toolkit).ainvoke({}, context=context)
     plan = state["plan"]
     if not isinstance(plan, ChatPlan):
         raise TypeError(f"Root 그래프가 계획을 내지 않았다: {state.keys()}")
