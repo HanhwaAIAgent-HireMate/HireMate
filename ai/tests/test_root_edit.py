@@ -106,3 +106,20 @@ def test_edit_without_action_clarifies(
     context = make_context(sample_applicants, sample_company, sample_posting, message="정유민 어떻게 해줘")
 
     assert edit(context, None) == ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
+
+
+def test_mention_wins_over_checked(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="@김하늘 빼줘",
+        mentions=["김하늘"],
+        checked=["정유민", "박서준", "이도윤"],
+    )
+
+    plan = edit(context, EditAction.REMOVE, uses_checked=True)
+
+    assert plan.targets == [sample_applicants["김하늘"].info.application_id]

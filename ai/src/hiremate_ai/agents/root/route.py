@@ -23,7 +23,10 @@ _STAGE_LABELS = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", S
 
 # 모델이 자료가 필요하다고 해도 문장에 그 자료를 가리키는 낱말이 있을 때만 "아직 없다"고 답한다.
 # 잘못 막으면 정상 요청이 되묻기로 끝나고, 놓치면 경로가 자료가 없다고 정직하게 답한다
-_ASSESSMENT_WORDS = re.compile(r"평가|과제|점수|\d+\s*점")
+_ASSESSMENT_WORDS = re.compile(r"평가|과제|점수")
+_POINTS = re.compile(r"\d+\s*점")
+# "서류 점수", "서류 평가"는 서류 전형의 값이라 평가 결과가 아니다. 이 말이 있으면 "N점"도 서류 점수로 본다
+_DOCUMENT_SCORE = re.compile(r"(?:서류|지원서|이력서|자기소개서|자소서)\s*(?:점수|평가)")
 _INTERVIEW_WORDS = re.compile(r"답변|면접\s*기록")
 
 
@@ -88,6 +91,7 @@ ANSWER
 - needs_interview: 요청 문장에 "면접 답변"이나 "면접 기록"이 직접 나올 때만 true.
   면접 질문을 만들어 달라는 요청은 false다.
 - 서류, 지원서, 이력서, 자기소개서, 인재상만 나오면 두 칸 모두 false다.
+  "서류 점수", "서류 평가"는 평가 결과가 아니다.
 - 해당하지 않는 칸은 기본값으로 둔다.
 
 예
@@ -120,11 +124,18 @@ async def classify(llm: LlmClient, context: ChatContext, targets: Targets) -> Ro
 def required_data(route: RootRoute, message: str) -> set[StageType]:
     """요청에 필요한 전형 자료. 모델이 표시하고 문장에도 그 자료를 가리키는 낱말이 있는 것만 친다."""
     required = set()
-    if route.needs_assessment and _ASSESSMENT_WORDS.search(message):
+    if route.needs_assessment and _mentions_assessment(message):
         required.add(StageType.ASSESSMENT)
     if route.needs_interview and _INTERVIEW_WORDS.search(message):
         required.add(StageType.INTERVIEW)
     return required
+
+
+def _mentions_assessment(message: str) -> bool:
+    rest = _DOCUMENT_SCORE.sub(" ", message)
+    if _ASSESSMENT_WORDS.search(rest):
+        return True
+    return rest == message and bool(_POINTS.search(message))
 
 
 def precheck(route: RootRoute, context: ChatContext) -> ChatPlan | None:
