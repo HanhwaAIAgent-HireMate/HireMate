@@ -6,7 +6,7 @@ from langchain.tools import ToolRuntime, tool
 from pydantic import BaseModel
 
 from hiremate_ai.config import settings
-from hiremate_ai.llm.chat import LlmOutputError
+from hiremate_ai.llm.chat import LlmOutputError, final_answer_rule
 from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE
 
@@ -47,8 +47,15 @@ async def test_runs_tools_with_scope_from_code_and_returns_answer() -> None:
     assert result == Opinion(text="경력이 충분하다")
     assert seen_scopes[-1] == stage_id
     assert [call.agent for call in llm.calls] == ["root", "root"]
-    assert llm.calls[0].system == f"지원자를 분석한다\n\n{UNTRUSTED_RULE}"
+    assert llm.calls[0].system == f"지원자를 분석한다\n\n{UNTRUSTED_RULE}\n\n{final_answer_rule('Opinion')}"
     assert llm.calls[0].user == "[human] @김지원 경력 어때?"
+
+
+def test_final_answer_rule_names_output() -> None:
+    rule = final_answer_rule("Opinion")
+
+    assert "Opinion" in rule
+    assert "본문 글은 쓰지 않는다" in rule
 
 
 def test_model_cannot_choose_scope() -> None:

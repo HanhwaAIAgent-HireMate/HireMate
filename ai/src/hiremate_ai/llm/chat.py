@@ -127,6 +127,14 @@ class ToolAgent[T: BaseModel]:
         return result
 
 
+def final_answer_rule(output_name: str) -> str:
+    """도구 루프 system에 붙이는 규칙. 서버가 도구 호출 앞의 글을 허용하면 모델이 답을 글로 쓰다 끊기는 일을 막는다."""
+    return (
+        "응답은 언제나 도구 호출이다. 본문 글은 쓰지 않는다. "
+        f"자료를 다 확인했으면 최종 답은 {output_name} 도구의 인자로만 낸다."
+    )
+
+
 def build_tool_agent[T: BaseModel](
     model: BaseChatModel,
     call_log: CallLog,
@@ -143,7 +151,9 @@ def build_tool_agent[T: BaseModel](
     graph = create_agent(
         model,
         tools,
-        system_prompt="\n\n".join(part for part in (system, UNTRUSTED_RULE) if part),
+        system_prompt="\n\n".join(
+            part for part in (system, UNTRUSTED_RULE, final_answer_rule(output.__name__)) if part
+        ),
         middleware=[
             _ToolResultBlock(),
             _CallLogMiddleware(_Recorder(call_log, agent=agent, model=model_name)),

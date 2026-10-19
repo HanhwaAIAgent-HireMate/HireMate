@@ -202,9 +202,16 @@ def test_get_llm_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_get_llm_builds_chat_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "llm_model", "test-model")
     monkeypatch.setattr(settings, "llm_api_key", SecretStr("test"))
+    monkeypatch.setattr(settings, "llm_max_tokens", 512)
+    monkeypatch.setattr(settings, "llm_temperature", 0.3)
     client.get_llm.cache_clear()
 
     try:
-        assert isinstance(client.get_llm(), ChatLlm)
+        llm = client.get_llm()
+        assert isinstance(llm, ChatLlm)
+        model = llm._model
+        assert isinstance(model, ChatOpenAI)
+        assert model.max_tokens == 512
+        assert model.temperature == 0.3
     finally:
         client.get_llm.cache_clear()
