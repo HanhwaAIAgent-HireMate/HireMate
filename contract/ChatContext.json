@@ -1,9 +1,9 @@
 {
   "stageId": "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b61",
   "recruitmentId": "7a1e2b3c-4d5e-4f60-8a9b-0c1d2e3f4a51",
-  "stageName": "1차 면접",
+  "stageName": "최종 면접",
   "stageType": "INTERVIEW",
-  "previousTypes": ["DOCUMENT"],
+  "previousTypes": ["DOCUMENT", "INTERVIEW"],
   "candidates": [
     {
       "applicationId": "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60",
@@ -43,6 +43,26 @@
   },
   "documentScores": {
     "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": 88
+  },
+  "interviews": {
+    "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": {
+      "applicationId": "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60",
+      "schedule": {"scheduledAt": "2026-11-05T05:00:00Z", "interviewers": "면접관 2명"},
+      "questions": [
+        {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c41", "text": "정산 배치 시간을 줄일 때 가장 어려웠던 결정은?", "source": "AI", "answer": "파티셔닝 기준을 월 단위로 정한 것"},
+        {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c42", "text": "장애 회고는 어떻게 진행했나요?", "source": "MANUAL", "answer": ""}
+      ],
+      "previous": [
+        {
+          "stageId": "8c7b6a5f-4e3d-4c2b-9a1f-0e9d8c7b6a52",
+          "stageName": "1차 면접",
+          "schedule": null,
+          "questions": [
+            {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c43", "text": "결제 승인 서버의 응답 시간을 어떻게 줄였나요?", "source": "AI", "answer": "짧음"}
+          ]
+        }
+      ]
+    }
   },
   "mentions": ["3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"],
   "checked": [],

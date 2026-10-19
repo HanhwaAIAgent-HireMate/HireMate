@@ -9,5 +9,6 @@
   ],
   "sources": ["이력서"],
   "agents": ["Application Agent"],
-  "questionTargets": ["3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"]
+  "questionTargets": ["3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"],
+  "questionFocus": {"3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": "자기소개서의 장애 회고 경험을 실제 역할 중심으로 확인"}
 }

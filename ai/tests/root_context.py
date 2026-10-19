@@ -1,9 +1,9 @@
 """Root Agent 테스트에서 가상 지원자로 ChatContext를 만드는 도우미. 지원자는 이름으로 가리킨다."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from uuid import UUID, uuid4
 
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewView
 from hiremate_ai.contract import AnalysisStatus, ApplicantDetail, CompanyProfile, PostingContent, StageType
 
 STAGE_ID = UUID("9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b61")
@@ -37,6 +37,7 @@ def make_context(
     checked: Sequence[str | UUID] = (),
     selected: Sequence[str] = (),
     extra_rows: Sequence[CandidateRow] = (),
+    interviews: Mapping[UUID, InterviewView] | None = None,
 ) -> ChatContext:
     """가상 지원자 8명이 모두 미결정이고 기준선 위에 있는 전형. 이름이 겹치면 먼저 나온 지원자를 가리킨다."""
     rows = [
@@ -72,6 +73,7 @@ def make_context(
         candidates=rows,
         documents={applicant.info.application_id: applicant.documents for applicant in applicants.values()},
         document_scores={},
+        interviews=dict(interviews or {}),
         mentions=pick(mentions),
         checked=pick(checked),
         company=company,

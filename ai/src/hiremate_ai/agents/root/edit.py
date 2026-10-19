@@ -56,4 +56,5 @@ def _edit(action: EditAction, targets: list[UUID], message: str) -> ChatPlan:
         sources=[],
         agents=[],
         question_targets=[],
+        question_focus={},
     )

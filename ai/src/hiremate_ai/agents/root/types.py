@@ -4,6 +4,7 @@
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
@@ -67,6 +68,47 @@ class CandidateRow(ContractModel):
     analysis_status: AnalysisStatus
 
 
+class QuestionSource(StrEnum):
+    """면접 질문을 만든 쪽 (interview.QuestionSource)."""
+
+    AI = "AI"
+    MANUAL = "MANUAL"
+
+
+class InterviewSchedule(ContractModel):
+    """면접 일정 (InterviewView.Schedule)."""
+
+    scheduled_at: datetime | None
+    interviewers: str
+
+
+class InterviewQuestion(ContractModel):
+    """면접 질문 하나와 기록한 답변 (InterviewView.Question). 답변이 없으면 빈 문자열이다."""
+
+    question_id: UUID
+    text: str
+    source: QuestionSource
+    answer: str
+
+
+class PreviousInterview(ContractModel):
+    """이전 면접 전형의 질문과 답변 (InterviewView.PreviousInterview)."""
+
+    stage_id: UUID
+    stage_name: str
+    schedule: InterviewSchedule | None
+    questions: list[InterviewQuestion]
+
+
+class InterviewView(ContractModel):
+    """면접 전형 지원자 카드의 면접 기록 (interview.InterviewView)."""
+
+    application_id: UUID
+    schedule: InterviewSchedule | None
+    questions: list[InterviewQuestion]
+    previous: list[PreviousInterview]
+
+
 class ChatContext(ContractModel):
     """Root Agent가 받는 요청 범위: 현재 채용 · 전형 + 대상(@멘션 · 체크) + 질문 (ai.application.ChatContext)."""
 
@@ -78,6 +120,7 @@ class ChatContext(ContractModel):
     candidates: list[CandidateRow]
     documents: dict[UUID, list[ApplicantDocument]]
     document_scores: dict[UUID, int]
+    interviews: dict[UUID, InterviewView]  # 면접 전형일 때만 채워진다
     mentions: list[UUID]
     checked: list[UUID]
     company: CompanyProfile
@@ -109,6 +152,7 @@ class ChatPlan(ContractModel):
     sources: list[str]
     agents: list[str]
     question_targets: list[UUID]
+    question_focus: dict[UUID, str]  # 지원자별로 Interview Agent에 넘길 확인할 점
 
     @classmethod
     def answer(
@@ -130,4 +174,5 @@ class ChatPlan(ContractModel):
             sources=list(sources),
             agents=list(agents),
             question_targets=[],
+            question_focus={},
         )
