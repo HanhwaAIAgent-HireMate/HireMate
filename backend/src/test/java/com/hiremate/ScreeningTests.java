@@ -229,7 +229,7 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("면접 전형은 맞춤 질문을 만들고 질문별 답변을 기록하며, 다음 면접에서 이전 기록을 보여 준다")
+    @DisplayName("면접 전형은 AI Chat으로 맞춤 질문을 만들고 질문별 답변을 기록하며, 다음 면접에서 이전 기록을 보여 준다")
     void interviewQuestionsAndAnswers() throws Exception {
         Stage stage = startDocumentStage(1, "전형은 서류, 1차 면접, 최종 면접 순으로 해줘");
         TestApi hr = stage.hr();
@@ -237,7 +237,10 @@ class ScreeningTests extends IntegrationTest {
         String first = passAndFinish(hr, stage.path(), id);
 
         String card = first + "/candidates/" + id + "/interview";
-        JsonNode generated = json(expect(hr.post(card + "/generate", Map.of()), 200));
+        expect(hr.post(card + "/generate", Map.of()), 404);
+        expect(hr.post(first + "/chat",
+                Map.of("message", "맞춤 질문 만들어줘", "mentionIds", List.of(id), "checkedIds", List.of())), 200);
+        JsonNode generated = json(expect(hr.get(card), 200));
         assertThat(generated.path("questions").size()).isPositive();
         assertThat(generated.path("questions").get(0).path("source").asString()).isEqualTo("AI");
         JsonNode added = json(expect(hr.post(card + "/questions", Map.of("text", "가장 어려웠던 장애 대응은?")), 200));
@@ -256,8 +259,9 @@ class ScreeningTests extends IntegrationTest {
         JsonNode next = json(expect(hr.get(last + "/candidates/" + id + "/interview"), 200));
         assertThat(next.path("previous").get(0).path("stageName").asString()).isEqualTo("1차 면접");
         assertThat(next.path("previous").get(0).path("questions").size()).isPositive();
-        JsonNode recommended = json(expect(hr.post(last + "/candidates/" + id + "/interview/generate",
-                Map.of("focus", "확인 안 된 부분 중심으로")), 200));
+        expect(hr.post(last + "/chat", Map.of("message", "확인 안 된 부분 중심으로 질문 만들어줘",
+                "mentionIds", List.of(id), "checkedIds", List.of())), 200);
+        JsonNode recommended = json(expect(hr.get(last + "/candidates/" + id + "/interview"), 200));
         assertThat(recommended.path("questions").toString()).contains("충분히 확인하지 못한");
         JsonNode history = json(expect(hr.get(last + "/candidates/" + id + "/history"), 200));
         assertThat(history.size()).isEqualTo(3);
