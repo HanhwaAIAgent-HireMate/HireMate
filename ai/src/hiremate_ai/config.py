@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     llm_max_retries: int = 2
     # 구조화 출력 방식. 서버가 json_schema를 지원하지 않으면 function_calling이나 json_mode로 바꾼다
     llm_structured_output: Literal["json_schema", "function_calling", "json_mode"] = "json_schema"
+    # 도구 루프 Agent가 질문 하나에 모델을 부르는 최대 횟수. 넘으면 답을 내지 못한 것으로 보고 실패한다
+    llm_agent_max_calls: int = 8
 
 
 settings = Settings()
