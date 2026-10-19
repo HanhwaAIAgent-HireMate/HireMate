@@ -1,9 +1,13 @@
-"""Root Agent 흐름 (LangGraph). 차단 → 대상 확인 · 분류 → 경로별 계획. 지원자를 직접 고르거나 상태를 바꾸지 않는다."""
+"""Root Agent 흐름 (LangGraph). 차단 → 대상 확인 · 분류 → 경로별 계획. 지원자를 직접 고르거나 상태를 바꾸지 않는다.
+
+ChatContext는 그래프 상태가 아니라 실행 context로 넘긴다. 지원자 문서 본문이 상태(나중에 대화 기록)에 남지 않는다.
+"""
 
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.runtime import Runtime
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.edit import plan_edit
@@ -18,23 +22,22 @@ PENDING = "지원자 찾기와 분석은 아직 준비 중이에요. 선택 지�
 
 
 class RootState(TypedDict, total=False):
-    context: ChatContext
     targets: Targets
     route: RootRoute
     plan: ChatPlan
 
 
-def build_root_graph(llm: LlmClient) -> CompiledStateGraph[RootState, None, RootState, RootState]:
-    """노드는 llm으로 모델을 부른다. 테스트는 FakeLlm을 넘긴다."""
+def build_root_graph(llm: LlmClient) -> CompiledStateGraph[RootState, ChatContext, RootState, RootState]:
+    """노드는 llm으로 모델을 부른다. 테스트는 FakeLlm을 넘긴다. 실행할 때 context에 ChatContext를 준다."""
 
-    def guard(state: RootState) -> RootState:
-        context = state["context"]
+    def guard(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        context = runtime.context
         if blocked_attribute(context.message):
             return {"plan": ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY)}
         return {"targets": resolve(context)}
 
-    async def route(state: RootState) -> RootState:
-        context = state["context"]
+    async def route(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        context = runtime.context
         try:
             decided = await classify(llm, context, state["targets"])
         except LlmOutputError:
@@ -42,8 +45,8 @@ def build_root_graph(llm: LlmClient) -> CompiledStateGraph[RootState, None, Root
         early = precheck(decided, context)
         return {"route": decided, "plan": early} if early else {"route": decided}
 
-    def edit(state: RootState) -> RootState:
-        return {"plan": plan_edit(state["route"], state["context"], state["targets"])}
+    def edit(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        return {"plan": plan_edit(state["route"], runtime.context, state["targets"])}
 
     def pending(state: RootState) -> RootState:
         return {"plan": ChatPlan.answer(Intent.CLARIFY, PENDING)}
@@ -56,7 +59,7 @@ def build_root_graph(llm: LlmClient) -> CompiledStateGraph[RootState, None, Root
             return END
         return "edit" if state["route"].kind == "EDIT" else "pending"
 
-    graph: StateGraph[RootState, None, RootState, RootState] = StateGraph(RootState)
+    graph: StateGraph[RootState, ChatContext, RootState, RootState] = StateGraph(RootState, context_schema=ChatContext)
     graph.add_node("guard", guard)
     graph.add_node("route", route)
     graph.add_node("edit", edit)
@@ -70,7 +73,7 @@ def build_root_graph(llm: LlmClient) -> CompiledStateGraph[RootState, None, Root
 
 
 async def run_plan(llm: LlmClient, context: ChatContext) -> ChatPlan:
-    state: dict[str, Any] = await build_root_graph(llm).ainvoke({"context": context})
+    state: dict[str, Any] = await build_root_graph(llm).ainvoke({}, context=context)
     plan = state["plan"]
     if not isinstance(plan, ChatPlan):
         raise TypeError(f"Root 그래프가 계획을 내지 않았다: {state.keys()}")
