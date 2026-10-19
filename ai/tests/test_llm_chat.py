@@ -182,6 +182,17 @@ async def test_db_call_log_failure_does_not_raise() -> None:
         await engine.dispose()
 
 
+def test_build_llm_uses_given_call_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "llm_model", "test-model")
+    monkeypatch.setattr(settings, "llm_api_key", SecretStr("test"))
+    log = RecordingCallLog()
+
+    llm = client.build_llm(log)
+
+    assert isinstance(llm, ChatLlm)
+    assert llm._call_log is log
+
+
 def test_get_llm_requires_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "llm_model", "")
     client.get_llm.cache_clear()
