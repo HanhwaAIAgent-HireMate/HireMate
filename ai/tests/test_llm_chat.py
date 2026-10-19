@@ -3,6 +3,7 @@ from typing import Any
 
 import httpx
 import pytest
+from langchain.tools import tool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, SecretStr
 from sqlalchemy import select
@@ -45,12 +46,30 @@ def completion(content: str) -> dict[str, Any]:
     }
 
 
-def chat_llm(contents: list[str], call_log: RecordingCallLog, requests: list[dict[str, Any]]) -> ChatLlm:
+def tool_completion(*calls: tuple[str, dict[str, Any]]) -> dict[str, Any]:
+    body = completion("")
+    body["choices"][0]["message"] = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": f"call_{i}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
+            for i, (name, args) in enumerate(calls)
+        ],
+    }
+    body["choices"][0]["finish_reason"] = "tool_calls"
+    return body
+
+
+def chat_llm(
+    contents: list[str | dict[str, Any]], call_log: RecordingCallLog, requests: list[dict[str, Any]]
+) -> ChatLlm:
+    """contents의 글은 모델 답 본문, dict는 응답 전체(tool_completion)다."""
     answers = iter(contents)
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(json.loads(request.content))
-        return httpx.Response(200, json=completion(next(answers)))
+        answer = next(answers)
+        return httpx.Response(200, json=answer if isinstance(answer, dict) else completion(answer))
 
     model = ChatOpenAI(
         model="test-model",
@@ -59,7 +78,7 @@ def chat_llm(contents: list[str], call_log: RecordingCallLog, requests: list[dic
         max_retries=0,
         http_async_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
-    return ChatLlm(model, call_log, model_name="test-model", method="json_schema")
+    return ChatLlm(model, call_log, model_name="test-model", method="json_schema", agent_max_calls=8)
 
 
 async def test_returns_structured_output_and_records_call() -> None:
@@ -101,6 +120,34 @@ async def test_records_error_when_output_never_matches() -> None:
     assert record.status == "ERROR"
     assert record.error is not None and record.error.startswith("LlmOutputError")
     assert record.output is None
+
+
+@tool
+async def career(item: str) -> str:
+    """지원자 프로필에서 항목 하나를 찾는다."""
+    return f"{item}: 결제 시스템 4년"
+
+
+async def test_tool_agent_records_each_model_call() -> None:
+    call_log = RecordingCallLog()
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [tool_completion(("career", {"item": "경력"})), tool_completion(("Summary", {"text": "경력 4년"}))],
+        call_log,
+        requests,
+    )
+
+    result = await llm.tool_agent(Summary, agent="root", system="분석한다", tools=[career]).run("@김지원 경력")
+
+    assert result == Summary(text="경력 4년")
+    assert [tool["function"]["name"] for tool in requests[0]["tools"]] == ["career", "Summary"]
+    assert requests[0]["tool_choice"] == "required"
+    first, second = call_log.records
+    assert (first.agent, first.status, first.user) == ("root", "OK", "[human] @김지원 경력")
+    assert first.system.startswith("분석한다\n\n")
+    assert first.output == {"content": "", "tool_calls": [{"name": "career", "args": {"item": "경력"}}]}
+    assert (first.input_tokens, first.output_tokens) == (12, 5)
+    assert '[tool career] <data kind="tool" name="career">' in second.user
 
 
 async def test_db_call_log_saves_record(db_session: AsyncSession) -> None:
