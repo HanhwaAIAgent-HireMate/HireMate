@@ -53,5 +53,9 @@
    "expect": {"kind": "ANSWER", "needs_interview": true}},
   {"id": "interview-questions", "message": "@정유민 서류 기준으로 기술 심화 질문 만들어줘", "mentions": ["정유민"],
    "stage_type": "INTERVIEW", "previous_types": ["DOCUMENT"],
-   "expect": {"kind": "ANSWER", "interview_questions": true}}
+   "expect": {"kind": "ANSWER", "interview_questions": true}},
+  {"id": "find-document-score", "message": "서류 점수 80점 이상만 골라줘",
+   "expect": {"kind": "FIND"}},
+  {"id": "edit-mention-with-checked", "message": "@김하늘 빼줘", "mentions": ["김하늘"], "checked": ["정유민", "박서준", "이도윤"],
+   "expect": {"kind": "EDIT", "edit": "REMOVE"}}
 ]

@@ -19,7 +19,10 @@ RESTORED = "이전 선택 지원자로 되돌렸어요."
 
 
 def plan_edit(route: RootRoute, context: ChatContext, targets: Targets) -> ChatPlan:
-    """대상이 분명하지 않으면 실행하지 않고 되묻는다. 동명이인이 하나라도 있으면 아무도 바꾸지 않는다."""
+    """대상이 분명하지 않으면 실행하지 않고 되묻는다. 동명이인이 하나라도 있으면 아무도 바꾸지 않는다.
+
+    멘션이나 이름으로 가리킨 지원자가 있으면 체크한 지원자보다 앞선다.
+    """
     match route.edit:
         case None:
             return ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
@@ -27,7 +30,7 @@ def plan_edit(route: RootRoute, context: ChatContext, targets: Targets) -> ChatP
             return _edit(EditAction.CLEAR, [], CLEARED)
         case EditAction.RESTORE:
             return _edit(EditAction.RESTORE, [], RESTORED)
-    if route.uses_checked:
+    if route.uses_checked and not targets.rows and not targets.ambiguous:
         rows = checked(context)
         if not rows:
             return ChatPlan.answer(Intent.CLARIFY, NO_CHECKED)

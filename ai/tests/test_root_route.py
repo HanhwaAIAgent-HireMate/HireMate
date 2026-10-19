@@ -199,3 +199,21 @@ def test_required_data_keeps_only_flags_with_matching_words() -> None:
     }
     assert required_data(route, "@정유민 면접 답변에서 확인된 거 알려줘") == {StageType.INTERVIEW}
     assert required_data(route, "@정유민 서류 기준으로 질문 만들어줘") == set()
+
+
+def test_document_score_is_not_assessment(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    route = RootRoute(kind="FIND", needs_assessment=True)
+
+    for message in ("서류 점수 80점 이상만 골라줘", "@정유민 서류 평가 어때?", "자소서 점수 높은 사람"):
+        context = context_for(sample_applicants, sample_company, sample_posting, message=message)
+        assert precheck(route, context) is None, message
+
+
+def test_assessment_words_next_to_document_words_still_count() -> None:
+    route = RootRoute(kind="ANSWER", needs_assessment=True)
+
+    assert required_data(route, "@정유민 자기소개서에 쓴 협업이 과제에서도 보였어?") == {StageType.ASSESSMENT}
+    assert required_data(route, "서류 점수는 높은데 평가 결과가 낮은 사람") == {StageType.ASSESSMENT}
+    assert required_data(route, "80점 이상인 사람 골라줘") == {StageType.ASSESSMENT}
