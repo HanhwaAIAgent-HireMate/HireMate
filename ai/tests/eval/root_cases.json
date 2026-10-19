@@ -13,6 +13,7 @@
   {"id": "find-add", "message": "결제 정산 경험 있는 사람도 추가해줘",
    "expect": {"kind": "FIND", "mode": "ADD"}},
   {"id": "find-talents", "message": "우리 회사가 중요하게 보는 요소가 잘 드러나는 지원자를 찾아줘",
+   "include": ["정유민"], "exclude": ["윤태오"],
    "expect": {"kind": "FIND", "mode": "REPLACE", "use_talents": true}},
   {"id": "find-gap", "message": "현재 평가 결과는 좋은데 지원서 내용과 차이가 큰 사람 있어?", "stage_type": "ASSESSMENT",
    "previous_types": ["DOCUMENT"],

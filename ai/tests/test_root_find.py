@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from root_context import extra_row, make_context
 
@@ -152,14 +152,16 @@ SENTENCES = {
 }
 
 
-def rechecked(applicants: Applicants, met: Mapping[str, int | None], *extra: RecheckItem) -> RecheckResult:
-    """이름 → 근거 문장 번호(없으면 충족하지 않음)."""
+# 기본 검색에서 "금융 도메인 경험"에 걸리는 순서. 재확인의 후보 번호는 이 순서다
+FINANCE_ORDER = ["정유민", "김하늘", "박서준", "이도윤", "최지우", "한예린"]
+
+
+def rechecked(order: Sequence[str], met: Mapping[str, list[int] | None], *extra: RecheckItem) -> RecheckResult:
+    """이름 → 근거 문장 번호들(None이면 충족하지 않음). 후보 번호는 order(검색 순서)로 정한다."""
     return RecheckResult(
         results=[
-            RecheckItem(
-                application_id=str(applicants[name].info.application_id), met=number is not None, sentence_no=number
-            )
-            for name, number in met.items()
+            RecheckItem(candidate_no=order.index(name) + 1, met=numbers is not None, sentence_nos=numbers or [])
+            for name, numbers in met.items()
         ]
         + list(extra)
     )
@@ -186,8 +188,8 @@ async def test_finance_keeps_rechecked(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
-    met = {"정유민": 1, "김하늘": 1, "한예린": 1, "박서준": None, "이도윤": None}
-    llm = FakeLlm(rechecked(sample_applicants, met))
+    met = {"정유민": [1], "김하늘": [1], "한예린": [1], "박서준": None, "이도윤": None}
+    llm = FakeLlm(rechecked(FINANCE_ORDER, met))
 
     plan = await plan_find(llm, FINANCE, context, default_toolkit())
 
@@ -211,7 +213,10 @@ async def test_recheck_drops_sentence_missing_from_documents(
     )
 
     plan = await plan_find(
-        FakeLlm(rechecked(sample_applicants, {"정유민": 1, "박서준": 1})), FINANCE, context, RootToolkit(search=search)
+        FakeLlm(rechecked(["정유민", "박서준"], {"정유민": [1], "박서준": [1]})),
+        FINANCE,
+        context,
+        RootToolkit(search=search),
     )
 
     assert names(context, plan) == ["정유민"]
@@ -224,7 +229,7 @@ async def test_recheck_drops_unknown_sentence_number(
     context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
 
     plan = await plan_find(
-        FakeLlm(rechecked(sample_applicants, {"정유민": 1, "김하늘": 5, "한예린": 0})),
+        FakeLlm(rechecked(FINANCE_ORDER, {"정유민": [1], "김하늘": [9], "한예린": [0]})),
         FINANCE,
         context,
         default_toolkit(),
@@ -233,15 +238,26 @@ async def test_recheck_drops_unknown_sentence_number(
     assert names(context, plan) == ["정유민"]
 
 
-async def test_recheck_ignores_unknown_ids(
+async def test_recheck_keeps_valid_numbers_among_invalid(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+
+    plan = await plan_find(FakeLlm(rechecked(FINANCE_ORDER, {"정유민": [9, 1]})), FINANCE, context, default_toolkit())
+
+    assert names(context, plan) == ["정유민"]
+    assert plan.items[0].text == SENTENCES["정유민"]
+
+
+async def test_recheck_ignores_unknown_candidate_numbers(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
     result = rechecked(
-        sample_applicants,
-        {"정유민": 1},
-        RecheckItem(application_id=str(uuid4()), met=True, sentence_no=1),
-        RecheckItem(application_id="not-a-uuid", met=True, sentence_no=1),
+        FINANCE_ORDER,
+        {"정유민": [1]},
+        RecheckItem(candidate_no=99, met=True, sentence_nos=[1]),
+        RecheckItem(candidate_no=0, met=True, sentence_nos=[1]),
     )
 
     plan = await plan_find(FakeLlm(result), FINANCE, context, default_toolkit())
@@ -253,12 +269,15 @@ async def test_recheck_prompt_uses_data_blocks(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
-    llm = FakeLlm(rechecked(sample_applicants, {"정유민": 1}))
+    llm = FakeLlm(rechecked(FINANCE_ORDER, {"정유민": [1]}))
 
     await plan_find(llm, FINANCE, context, default_toolkit())
 
     call = llm.calls[0]
     assert call.user.count("<data") == 6
+    assert 'no="6"' in call.user
+    assert str(sample_applicants["정유민"].info.application_id) not in call.user
+    assert "모두 충족" in call.user
     assert "금융 도메인 경험" in call.user
     assert "금융 경험 있는 사람 찾아줘" in call.user
     assert "정유민" not in call.user
@@ -270,7 +289,7 @@ async def test_none_met_answers_not_found(
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
 
-    plan = await plan_find(FakeLlm(rechecked(sample_applicants, {"박서준": None})), FINANCE, context, default_toolkit())
+    plan = await plan_find(FakeLlm(rechecked(FINANCE_ORDER, {"박서준": None})), FINANCE, context, default_toolkit())
 
     assert plan == ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
 
@@ -318,7 +337,7 @@ async def test_recheck_limit(
         for row in context.candidates
         if row.application_id != first
     ]
-    llm = FakeLlm(rechecked(sample_applicants, {"정유민": 1}))
+    llm = FakeLlm(rechecked(["정유민"], {"정유민": [1]}))
 
     plan = await plan_find(llm, FINANCE, context, RootToolkit(search=SpySearch(matches)))
 
@@ -359,3 +378,76 @@ async def test_scores_then_search(
     pool = search.calls[0][1]
     by_id = {row.application_id: row.name for row in context.candidates}
     assert [by_id[application_id] for application_id in pool] == ["정유민", "박서준"]
+
+
+async def test_talents_count_when_any_one_shows(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="우리 회사가 중요하게 보는 사람")
+    sentence = "장애 회고를 문서로 남겨 같은 문제가 반복되지 않게 했습니다."
+    search = SpySearch([match(sample_applicants, "정유민", sentence)])
+    llm = FakeLlm(rechecked(["정유민"], {"정유민": [1]}))
+
+    plan = await plan_find(llm, RootRoute(kind="FIND", use_talents=True), context, RootToolkit(search=search))
+
+    assert "인재상 (하나 이상 드러나야 한다)" in llm.calls[0].user
+    assert "조건 (모두 충족해야 한다)" not in llm.calls[0].user
+    assert names(context, plan) == ["정유민"]
+
+
+async def test_several_conditions_keep_every_evidence(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융이랑 트래픽 경험 둘 다")
+    route = RootRoute(kind="FIND", concepts=["금융 도메인 경험", "대용량 트래픽 처리"])
+    llm = FakeLlm(rechecked(["정유민"], {"정유민": [1, 2]}))
+    search = SpySearch(
+        [
+            CandidateMatch(
+                application_id=sample_applicants["정유민"].info.application_id,
+                sentences=[
+                    SourcedSentence("한빛카드 결제플랫폼팀 2022.03 ~ 현재", "이력서"),
+                    SourcedSentence(
+                        "하루 120만 건 승인 트랜잭션을 처리하는 승인 서버의 응답 시간을 180ms에서 90ms로 줄였습니다.",
+                        "이력서",
+                    ),
+                ],
+                hits=2,
+            )
+        ]
+    )
+
+    plan = await plan_find(llm, route, context, RootToolkit(search=search))
+
+    assert "모두 충족" in llm.calls[0].user
+    assert names(context, plan) == ["정유민"]
+    assert plan.items[0].text == "한빛카드 결제플랫폼팀 2022.03 ~ 현재"
+
+
+async def test_talent_reference_words_are_not_conditions(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="우리 회사가 중요하게 보는 사람")
+    search = SpySearch()
+    route = RootRoute(kind="FIND", use_talents=True, concepts=["회사 인재상", "중요하게 보는 요소"])
+
+    await plan_find(FakeLlm(), route, context, RootToolkit(search=search))
+
+    assert search.calls[0][0] == [f"{talent.title} {talent.description}" for talent in sample_company.talents]
+
+
+async def test_own_condition_with_talents_keeps_both_groups(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="금융 경험 있고 인재상에 맞는 사람"
+    )
+    search = SpySearch([match(sample_applicants, "정유민", SENTENCES["정유민"])])
+    llm = FakeLlm(rechecked(["정유민"], {"정유민": [1]}))
+    route = RootRoute(kind="FIND", use_talents=True, concepts=["금융 도메인 경험"])
+
+    await plan_find(llm, route, context, RootToolkit(search=search))
+
+    user = llm.calls[0].user
+    assert "조건 (모두 충족해야 한다):\n- 금융 도메인 경험" in user
+    assert "인재상 (하나 이상 드러나야 한다)" in user

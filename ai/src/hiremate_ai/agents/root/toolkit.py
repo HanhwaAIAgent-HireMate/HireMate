@@ -39,6 +39,8 @@ def scope_of(context: ChatContext) -> RootToolContext:
     )
 
 
+# 조건 하나에 모으는 문장 수. 재확인이 이 가운데 근거를 고른다
+SENTENCES_PER_CONCEPT = 3
 _WORD = re.compile(r"[가-힣]{2,}|[A-Za-z][A-Za-z+#.]+")
 _PARTICLE = re.compile(r"(이|가|을|를|은|는|도|만|의|과|와|에서|에|로|으로|이랑|랑)$")
 _SENTENCE = re.compile(r"\n+|(?<=[.!?])\s+")
@@ -125,7 +127,7 @@ def concept_terms(concept: str) -> list[str]:
 
 
 async def keyword_search(scope: ToolScope, concepts: Sequence[str], pool: Sequence[UUID]) -> list[CandidateMatch]:
-    """임시 검색: 제출 문서에서 조건 낱말이 든 문장을 조건마다 하나씩 찾는다. 넓게 모으고 판정은 재확인에 맡긴다."""
+    """임시 검색: 제출 문서에서 조건 낱말이 든 문장을 조건마다 몇 개씩 찾는다. 넓게 모으고 판정은 재확인에 맡긴다."""
     if not isinstance(scope, RootToolContext):
         raise TypeError("keyword_search는 ChatContext가 든 RootToolContext로만 부른다")
     term_sets = [terms for terms in (concept_terms(concept) for concept in concepts) if terms]
@@ -134,16 +136,29 @@ async def keyword_search(scope: ToolScope, concepts: Sequence[str], pool: Sequen
         if application_id not in scope.application_ids:
             continue
         sentences = _sentences(scope.chat, application_id)
-        found = []
+        found: list[SourcedSentence] = []
+        hits = 0
         for terms in term_sets:
-            hit = next(
-                (sourced for sourced in sentences if any(term in sourced.sentence.lower() for term in terms)), None
-            )
-            if hit is not None:
-                found.append(hit)
+            hit = _best_sentences(sentences, terms)
+            hits += bool(hit)
+            found += [sourced for sourced in hit if sourced not in found]
         if found:
-            matches.append(CandidateMatch(application_id=application_id, sentences=found, hits=len(found)))
+            matches.append(CandidateMatch(application_id=application_id, sentences=found, hits=hits))
     return sorted(matches, key=lambda match: -match.hits)
+
+
+def _best_sentences(sentences: list[SourcedSentence], terms: list[str]) -> list[SourcedSentence]:
+    """조건 낱말이 든 문장 가운데 낱말이 많이 든 순으로 몇 개.
+
+    넓은 동의어가 엉뚱한 문장에 걸려도 진짜 근거가 남게 한다.
+    """
+    scored = []
+    for index, sourced in enumerate(sentences):
+        lower = sourced.sentence.lower()
+        count = sum(term in lower for term in terms)
+        if count:
+            scored.append((-count, index, sourced))
+    return [sourced for _, _, sourced in sorted(scored)[:SENTENCES_PER_CONCEPT]]
 
 
 def default_toolkit() -> RootToolkit:

@@ -75,8 +75,8 @@ async def test_find_flows_to_plan(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험자 찾아줘")
-    application_id = str(sample_applicants["김하늘"].info.application_id)
-    recheck = RecheckResult(results=[RecheckItem(application_id=application_id, met=True, sentence_no=1)])
+    # 기본 검색 순서에서 김하늘은 두 번째 후보다
+    recheck = RecheckResult(results=[RecheckItem(candidate_no=2, met=True, sentence_nos=[1])])
     llm = FakeLlm(RootRoute(kind="FIND", mode=SelectionMode.REPLACE, concepts=["금융 도메인 경험"]), recheck)
 
     plan = await run_plan(llm, context)

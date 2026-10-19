@@ -22,7 +22,11 @@ from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
 from hiremate_ai.llm.call_log import CallRecord
 from hiremate_ai.llm.client import build_llm
 
-pytestmark = pytest.mark.skipif(not settings.llm_eval, reason="LLM_EVAL=true일 때만 실제 모델로 돈다")
+# langchain-openai는 HTTP 클라이언트를 이벤트 루프에 묶어 재사용하므로 평가 테스트는 한 루프에서 돈다
+pytestmark = [
+    pytest.mark.skipif(not settings.llm_eval, reason="LLM_EVAL=true일 때만 실제 모델로 돈다"),
+    pytest.mark.asyncio(loop_scope="module"),
+]
 
 CASES: list[dict[str, Any]] = json.loads((Path(__file__).parent / "root_cases.json").read_text(encoding="utf-8"))
 MIN_ACCURACY = 0.8
