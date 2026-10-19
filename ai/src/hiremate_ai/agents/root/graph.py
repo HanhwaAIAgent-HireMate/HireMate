@@ -10,19 +10,16 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
+from hiremate_ai.agents.root.answer import plan_answer, plan_questions
 from hiremate_ai.agents.root.edit import plan_edit
 from hiremate_ai.agents.root.find import plan_find
 from hiremate_ai.agents.root.route import NOT_UNDERSTOOD, RootRoute, classify, precheck
 from hiremate_ai.agents.root.targets import Targets, resolve
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
+from hiremate_ai.contract import StageType
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import LlmClient
-
-# 분석 · 생성(B)을 붙이기 전까지의 답
-PENDING = (
-    "지원자 분석은 아직 준비 중이에요. 지원자 찾기와 선택 지원자 넣기, 빼기, 비우기, 되돌리기는 지금 쓸 수 있어요."
-)
 
 
 class RootState(TypedDict, total=False):
@@ -61,8 +58,12 @@ def build_root_graph(
     async def find(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         return {"plan": await plan_find(llm, state["route"], runtime.context, tools)}
 
-    def pending(state: RootState) -> RootState:
-        return {"plan": ChatPlan.answer(Intent.CLARIFY, PENDING)}
+    async def answer(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        context = runtime.context
+        route, targets = state["route"], state["targets"]
+        if route.interview_questions and context.stage_type is StageType.INTERVIEW:
+            return {"plan": await plan_questions(llm, route, context, targets, tools)}
+        return {"plan": await plan_answer(llm, route, context, targets, tools)}
 
     def after_guard(state: RootState) -> str:
         return END if "plan" in state else "route"
@@ -70,20 +71,20 @@ def build_root_graph(
     def after_route(state: RootState) -> str:
         if "plan" in state:
             return END
-        return {"EDIT": "edit", "FIND": "find"}.get(state["route"].kind, "pending")
+        return {"EDIT": "edit", "FIND": "find"}.get(state["route"].kind, "answer")
 
     graph: StateGraph[RootState, ChatContext, RootState, RootState] = StateGraph(RootState, context_schema=ChatContext)
     graph.add_node("guard", guard)
     graph.add_node("route", route)
     graph.add_node("edit", edit)
     graph.add_node("find", find)
-    graph.add_node("pending", pending)
+    graph.add_node("answer", answer)
     graph.add_edge(START, "guard")
     graph.add_conditional_edges("guard", after_guard)
     graph.add_conditional_edges("route", after_route)
     graph.add_edge("edit", END)
     graph.add_edge("find", END)
-    graph.add_edge("pending", END)
+    graph.add_edge("answer", END)
     return graph.compile()
 
 
