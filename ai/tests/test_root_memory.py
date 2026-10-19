@@ -4,14 +4,14 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context
 
-from hiremate_ai.agents.root.answer import AnswerItem, RootAnswer
+from hiremate_ai.agents.root.answer import AnswerItem, QuestionFocusItem, RootAnswer, RootQuestionFocus
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import RootThread, run_plan
 from hiremate_ai.agents.root.route import NO_PREVIOUS, RootRoute
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent
 from hiremate_ai.config import settings
-from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
+from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
@@ -234,3 +234,75 @@ async def test_remembered_candidate_must_be_in_stage(
     plan = await run_plan(llm, later, saver=saver, thread=thread)
 
     assert plan == ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)
+
+
+def interview_context(
+    applicants: Applicants, company: CompanyProfile, posting: PostingContent, message: str
+) -> ChatContext:
+    return make_context(
+        applicants,
+        company,
+        posting,
+        message=message,
+        mentions=["정유민"] if "@정유민" in message else [],
+        stage_type=StageType.INTERVIEW,
+        previous_types=(StageType.DOCUMENT,),
+    )
+
+
+FOCUS = "정산 배치를 줄인 설계 판단을 기술 심화로 확인"
+
+
+async def test_reason_question_reads_previous_turns(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    saver = InMemorySaver()
+    first = interview_context(sample_applicants, sample_company, sample_posting, "@정유민 면접 질문 만들어줘")
+    thread = thread_of(first)
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER", interview_questions=True),
+        RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus=FOCUS)]),
+        RootRoute(kind="ANSWER", previous_ref="subject"),
+        ToolCall("get_previous_turns"),
+        RootAnswer(message="정산 배치 설계 판단을 확인하려고 만들었어요."),
+    )
+
+    await run_plan(llm, first, saver=saver, thread=thread)
+    plan = await run_plan(
+        llm,
+        interview_context(sample_applicants, sample_company, sample_posting, "3번 질문은 왜 만든 거야?"),
+        saver=saver,
+        thread=thread,
+    )
+
+    assert plan.message == "정산 배치 설계 판단을 확인하려고 만들었어요."
+    tool_result = llm.calls[-1].user
+    assert "[tool get_previous_turns]" in tool_result
+    assert FOCUS in tool_result
+    assert "@정유민 면접 질문 만들어줘" in tool_result
+
+
+async def test_refine_uses_previous_subject(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    saver = InMemorySaver()
+    first = interview_context(sample_applicants, sample_company, sample_posting, "@정유민 면접 질문 만들어줘")
+    thread = thread_of(first)
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER", interview_questions=True),
+        RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus=FOCUS)]),
+        RootRoute(kind="ANSWER", interview_questions=True, previous_ref="subject"),
+        RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus="장애 대응을 더 기술적으로")]),
+    )
+
+    await run_plan(llm, first, saver=saver, thread=thread)
+    plan = await run_plan(
+        llm,
+        interview_context(sample_applicants, sample_company, sample_posting, "좀 더 기술적으로 다시 해줘"),
+        saver=saver,
+        thread=thread,
+    )
+
+    jung = sample_applicants["정유민"].info.application_id
+    assert plan.question_targets == [jung]
+    assert plan.question_focus == {jung: "장애 대응을 더 기술적으로"}

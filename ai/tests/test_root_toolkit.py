@@ -111,6 +111,7 @@ def test_default_toolkit_uses_keyword_search() -> None:
         "get_company_profile",
         "get_posting",
         "get_stage_summary",
+        "get_previous_turns",
     }
 
 

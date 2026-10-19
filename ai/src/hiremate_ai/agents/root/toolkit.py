@@ -8,6 +8,7 @@ from uuid import UUID
 from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool
 
+from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion
 from hiremate_ai.contract import StageType
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
@@ -23,6 +24,7 @@ class RootToolContext(ToolScope):
 
     chat: ChatContext
     called: list[str] = field(default_factory=list)
+    turns: list[Turn] = field(default_factory=list)  # 대화방의 앞 턴 기록 (대화 기억이 없으면 비어 있다)
 
 
 @dataclass(frozen=True)
@@ -31,13 +33,14 @@ class RootToolkit:
     answer_tools: Sequence[BaseTool] = ()
 
 
-def scope_of(context: ChatContext) -> RootToolContext:
+def scope_of(context: ChatContext, turns: Sequence[Turn] = ()) -> RootToolContext:
     return RootToolContext(
         company_id=context.company.company_id,
         recruitment_id=context.recruitment_id,
         stage_id=context.stage_id,
         application_ids=frozenset(row.application_id for row in context.candidates),
         chat=context,
+        turns=list(turns),
     )
 
 
@@ -290,6 +293,33 @@ async def get_stage_summary(runtime: ToolRuntime[RootToolContext]) -> str:
     return "\n".join(lines)
 
 
+@tool
+async def get_previous_turns(runtime: ToolRuntime[RootToolContext]) -> str:
+    """앞 대화 기록을 읽는다. 담당자 질문, Root 답, 다룬 지원자, 면접 질문을 만들 때 정리한 확인할 점과 이유가 있다.
+
+    이전에 만든 질문의 이유나 앞에서 한 이야기를 물으면 이 기록으로 답한다.
+    """
+    context = _used(runtime, "get_previous_turns")
+    if not context.turns:
+        return "앞 대화 기록이 없어요."
+    chat = context.chat
+    by_id = {str(row.application_id): row for row in chat.candidates}
+
+    def who(application_id: str | None) -> str:
+        row = by_id.get(application_id or "")
+        return _who(chat, row) if row else "지금 전형에 없는 지원자"
+
+    sections = []
+    for number, turn in enumerate(context.turns, start=1):
+        lines = [f'[{number}] 담당자: "{turn["message"]}"', f"Root 답: {turn['answer']}"]
+        if turn["targets"]:
+            lines.append("다룬 지원자: " + ", ".join(who(target) for target in turn["targets"]))
+        lines += [f"확인할 점 ({who(application_id)}): {focus}" for application_id, focus in turn["focus"].items()]
+        lines += [f"항목 [{item['label']}] {item['text']} ({who(item['application_id'])})" for item in turn["items"]]
+        sections.append("\n".join(lines))
+    return "\n\n".join(sections)
+
+
 ANSWER_TOOLS: tuple[BaseTool, ...] = (
     get_candidate_documents,
     get_stage_results,
@@ -297,6 +327,7 @@ ANSWER_TOOLS: tuple[BaseTool, ...] = (
     get_company_profile,
     get_posting,
     get_stage_summary,
+    get_previous_turns,
 )
 
 
