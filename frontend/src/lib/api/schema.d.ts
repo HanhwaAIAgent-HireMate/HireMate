@@ -372,22 +372,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/stages/{stageId}/candidates/{applicationId}/interview/generate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["generate"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/stages/{stageId}/assessment/results/{applicationId}/file": {
         parameters: {
             query?: never;
@@ -1173,9 +1157,6 @@ export interface components {
         QuestionRequest: {
             text: string;
         };
-        GenerateRequest: {
-            focus: string | null;
-        };
         TablePreview: {
             fileName: string;
             columns: string[];
@@ -1494,8 +1475,8 @@ export interface components {
         };
         CsrfToken: {
             headerName: string;
-            parameterName: string;
             token: string;
+            parameterName: string;
         };
         CsrfResponse: {
             token: string;
@@ -2141,33 +2122,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["QuestionRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["InterviewView"];
-                };
-            };
-        };
-    };
-    generate: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-                applicationId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GenerateRequest"];
             };
         };
         responses: {

@@ -48,16 +48,6 @@ export function useInterviewActions(stageId: string, applicationId: string) {
   const onSuccess = (interview: Interview) =>
     queryClient.setQueryData(key(stageId, applicationId), interview)
   return {
-    generate: useMutation({
-      mutationFn: (focus: string | null) =>
-        unwrap(
-          api.POST('/api/stages/{stageId}/candidates/{applicationId}/interview/generate', {
-            ...path(stageId, applicationId),
-            body: { focus },
-          }),
-        ),
-      onSuccess,
-    }),
     add: useMutation({
       mutationFn: (text: string) =>
         unwrap(

@@ -1,4 +1,4 @@
-import { CalendarClock, Plus, Sparkles, X } from 'lucide-react'
+import { CalendarClock, Plus, X } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -136,22 +136,11 @@ function Questions({
             interview={interview}
             disabled={!editable}
           />
-          {editable && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={actions.generate.isPending}
-              onClick={() => actions.generate.mutate(null, { onError: fail })}
-            >
-              <Sparkles />
-              질문 만들기
-            </Button>
-          )}
         </div>
       </div>
       {interview.questions.length === 0 && (
         <p className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">
-          [질문 만들기]를 누르면 이전 전형에서 확인할 가치가 있는 부분으로 질문을 만들어요.
+          AI Chat에서 @지원자와 함께 면접 질문을 요청하면 여기에 들어와요.
         </p>
       )}
       {interview.questions.map((question) => (
