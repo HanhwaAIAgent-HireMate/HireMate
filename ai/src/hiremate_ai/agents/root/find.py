@@ -215,6 +215,7 @@ def _plan(route: RootRoute, pool_size: int, chosen: list[tuple[CandidateRow, str
         sources=sources,
         agents=[],
         question_targets=[],
+        question_focus={},
     )
 
 

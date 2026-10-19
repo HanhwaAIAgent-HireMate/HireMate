@@ -8,6 +8,9 @@ import com.hiremate.interview.QuestionSource;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.PostingService;
 import com.hiremate.screening.ScreeningService;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -30,6 +33,14 @@ public class InterviewAiService {
         this.screening = screening;
         this.analyst = analyst;
         this.agent = agent;
+    }
+
+    /** 면접 전형 지원자들의 현재 · 이전 면접 질문과 답변. Root Agent가 Chat에서 읽는다. */
+    public Map<UUID, InterviewView> views(UUID companyId, UUID stageId, List<UUID> applicationIds) {
+        Map<UUID, InterviewView> views = new LinkedHashMap<>();
+        applicationIds.forEach(applicationId -> views.put(applicationId,
+                interviews.view(companyId, stageId, applicationId)));
+        return views;
     }
 
     /** 지금 카드에 있는 질문 수. */

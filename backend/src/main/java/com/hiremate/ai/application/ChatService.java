@@ -59,9 +59,13 @@ public class ChatService {
         applications.applicants(companyId, recruitment.id()).stream()
                 .filter(applicant -> applicant.documentScore() != null)
                 .forEach(applicant -> documentScores.put(applicant.applicationId(), applicant.documentScore()));
+        Map<UUID, InterviewView> interviewViews = stage.type() == StageType.INTERVIEW
+                ? interviews.views(companyId, stageId, candidates.stream().map(CandidateRow::applicationId).toList())
+                : Map.of();
         ChatContext context = new ChatContext(stageId, recruitment.id(), stage.name(), stage.type(), previous,
-                candidates, applications.documents(companyId, recruitment.id()), documentScores, mentions, checked,
-                companies.profile(companyId), postings.draftContext(companyId, recruitment.id()).content(), message);
+                candidates, applications.documents(companyId, recruitment.id()), documentScores, interviewViews,
+                mentions, checked, companies.profile(companyId),
+                postings.draftContext(companyId, recruitment.id()).content(), message);
         ChatPlan plan = root.plan(context);
 
         boolean changesSelection = plan.intent() == ChatPlan.Intent.FIND || plan.intent() == ChatPlan.Intent.EDIT;
@@ -99,7 +103,7 @@ public class ChatService {
                     : added.getFirst().text() + (added.size() > 1 ? " 외 " + (added.size() - 1) + "문항" : ""), null));
         }
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), plan.message(), items,
-                plan.sources(), plan.agents(), plan.questionTargets());
+                plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus());
     }
 
     private int edit(UUID companyId, UUID stageId, ChatPlan plan) {
