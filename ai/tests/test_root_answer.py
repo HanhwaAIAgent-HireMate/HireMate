@@ -353,3 +353,46 @@ async def test_focus_failure_clarifies(
     plan = await make_questions(FakeLlm(broken), QUESTIONS, context)
 
     assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+
+
+async def test_single_target_item_gets_candidate(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(sample_applicants, sample_company, sample_posting)
+    evidence = AnswerEvidence(sentence=BATCH, source="이력서")
+    llm = FakeLlm(answered(AnswerItem(label="강점", text="정산 배치 개선", status="OK", evidence=[evidence])))
+
+    plan = await ask(llm, context)
+
+    assert plan.items[0].application_id == sample_applicants["정유민"].info.application_id
+    assert (plan.items[0].status, plan.sources) == ("OK", ["이력서"])
+
+
+async def test_ref_in_text_assigns_candidate_and_reads_as_name(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="비교해줘", mentions=["정유민", "김하늘"]
+    )
+    item = AnswerItem(label="경력", text="C2 김하늘은 은행 경력이 있다", status="OK")
+    llm = FakeLlm(answered(item, message="C1 정유민과 C2를 비교했어요."))
+
+    plan = await ask(llm, context)
+
+    assert plan.items[0].application_id == sample_applicants["김하늘"].info.application_id
+    assert plan.items[0].text == "김하늘은 은행 경력이 있다"
+    assert plan.message == "정유민과 김하늘를 비교했어요." or plan.message == "정유민과 김하늘을 비교했어요."
+
+
+async def test_unverifiable_evidence_without_candidate_turns_check(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="비교해줘", mentions=["정유민", "김하늘"]
+    )
+    evidence = AnswerEvidence(sentence=BATCH, source="이력서")
+    llm = FakeLlm(answered(AnswerItem(label="공통점", text="둘 다 정산 경험", status="OK", evidence=[evidence])))
+
+    plan = await ask(llm, context)
+
+    assert (plan.items[0].application_id, plan.items[0].status) == (None, "CHECK")
