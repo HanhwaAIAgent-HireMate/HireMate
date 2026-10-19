@@ -104,7 +104,14 @@ def test_default_toolkit_uses_keyword_search() -> None:
     toolkit = default_toolkit()
 
     assert toolkit.search is keyword_search
-    assert tuple(toolkit.answer_tools) == ()
+    assert {tool.name for tool in toolkit.answer_tools} == {
+        "get_candidate_documents",
+        "get_stage_results",
+        "get_interview_records",
+        "get_company_profile",
+        "get_posting",
+        "get_stage_summary",
+    }
 
 
 def test_english_synonyms() -> None:
