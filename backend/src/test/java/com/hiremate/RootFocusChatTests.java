@@ -1,0 +1,85 @@
+package com.hiremate;
+
+import static com.hiremate.TestApi.expect;
+import static com.hiremate.TestApi.json;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.hiremate.ai.application.ChatContext;
+import com.hiremate.ai.application.ChatItem;
+import com.hiremate.ai.application.ChatPlan;
+import com.hiremate.ai.application.RootAgent;
+import com.hiremate.apply.ApplicationAnalysis;
+import com.hiremate.apply.ApplicationService;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import tools.jackson.databind.JsonNode;
+
+/** Root Agent가 정리한 면접 확인할 점이 Interview Agent 호출로 이어지는지 확인한다. Root는 대신 정해 둔 계획을 낸다. */
+class RootFocusChatTests extends IntegrationTest {
+
+    @MockitoBean
+    private RootAgent root;
+
+    @Autowired
+    private ApplicationService applications;
+
+    @Test
+    @DisplayName("면접 전형 Chat은 면접 기록을 Root에 넘기고, Root가 준 확인할 점으로 질문을 만들며 생성 이유를 답에 남긴다")
+    void rootFocusReachesInterviewAgent() throws Exception {
+        TestApi hr = newHr();
+        ApplyTests.Posting posting = ApplyTests.publish(hr, false, "전형은 서류, 1차 면접 순으로 해줘");
+        Map<String, Object> form = ApplyTests.form("applicant@example.com", false);
+        form.put("name", "지원자1");
+        expect(anonymous().multipart(posting.applyPath(), form), 201);
+        UUID recruitmentId = UUID.fromString(posting.recruitmentId());
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
+        while (applications.applicants(hr.companyId(), recruitmentId).stream()
+                .noneMatch(applicant -> applicant.documentScore() != null) && Instant.now().isBefore(deadline)) {
+            Thread.sleep(200);
+        }
+        UUID id = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
+        applications.recordAnalysis(id, new ApplicationAnalysis(3, "OO카드", 90, true));
+        JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
+        String document = "/api/stages/" + closed.path("stages").get(0).path("id").asString();
+        when(root.plan(any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.ANSWER, "답", List.of(), List.of(),
+                List.of()));
+        String interview = passAndFinish(hr, document, id.toString());
+
+        ChatItem reason = new ChatItem(id, "확인할 점", "자기소개서의 협업 사례를 실제 역할로 확인", "OK");
+        when(root.plan(any())).thenReturn(new ChatPlan(ChatPlan.Intent.ANSWER, null, null, List.of(),
+                "1명의 맞춤 질문을 만들어 카드에 넣었어요.", List.of(reason), List.of("자기소개서"),
+                List.of("Interview Agent"), List.of(id), Map.of(id, "협업 위주로 확인")));
+
+        JsonNode chat = json(expect(hr.post(interview + "/chat",
+                Map.of("message", "면접 질문 만들어줘", "mentionIds", List.of(id), "checkedIds", List.of())), 200));
+
+        assertThat(chat.path("items").size()).isEqualTo(1);
+        assertThat(chat.path("items").get(0).path("text").asString()).isEqualTo("자기소개서의 협업 사례를 실제 역할로 확인");
+        JsonNode card = json(expect(hr.get(interview + "/candidates/" + id + "/interview"), 200));
+        assertThat(card.path("questions").toString()).contains("동료와 의견이 달랐을 때");
+        ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
+        verify(root, atLeastOnce()).plan(sent.capture());
+        assertThat(sent.getValue().interviews()).containsKey(id);
+    }
+
+    private static String passAndFinish(TestApi hr, String stagePath, String applicationId) throws Exception {
+        expect(hr.post(stagePath + "/decisions", Map.of("applicationIds", List.of(applicationId), "decision", "PASS")),
+                204);
+        expect(hr.post(stagePath + "/confirm", null), 200);
+        expect(hr.post(stagePath + "/notices/prepare", null), 200);
+        expect(hr.post(stagePath + "/notices/PASS/send", null), 200);
+        return "/api/stages/" + json(expect(hr.post(stagePath + "/finish", null), 200)).path("nextStageId").asString();
+    }
+}
