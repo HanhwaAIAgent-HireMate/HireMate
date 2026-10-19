@@ -1,7 +1,7 @@
 from root_context import make_context
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY
-from hiremate_ai.agents.root.graph import PENDING, run_plan
+from hiremate_ai.agents.root.graph import PENDING, build_root_graph, run_plan
 from hiremate_ai.agents.root.route import DECISION_REPLY, NOT_UNDERSTOOD, RootRoute
 from hiremate_ai.agents.root.types import ChatPlan, EditAction, Intent
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
@@ -69,3 +69,15 @@ async def test_find_and_answer_are_pending(
     answered = await run_plan(llm, context)
 
     assert found == answered == ChatPlan.answer(Intent.CLARIFY, PENDING)
+
+
+async def test_state_does_not_keep_chat_context(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="선택 지원자 비워줘")
+    graph = build_root_graph(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR)))
+
+    state = await graph.ainvoke({}, context=context)
+
+    assert "context" not in state
+    assert state["plan"].edit is EditAction.CLEAR
