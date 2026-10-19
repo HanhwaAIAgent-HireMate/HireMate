@@ -396,3 +396,18 @@ async def test_unverifiable_evidence_without_candidate_turns_check(
     plan = await ask(llm, context)
 
     assert (plan.items[0].application_id, plan.items[0].status) == (None, "CHECK")
+
+
+def test_readable_keeps_name_with_digits(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    from root_context import extra_row
+
+    from hiremate_ai.agents.root.answer import readable
+
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="확인", extra_rows=[extra_row("지원자1")]
+    )
+
+    assert readable("C9 지원자1의 강점", context) == "지원자1의 강점"
+    assert readable("C1 정유민은, C9는", context) == "정유민은, 지원자1는"
