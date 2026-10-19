@@ -88,20 +88,25 @@ public class ChatService {
         return answer(plan, changesSelection && (applied > 0 || plan.edit() != null), applied, candidates.size());
     }
 
-    /** 지원자마다 맞춤 질문을 만들어 카드에 넣고, 답변에는 새로 넣은 첫 질문을 보여 준다. */
+    /**
+     * 지원자마다 맞춤 질문을 만들어 카드에 넣는다. Root가 정리한 확인할 점(questionFocus)이 있으면 그것을, 없으면 HR 문장을
+     * Interview Agent에 넘긴다. Root가 생성 이유 항목을 주면 답에 그대로 두고, 없을 때만 새로 넣은 첫 질문을 보여 준다.
+     */
     private ChatPlan withQuestions(UUID companyId, UUID stageId, ChatPlan plan, List<CandidateRow> candidates,
-            String focus) {
-        List<ChatItem> items = new ArrayList<>();
+            String message) {
+        List<ChatItem> summaries = new ArrayList<>();
         for (UUID applicationId : plan.questionTargets()) {
             int before = interviews.count(companyId, stageId, applicationId);
+            String focus = plan.questionFocus().getOrDefault(applicationId, message);
             InterviewView view = interviews.generate(companyId, stageId, applicationId, focus);
             String name = candidates.stream().filter(row -> row.applicationId().equals(applicationId))
                     .map(CandidateRow::name).findFirst().orElse("지원자");
             List<InterviewView.Question> added = view.questions().subList(Math.min(before, view.questions().size()),
                     view.questions().size());
-            items.add(new ChatItem(applicationId, name, added.isEmpty() ? "새로 넣을 질문이 없어요"
+            summaries.add(new ChatItem(applicationId, name, added.isEmpty() ? "새로 넣을 질문이 없어요"
                     : added.getFirst().text() + (added.size() > 1 ? " 외 " + (added.size() - 1) + "문항" : ""), null));
         }
+        List<ChatItem> items = plan.items().isEmpty() ? summaries : plan.items();
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), plan.message(), items,
                 plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus());
     }
