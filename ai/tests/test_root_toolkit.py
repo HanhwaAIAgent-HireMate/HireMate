@@ -112,3 +112,18 @@ def test_english_synonyms() -> None:
 
     assert "collaboration" in concept_terms("협업 경험")
     assert "payment" in concept_terms("금융 도메인 경험")
+
+
+async def test_false_hit_does_not_hide_real_evidence(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    kim = sample_applicants["김하늘"].info.application_id
+    document = context.documents[kim][0].model_copy(
+        update={"text": "웹 페이지 렌더링 개선.\n새솔은행 계정계 개발 3년."}
+    )
+    context = context.model_copy(update={"documents": {**context.documents, kim: [document]}})
+
+    matches = await keyword_search(scope_of(context), ["금융 도메인 경험"], [kim])
+
+    assert "새솔은행 계정계 개발 3년." in [sourced.sentence for sourced in matches[0].sentences]
