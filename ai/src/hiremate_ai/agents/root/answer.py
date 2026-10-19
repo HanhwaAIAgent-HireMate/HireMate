@@ -41,7 +41,7 @@ SUB_AGENT_TOOLS = {"analyze_application": "Application Agent", "analyze_assessme
 
 _DOCUMENT_LABELS = {document.label: document for document in DocumentType}
 _REF = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)(?![0-9])")
-_REF_WITH_NAME = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)\s+([가-힣A-Za-z]+)")
+_REF_WITH_NAME = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)\s+([^\s,.!?·]+)")
 _STAGE_LABELS = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
 
 ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확인해 답한다.
