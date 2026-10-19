@@ -1,10 +1,15 @@
-"""Root Agent 흐름 (LangGraph). 차단 → 대상 확인 · 분류 → 경로별 계획. 지원자를 직접 고르거나 상태를 바꾸지 않는다.
+"""Root Agent 흐름 (LangGraph). 차단 → 대상 확인 · 분류 → 경로별 계획 → 턴 기록.
 
-ChatContext는 그래프 상태가 아니라 실행 context로 넘긴다. 지원자 문서 본문이 상태(나중에 대화 기록)에 남지 않는다.
+지원자를 직접 고르거나 상태를 바꾸지 않는다. ChatContext는 그래프 상태가 아니라 실행 context로 넘겨
+지원자 문서 본문이 대화방 상태에 남지 않는다. 대화방(thread)을 주면 체크포인터가 턴 기록을 이어 보관한다.
 """
 
+from dataclasses import dataclass
 from typing import Any, TypedDict
+from uuid import UUID
 
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
@@ -16,20 +21,38 @@ from hiremate_ai.agents.root.find import plan_find
 from hiremate_ai.agents.root.route import NOT_UNDERSTOOD, RootRoute, classify, precheck
 from hiremate_ai.agents.root.targets import Targets, resolve
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
+from hiremate_ai.agents.root.turns import Turn, remember, turn_of
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
+from hiremate_ai.config import settings
 from hiremate_ai.contract import StageType
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import LlmClient
 
 
 class RootState(TypedDict, total=False):
-    targets: Targets
-    route: RootRoute
-    plan: ChatPlan
+    # 이번 턴의 값. 턴마다 None으로 다시 시작한다
+    targets: Targets | None
+    route: RootRoute | None
+    plan: ChatPlan | None
+    # 대화방에 쌓이는 최근 턴 기록
+    turns: list[Turn]
+
+
+@dataclass(frozen=True)
+class RootThread:
+    """대화방. id는 backend가 기업 · 전형 · 담당자로 만든다. metadata로 전형 단위 삭제를 한다."""
+
+    id: str
+    company_id: UUID
+    stage_id: UUID
+
+
+# 이번 턴의 값을 지우고 시작하는 입력. 대화방을 이어 쓸 때 앞 턴의 계획이 남지 않게 한다
+_NEW_TURN: RootState = {"targets": None, "route": None, "plan": None}
 
 
 def build_root_graph(
-    llm: LlmClient, toolkit: RootToolkit | None = None
+    llm: LlmClient, toolkit: RootToolkit | None = None, checkpointer: BaseCheckpointSaver[Any] | None = None
 ) -> CompiledStateGraph[RootState, ChatContext, RootState, RootState]:
     """노드는 llm으로 모델을 부른다. 테스트는 FakeLlm을 넘긴다. 실행할 때 context에 ChatContext를 준다.
 
@@ -46,32 +69,36 @@ def build_root_graph(
     async def route(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         context = runtime.context
         try:
-            decided = await classify(llm, context, state["targets"])
+            decided = await classify(llm, context, _targets(state))
         except LlmOutputError:
             return {"plan": ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)}
         early = precheck(decided, context)
         return {"route": decided, "plan": early} if early else {"route": decided}
 
     def edit(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
-        return {"plan": plan_edit(state["route"], runtime.context, state["targets"])}
+        return {"plan": plan_edit(_route(state), runtime.context, _targets(state))}
 
     async def find(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
-        return {"plan": await plan_find(llm, state["route"], runtime.context, tools)}
+        return {"plan": await plan_find(llm, _route(state), runtime.context, tools)}
 
     async def answer(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         context = runtime.context
-        route, targets = state["route"], state["targets"]
-        if route.interview_questions and context.stage_type is StageType.INTERVIEW:
-            return {"plan": await plan_questions(llm, route, context, targets, tools)}
-        return {"plan": await plan_answer(llm, route, context, targets, tools)}
+        decided, targets = _route(state), _targets(state)
+        if decided.interview_questions and context.stage_type is StageType.INTERVIEW:
+            return {"plan": await plan_questions(llm, decided, context, targets, tools)}
+        return {"plan": await plan_answer(llm, decided, context, targets, tools)}
+
+    def record(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        turn = turn_of(runtime.context, state.get("targets"), _plan(state))
+        return {"turns": remember(state.get("turns") or [], turn, settings.root_memory_turns)}
 
     def after_guard(state: RootState) -> str:
-        return END if "plan" in state else "route"
+        return "record" if state.get("plan") is not None else "route"
 
     def after_route(state: RootState) -> str:
-        if "plan" in state:
-            return END
-        return {"EDIT": "edit", "FIND": "find"}.get(state["route"].kind, "answer")
+        if state.get("plan") is not None:
+            return "record"
+        return {"EDIT": "edit", "FIND": "find"}.get(_route(state).kind, "answer")
 
     graph: StateGraph[RootState, ChatContext, RootState, RootState] = StateGraph(RootState, context_schema=ChatContext)
     graph.add_node("guard", guard)
@@ -79,18 +106,56 @@ def build_root_graph(
     graph.add_node("edit", edit)
     graph.add_node("find", find)
     graph.add_node("answer", answer)
+    graph.add_node("record", record)
     graph.add_edge(START, "guard")
     graph.add_conditional_edges("guard", after_guard)
     graph.add_conditional_edges("route", after_route)
-    graph.add_edge("edit", END)
-    graph.add_edge("find", END)
-    graph.add_edge("answer", END)
-    return graph.compile()
+    for node in ("edit", "find", "answer"):
+        graph.add_edge(node, "record")
+    graph.add_edge("record", END)
+    return graph.compile(checkpointer=checkpointer)
 
 
-async def run_plan(llm: LlmClient, context: ChatContext, toolkit: RootToolkit | None = None) -> ChatPlan:
-    state: dict[str, Any] = await build_root_graph(llm, toolkit).ainvoke({}, context=context)
-    plan = state["plan"]
+async def run_plan(
+    llm: LlmClient,
+    context: ChatContext,
+    toolkit: RootToolkit | None = None,
+    *,
+    saver: BaseCheckpointSaver[Any] | None = None,
+    thread: RootThread | None = None,
+) -> ChatPlan:
+    """계획을 낸다. saver와 thread를 주면 그 대화방에 턴을 남기고 앞 턴 기록을 이어 쓴다."""
+    remembering = saver is not None and thread is not None
+    graph = build_root_graph(llm, toolkit, saver if remembering else None)
+    config: RunnableConfig | None = None
+    if remembering and thread is not None:
+        config = {
+            "configurable": {"thread_id": thread.id},
+            "metadata": {"stage_id": str(thread.stage_id), "company_id": str(thread.company_id)},
+        }
+    state: dict[str, Any] = await graph.ainvoke(_NEW_TURN, config=config, context=context)
+    plan = state.get("plan")
     if not isinstance(plan, ChatPlan):
         raise TypeError(f"Root 그래프가 계획을 내지 않았다: {state.keys()}")
+    return plan
+
+
+def _targets(state: RootState) -> Targets:
+    targets = state.get("targets")
+    if targets is None:
+        raise TypeError("대상 확인 전에 경로를 탔다")
+    return targets
+
+
+def _route(state: RootState) -> RootRoute:
+    decided = state.get("route")
+    if decided is None:
+        raise TypeError("분류 전에 경로를 탔다")
+    return decided
+
+
+def _plan(state: RootState) -> ChatPlan:
+    plan = state.get("plan")
+    if plan is None:
+        raise TypeError("계획 없이 턴을 남기려 했다")
     return plan

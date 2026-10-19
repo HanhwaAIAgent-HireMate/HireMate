@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     llm_temperature: float = 0
     # 참이면 tests/eval의 실제 모델 평가를 돌린다. CI와 커밋 전 검사에서는 끈다
     llm_eval: bool = False
+    # Root Agent 대화방에 남기는 최근 턴 수
+    root_memory_turns: int = 20
 
 
 settings = Settings()
