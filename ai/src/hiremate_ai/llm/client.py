@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from hiremate_ai.config import settings
 from hiremate_ai.db.session import session_factory
-from hiremate_ai.llm.call_log import DbCallLog
+from hiremate_ai.llm.call_log import CallLog, DbCallLog
 from hiremate_ai.llm.chat import ChatLlm, ToolAgent
 
 
@@ -49,10 +49,15 @@ class LlmNotConfiguredError(RuntimeError):
 
 @cache
 def get_llm() -> LlmClient:
-    """FastAPI 의존성. 설정의 모델로 한 번 만들어 재사용한다.
+    """FastAPI 의존성. 설정의 모델로 한 번 만들어 재사용한다. 호출은 ai.llm_calls에 기록한다.
 
     테스트는 app.dependency_overrides[get_llm]으로 FakeLlm을 넣는다.
     """
+    return build_llm(DbCallLog(session_factory()))
+
+
+def build_llm(call_log: CallLog) -> LlmClient:
+    """설정의 모델로 LlmClient를 만든다. 호출 로그를 DB가 아닌 곳에 남길 때(실제 모델 평가) 직접 부른다."""
     if not settings.llm_model:
         raise LlmNotConfiguredError("LLM_MODEL이 비어 있다. ai/.env에 모델 연결 설정을 넣는다 (ai/.env.example 참고).")
     if not settings.llm_api_key.get_secret_value():
@@ -68,7 +73,7 @@ def get_llm() -> LlmClient:
     )
     return ChatLlm(
         model,
-        DbCallLog(session_factory()),
+        call_log,
         model_name=settings.llm_model,
         method=settings.llm_structured_output,
         agent_max_calls=settings.llm_agent_max_calls,
