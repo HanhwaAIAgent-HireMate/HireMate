@@ -1,0 +1,133 @@
+"""Root Agent만 쓰는 계약 타입. backend `ai.application` · `screening`의 Java 레코드를 그대로 옮긴다.
+
+필드를 바꾸면 저장소 루트 contract/의 ChatContext.json · ChatPlan.json도 고친다.
+"""
+
+from collections.abc import Sequence
+from enum import StrEnum
+from uuid import UUID
+
+from hiremate_ai.contract import (
+    AnalysisStatus,
+    ApplicantDocument,
+    CompanyProfile,
+    ContractModel,
+    PostingContent,
+    StageType,
+)
+
+
+class Decision(StrEnum):
+    """HR 결정 (screening.Decision)."""
+
+    PENDING = "PENDING"
+    PASS = "PASS"
+    FAIL = "FAIL"
+
+
+class SelectionMode(StrEnum):
+    """찾기 결과의 반영 방식: 찾아줘는 교체, 추가해줘는 추가, 그중은 좁히기 (screening.SelectionMode)."""
+
+    REPLACE = "REPLACE"
+    ADD = "ADD"
+    NARROW = "NARROW"
+
+
+class Intent(StrEnum):
+    """요청 유형: 지원자 찾기 · 분석과 생성 · 선택 지원자 편집 · 되묻기 · 차단 (ChatPlan.Intent)."""
+
+    FIND = "FIND"
+    ANSWER = "ANSWER"
+    EDIT = "EDIT"
+    CLARIFY = "CLARIFY"
+    BLOCKED = "BLOCKED"
+
+
+class EditAction(StrEnum):
+    """선택 지원자 편집 명령 (ChatPlan.EditAction). 실행은 backend가 대상과 권한을 검증한 뒤 한다."""
+
+    ADD = "ADD"
+    REMOVE = "REMOVE"
+    CLEAR = "CLEAR"
+    RESTORE = "RESTORE"
+
+
+class CandidateRow(ContractModel):
+    """전형 리스트의 지원자 한 명 (screening.CandidateRow). score는 평가 전형 점수다."""
+
+    application_id: UUID
+    name: str
+    career_years: int | None
+    last_company: str | None
+    decision: Decision
+    selected: bool
+    ai_selected: bool
+    above_line: bool
+    score: float | None
+    analysis_status: AnalysisStatus
+
+
+class ChatContext(ContractModel):
+    """Root Agent가 받는 요청 범위: 현재 채용 · 전형 + 대상(@멘션 · 체크) + 질문 (ai.application.ChatContext)."""
+
+    stage_id: UUID
+    recruitment_id: UUID
+    stage_name: str
+    stage_type: StageType
+    previous_types: list[StageType]
+    candidates: list[CandidateRow]
+    documents: dict[UUID, list[ApplicantDocument]]
+    document_scores: dict[UUID, int]
+    mentions: list[UUID]
+    checked: list[UUID]
+    company: CompanyProfile
+    posting: PostingContent
+    message: str
+
+
+class ChatItem(ContractModel):
+    """답변의 한 줄 (ai.application.ChatItem). status는 OK(근거 충분), CHECK(확인 필요), 없으면 None."""
+
+    application_id: UUID | None
+    label: str
+    text: str
+    status: str | None
+
+
+class ChatPlan(ContractModel):
+    """Root Agent의 실행 계획 (ai.application.ChatPlan). 선택 지원자 변경은 명령(동작, 대상)으로만 담는다.
+
+    message의 {count}는 실제로 반영된 인원, {total}은 전형 전체 인원으로 backend가 바꾼다.
+    """
+
+    intent: Intent
+    mode: SelectionMode | None
+    edit: EditAction | None
+    targets: list[UUID]
+    message: str
+    items: list[ChatItem]
+    sources: list[str]
+    agents: list[str]
+    question_targets: list[UUID]
+
+    @classmethod
+    def answer(
+        cls,
+        intent: Intent,
+        message: str,
+        items: Sequence[ChatItem] = (),
+        sources: Sequence[str] = (),
+        agents: Sequence[str] = (),
+    ) -> "ChatPlan":
+        """선택 지원자를 바꾸지 않는 답. backend ChatPlan.answer와 같다."""
+        return cls(
+            intent=intent,
+            mode=None,
+            edit=None,
+            targets=[],
+            message=message,
+            items=list(items),
+            sources=list(sources),
+            agents=list(agents),
+            question_targets=[],
+        )

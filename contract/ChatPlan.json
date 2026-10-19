@@ -1,0 +1,13 @@
+{
+  "intent": "EDIT",
+  "mode": null,
+  "edit": "REMOVE",
+  "targets": ["3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"],
+  "message": "정유민 님을 선택 지원자에서 뺐어요.",
+  "items": [
+    {"applicationId": null, "label": "안내", "text": "빼기는 불합격 처리가 아니에요.", "status": null}
+  ],
+  "sources": ["이력서"],
+  "agents": ["Application Agent"],
+  "questionTargets": ["3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"]
+}

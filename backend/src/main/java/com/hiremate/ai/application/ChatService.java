@@ -59,8 +59,8 @@ public class ChatService {
         applications.applicants(companyId, recruitment.id()).stream()
                 .filter(applicant -> applicant.documentScore() != null)
                 .forEach(applicant -> documentScores.put(applicant.applicationId(), applicant.documentScore()));
-        ChatContext context = new ChatContext(stageId, stage.name(), stage.type(), previous, candidates,
-                applications.documents(companyId, recruitment.id()), documentScores, mentions, checked,
+        ChatContext context = new ChatContext(stageId, recruitment.id(), stage.name(), stage.type(), previous,
+                candidates, applications.documents(companyId, recruitment.id()), documentScores, mentions, checked,
                 companies.profile(companyId), postings.draftContext(companyId, recruitment.id()).content(), message);
         ChatPlan plan = root.plan(context);
 
