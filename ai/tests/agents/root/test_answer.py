@@ -639,13 +639,14 @@ async def test_six_targets_use_tool_loop(
 class SlowLlm:
     """정해 둔 호출만 늦게 답하는 LLM. FakeLlm은 바로 답하므로 시간 상한을 볼 때 감싸서 쓴다."""
 
-    def __init__(self, fake: FakeLlm, slow: Callable[[str, type[BaseModel]], bool]) -> None:
+    def __init__(self, fake: FakeLlm, slow: Callable[[str, type[BaseModel]], bool], seconds: float = 1) -> None:
         self.fake = fake
         self.slow = slow
+        self.seconds = seconds
 
     async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
         if self.slow(user, output):
-            await asyncio.sleep(1)
+            await asyncio.sleep(self.seconds)
         return await self.fake.structured(output, agent=agent, system=system, user=user)
 
     def tool_agent[T: BaseModel](
@@ -729,3 +730,19 @@ async def test_summary_naming_other_applicant_falls_back(
     plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
 
     assert plan.message == MULTI_FALLBACK.format(names="김하늘, 박서준")
+
+
+async def test_cancelled_request_cancels_notes(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    respond = with_summary(PAIR, "비교했어요.")
+    fake = FakeLlm(respond, respond, respond)
+    llm = SlowLlm(fake, lambda user, output: output is CandidateNotes, seconds=0.2)
+    request = asyncio.create_task(ask(llm, pair_context(sample_applicants, sample_company, sample_posting)))
+
+    await asyncio.sleep(0.05)
+    request.cancel()
+    await asyncio.sleep(0.4)
+
+    assert request.cancelled()
+    assert fake.calls == []

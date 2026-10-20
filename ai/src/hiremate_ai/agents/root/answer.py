@@ -190,10 +190,13 @@ async def plan_multi(
     scope = scope_of(context, turns)
     shared = f"공고:\n{posting_text(context)}\n\n회사:\n{company_text(context)}"
     tasks = [asyncio.create_task(_notes(llm, context, row, shared, toolkit, scope)) for row in rows]
-    done, pending = await asyncio.wait(tasks, timeout=NOTES_SECONDS)
-    for task in pending:
-        task.cancel()
-    await asyncio.gather(*pending, return_exceptions=True)
+    try:
+        done, pending = await asyncio.wait(tasks, timeout=NOTES_SECONDS)
+    finally:
+        # 시간이 다 됐거나 요청이 취소되면 남은 정리 호출을 멈춘다. 모델 서버를 붙잡아 두지 않게 한다
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
     for task in done:
         error = task.exception()
         if error is not None and not isinstance(error, LlmOutputError):
