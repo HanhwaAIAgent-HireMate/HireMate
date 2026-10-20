@@ -109,6 +109,8 @@ async def plan_answer(
     toolkit: RootToolkit,
     turns: Sequence[Turn] = (),
 ) -> ChatPlan:
+    if targets.ambiguous and not targets.rows:
+        return ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names=", ".join(targets.ambiguous)))
     scope = scope_of(context, turns)
     agent = llm.tool_agent(
         RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext

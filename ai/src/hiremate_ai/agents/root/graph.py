@@ -18,10 +18,19 @@ from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.answer import plan_answer, plan_questions
 from hiremate_ai.agents.root.edit import plan_edit
 from hiremate_ai.agents.root.find import plan_find
-from hiremate_ai.agents.root.route import NO_PREVIOUS, NOT_UNDERSTOOD, RootRoute, classify, precheck
-from hiremate_ai.agents.root.targets import Targets, resolve
+from hiremate_ai.agents.root.route import (
+    COMPARE_NEEDS_TWO,
+    NO_PREVIOUS,
+    NOT_UNDERSTOOD,
+    RootRoute,
+    asks_comparison,
+    classify,
+    precheck,
+    refers_previous,
+)
+from hiremate_ai.agents.root.targets import Targets, checked, resolve
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
-from hiremate_ai.agents.root.turns import Turn, from_history, remember, turn_of
+from hiremate_ai.agents.root.turns import Turn, next_result, recall, remember, remembered, turn_of
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import StageType
@@ -36,6 +45,9 @@ class RootState(TypedDict, total=False):
     plan: ChatPlan | None
     # 대화방에 쌓이는 최근 턴 기록
     turns: list[Turn]
+    # 지금 결과 목록(찾기 · 면접 질문 대상, 만든 적이 없으면 None)과 직전에 다룬 지원자. 지원자 id 글자다
+    result: list[str] | None
+    subject: list[str]
 
 
 @dataclass(frozen=True)
@@ -76,13 +88,21 @@ def build_root_graph(
         early = precheck(decided, context)
         if early:
             return {"route": decided, "plan": early}
-        if decided.previous_ref != "none" and not targets.rows:
-            # 이름 없이 앞 대화의 지원자를 가리키면 대화방 기록에서 찾는다. 대상은 여전히 코드가 정한다
-            rows = from_history(context, turns, decided.previous_ref, decided.ordinal)
-            if not rows:
-                return {"route": decided, "plan": ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)}
-            return {"route": decided, "targets": Targets(rows=rows, ambiguous=[])}
-        return {"route": decided}
+        if decided.kind in ("ANSWER", "EDIT") and not targets.rows and not targets.ambiguous:
+            # 대상은 코드가 정한다: @멘션 · 이름 → 체크한 지원자 → 앞 대화.
+            # 앞 대화는 순서나 앞 대화를 가리키는 말이 있으면 체크한 지원자보다 먼저다
+            if refers_previous(decided, context):
+                ids = remembered(state.get("result"), state.get("subject") or [], decided.previous_ref)
+                rows = recall(context, ids, decided.ordinal)
+                if not rows:
+                    return {"route": decided, "plan": ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)}
+            else:
+                rows = checked(context)
+            targets = Targets(rows=rows, ambiguous=[])
+        if asks_comparison(decided, context.message) and len(targets.rows) < 2:
+            plan = ChatPlan.answer(Intent.CLARIFY, COMPARE_NEEDS_TWO)
+            return {"route": decided, "targets": targets, "plan": plan}
+        return {"route": decided, "targets": targets}
 
     def edit(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         return {"plan": plan_edit(_route(state), runtime.context, _targets(state))}
@@ -99,10 +119,15 @@ def build_root_graph(
 
     def record(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         """턴을 남기고 이번 턴의 값을 비운다. 대화방에는 JSON 값(턴 기록)만 남아 라이브러리를 올려도 다시 읽힌다."""
-        decided = state.get("route")
-        turn = turn_of(runtime.context, state.get("targets"), _plan(state), decided.kind if decided else "")
-        turns = remember(state.get("turns") or [], turn, settings.root_memory_turns)
-        return {"turns": turns, **_NEW_TURN}
+        decided, plan = state.get("route"), _plan(state)
+        kind = decided.kind if decided else ""
+        turn = turn_of(runtime.context, state.get("targets"), plan, kind)
+        return {
+            "turns": remember(state.get("turns") or [], turn, settings.root_memory_turns),
+            "result": next_result(state.get("result"), kind, decided.mode if decided else None, plan),
+            "subject": turn["targets"] or state.get("subject") or [],
+            **_NEW_TURN,
+        }
 
     def after_guard(state: RootState) -> str:
         return "record" if state.get("plan") is not None else "route"

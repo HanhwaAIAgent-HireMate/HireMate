@@ -9,7 +9,7 @@ from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import RootThread, run_plan
 from hiremate_ai.agents.root.route import NO_PREVIOUS, RootRoute
 from hiremate_ai.agents.root.turns import Turn
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent
+from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent, SelectionMode
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
@@ -379,3 +379,113 @@ async def test_empty_latest_result_clarifies(
     )
 
     assert plan == ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)
+
+
+async def test_checked_beats_previous_without_words(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    saver = InMemorySaver()
+    found = context_with(sample_applicants, sample_company, sample_posting, "금융 경험 있는 사람 찾아줘")
+    thread = thread_of(found)
+    llm = FakeLlm(
+        RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
+        FINANCE_FOUND,
+        RootRoute(kind="ANSWER", previous_ref="result", compare=True),
+        RootAnswer(message="비교했어요."),
+    )
+    compare = make_context(
+        sample_applicants, sample_company, sample_posting, message="둘 비교해줘", checked=["박서준", "이도윤"]
+    )
+
+    await run_plan(llm, found, saver=saver, thread=thread)
+    await run_plan(llm, compare, saver=saver, thread=thread)
+
+    assert "대상 지원자: C3 박서준, C4 이도윤" in llm.calls[-1].user
+
+
+async def test_previous_words_beat_checked(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    saver = InMemorySaver()
+    asked = make_context(
+        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
+    )
+    thread = thread_of(asked)
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER"),
+        RootAnswer(message="은행 경력이에요."),
+        RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
+    )
+    later = make_context(
+        sample_applicants, sample_company, sample_posting, message="아까 그 사람 빼줘", checked=["정유민"]
+    )
+
+    await run_plan(llm, asked, saver=saver, thread=thread)
+    plan = await run_plan(llm, later, saver=saver, thread=thread)
+
+    assert plan.targets == [sample_applicants["김하늘"].info.application_id]
+
+
+async def test_empty_narrow_keeps_result(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    saver = InMemorySaver()
+    found = context_with(sample_applicants, sample_company, sample_posting, "금융 경험 있는 사람 찾아줘")
+    thread = thread_of(found)
+    llm = FakeLlm(
+        RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
+        FINANCE_FOUND,
+        RootRoute(kind="FIND", mode=SelectionMode.NARROW, concepts=["양자 컴퓨팅"]),
+        RootRoute(kind="ANSWER", previous_ref="result", ordinal=2),
+        RootAnswer(message="강점이에요."),
+    )
+
+    await run_plan(llm, found, saver=saver, thread=thread)
+    narrowed = await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "그중 양자 컴퓨팅 경험 있는 사람만"),
+        saver=saver,
+        thread=thread,
+    )
+    await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "그중 두 번째 사람 강점은?"),
+        saver=saver,
+        thread=thread,
+    )
+
+    assert narrowed.intent is Intent.ANSWER
+    assert "대상 지원자: C2 김하늘" in llm.calls[-1].user
+
+
+async def test_find_turn_records_only_found(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    saver = InMemorySaver()
+    asked = make_context(
+        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
+    )
+    thread = thread_of(asked)
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER"),
+        RootAnswer(message="은행 경력이에요."),
+        RootRoute(kind="FIND", concepts=["양자 컴퓨팅"], previous_ref="subject"),
+        RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
+    )
+
+    await run_plan(llm, asked, saver=saver, thread=thread)
+    await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "양자 컴퓨팅 경험자 찾아줘"),
+        saver=saver,
+        thread=thread,
+    )
+    plan = await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "아까 그 사람 빼줘"),
+        saver=saver,
+        thread=thread,
+    )
+
+    assert (await saved_turns(saver, thread))[1]["targets"] == []
+    assert plan.targets == [sample_applicants["김하늘"].info.application_id]
