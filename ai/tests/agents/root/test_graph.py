@@ -184,3 +184,27 @@ async def test_ambiguous_name_not_replaced_by_checked(
 
     assert plan == ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names="김하늘"))
     assert len(llm.calls) == 1
+
+
+async def test_clear_with_previous_ref_still_clears(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="아까 선택 다 비워줘")
+
+    plan = await run_plan(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR, previous_ref="subject")), context)
+
+    assert (plan.intent, plan.edit) == (Intent.EDIT, EditAction.CLEAR)
+
+
+async def test_find_flagged_compare_is_not_refused(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 둘 찾아줘")
+    llm = FakeLlm(
+        RootRoute(kind="FIND", compare=True, concepts=["금융 도메인 경험"]),
+        RecheckResult(results=[RecheckItem(candidate_no=1, met=True, sentence_nos=[1])]),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.FIND

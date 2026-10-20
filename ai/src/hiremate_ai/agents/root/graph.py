@@ -31,7 +31,7 @@ from hiremate_ai.agents.root.route import (
 from hiremate_ai.agents.root.targets import Targets, checked, resolve
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
 from hiremate_ai.agents.root.turns import Turn, next_result, recall, remember, remembered, turn_of
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
+from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import StageType
 from hiremate_ai.llm.chat import LlmOutputError
@@ -88,7 +88,8 @@ def build_root_graph(
         early = precheck(decided, context)
         if early:
             return {"route": decided, "plan": early}
-        if decided.kind in ("ANSWER", "EDIT") and not targets.rows and not targets.ambiguous:
+        needs_targets = decided.kind == "ANSWER" or decided.edit in (EditAction.ADD, EditAction.REMOVE)
+        if needs_targets and not targets.rows and not targets.ambiguous:
             # 대상은 코드가 정한다: @멘션 · 이름 → 체크한 지원자 → 앞 대화.
             # 앞 대화는 순서나 앞 대화를 가리키는 말이 있으면 체크한 지원자보다 먼저다
             if refers_previous(decided, context):
@@ -99,7 +100,7 @@ def build_root_graph(
             else:
                 rows = checked(context)
             targets = Targets(rows=rows, ambiguous=[])
-        if asks_comparison(decided, context.message) and len(targets.rows) < 2:
+        if decided.kind == "ANSWER" and asks_comparison(decided, context.message) and len(targets.rows) < 2:
             plan = ChatPlan.answer(Intent.CLARIFY, COMPARE_NEEDS_TWO)
             return {"route": decided, "targets": targets, "plan": plan}
         return {"route": decided, "targets": targets}
