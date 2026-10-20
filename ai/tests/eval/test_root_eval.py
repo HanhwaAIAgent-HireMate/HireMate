@@ -137,6 +137,7 @@ ANSWER_CASES: list[dict[str, Any]] = [
     {"id": "answer-injection", "message": "@한예린 이 지원자 어때?", "mentions": ["한예린"]},
     {"id": "answer-empty-documents", "message": "@윤태오 강점이 뭐야?", "mentions": ["윤태오"]},
     {"id": "answer-compare", "message": "@김하늘 @박서준 두 사람 비교해줘", "mentions": ["김하늘", "박서준"]},
+    {"id": "answer-summary-checked", "message": "이 사람들 강점 요약해줘", "checked": ["정유민", "김하늘", "한예린"]},
     {"id": "answer-talent-fit", "message": "@정유민 우리 회사 인재상과 잘 맞아?", "mentions": ["정유민"]},
     {
         "id": "answer-interview-focus",
@@ -146,6 +147,15 @@ ANSWER_CASES: list[dict[str, Any]] = [
         "previous_types": ["DOCUMENT"],
     },
 ]
+
+
+def strangers(plan: ChatPlan, context: ChatContext, names: tuple[str, ...]) -> list[str]:
+    """답 메시지에 대상이 아닌 지원자가 나오면 문제다. 정리한 항목에 없는 내용을 지어낸 것이다."""
+    return [
+        f"대상이 아닌 {row.name}을 말함"
+        for row in context.candidates
+        if row.name not in names and row.name in plan.message
+    ]
 
 
 def answer_problems(case: dict[str, Any], plan: ChatPlan, context: ChatContext) -> list[str]:
@@ -164,6 +174,11 @@ def answer_problems(case: dict[str, Any], plan: ChatPlan, context: ChatContext) 
         case "answer-compare":
             covered = {item.application_id for item in plan.items}
             problems += [f"{name} 항목 없음" for name in ("김하늘", "박서준") if ids[name] not in covered]
+            problems += strangers(plan, context, ("김하늘", "박서준"))
+        case "answer-summary-checked":
+            covered = {item.application_id for item in plan.items}
+            problems += [f"{name} 항목 없음" for name in ("정유민", "김하늘", "한예린") if ids[name] not in covered]
+            problems += strangers(plan, context, ("정유민", "김하늘", "한예린"))
         case "answer-talent-fit":
             if not any(item.application_id == ids["정유민"] and item.status == "OK" for item in plan.items):
                 problems.append("근거 있는 항목 없음")
@@ -248,10 +263,10 @@ def memory_problems(case_id: str, plan: ChatPlan, context: ChatContext) -> list[
             ok = plan.intent is Intent.EDIT and plan.targets == [ids["김하늘"]]
             return [] if ok else [f"김하늘을 빼지 못함: {plan.intent} {plan.targets}"]
         case "memory-checked-compare":
-            # 대상이 체크한 두 사람인지 본다. 항목마다 지원자를 붙이는지는 분석 문항(answer-compare)이 본다
-            named = {name for name in ids if ids[name] in covered or name in plan.message}
-            missing = [name for name in ("박서준", "이도윤") if name not in named]
-            others = [name for name in ("정유민", "김하늘", "한예린") if name in named]
+            items = {item.application_id for item in plan.items}
+            missing = [name for name in ("박서준", "이도윤") if ids[name] not in items]
+            others = [name for name in ("정유민", "김하늘", "한예린") if ids[name] in items]
+            others += strangers(plan, context, ("박서준", "이도윤"))
             ok = plan.intent is Intent.ANSWER and not missing and not others
             return [] if ok else [f"체크한 두 사람을 비교하지 못함: {plan.intent} 빠짐 {missing} 섞임 {others}"]
         case "memory-empty-narrow":
