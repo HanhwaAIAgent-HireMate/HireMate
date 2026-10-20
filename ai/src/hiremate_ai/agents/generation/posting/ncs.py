@@ -71,5 +71,12 @@ def units_of(subdivision: str) -> list[NcsUnit]:
 
 
 def unit_by_code(code: str) -> NcsUnit | None:
-    """능력단위코드로 찾는다. 모델이 근거로 든 코드가 실제로 있는지 확인할 때 쓴다 (규칙 7)."""
-    return next((unit for unit in ncs_data().units if unit.code == code), None)
+    """능력단위코드로 찾는다. 모델이 근거로 든 코드가 실제로 있는지 확인할 때 쓴다 (규칙 7).
+
+    버전(_ 뒤)이 다르면 같은 능력단위의 자료 버전으로 찾는다. 모델이 코드를 옮기며 버전을 잘못 적곤 한다.
+    """
+    units = ncs_data().units
+    if exact := next((unit for unit in units if unit.code == code), None):
+        return exact
+    base = code.split("_")[0]
+    return next((unit for unit in units if unit.code.split("_")[0] == base), None) if len(base) == 10 else None
