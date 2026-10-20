@@ -37,6 +37,9 @@ class Deleted(ContractModel):
 @router.post("/plan")
 async def plan(request: PlanRequest, llm: LlmDep, saver: SaverDep) -> ChatPlan:
     context = request.context
+    if not context.thread_id:
+        # 끝난 전형: 대화방을 만들지 않는다 (대화는 전형 종료까지만 보관)
+        return await run_plan(llm, context)
     thread = RootThread(id=context.thread_id, company_id=context.company.company_id, stage_id=context.stage_id)
     return await run_plan(llm, context, saver=saver, thread=thread)
 

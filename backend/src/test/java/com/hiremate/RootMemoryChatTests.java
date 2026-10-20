@@ -5,6 +5,7 @@ import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -50,6 +51,7 @@ class RootMemoryChatTests extends IntegrationTest {
         ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
         verify(root).plan(sent.capture());
         assertThat(sent.getValue().threadId()).isEqualTo(threadId);
+        assertThat(sent.getValue().selectable()).isTrue();
 
         ChatPlan found = new ChatPlan(ChatPlan.Intent.FIND, SelectionMode.REPLACE, null, List.of(setup.applicant()),
                 "지원자 {total}명 중 조건에 맞는 **{count}명**을 선택했어요.", List.of(), List.of(), List.of(), List.of());
@@ -81,6 +83,31 @@ class RootMemoryChatTests extends IntegrationTest {
         expect(hr.post(setup.path() + "/finish", null), 200);
 
         verify(root, timeout(10_000)).forgetStage(setup.stageId());
+    }
+
+    @Test
+    @DisplayName("확정한 전형은 선택 지원자를 바꿀 수 없다고 Root에 알리고, 끝난 전형은 대화방 없이 Root를 부른다")
+    void closedStagesLimitChat() throws Exception {
+        Setup setup = documentStage();
+        TestApi hr = setup.hr();
+        when(root.plan(any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.CLARIFY, "답", List.of(), List.of(),
+                List.of()));
+        Map<String, Object> ask = Map.of("message", "강점 요약해줘", "mentionIds", List.of(), "checkedIds", List.of());
+        expect(hr.post(setup.path() + "/decisions",
+                Map.of("applicationIds", List.of(setup.applicant()), "decision", "PASS")), 204);
+        expect(hr.post(setup.path() + "/confirm", null), 200);
+        expect(hr.post(setup.path() + "/chat", ask), 200);
+        expect(hr.post(setup.path() + "/notices/prepare", null), 200);
+        expect(hr.post(setup.path() + "/notices/PASS/send", null), 200);
+        expect(hr.post(setup.path() + "/finish", null), 200);
+
+        expect(hr.post(setup.path() + "/chat", ask), 200);
+
+        ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
+        verify(root, times(2)).plan(sent.capture());
+        assertThat(sent.getAllValues()).extracting(ChatContext::selectable).containsExactly(false, false);
+        assertThat(sent.getAllValues().get(0).threadId()).isNotEmpty();
+        assertThat(sent.getAllValues().get(1).threadId()).isEmpty();
     }
 
     private Setup documentStage() throws Exception {

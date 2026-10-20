@@ -98,8 +98,11 @@ def build_root_graph(
         return {"plan": await plan_answer(llm, decided, context, targets, tools, turns)}
 
     def record(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
-        turn = turn_of(runtime.context, state.get("targets"), _plan(state))
-        return {"turns": remember(state.get("turns") or [], turn, settings.root_memory_turns)}
+        """턴을 남기고 이번 턴의 값을 비운다. 대화방에는 JSON 값(턴 기록)만 남아 라이브러리를 올려도 다시 읽힌다."""
+        decided = state.get("route")
+        turn = turn_of(runtime.context, state.get("targets"), _plan(state), decided.kind if decided else "")
+        turns = remember(state.get("turns") or [], turn, settings.root_memory_turns)
+        return {"turns": turns, **_NEW_TURN}
 
     def after_guard(state: RootState) -> str:
         return "record" if state.get("plan") is not None else "route"
@@ -143,10 +146,10 @@ async def run_plan(
             "metadata": {"stage_id": str(thread.stage_id), "company_id": str(thread.company_id)},
         }
     state: dict[str, Any] = await graph.ainvoke(_NEW_TURN, config=config, context=context)
-    plan = state.get("plan")
-    if not isinstance(plan, ChatPlan):
-        raise TypeError(f"Root 그래프가 계획을 내지 않았다: {state.keys()}")
-    return plan
+    turns: list[Turn] = state.get("turns") or []
+    if not turns:
+        raise TypeError(f"Root 그래프가 턴을 남기지 않았다: {state.keys()}")
+    return ChatPlan.model_validate(turns[-1]["plan"])
 
 
 def _targets(state: RootState) -> Targets:

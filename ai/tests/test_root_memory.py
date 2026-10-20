@@ -331,3 +331,51 @@ async def test_result_ref_falls_back_to_latest_turn_with_targets(
 
     assert plan.intent is Intent.ANSWER
     assert "대상 지원자: C1 정유민" in llm.calls[-1].user
+
+
+async def test_saved_state_keeps_only_json_values(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    saver = InMemorySaver()
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="@김하늘 빼줘", mentions=["김하늘"]
+    )
+    thread = thread_of(context)
+
+    plan = await run_plan(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.REMOVE)), context, saver=saver, thread=thread)
+
+    saved = await saver.aget_tuple({"configurable": {"thread_id": thread.id}})
+    assert saved is not None
+    values = saved.checkpoint["channel_values"]
+    assert values.get("targets") is None and values.get("route") is None and values.get("plan") is None
+    assert plan.edit is EditAction.REMOVE
+
+
+async def test_empty_latest_result_clarifies(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    saver = InMemorySaver()
+    found = context_with(sample_applicants, sample_company, sample_posting, "금융 경험 있는 사람 찾아줘")
+    thread = thread_of(found)
+    llm = FakeLlm(
+        RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
+        FINANCE_FOUND,
+        RootRoute(kind="FIND", concepts=["양자 컴퓨팅"]),
+        RootRoute(kind="ANSWER", previous_ref="result", ordinal=2),
+    )
+
+    await run_plan(llm, found, saver=saver, thread=thread)
+    await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "양자 컴퓨팅 경험자 찾아줘"),
+        saver=saver,
+        thread=thread,
+    )
+    plan = await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "그중 두 번째 사람 강점은?"),
+        saver=saver,
+        thread=thread,
+    )
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)

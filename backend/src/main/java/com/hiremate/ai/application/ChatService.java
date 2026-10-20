@@ -63,8 +63,10 @@ public class ChatService {
         Map<UUID, InterviewView> interviewViews = stage.type() == StageType.INTERVIEW
                 ? interviews.views(companyId, stageId, candidates.stream().map(CandidateRow::applicationId).toList())
                 : Map.of();
-        ChatContext context = new ChatContext(stageId, recruitment.id(), threadId(companyId, stageId, memberId),
-                stage.name(), stage.type(), previous,
+        // 대화는 전형 종료까지만 보관한다. 끝난 전형에서 물으면 대화방 없이 답한다
+        String threadId = stage.status() == StageStatus.DONE ? "" : threadId(companyId, stageId, memberId);
+        ChatContext context = new ChatContext(stageId, recruitment.id(), threadId, stage.name(),
+                stage.status() == StageStatus.ACTIVE, stage.type(), previous,
                 candidates, applications.documents(companyId, recruitment.id()), documentScores, interviewViews,
                 mentions, checked, companies.profile(companyId),
                 postings.draftContext(companyId, recruitment.id()).content(), message);

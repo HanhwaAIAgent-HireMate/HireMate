@@ -19,6 +19,7 @@ class TurnItem(TypedDict):
 
 class Turn(TypedDict):
     message: str
+    kind: str  # 분류한 요청 종류 (FIND, EDIT, ANSWER 등). 차단하거나 분류하지 못했으면 빈 값
     intent: str
     targets: list[str]  # 이 턴이 다룬 지원자 순서. 찾기 결과, 편집 대상, 면접 질문 대상, 답의 지원자 순
     answer: str  # 답 메시지 ({count}, {total} 자리 그대로)
@@ -28,7 +29,7 @@ class Turn(TypedDict):
     plan: dict[str, Any]  # 화면에 다시 보여 줄 계획 (ChatPlan JSON)
 
 
-def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan) -> Turn:
+def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan, kind: str = "") -> Turn:
     subject: list[UUID] = plan.targets or plan.question_targets
     if not subject:
         subject = list(dict.fromkeys(item.application_id for item in plan.items if item.application_id))
@@ -36,6 +37,7 @@ def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan) -> Tu
         subject = [row.application_id for row in targets.rows]
     return Turn(
         message=context.message,
+        kind=kind,
         intent=plan.intent.value,
         targets=[str(application_id) for application_id in subject],
         answer=plan.message,
@@ -58,14 +60,15 @@ def remember(turns: list[Turn], turn: Turn, limit: int) -> list[Turn]:
 
 
 def from_history(context: ChatContext, turns: Sequence[Turn], ref: str, ordinal: int | None) -> list[CandidateRow]:
-    """앞 대화가 가리키는 지원자. result는 직전 찾기 결과(없으면 직전 턴의 결과), subject는 직전에 다룬 지원자다.
+    """앞 대화가 가리키는 지원자. result는 직전 결과(찾기 또는 면접 질문 대상), subject는 직전에 다룬 지원자다.
 
     순서를 주면 그 사람만 고른다. 지금 전형에 없는 지원자는 뺀다.
     """
-    with_targets = [turn for turn in reversed(turns) if turn["targets"]]
-    found = [turn for turn in with_targets if turn["intent"] == "FIND"] if ref == "result" else []
-    # 찾기 결과가 없으면 직전 턴의 결과(면접 질문 대상 등)를 가리킨 것으로 본다
-    turn = (found or with_targets or [None])[0]
+    if ref == "result":
+        # 가장 최근의 찾기 결과(아무도 없었으면 빈 결과) 또는 그보다 뒤에 나온 다른 턴의 결과(면접 질문 대상 등)
+        turn = next((turn for turn in reversed(turns) if turn["kind"] == "FIND" or turn["targets"]), None)
+    else:
+        turn = next((turn for turn in reversed(turns) if turn["targets"]), None)
     if turn is None:
         return []
     ids = turn["targets"]
