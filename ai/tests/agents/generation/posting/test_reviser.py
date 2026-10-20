@@ -3,6 +3,7 @@ from uuid import UUID
 
 from hiremate_ai.agents.generation.posting.ncs import ncs_data
 from hiremate_ai.agents.generation.posting.reviser import (
+    ANSWER_ONLY_REPLY,
     BLOCKED_REPLY,
     CHECK_FAILED_REPLY,
     CONTENT_STEP,
@@ -11,6 +12,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
     MAX_NCS_UNITS,
     NCS_SYSTEM,
     NOTHING_CHANGED_REPLY,
+    RETRY_HINT,
     ROUTE_STEP,
     SYSTEM,
     ContentChanges,
@@ -229,7 +231,8 @@ async def test_revise_asks_back_when_model_leaves_a_stage_type_unknown() -> None
     result = await revise_posting(llm, posting(), "", "워크숍 전형 넣어 줘")
 
     assert result.suggestion is None
-    assert result.reply == "'워크숍'의 종류를 알려 주세요. 서류, 평가, 면접 중 어떤 전형인가요?"
+    assert result.reply.startswith("'워크숍'의 종류를 알 수 없어요.")
+    assert result.reply.endswith(RETRY_HINT)
 
 
 async def test_revise_asks_back_for_ambiguous_new_stage_even_if_model_guessed() -> None:
@@ -238,7 +241,27 @@ async def test_revise_asks_back_for_ambiguous_new_stage_even_if_model_guessed() 
     result = await revise_posting(llm, posting(), "", "서류 다음에 PT 발표 넣어 줘")
 
     assert result.suggestion is None
-    assert result.reply == "'PT 발표'의 종류를 알려 주세요. 서류, 평가, 면접 중 어떤 전형인가요?"
+    assert result.reply.startswith("'PT 발표'의 종류를 알 수 없어요.")
+
+
+async def test_revise_accepts_ambiguous_stage_when_retried_with_its_type() -> None:
+    llm = FakeLlm(route("STAGES"), plan(DOCUMENT, StageDraft(name="PT 발표 전형", type=StageType.ASSESSMENT)))
+
+    result = await revise_posting(llm, posting(), "", "서류 다음에 PT 발표 전형을 평가로 넣어 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.stages == [DOCUMENT, StageDraft(name="PT 발표 전형", type=StageType.ASSESSMENT)]
+
+
+async def test_revise_explains_how_to_answer_when_only_a_type_word_comes() -> None:
+    for answer in ("평가", "면접 전형이요", "서류입니다."):
+        llm = FakeLlm()
+
+        result = await revise_posting(llm, posting(), "", answer)
+
+        assert result.suggestion is None
+        assert result.reply == ANSWER_ONLY_REPLY
+        assert llm.calls == []
 
 
 async def test_revise_accepts_ambiguous_stage_when_request_names_its_type() -> None:
@@ -482,6 +505,16 @@ async def test_revise_skips_ncs_writer_when_no_known_unit_is_picked() -> None:
 
     assert len(llm.calls) == 2
     assert result.reply == NOTHING_CHANGED_REPLY
+
+
+async def test_revise_skips_ncs_when_request_does_not_mention_requirements() -> None:
+    llm = FakeLlm(route("CONTENT", "NCS_REQUIREMENTS"), content(intro="결제 플랫폼을 함께 만들 분을 찾아요."))
+
+    result = await revise_posting(llm, posting(), "", "회사 소개를 더 친근하게 바꿔 줘")
+
+    assert [call.output for call in llm.calls] == [Route, ContentChanges]
+    assert result.suggestion is not None
+    assert result.suggestion.changed_fields == ["intro"]
 
 
 async def test_revise_limits_units_shown_to_ncs_writer() -> None:
