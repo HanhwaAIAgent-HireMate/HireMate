@@ -21,10 +21,12 @@ NOT_UNDERSTOOD = "요청을 이해하지 못했어요. " + DEFAULT_CLARIFY
 NO_ASSESSMENT = "아직 평가 결과가 없어요. 지원서에서 협업 경험이 약한 지원자를 찾아볼까요?"
 NO_INTERVIEW = "아직 면접 답변 기록이 없어요. @로 지원자를 골라 면접에서 확인할 점을 물어볼 수 있어요."
 NO_PREVIOUS = "앞 대화에서 가리킨 지원자를 찾지 못했어요. @로 골라 다시 말씀해 주세요."
+COMPARE_NEEDS_TWO = "비교할 지원자를 두 명 이상 @로 고르거나 체크해 주세요."
 # backend ChatService와 같은 문구. 확정한 전형에서는 선택 지원자를 바꾸지 않는다
 LOCKED = "결과를 확정한 전형이라 선택 지원자를 바꿀 수 없어요. 분석이나 요약은 계속 물어볼 수 있어요."
-# 분류 프롬프트에 넣는 최근 턴 수
+# 분류 프롬프트에 넣는 최근 턴 수와 체크한 지원자 이름 수
 RECENT_TURNS = 3
+CHECKED_NAMES = 5
 
 _STAGE_LABELS = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
 
@@ -35,6 +37,11 @@ _POINTS = re.compile(r"\d+\s*점")
 # "서류 점수", "서류 평가"는 서류 전형의 값이라 평가 결과가 아니다. 이 말이 있으면 "N점"도 서류 점수로 본다
 _DOCUMENT_SCORE = re.compile(r"(?:서류|지원서|이력서|자기소개서|자소서)\s*(?:점수|평가)")
 _INTERVIEW_WORDS = re.compile(r"답변|면접\s*기록")
+# 체크한 지원자가 있으면 앞 대화는 순서를 말하거나 앞 대화를 가리키는 말이 있을 때만 쓴다
+_PREVIOUS_WORDS = re.compile(
+    r"방금|아까|앞에서|앞서|위에서|이전|지난번|그\s*중|그\s*(?:사람|지원자|분|둘|셋)|찾은|고른|만든"
+)
+_COMPARE_WORDS = re.compile(r"비교|누가\s*더|어느\s*쪽")
 
 
 class RootRoute(BaseModel):
@@ -53,6 +60,7 @@ class RootRoute(BaseModel):
     uses_checked: bool = Field(default=False, description="EDIT: 체크한 지원자를 가리킴")
     interview_questions: bool = Field(default=False, description="ANSWER: 면접 질문을 만들거나 고쳐 달라는 요청")
     all_candidates: bool = Field(default=False, description="ANSWER: 전형 지원자 모두를 가리킴")
+    compare: bool = Field(default=False, description="ANSWER: 지원자끼리 비교해 달라는 요청")
     needs_assessment: bool = Field(
         default=False, description="요청에 평가 결과, 평가 점수, 과제, 'N점'이 직접 나오면 true"
     )
@@ -97,12 +105,14 @@ EDIT
 ANSWER
 - interview_questions: 면접 질문을 만들거나 고쳐 달라는 요청.
 - all_candidates: "다들", "전원", "모두"처럼 전형 지원자 모두를 가리킬 때.
+- compare: 두 명 이상의 지원자끼리 비교하는 요청. 한 지원자를 공고나 기준과 견주는 것은 false.
 
 앞 대화
 - 이름이나 @ 없이 앞 대화의 지원자를 가리키면 previous_ref를 쓴다.
   "방금 찾은 사람들", "그중 두 번째 사람"(설명 · 편집 요청)은 result, "아까 그 사람", "그 지원자"는 subject.
   "두 번째", "첫 번째"처럼 순서가 있으면 ordinal에 번호를 적는다.
 - "그중 ~만", "그중에 ~ 있는 사람"처럼 조건으로 좁히는 찾기는 previous_ref 없이 FIND NARROW다.
+- 체크한 지원자가 있고 "이 둘", "둘", "이 사람들"처럼 가리키면 체크한 지원자다. previous_ref 없이 둔다.
 
 공통
 - needs_assessment: 요청 문장에 평가 결과, 평가 점수, 과제, "N점"이 직접 나올 때만 true.
@@ -131,7 +141,7 @@ def route_prompt(context: ChatContext, targets: Targets, turns: Sequence[Turn] =
         f"현재 전형: {context.stage_name} ({_STAGE_LABELS[context.stage_type]})\n"
         f"끝난 전형: {previous}\n"
         f"대상 지원자: {names}\n"
-        f"체크한 지원자: {len(context.checked)}명"
+        f"체크한 지원자: {_checked_names(context)}"
     )
     if turns:
         by_id = {str(row.application_id): row.name for row in context.candidates}
@@ -142,6 +152,26 @@ def route_prompt(context: ChatContext, targets: Targets, turns: Sequence[Turn] =
             lines.append(f'{number}. "{turn["message"]}" → {label}: {people}')
         prompt += "\n앞 대화 (오래된 것부터):\n" + "\n".join(lines)
     return prompt
+
+
+def _checked_names(context: ChatContext) -> str:
+    ids = set(context.checked)
+    names = [row.name for row in context.candidates if row.application_id in ids]
+    if len(names) > CHECKED_NAMES:
+        return ", ".join(names[:CHECKED_NAMES]) + f" 외 {len(names) - CHECKED_NAMES}명"
+    return ", ".join(names) or "없음"
+
+
+def refers_previous(route: RootRoute, context: ChatContext) -> bool:
+    """앞 대화의 지원자를 대상으로 쓸지. 체크한 지원자가 있으면 순서나 앞 대화를 가리키는 말이 있어야 한다."""
+    if route.previous_ref == "none":
+        return False
+    return not context.checked or route.ordinal is not None or bool(_PREVIOUS_WORDS.search(context.message))
+
+
+def asks_comparison(route: RootRoute, message: str) -> bool:
+    """지원자끼리 비교하는 요청. 모델이 표시하고 문장에도 비교하는 말이 있어야 한다."""
+    return route.compare and bool(_COMPARE_WORDS.search(message))
 
 
 async def classify(llm: LlmClient, context: ChatContext, targets: Targets, turns: Sequence[Turn] = ()) -> RootRoute:

@@ -7,8 +7,10 @@ from hiremate_ai.agents.root.route import (
     NO_ASSESSMENT,
     NO_INTERVIEW,
     RootRoute,
+    asks_comparison,
     classify,
     precheck,
+    refers_previous,
     required_data,
 )
 from hiremate_ai.agents.root.targets import resolve
@@ -53,7 +55,7 @@ async def test_prompt_has_question_and_targets_but_no_documents(
     assert call.agent == "root"
     assert "@정유민 빼줘" in call.user
     assert "정유민" in call.user.replace("@정유민 빼줘", "")
-    assert "2명" in call.user
+    assert "체크한 지원자: 김하늘, 박서준" in call.user
     first_line = sample_applicants["정유민"].documents[0].text.splitlines()[0]
     assert first_line not in call.user
 
@@ -228,3 +230,52 @@ def test_locked_stage_refuses_find_and_edit(
     assert precheck(RootRoute(kind="FIND", concepts=["금융"]), context) == ChatPlan.answer(Intent.CLARIFY, LOCKED)
     assert precheck(RootRoute(kind="EDIT", edit=EditAction.CLEAR), context) == ChatPlan.answer(Intent.CLARIFY, LOCKED)
     assert precheck(RootRoute(kind="ANSWER"), context) is None
+
+
+async def test_prompt_caps_checked_names(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    names = ["정유민", "김하늘", "박서준", "이도윤", "최지우", "한예린", "윤태오"]
+    context = make_context(sample_applicants, sample_company, sample_posting, message="요약해줘", checked=names)
+    llm = FakeLlm(RootRoute(kind="ANSWER"))
+
+    await classify(llm, context, resolve(context))
+
+    user = llm.calls[0].user
+    assert "체크한 지원자: 정유민, 김하늘, 박서준, 이도윤, 최지우 외 2명" in user
+    assert "한예린" not in user
+
+
+def checked_context(
+    applicants: Applicants, company: CompanyProfile, posting: PostingContent, message: str, checked: list[str]
+) -> ChatContext:
+    return make_context(applicants, company, posting, message=message, checked=checked)
+
+
+def test_previous_ignored_when_checked_without_previous_words(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = checked_context(sample_applicants, sample_company, sample_posting, "둘 비교해줘", ["박서준", "이도윤"])
+
+    assert refers_previous(RootRoute(kind="ANSWER", previous_ref="result"), context) is False
+
+
+def test_previous_kept_with_ordinal_words_or_no_checked(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    two = ["박서준", "이도윤"]
+    ordinal = checked_context(sample_applicants, sample_company, sample_posting, "두 번째 사람 강점은?", two)
+    words = checked_context(sample_applicants, sample_company, sample_posting, "아까 그 사람 빼줘", two)
+    nothing_checked = checked_context(sample_applicants, sample_company, sample_posting, "둘 비교해줘", [])
+
+    assert refers_previous(RootRoute(kind="ANSWER", previous_ref="result", ordinal=2), ordinal)
+    assert refers_previous(RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"), words)
+    assert refers_previous(RootRoute(kind="ANSWER", previous_ref="result"), nothing_checked)
+    assert not refers_previous(RootRoute(kind="ANSWER"), nothing_checked)
+
+
+def test_comparison_needs_flag_and_word() -> None:
+    assert asks_comparison(RootRoute(kind="ANSWER", compare=True), "둘 비교해줘")
+    assert asks_comparison(RootRoute(kind="ANSWER", compare=True), "둘 중 누가 더 나아?")
+    assert not asks_comparison(RootRoute(kind="ANSWER"), "둘 비교해줘")
+    assert not asks_comparison(RootRoute(kind="ANSWER", compare=True), "강점 알려줘")
