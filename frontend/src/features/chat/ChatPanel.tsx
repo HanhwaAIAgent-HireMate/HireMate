@@ -36,7 +36,7 @@ const EXAMPLES: Record<StageOverview['type'], string[]> = {
 export function ChatPanel({ overview }: { overview: StageOverview }) {
   const stageId = overview.stageId
   const messages = useChatStore((state) => state.threads[stageId] ?? EMPTY)
-  const { append, seed, clear } = useChatStore()
+  const { append, load, clear } = useChatStore()
   const history = useChatHistory(stageId)
   const forget = useForgetChat(stageId)
   const { mentions, removeMention, addMention, checked } = useStageUi()
@@ -48,9 +48,11 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
   const mentionQuery = /@([^\s@]*)$/.exec(text)?.[1]
   const suggestions = useMentionCandidates(stageId, mentionQuery ?? '', mentionQuery !== undefined)
 
+  // 기록을 받는 동안에는 보내지 않는다. 받은 기록이 화면의 대화를 바꾸므로 그 사이에 보낸 질문이 사라진다
+  const loading = history.isFetching
   useEffect(() => {
-    if (history.data) seed(stageId, turnsToMessages(history.data))
-  }, [history.data, seed, stageId])
+    if (history.data && !loading) load(stageId, turnsToMessages(history.data))
+  }, [history.data, loading, load, stageId])
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
@@ -58,7 +60,7 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
 
   const send = (raw: string) => {
     const message = raw.replace(/@\S*$/, '').trim()
-    if (!message || chat.isPending) return
+    if (!message || chat.isPending || loading) return
     append(stageId, { role: 'user', text: message, mentions })
     setText('')
     chat.mutate(
@@ -205,10 +207,10 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
           <button
             type="submit"
             aria-label="보내기"
-            disabled={!text.trim() || chat.isPending}
+            disabled={!text.trim() || chat.isPending || loading}
             className={cn(
               'flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground',
-              text.trim() && !chat.isPending && 'bg-foreground text-background',
+              text.trim() && !chat.isPending && !loading && 'bg-foreground text-background',
             )}
           >
             <ArrowUp className="size-4" />
