@@ -9,6 +9,8 @@ import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.posting.PostingContent;
+import com.hiremate.posting.PostingDraftContext;
+import com.hiremate.posting.PostingSuggestion;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,7 +43,9 @@ class ContractSampleTests {
             "ChatHistoryTurn", ChatHistoryTurn.class,
             "ChatPlan", ChatPlan.class,
             "CompanyProfile", CompanyProfile.class,
-            "PostingContent", PostingContent.class);
+            "PostingContent", PostingContent.class,
+            "PostingDraftContext", PostingDraftContext.class,
+            "PostingSuggestion", PostingSuggestion.class);
 
     @Autowired
     private JsonMapper mapper;

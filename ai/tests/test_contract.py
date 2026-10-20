@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
+from hiremate_ai.agents.generation.posting.types import PostingDraftContext, PostingSuggestion
 from hiremate_ai.agents.root.types import ChatContext, ChatHistoryTurn, ChatPlan
 from hiremate_ai.contract import ApplicantDetail, CandidateAnalysis, CompanyProfile, PostingContent
 
@@ -18,6 +19,8 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "ChatPlan": ChatPlan,
     "CompanyProfile": CompanyProfile,
     "PostingContent": PostingContent,
+    "PostingDraftContext": PostingDraftContext,
+    "PostingSuggestion": PostingSuggestion,
 }
 
 
