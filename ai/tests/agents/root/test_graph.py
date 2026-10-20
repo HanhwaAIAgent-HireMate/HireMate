@@ -145,7 +145,7 @@ async def test_compare_with_one_target_clarifies(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(
-        sample_applicants, sample_company, sample_posting, message="@김하늘 비교해줘", mentions=["김하늘"]
+        sample_applicants, sample_company, sample_posting, message="@김하늘이랑 누가 더 나아?", mentions=["김하늘"]
     )
     llm = FakeLlm(RootRoute(kind="ANSWER", compare=True))
 
