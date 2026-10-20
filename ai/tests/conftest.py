@@ -1,4 +1,5 @@
-from collections.abc import AsyncIterator, Iterator
+import asyncio
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,17 @@ SAMPLES_DIR = AI_DIR / "tests" / "samples"
 
 # compose.yaml과 같은 이미지
 POSTGRES_IMAGE = "pgvector/pgvector:pg17"
+
+
+def pytest_asyncio_loop_factories(
+    config: pytest.Config, item: pytest.Item
+) -> Mapping[str, Callable[[], asyncio.AbstractEventLoop]]:
+    """async 테스트를 SelectorEventLoop에서 돌린다.
+
+    Windows 기본 루프(ProactorEventLoop)에서는 psycopg가 async로 DB에 붙지 못한다.
+    Linux · macOS는 원래 SelectorEventLoop라 동작이 같다.
+    """
+    return {"selector": asyncio.SelectorEventLoop}
 
 
 def _alembic_config(database_url: str | None = None) -> Config:
