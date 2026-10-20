@@ -1,9 +1,13 @@
-package com.hiremate;
+package com.hiremate.screening;
 
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hiremate.IntegrationTest;
+import com.hiremate.TestApi;
+import com.hiremate.TestFixtures;
+import com.hiremate.TestMailConfiguration;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
 import java.time.Duration;
@@ -298,9 +302,9 @@ class ScreeningTests extends IntegrationTest {
 
     private Stage startDocumentStage(int applicants, String stagePlan) throws Exception {
         TestApi hr = newHr();
-        ApplyTests.Posting posting = ApplyTests.publish(hr, false, stagePlan);
+        TestFixtures.Posting posting = TestFixtures.publish(hr, false, stagePlan);
         for (int i = 1; i <= applicants; i++) {
-            Map<String, Object> form = ApplyTests.form("applicant" + i + "@example.com", false);
+            Map<String, Object> form = TestFixtures.form("applicant" + i + "@example.com", false);
             form.put("name", "지원자" + i);
             expect(anonymous().multipart(posting.applyPath(), form), 201);
         }

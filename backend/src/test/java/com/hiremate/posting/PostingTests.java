@@ -1,9 +1,11 @@
-package com.hiremate;
+package com.hiremate.posting;
 
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hiremate.IntegrationTest;
+import com.hiremate.TestApi;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;

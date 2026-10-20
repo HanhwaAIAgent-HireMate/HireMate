@@ -1,4 +1,4 @@
-package com.hiremate;
+package com.hiremate.ai;
 
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
@@ -9,6 +9,9 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hiremate.IntegrationTest;
+import com.hiremate.TestApi;
+import com.hiremate.TestFixtures;
 import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatItem;
 import com.hiremate.ai.application.ChatPlan;
@@ -40,8 +43,8 @@ class RootFocusChatTests extends IntegrationTest {
     @DisplayName("면접 전형 Chat은 면접 기록을 Root에 넘기고, Root가 준 확인할 점으로 질문을 만들며 생성 이유를 답에 남긴다")
     void rootFocusReachesInterviewAgent() throws Exception {
         TestApi hr = newHr();
-        ApplyTests.Posting posting = ApplyTests.publish(hr, false, "전형은 서류, 1차 면접 순으로 해줘");
-        Map<String, Object> form = ApplyTests.form("applicant@example.com", false);
+        TestFixtures.Posting posting = TestFixtures.publish(hr, false, "전형은 서류, 1차 면접 순으로 해줘");
+        Map<String, Object> form = TestFixtures.form("applicant@example.com", false);
         form.put("name", "지원자1");
         expect(anonymous().multipart(posting.applyPath(), form), 201);
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());

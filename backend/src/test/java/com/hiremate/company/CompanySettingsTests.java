@@ -1,9 +1,11 @@
-package com.hiremate;
+package com.hiremate.company;
 
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hiremate.IntegrationTest;
+import com.hiremate.TestApi;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;

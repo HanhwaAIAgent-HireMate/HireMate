@@ -1,12 +1,10 @@
-package com.hiremate;
+package com.hiremate.file;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.hiremate.IntegrationTest;
 import com.hiremate.company.CompanyService;
-import com.hiremate.file.FileContent;
-import com.hiremate.file.FileService;
-import com.hiremate.file.StoredFileInfo;
 import com.hiremate.global.ApiException;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
