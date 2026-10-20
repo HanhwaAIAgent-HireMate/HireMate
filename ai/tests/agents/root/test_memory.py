@@ -489,3 +489,31 @@ async def test_find_turn_records_only_found(
 
     assert (await saved_turns(saver, thread))[1]["targets"] == []
     assert plan.targets == [sample_applicants["김하늘"].info.application_id]
+
+
+async def test_clear_with_checked_keeps_subject(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    saver = InMemorySaver()
+    asked = make_context(
+        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
+    )
+    thread = thread_of(asked)
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER"),
+        RootAnswer(message="은행 경력이에요."),
+        RootRoute(kind="EDIT", edit=EditAction.CLEAR),
+        RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
+    )
+    cleared = make_context(sample_applicants, sample_company, sample_posting, message="선택 비워줘", checked=["정유민"])
+
+    await run_plan(llm, asked, saver=saver, thread=thread)
+    await run_plan(llm, cleared, saver=saver, thread=thread)
+    plan = await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "아까 그 사람 빼줘"),
+        saver=saver,
+        thread=thread,
+    )
+
+    assert plan.targets == [sample_applicants["김하늘"].info.application_id]
