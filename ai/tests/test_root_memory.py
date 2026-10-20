@@ -306,3 +306,28 @@ async def test_refine_uses_previous_subject(
     jung = sample_applicants["정유민"].info.application_id
     assert plan.question_targets == [jung]
     assert plan.question_focus == {jung: "장애 대응을 더 기술적으로"}
+
+
+async def test_result_ref_falls_back_to_latest_turn_with_targets(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    saver = InMemorySaver()
+    first = interview_context(sample_applicants, sample_company, sample_posting, "@정유민 면접 질문 만들어줘")
+    thread = thread_of(first)
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER", interview_questions=True),
+        RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus=FOCUS)]),
+        RootRoute(kind="ANSWER", previous_ref="result"),
+        RootAnswer(message="이유예요."),
+    )
+
+    await run_plan(llm, first, saver=saver, thread=thread)
+    plan = await run_plan(
+        llm,
+        interview_context(sample_applicants, sample_company, sample_posting, "방금 만든 질문은 왜 만든 거야?"),
+        saver=saver,
+        thread=thread,
+    )
+
+    assert plan.intent is Intent.ANSWER
+    assert "대상 지원자: C1 정유민" in llm.calls[-1].user
