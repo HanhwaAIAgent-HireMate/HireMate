@@ -54,6 +54,31 @@ _TEMPLATE_GUIDES = {
     ),
 }
 
+# 첫 초안에 보여 주는 모범 본문. 작은 모델은 규칙보다 예시의 말투와 길이를 잘 따른다.
+# {stage}는 이번 전형, {next_stage}는 다음 전형 이름으로 바꿔 넣는다
+_TEMPLATE_EXAMPLES = {
+    NoticeTemplateType.NEXT_STAGE: (
+        "{stage}에 합격하셨음을 알려드리며, 진심으로 축하드립니다.\n\n"
+        "다음 전형은 {next_stage}입니다. 일정과 장소는 별도로 안내드릴 예정입니다.\n\n"
+        "남은 전형도 잘 준비하시길 바랍니다."
+    ),
+    NoticeTemplateType.REJECT: (
+        "먼저 이번 채용에 지원해 주셔서 진심으로 감사드립니다.\n\n"
+        "아쉽게도 {stage} 결과, 이번 채용에서는 함께하기 어렵게 되었음을 알려드립니다.\n\n"
+        "보내주신 관심에 다시 한번 감사드리며, 앞으로의 길을 응원하겠습니다."
+    ),
+    NoticeTemplateType.FINAL_PASS: (
+        "{stage} 결과, 최종 합격하셨음을 알려드립니다. 진심으로 축하드립니다.\n\n"
+        "입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.\n\n"
+        "함께하게 되어 기쁘게 생각합니다."
+    ),
+    NoticeTemplateType.FINAL_REJECT: (
+        "긴 전형 과정에 끝까지 참여해 주셔서 진심으로 감사드립니다.\n\n"
+        "아쉽게도 {stage} 결과, 이번 채용에서는 함께하기 어렵게 되었음을 알려드립니다.\n\n"
+        "전형 동안 보여주신 관심과 시간에 다시 한번 감사드리며, 앞으로의 길을 응원하겠습니다."
+    ),
+}
+
 
 class NoticeDraftContext(ContractModel):
     """backend가 채워 보내는 안내 초안 정보 (notice.NoticeDraftContext)."""
@@ -133,7 +158,12 @@ def _user_prompt(notice: NoticeDraftContext, request: str | None) -> str:
     if notice.template_type is NoticeTemplateType.NEXT_STAGE:
         lines.append(f"다음 전형: {notice.next_stage_name or '(없음)'}")
     lines += [f"쓸 내용: {notice.template_type.guide}", f"양식의 작성 안내: {notice.ai_guide}"]
-    if request is not None:
+    if request is None:
+        example = _TEMPLATE_EXAMPLES[notice.template_type].format(
+            stage=notice.stage_name, next_stage=notice.next_stage_name or "다음 전형"
+        )
+        lines += ["", "예시 본문 (이 말투, 길이, 문단 나누기를 따른다):", example]
+    else:
         lines += [
             "",
             "지금 본문:",
