@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from hiremate_ai.agents.root.targets import Targets
+from hiremate_ai.agents.root.targets import Targets, checked
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent, SelectionMode
 from hiremate_ai.contract import StageType
@@ -39,7 +39,9 @@ _DOCUMENT_SCORE = re.compile(r"(?:서류|지원서|이력서|자기소개서|자
 _INTERVIEW_WORDS = re.compile(r"답변|면접\s*기록")
 # 체크한 지원자가 있으면 앞 대화는 순서를 말하거나 앞 대화를 가리키는 말이 있을 때만 쓴다
 _PREVIOUS_WORDS = re.compile(
-    r"방금|아까|앞에서|앞서|위에서|이전|지난번|그\s*중|그\s*(?:사람|지원자|분|둘|셋)|찾은|고른|만든"
+    r"방금|아까|앞에서|앞서|위에서|이전|지난번|찾은|고른|만든|그\s*(?:사람|지원자|분|둘|셋)"
+    # "그중", "그 중에서"만. "그 중요한", "그 중간"은 아니다
+    r"|그\s*중(?:에서는|에서|에는|에|엔|의)?(?![가-힣])"
 )
 # 지원자끼리 견주는 말. 모델은 "@김하늘 공고 요건과 비교해줘"처럼 한 사람을 기준과 견주는 요청에도 compare를 표시한다
 _BETWEEN_APPLICANTS = re.compile(
@@ -169,7 +171,9 @@ def refers_previous(route: RootRoute, context: ChatContext) -> bool:
     """앞 대화의 지원자를 대상으로 쓸지. 체크한 지원자가 있으면 순서나 앞 대화를 가리키는 말이 있어야 한다."""
     if route.previous_ref == "none":
         return False
-    return not context.checked or route.ordinal is not None or bool(_PREVIOUS_WORDS.search(context.message))
+    if not checked(context) or route.ordinal is not None:
+        return True
+    return bool(_PREVIOUS_WORDS.search(context.message))
 
 
 def asks_comparison(route: RootRoute, message: str) -> bool:

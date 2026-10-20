@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from root_context import make_context
 
 from hiremate_ai.agents.root.route import (
@@ -286,3 +288,26 @@ def test_comparing_with_posting_is_not_between_applicants() -> None:
     # 실제 모델은 한 지원자를 공고와 견주는 요청에도 compare를 표시한다
     assert not asks_comparison(RootRoute(kind="ANSWER", compare=True), "@김하늘 공고 자격 요건과 비교해줘")
     assert not asks_comparison(RootRoute(kind="ANSWER", compare=True), "@정유민 인재상과 비교해줘")
+
+
+def test_checked_outside_stage_does_not_hide_previous(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = checked_context(sample_applicants, sample_company, sample_posting, "강점 알려줘", [])
+    context = context.model_copy(update={"checked": [uuid4()]})
+
+    assert refers_previous(RootRoute(kind="ANSWER", previous_ref="result"), context)
+
+
+def test_words_starting_with_jung_are_not_previous(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    two = ["박서준", "이도윤"]
+    route = RootRoute(kind="ANSWER", previous_ref="result")
+
+    for message in ("그 중요한 경험이 뭐야?", "그 중간 결과 알려줘", "그 중심 역할은?"):
+        assert not refers_previous(
+            route, checked_context(sample_applicants, sample_company, sample_posting, message, two)
+        )
+    for message in ("그중 강점은?", "그 중에서 강점은?", "그중에 누가 나아?", "그중엔 누구야?"):
+        assert refers_previous(route, checked_context(sample_applicants, sample_company, sample_posting, message, two))
