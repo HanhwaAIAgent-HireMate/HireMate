@@ -12,7 +12,7 @@ from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.main import app
 
-CONTRACT_DIR = Path(__file__).resolve().parents[2] / "contract"
+CONTRACT_DIR = Path(__file__).resolve().parents[4] / "contract"
 
 
 def test_plan_endpoint_round_trip() -> None:
