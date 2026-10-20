@@ -62,6 +62,8 @@ BLOCKED_REPLY = (
     "직무와 관련된 경험이나 역량으로 다시 말씀해 주세요."
 )
 CHECK_FAILED_REPLY = "요청대로 고친 수정안이 공고 작성 규칙을 지키지 못했어요. 요청을 조금 바꿔 다시 말씀해 주세요."
+RETRY_HINT = "처음 요청에 종류를 붙여 다시 말씀해 주세요. 예: 'PT 발표 전형을 평가로 넣어 줘'"
+ANSWER_ONLY_REPLY = f"앞의 대화는 기억하지 못해요. {RETRY_HINT}"
 
 ATTEMPTS = 2
 """처음 한 번과, 검사에 걸렸을 때 이유를 붙여 다시 쓰는 한 번."""
@@ -89,6 +91,11 @@ _TYPE_WORD = re.compile(r"서류|평가|면접")
 # 차별 조건을 지원자를 거르는 데 쓰라는 요청. 차별 조건 낱말과 함께 나오면 모델을 부르지 않고 거절한다.
 # 낱말만으로 막으면 "근무 지역", "자녀 학자금"처럼 공고에 쓰는 말까지 막혀서 함께 나올 때만 본다
 _JUDGING = re.compile(r"우대|자격|요건|선호|조건|제한|이하|이상만|만\s*(?:받|뽑)")
+
+# 공고 AI는 앞 대화를 받지 못한다(backend가 이번 요청만 보낸다). 되물음에 종류 낱말 하나로 답하면
+# 무엇의 종류인지 알 수 없어, 모델을 부르지 않고 처음 요청에 붙여 다시 말해 달라고 한다
+_ANSWER_ONLY = re.compile(r"(?:서류|평가|면접)(?:전형)?(?:이요|요|입니다|이에요|예요)?[.!]?")
+_NCS_WORDS = re.compile(r"자격|우대|요건|NCS", re.IGNORECASE)
 
 # 모델이 숫자와 단위 사이에 넣는 공백 (예: "1 차 면접", "20 대")
 _NUMBER_SPACE = re.compile(r"(\d)\s+(차|대|년|개월|월|일|시간|시|분|명|회|개|단계|주)")
@@ -230,9 +237,14 @@ async def revise_posting(
     """
     if blocked_attribute(request) and _JUDGING.search(request):
         return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
+    if _ANSWER_ONLY.fullmatch(_compact(request)):
+        return RevisionResult(reply=ANSWER_ONLY_REPLY, suggestion=None)
     context = _context(posting, writing_style, request)
     route = await _ask(llm, Route, context, ROUTE_STEP)
     targets = set(route.targets)
+    if not _NCS_WORDS.search(request):
+        # 근거로 새로 쓰는 일은 오래 걸려, 자격 요건 · 우대 사항을 말한 요청일 때만 한다
+        targets.discard("NCS_REQUIREMENTS")
     locked = posting.status is not RecruitmentStatus.DRAFT and bool(targets & PROCESS_TARGETS)
     targets -= PROCESS_TARGETS if locked else set()
     if not targets:
@@ -429,7 +441,7 @@ def _result(draft: _Draft, cited: list[NcsUnit], locked: bool) -> RevisionResult
 
 def _stage_question(names: list[str]) -> str:
     quoted = ", ".join(f"'{name}'" for name in names)
-    return f"{quoted}의 종류를 알려 주세요. 서류, 평가, 면접 중 어떤 전형인가요?"
+    return f"{quoted}의 종류를 알 수 없어요. 서류, 평가, 면접 중 어떤 전형인지 {RETRY_HINT}"
 
 
 def _with_reasons(prompt: str, found: list[str] | None) -> str:
