@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context
 
-from hiremate_ai.agents.root.graph import run_plan
+from hiremate_ai.agents.root.graph import RootThread, run_plan
 from hiremate_ai.agents.root.route import RootRoute, classify, required_data
 from hiremate_ai.agents.root.targets import resolve
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
@@ -185,3 +186,71 @@ async def test_root_answer_cases(
             print(f"      focus: {list(plan.question_focus.values())[0][:80]}")
     print(f"분석 {passed}/{len(ANSWER_CASES)}")
     assert passed / len(ANSWER_CASES) >= MIN_ACCURACY
+
+
+MEMORY_CASES: list[dict[str, Any]] = [
+    {
+        "id": "memory-ordinal",
+        "turns": [
+            {"message": "금융 도메인과 관련된 경험이 있는 지원자 보여줘"},
+            {"message": "그중 두 번째 사람 강점은?"},
+        ],
+    },
+    {
+        "id": "memory-subject-edit",
+        "turns": [{"message": "@김하늘 강점이 뭐야?", "mentions": ["김하늘"]}, {"message": "아까 그 사람 빼줘"}],
+    },
+    {
+        "id": "memory-question-reason",
+        "turns": [
+            {
+                "message": "@정유민 서류 기준으로 기술 심화 질문 만들어줘",
+                "mentions": ["정유민"],
+                "stage_type": "INTERVIEW",
+                "previous_types": ["DOCUMENT"],
+            },
+            {"message": "방금 만든 질문은 왜 만든 거야?", "stage_type": "INTERVIEW", "previous_types": ["DOCUMENT"]},
+        ],
+    },
+]
+
+
+def memory_problems(case_id: str, plan: ChatPlan, context: ChatContext) -> list[str]:
+    ids = {row.name: row.application_id for row in context.candidates}
+    covered = {item.application_id for item in plan.items} | set(plan.targets)
+    match case_id:
+        case "memory-ordinal":
+            ok = plan.intent is Intent.ANSWER and (ids["김하늘"] in covered or "김하늘" in plan.message)
+            return [] if ok else [f"김하늘을 가리키지 못함: {plan.intent} {plan.message[:40]}"]
+        case "memory-subject-edit":
+            ok = plan.intent is Intent.EDIT and plan.targets == [ids["김하늘"]]
+            return [] if ok else [f"김하늘을 빼지 못함: {plan.intent} {plan.targets}"]
+        case "memory-question-reason":
+            return [] if plan.intent is Intent.ANSWER else [f"이유를 답하지 못함: {plan.intent} {plan.message[:40]}"]
+    return ["모르는 문항"]
+
+
+async def test_root_memory_cases(
+    sample_applicants: dict[str, ApplicantDetail], sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    llm = build_llm(MemoryCallLog())
+    passed = 0
+    for case in MEMORY_CASES:
+        saver = InMemorySaver()
+        thread = None
+        plan = None
+        context = None
+        started = time.perf_counter()
+        for turn in case["turns"]:
+            context = context_for(turn, sample_applicants, sample_company, sample_posting)
+            thread = thread or RootThread(
+                id=case["id"], company_id=context.company.company_id, stage_id=context.stage_id
+            )
+            plan = await run_plan(llm, context, saver=saver, thread=thread)
+        assert plan is not None and context is not None
+        problems = memory_problems(case["id"], plan, context)
+        passed += not problems
+        status, seconds = "BAD" if problems else "OK ", time.perf_counter() - started
+        print(f"{status} {seconds:4.1f}s {case['id']}: {plan.message[:60]} {'; '.join(problems)}")
+    print(f"대화 기억 {passed}/{len(MEMORY_CASES)}")
+    assert passed / len(MEMORY_CASES) >= MIN_ACCURACY

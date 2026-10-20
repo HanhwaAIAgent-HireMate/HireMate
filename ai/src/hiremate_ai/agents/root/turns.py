@@ -58,12 +58,14 @@ def remember(turns: list[Turn], turn: Turn, limit: int) -> list[Turn]:
 
 
 def from_history(context: ChatContext, turns: Sequence[Turn], ref: str, ordinal: int | None) -> list[CandidateRow]:
-    """앞 대화가 가리키는 지원자. result는 직전 찾기 결과, subject는 직전에 다룬 지원자다.
+    """앞 대화가 가리키는 지원자. result는 직전 찾기 결과(없으면 직전 턴의 결과), subject는 직전에 다룬 지원자다.
 
     순서를 주면 그 사람만 고른다. 지금 전형에 없는 지원자는 뺀다.
     """
-    wanted = (lambda turn: turn["intent"] == "FIND") if ref == "result" else (lambda turn: True)
-    turn = next((turn for turn in reversed(turns) if turn["targets"] and wanted(turn)), None)
+    with_targets = [turn for turn in reversed(turns) if turn["targets"]]
+    found = [turn for turn in with_targets if turn["intent"] == "FIND"] if ref == "result" else []
+    # 찾기 결과가 없으면 직전 턴의 결과(면접 질문 대상 등)를 가리킨 것으로 본다
+    turn = (found or with_targets or [None])[0]
     if turn is None:
         return []
     ids = turn["targets"]
