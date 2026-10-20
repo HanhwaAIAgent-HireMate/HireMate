@@ -93,22 +93,3 @@ def recall(context: ChatContext, ids: Sequence[str], ordinal: int | None) -> lis
         ids = ids[ordinal - 1 : ordinal] if 1 <= ordinal <= len(ids) else []
     by_id = {str(row.application_id): row for row in context.candidates}
     return [by_id[application_id] for application_id in ids if application_id in by_id]
-
-
-def from_history(context: ChatContext, turns: Sequence[Turn], ref: str, ordinal: int | None) -> list[CandidateRow]:
-    """앞 대화가 가리키는 지원자. result는 직전 결과(찾기 또는 면접 질문 대상), subject는 직전에 다룬 지원자다.
-
-    순서를 주면 그 사람만 고른다. 지금 전형에 없는 지원자는 뺀다.
-    """
-    if ref == "result":
-        # 가장 최근의 찾기 결과(아무도 없었으면 빈 결과) 또는 그보다 뒤에 나온 다른 턴의 결과(면접 질문 대상 등)
-        turn = next((turn for turn in reversed(turns) if turn["kind"] == "FIND" or turn["targets"]), None)
-    else:
-        turn = next((turn for turn in reversed(turns) if turn["targets"]), None)
-    if turn is None:
-        return []
-    ids = turn["targets"]
-    if ordinal is not None:
-        ids = ids[ordinal - 1 : ordinal] if 1 <= ordinal <= len(ids) else []
-    by_id = {str(row.application_id): row for row in context.candidates}
-    return [by_id[application_id] for application_id in ids if application_id in by_id]

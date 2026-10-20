@@ -1,10 +1,11 @@
-from root_context import make_context
+from root_context import extra_row, make_context
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY
 from hiremate_ai.agents.root.answer import QuestionFocusItem, RootAnswer, RootQuestionFocus
+from hiremate_ai.agents.root.edit import SAME_NAME
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import build_root_graph, run_plan
-from hiremate_ai.agents.root.route import DECISION_REPLY, NOT_UNDERSTOOD, RootRoute
+from hiremate_ai.agents.root.route import COMPARE_NEEDS_TWO, DECISION_REPLY, NOT_UNDERSTOOD, RootRoute
 from hiremate_ai.agents.root.types import ChatPlan, EditAction, Intent, SelectionMode
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.chat import LlmOutputError
@@ -138,3 +139,48 @@ async def test_state_does_not_keep_chat_context(
 
     assert "context" not in state
     assert state["turns"][-1]["plan"]["edit"] == EditAction.CLEAR.value
+
+
+async def test_compare_with_one_target_clarifies(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="@김하늘 비교해줘", mentions=["김하늘"]
+    )
+    llm = FakeLlm(RootRoute(kind="ANSWER", compare=True))
+
+    plan = await run_plan(llm, context)
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, COMPARE_NEEDS_TWO)
+    assert len(llm.calls) == 1
+
+
+async def test_edit_uses_checked_without_target(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="이 둘 빼줘", checked=["정유민", "김하늘"]
+    )
+
+    plan = await run_plan(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.REMOVE)), context)
+
+    assert plan.targets == [sample_applicants[name].info.application_id for name in ("정유민", "김하늘")]
+
+
+async def test_ambiguous_name_not_replaced_by_checked(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="김하늘 강점은?",
+        checked=["정유민"],
+        extra_rows=[extra_row("김하늘")],
+    )
+    llm = FakeLlm(RootRoute(kind="ANSWER"))
+
+    plan = await run_plan(llm, context)
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names="김하늘"))
+    assert len(llm.calls) == 1
