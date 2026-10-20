@@ -71,6 +71,9 @@ src/main/java/com/hiremate/
 - 모듈 안은 `api`(Controller, 요청, 응답 DTO), `application`(서비스), `domain`(Entity, Repository), `infra`(외부 연동, 필요할 때만)로 나눈다.
 - 다른 모듈의 엔티티는 JPA 연관관계 대신 ID로 참조한다. 필요한 데이터는 해당 모듈이 공개한 서비스로 조회한다.
 - 스키마는 `src/main/resources/db/migration`의 Flyway 파일(`V{번호}__{설명}.sql`)로만 바꾼다. `ddl-auto=validate`라 Entity와 스키마가 다르면 앱이 뜨지 않는다.
+- 테스트는 `src/test/java`에 main과 같은 패키지로 둔다. 모듈 API 테스트는 모듈 최상위 패키지(`apply/ApplyTests`),
+  한 계층의 클래스만 보는 테스트는 그 하위 패키지(`ai/infra/AiServerClientTests`)에 둔다. 여러 모듈 테스트가 같이 쓰는
+  도구(`IntegrationTest`, `TestApi`, `TestFixtures`)와 앱 전체 테스트(`ModularityTests`)는 최상위 `com.hiremate`에 둔다.
 - DB나 Redis가 필요한 테스트는 `TestcontainersConfiguration`을 `@Import`한다.
 - `auth/config/SecurityConfig`는 모든 요청을 허용하는 임시 설정이다. 인증 작업이 아니면 고치지 않는다.
 - AI Agent 구현은 `ai/infra`에 둔다. stub은 `@ConditionalOnAiMode(agent = ..., mode = AiMode.STUB)`,
@@ -125,6 +128,7 @@ src/
 - 서버 상태는 TanStack Query, 전역 클라이언트 상태는 Zustand, 폼은 React Hook Form + Zod를 쓴다.
 - UI는 shadcn/ui 컴포넌트를 먼저 쓴다. `npx shadcn add <이름>`으로 설치하며 `components/ui/`에 둔다.
   현재는 설치된 UI 컴포넌트가 없어 이 디렉터리가 없다.
+- 테스트는 대상 파일 옆에 `<이름>.test.ts(x)`로 둔다. 모든 테스트에 쓰는 설정은 `test/setup.ts`에 둔다.
 
 ### ai/
 
@@ -180,6 +184,8 @@ src/hiremate_ai/
   도구 루프는 도구 결과를 자동으로 감싸고 `UNTRUSTED_RULE`을 붙인다. 분석 Agent에는 쓰기 도구를 주지 않는다 (규칙 5).
 - 차별 조건 요청은 `agents.guardrails.blocked_attribute`로 판정해 `BLOCKED_REPLY`로 답한다 (규칙 6).
   모델이 낸 근거 문장은 `evidence_source`, `verified_evidence`로 원문에 있는지 확인하고 없으면 버린다 (규칙 7).
+- 테스트는 `tests/` 아래에 `src/hiremate_ai/`와 같은 폴더로 둔다 (`agents/root/graph.py` → `tests/agents/root/test_graph.py`).
+  새 폴더에는 빈 `__init__.py`를 둔다. 여러 영역이 같이 쓰는 fixture는 `tests/conftest.py`, 실제 모델 평가는 `tests/eval/`에 둔다.
 - Agent 테스트는 `tests/samples`의 가상 지원자(`sample_applicants` 등 fixture)를 쓴다. 지원자별 정답은 `tests/samples/README.md`에 있다.
 - 테이블은 `db.base.Base`를 상속해 `db/` 아래 모듈에 둔다. 라우터는 `SessionDep`으로 세션을 받는다.
   리비전은 `uv run alembic revision --autogenerate -m "<설명>"`으로 만들고 헤드를 하나로 유지한다.
