@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from hiremate_ai.agents.generation.posting.reviser import NOTHING_CHANGED_REPLY, PostingEdit
+from hiremate_ai.agents.generation.posting.reviser import NOTHING_CHANGED_REPLY, ContentChanges, FieldChange, Route
 from hiremate_ai.agents.generation.posting.router import router
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
@@ -45,7 +45,14 @@ def client(llm: FakeLlm) -> TestClient:
 
 
 def test_revise_returns_backend_result_shape() -> None:
-    llm = FakeLlm(PostingEdit(preferred=["금융 도메인 경험", "결제 · 정산 시스템 운영 경험"]))
+    llm = FakeLlm(
+        Route(targets=["CONTENT"], question=None),
+        ContentChanges(
+            changes=[
+                FieldChange(field="우대 사항", text=None, items=["금융 도메인 경험", "결제 · 정산 시스템 운영 경험"])
+            ]
+        ),
+    )
 
     response = client(llm).post("/agents/posting/revise", json=body("우대 사항에 결제 · 정산 경험 추가해 줘"))
 
@@ -62,7 +69,7 @@ def test_revise_returns_backend_result_shape() -> None:
 
 
 def test_revise_returns_null_suggestion_when_nothing_changes() -> None:
-    llm = FakeLlm(PostingEdit())
+    llm = FakeLlm(Route(targets=[], question=None))
 
     response = client(llm).post("/agents/posting/revise", json=body("음"))
 

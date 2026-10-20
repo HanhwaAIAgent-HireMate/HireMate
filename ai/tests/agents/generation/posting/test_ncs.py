@@ -41,6 +41,13 @@ def test_unit_by_code_finds_unit_with_definition_and_citation() -> None:
     assert unit.citation == "NCS 응용SW엔지니어링 · 서버프로그램 구현"
 
 
+def test_unit_by_code_finds_the_data_version_when_version_differs() -> None:
+    unit = unit_by_code("2001020211_19v1")
+
+    assert unit is not None
+    assert unit.code == "2001020211_23v6"
+
+
 def test_unit_by_code_returns_none_for_unknown_code() -> None:
     assert unit_by_code("2001020299_23v6") is None
     assert unit_by_code("서버프로그램 구현") is None
