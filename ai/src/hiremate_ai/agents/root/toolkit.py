@@ -1,7 +1,7 @@
 """Root Agent가 쓰는 도구 묶음. 프로필 · 검색 도구가 들어오기 전까지는 ChatContext 문서로 동작하는 임시 구현을 쓴다."""
 
 import re
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -10,7 +10,8 @@ from langchain_core.tools import BaseTool
 
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion
-from hiremate_ai.contract import StageType
+from hiremate_ai.contract import ApplicantDocument, StageType
+from hiremate_ai.llm.prompt import data_block, documents_block
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
 from hiremate_ai.tools.scope import ToolScope
 
@@ -25,12 +26,6 @@ class RootToolContext(ToolScope):
     chat: ChatContext
     called: list[str] = field(default_factory=list)
     turns: list[Turn] = field(default_factory=list)  # 대화방의 앞 턴 기록 (대화 기억이 없으면 비어 있다)
-
-
-@dataclass(frozen=True)
-class RootToolkit:
-    search: CandidateSearch
-    answer_tools: Sequence[BaseTool] = ()
 
 
 def scope_of(context: ChatContext, turns: Sequence[Turn] = ()) -> RootToolContext:
@@ -167,6 +162,7 @@ def _best_sentences(sentences: list[SourcedSentence], terms: list[str]) -> list[
 
 
 OUT_OF_SCOPE = "조회 범위 밖의 지원자예요. 지원자 번호(C1 같은)로 다시 불러 주세요."
+NO_DOCUMENTS = "읽을 수 있는 제출 문서 본문이 없어요."
 _REF = re.compile(r"^\s*[Cc]?(\d+)\s*$")
 _DECISIONS = {Decision.PENDING: "미결정", Decision.PASS: "합격", Decision.FAIL: "불합격"}
 _STAGES = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
@@ -190,33 +186,18 @@ def resolve_ref(context: ChatContext, ref: str) -> CandidateRow | None:
     return context.candidates[index - 1] if 1 <= index <= len(context.candidates) else None
 
 
-@tool
-async def get_candidate_documents(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
-    """지원자의 제출 문서(이력서, 자기소개서, 포트폴리오, 자격증) 본문을 읽는다. candidate는 지원자 번호(예: C1)다."""
-    context = _used(runtime, "get_candidate_documents")
-    row = resolve_ref(context.chat, candidate)
-    if row is None:
-        return OUT_OF_SCOPE
-    documents = [document for document in context.chat.documents.get(row.application_id, []) if document.text.strip()]
+def documents_text(chat: ChatContext, row: CandidateRow) -> str:
+    documents = _readable_documents(chat, row)
     if not documents:
-        return f"{_who(context.chat, row)}: 읽을 수 있는 제출 문서 본문이 없어요."
-    return f"{_who(context.chat, row)}\n\n" + "\n\n".join(f"[{doc.type.label}]\n{doc.text}" for doc in documents)
+        return f"{_who(chat, row)}: {NO_DOCUMENTS}"
+    return f"{_who(chat, row)}\n\n" + "\n\n".join(f"[{doc.type.label}]\n{doc.text}" for doc in documents)
 
 
-@tool
-async def get_stage_results(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
-    """지원자의 전형 결과(결정 상태, 평가 점수, 서류 점수, 경력, 서류 기준선)를 읽는다.
-
-    candidate는 지원자 번호(예: C1)다.
-    """
-    context = _used(runtime, "get_stage_results")
-    row = resolve_ref(context.chat, candidate)
-    if row is None:
-        return OUT_OF_SCOPE
-    document = context.chat.document_scores.get(row.application_id)
+def stage_result_text(chat: ChatContext, row: CandidateRow) -> str:
+    document = chat.document_scores.get(row.application_id)
     career = "알 수 없음" if row.career_years is None else "신입" if row.career_years == 0 else f"{row.career_years}년"
     lines = [
-        _who(context.chat, row),
+        _who(chat, row),
         f"결정: {_DECISIONS[row.decision]}",
         f"평가 점수: {f'{row.score:g}점' if row.score is not None else '없음'}",
         f"서류 점수: {f'{document}점' if document is not None else '없음'}",
@@ -226,42 +207,31 @@ async def get_stage_results(candidate: str, runtime: ToolRuntime[RootToolContext
     return "\n".join(lines)
 
 
-@tool
-async def get_interview_records(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
-    """지원자의 현재 · 이전 면접 질문과 기록된 답변을 읽는다. candidate는 지원자 번호(예: C1)다."""
-    context = _used(runtime, "get_interview_records")
-    row = resolve_ref(context.chat, candidate)
-    if row is None:
-        return OUT_OF_SCOPE
-    view = context.chat.interviews.get(row.application_id)
+def interview_text(chat: ChatContext, row: CandidateRow) -> str:
+    view = chat.interviews.get(row.application_id)
     if view is None or not (view.questions or view.previous):
-        chat = context.chat
         if chat.stage_type is not StageType.INTERVIEW and StageType.INTERVIEW in chat.previous_types:
             # 면접 기록은 면접 전형 화면에서만 받는다. 없다고 단정하지 않게 한다
             return f"{_who(chat, row)}: 이전 면접 기록은 이 전형에서 불러오지 못했어요. 기록이 없다는 뜻은 아니에요."
         return f"{_who(chat, row)}: 면접 기록이 없어요."
-    sections = [_who(context.chat, row)]
+    sections = [_who(chat, row)]
     for previous in view.previous:
         sections.append(f"[{previous.stage_name}]\n" + _questions(previous.questions))
     if view.questions:
-        sections.append(f"[{context.chat.stage_name}]\n" + _questions(view.questions))
+        sections.append(f"[{chat.stage_name}]\n" + _questions(view.questions))
     return "\n\n".join(sections)
 
 
-@tool
-async def get_company_profile(runtime: ToolRuntime[RootToolContext]) -> str:
-    """회사 소개, 조직 문화, 인재상을 읽는다."""
-    company = _used(runtime, "get_company_profile").chat.company
+def company_text(chat: ChatContext) -> str:
+    company = chat.company
     talents = (
         "\n".join(f"- {talent.title}: {talent.description}" for talent in company.talents) or "- 등록된 인재상 없음"
     )
     return f"{company.name}\n소개: {company.intro}\n문화: {company.culture}\n인재상:\n{talents}"
 
 
-@tool
-async def get_posting(runtime: ToolRuntime[RootToolContext]) -> str:
-    """채용 공고(직무, 담당 업무, 자격 요건, 우대 사항)를 읽는다."""
-    posting = _used(runtime, "get_posting").chat.posting
+def posting_text(chat: ChatContext) -> str:
+    posting = chat.posting
 
     def listed(title: str, values: list[str]) -> str:
         return f"{title}:\n" + ("\n".join(f"- {value}" for value in values) or "- 없음")
@@ -274,6 +244,61 @@ async def get_posting(runtime: ToolRuntime[RootToolContext]) -> str:
             listed("우대 사항", posting.preferred),
         ]
     )
+
+
+def previous_notes(chat: ChatContext, turns: Sequence[Turn], row: CandidateRow) -> str:
+    """앞 대화에서 이 지원자에 대해 정리한 것: 면접 질문의 확인할 점과 답 항목. 없으면 빈 글자다."""
+    application_id = str(row.application_id)
+    sections = []
+    for number, turn in enumerate(turns, start=1):
+        lines = [f"확인할 점: {turn['focus'][application_id]}"] if application_id in turn["focus"] else []
+        lines += [
+            f"항목 [{item['label']}] {item['text']}"
+            for item in turn["items"]
+            if item["application_id"] == application_id
+        ]
+        if lines:
+            sections.append("\n".join([f'[{number}] 담당자: "{turn["message"]}"', *lines]))
+    return "\n\n".join(sections)
+
+
+@tool
+async def get_candidate_documents(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
+    """지원자의 제출 문서(이력서, 자기소개서, 포트폴리오, 자격증) 본문을 읽는다. candidate는 지원자 번호(예: C1)다."""
+    context = _used(runtime, "get_candidate_documents")
+    row = resolve_ref(context.chat, candidate)
+    return OUT_OF_SCOPE if row is None else documents_text(context.chat, row)
+
+
+@tool
+async def get_stage_results(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
+    """지원자의 전형 결과(결정 상태, 평가 점수, 서류 점수, 경력, 서류 기준선)를 읽는다.
+
+    candidate는 지원자 번호(예: C1)다.
+    """
+    context = _used(runtime, "get_stage_results")
+    row = resolve_ref(context.chat, candidate)
+    return OUT_OF_SCOPE if row is None else stage_result_text(context.chat, row)
+
+
+@tool
+async def get_interview_records(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
+    """지원자의 현재 · 이전 면접 질문과 기록된 답변을 읽는다. candidate는 지원자 번호(예: C1)다."""
+    context = _used(runtime, "get_interview_records")
+    row = resolve_ref(context.chat, candidate)
+    return OUT_OF_SCOPE if row is None else interview_text(context.chat, row)
+
+
+@tool
+async def get_company_profile(runtime: ToolRuntime[RootToolContext]) -> str:
+    """회사 소개, 조직 문화, 인재상을 읽는다."""
+    return company_text(_used(runtime, "get_company_profile").chat)
+
+
+@tool
+async def get_posting(runtime: ToolRuntime[RootToolContext]) -> str:
+    """채용 공고(직무, 담당 업무, 자격 요건, 우대 사항)를 읽는다."""
+    return posting_text(_used(runtime, "get_posting").chat)
 
 
 @tool
@@ -331,8 +356,40 @@ ANSWER_TOOLS: tuple[BaseTool, ...] = (
 )
 
 
+async def context_brief(scope: RootToolContext, row: CandidateRow) -> str:
+    """지원자 한 명의 자료 묶음: 제출 문서, 전형 결과, 면접 기록, 앞 대화에서 정리한 것.
+
+    여러 명 분석이 미리 모아 넣는다. 임시 구현은 ChatContext로 만들고 도구와 같은 글을 쓴다.
+    지원자 자료는 <data> 블록으로 감싼다 (규칙 5).
+    """
+    chat = scope.chat
+    documents = _readable_documents(chat, row)
+    parts = [
+        _who(chat, row),
+        documents_block(documents) if documents else NO_DOCUMENTS,
+        data_block("result", stage_result_text(chat, row)),
+        data_block("interview", interview_text(chat, row)),
+    ]
+    notes = previous_notes(chat, scope.turns, row)
+    if notes:
+        parts.append(data_block("previous", notes))
+    return "\n\n".join(parts)
+
+
+type CandidateBrief = Callable[[RootToolContext, CandidateRow], Awaitable[str]]
+
+
+@dataclass(frozen=True)
+class RootToolkit:
+    """search는 찾기, answer_tools는 도구 루프, brief는 여러 명 분석이 쓴다. PR 5에서 다른 역할의 구현으로 바꾼다."""
+
+    search: CandidateSearch
+    answer_tools: Sequence[BaseTool] = ()
+    brief: CandidateBrief = context_brief
+
+
 def default_toolkit() -> RootToolkit:
-    return RootToolkit(search=keyword_search, answer_tools=ANSWER_TOOLS)
+    return RootToolkit(search=keyword_search, answer_tools=ANSWER_TOOLS, brief=context_brief)
 
 
 def _used(runtime: ToolRuntime[RootToolContext], name: str) -> RootToolContext:
@@ -342,6 +399,10 @@ def _used(runtime: ToolRuntime[RootToolContext], name: str) -> RootToolContext:
 
 def _who(context: ChatContext, row: CandidateRow) -> str:
     return f"{candidate_ref(context, row.application_id)} {row.name}"
+
+
+def _readable_documents(chat: ChatContext, row: CandidateRow) -> list[ApplicantDocument]:
+    return [document for document in chat.documents.get(row.application_id, []) if document.text.strip()]
 
 
 def _questions(questions: Sequence[InterviewQuestion]) -> str:
