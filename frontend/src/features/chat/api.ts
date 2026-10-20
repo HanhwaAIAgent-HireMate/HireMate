@@ -21,12 +21,16 @@ export function useChat(stageId: string) {
   })
 }
 
-/** 담당자의 이 전형 대화 기록. 전형이 끝나면 지워진다. */
+/**
+ * 담당자의 이 전형 대화 기록. 전형이 끝나면 지워진다. 다른 탭에서 나눈 대화도 보이도록 화면을 열 때마다 다시 받고,
+ * 대화 중에는 다시 받지 않는다.
+ */
 export function useChatHistory(stageId: string) {
   return useQuery({
     queryKey: historyKey(stageId),
     queryFn: () => unwrap(api.GET('/api/stages/{stageId}/chat', { params: { path: { stageId } } })),
-    staleTime: Infinity,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
   })
 }
 
