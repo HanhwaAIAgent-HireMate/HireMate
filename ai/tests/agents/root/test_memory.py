@@ -4,7 +4,14 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context
 
-from hiremate_ai.agents.root.answer import AnswerItem, QuestionFocusItem, RootAnswer, RootQuestionFocus
+from hiremate_ai.agents.root.answer import (
+    AnswerItem,
+    CandidateNotes,
+    MultiSummary,
+    QuestionFocusItem,
+    RootAnswer,
+    RootQuestionFocus,
+)
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import RootThread, run_plan
 from hiremate_ai.agents.root.route import NO_PREVIOUS, RootRoute
@@ -391,7 +398,9 @@ async def test_checked_beats_previous_without_words(
         RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
         FINANCE_FOUND,
         RootRoute(kind="ANSWER", previous_ref="result", compare=True),
-        RootAnswer(message="비교했어요."),
+        CandidateNotes(items=[]),
+        CandidateNotes(items=[]),
+        MultiSummary(message="비교했어요."),
     )
     compare = make_context(
         sample_applicants, sample_company, sample_posting, message="둘 비교해줘", checked=["박서준", "이도윤"]
@@ -400,7 +409,9 @@ async def test_checked_beats_previous_without_words(
     await run_plan(llm, found, saver=saver, thread=thread)
     await run_plan(llm, compare, saver=saver, thread=thread)
 
-    assert "대상 지원자: C3 박서준, C4 이도윤" in llm.calls[-1].user
+    notes = [call.user for call in llm.calls if call.output is CandidateNotes]
+    assert ["정리할 지원자: C3 박서준" in notes[0], "정리할 지원자: C4 이도윤" in notes[1]] == [True, True]
+    assert not any("정유민" in user or "한예린" in user for user in notes)
 
 
 async def test_previous_words_beat_checked(
