@@ -15,7 +15,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context
 
 from hiremate_ai.agents.root.graph import RootThread, run_plan
-from hiremate_ai.agents.root.route import RootRoute, classify, required_data
+from hiremate_ai.agents.root.route import RootRoute, asks_comparison, classify, refers_previous, required_data
 from hiremate_ai.agents.root.targets import resolve
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
 from hiremate_ai.config import settings
@@ -55,16 +55,23 @@ def context_for(
         previous_types=[StageType(stage) for stage in case.get("previous_types", [])],
         mentions=case.get("mentions", []),
         checked=case.get("checked", []),
+        selected=case.get("selected", []),
     )
 
 
-def mismatches(route: RootRoute, message: str, expect: dict[str, Any]) -> list[str]:
-    """필요한 자료는 precheck가 실제로 쓰는 값(required_data)으로 비교한다."""
+def mismatches(route: RootRoute, context: ChatContext, expect: dict[str, Any]) -> list[str]:
+    """낱말 검사를 거치는 칸은 코드가 실제로 쓰는 값으로 비교한다.
+
+    필요한 자료는 required_data, 비교는 asks_comparison, 앞 대화는 refers_previous를 거친 값이다.
+    """
+    message = context.message
     required = required_data(route, message)
     actual = {
         **route.model_dump(mode="json"),
         "needs_assessment": StageType.ASSESSMENT in required,
         "needs_interview": StageType.INTERVIEW in required,
+        "compare": asks_comparison(route, message),
+        "previous_ref": route.previous_ref if refers_previous(route, context) else "none",
     }
     checked = {"needs_assessment": False, "needs_interview": False, **expect}
     return [f"{key}={actual[key]!r} (기대 {value!r})" for key, value in checked.items() if actual[key] != value]
@@ -82,7 +89,7 @@ async def test_root_route_cases(
         started = time.perf_counter()
         route = await classify(llm, context, resolve(context))
         seconds.append(time.perf_counter() - started)
-        wrong = mismatches(route, case["message"], case["expect"])
+        wrong = mismatches(route, context, case["expect"])
         kind = case["expect"]["kind"]
         total[kind] += 1
         passed[kind] += not wrong
@@ -201,6 +208,21 @@ MEMORY_CASES: list[dict[str, Any]] = [
         "turns": [{"message": "@김하늘 강점이 뭐야?", "mentions": ["김하늘"]}, {"message": "아까 그 사람 빼줘"}],
     },
     {
+        "id": "memory-checked-compare",
+        "turns": [
+            {"message": "금융 도메인과 관련된 경험이 있는 지원자 보여줘"},
+            {"message": "둘 비교해줘", "checked": ["박서준", "이도윤"]},
+        ],
+    },
+    {
+        "id": "memory-empty-narrow",
+        "turns": [
+            {"message": "금융 도메인과 관련된 경험이 있는 지원자 보여줘"},
+            {"message": "그중 양자 컴퓨팅 경험 있는 사람만 남겨줘", "selected": ["정유민", "김하늘", "한예린"]},
+            {"message": "그중 두 번째 사람 강점은?", "selected": ["정유민", "김하늘", "한예린"]},
+        ],
+    },
+    {
         "id": "memory-question-reason",
         "turns": [
             {
@@ -225,6 +247,16 @@ def memory_problems(case_id: str, plan: ChatPlan, context: ChatContext) -> list[
         case "memory-subject-edit":
             ok = plan.intent is Intent.EDIT and plan.targets == [ids["김하늘"]]
             return [] if ok else [f"김하늘을 빼지 못함: {plan.intent} {plan.targets}"]
+        case "memory-checked-compare":
+            # 대상이 체크한 두 사람인지 본다. 항목마다 지원자를 붙이는지는 분석 문항(answer-compare)이 본다
+            named = {name for name in ids if ids[name] in covered or name in plan.message}
+            missing = [name for name in ("박서준", "이도윤") if name not in named]
+            others = [name for name in ("정유민", "김하늘", "한예린") if name in named]
+            ok = plan.intent is Intent.ANSWER and not missing and not others
+            return [] if ok else [f"체크한 두 사람을 비교하지 못함: {plan.intent} 빠짐 {missing} 섞임 {others}"]
+        case "memory-empty-narrow":
+            ok = plan.intent is Intent.ANSWER and (ids["김하늘"] in covered or "김하늘" in plan.message)
+            return [] if ok else [f"김하늘을 가리키지 못함: {plan.intent} {plan.message[:40]}"]
         case "memory-question-reason":
             return [] if plan.intent is Intent.ANSWER else [f"이유를 답하지 못함: {plan.intent} {plan.message[:40]}"]
     return ["모르는 문항"]
