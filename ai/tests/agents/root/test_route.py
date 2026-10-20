@@ -279,3 +279,10 @@ def test_comparison_needs_flag_and_word() -> None:
     assert asks_comparison(RootRoute(kind="ANSWER", compare=True), "둘 중 누가 더 나아?")
     assert not asks_comparison(RootRoute(kind="ANSWER"), "둘 비교해줘")
     assert not asks_comparison(RootRoute(kind="ANSWER", compare=True), "강점 알려줘")
+    assert asks_comparison(RootRoute(kind="ANSWER", compare=True), "이 사람들 비교해줘")
+
+
+def test_comparing_with_posting_is_not_between_applicants() -> None:
+    # 실제 모델은 한 지원자를 공고와 견주는 요청에도 compare를 표시한다
+    assert not asks_comparison(RootRoute(kind="ANSWER", compare=True), "@김하늘 공고 자격 요건과 비교해줘")
+    assert not asks_comparison(RootRoute(kind="ANSWER", compare=True), "@정유민 인재상과 비교해줘")

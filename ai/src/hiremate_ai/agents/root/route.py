@@ -41,7 +41,10 @@ _INTERVIEW_WORDS = re.compile(r"답변|면접\s*기록")
 _PREVIOUS_WORDS = re.compile(
     r"방금|아까|앞에서|앞서|위에서|이전|지난번|그\s*중|그\s*(?:사람|지원자|분|둘|셋)|찾은|고른|만든"
 )
-_COMPARE_WORDS = re.compile(r"비교|누가\s*더|어느\s*쪽")
+# 지원자끼리 견주는 말. 모델은 "@김하늘 공고 요건과 비교해줘"처럼 한 사람을 기준과 견주는 요청에도 compare를 표시한다
+_BETWEEN_APPLICANTS = re.compile(
+    r"둘|두\s*(?:사람|명|분)|세\s*(?:사람|명|분)|\d+\s*명|사람들|지원자들|이들|끼리|서로|누가\s*더|어느\s*쪽|중\s*누가"
+)
 
 
 class RootRoute(BaseModel):
@@ -170,8 +173,8 @@ def refers_previous(route: RootRoute, context: ChatContext) -> bool:
 
 
 def asks_comparison(route: RootRoute, message: str) -> bool:
-    """지원자끼리 비교하는 요청. 모델이 표시하고 문장에도 비교하는 말이 있어야 한다."""
-    return route.compare and bool(_COMPARE_WORDS.search(message))
+    """지원자끼리 비교하는 요청. 모델이 표시하고 문장에도 여러 지원자를 견주는 말이 있어야 한다."""
+    return route.compare and bool(_BETWEEN_APPLICANTS.search(message))
 
 
 async def classify(llm: LlmClient, context: ChatContext, targets: Targets, turns: Sequence[Turn] = ()) -> RootRoute:
