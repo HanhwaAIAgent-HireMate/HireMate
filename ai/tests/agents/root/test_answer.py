@@ -1,9 +1,13 @@
+import asyncio
 import time
 from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel
 from root_context import make_context
 
 from hiremate_ai.agents.root import answer
@@ -38,7 +42,8 @@ from hiremate_ai.agents.root.types import (
 )
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
-from hiremate_ai.llm.chat import LlmOutputError
+from hiremate_ai.llm.chat import LlmOutputError, ToolAgent
+from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.fake import FakeLlm, FakeReply, LlmCall, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
@@ -73,7 +78,7 @@ def answered(*items: AnswerItem, message: str = "정유민 님의 강점이에�
     return RootAnswer(message=message, items=list(items))
 
 
-async def ask(llm: FakeLlm, context: ChatContext, toolkit: RootToolkit | None = None) -> ChatPlan:
+async def ask(llm: LlmClient, context: ChatContext, toolkit: RootToolkit | None = None) -> ChatPlan:
     return await plan_answer(llm, ASK, context, resolve(context), toolkit or default_toolkit())
 
 
@@ -631,21 +636,96 @@ async def test_six_targets_use_tool_loop(
     assert llm.calls[0].output is RootAnswer
 
 
-async def test_multi_timeout_clarifies(
+class SlowLlm:
+    """정해 둔 호출만 늦게 답하는 LLM. FakeLlm은 바로 답하므로 시간 상한을 볼 때 감싸서 쓴다."""
+
+    def __init__(self, fake: FakeLlm, slow: Callable[[str, type[BaseModel]], bool]) -> None:
+        self.fake = fake
+        self.slow = slow
+
+    async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
+        if self.slow(user, output):
+            await asyncio.sleep(1)
+        return await self.fake.structured(output, agent=agent, system=system, user=user)
+
+    def tool_agent[T: BaseModel](
+        self,
+        output: type[T],
+        *,
+        agent: str,
+        system: str,
+        tools: Sequence[BaseTool],
+        context: type[Any] | None = None,
+    ) -> ToolAgent[T]:
+        return self.fake.tool_agent(output, agent=agent, system=system, tools=tools, context=context)
+
+
+def with_summary(notes: Mapping[str, CandidateNotes | Exception], summary: str) -> Callable[[LlmCall], FakeReply]:
+    """정리 호출은 지원자로, 종합 호출은 종합 답으로 답한다. 늦은 호출이 있으면 응답 순서가 바뀌므로 내용으로 고른다."""
+    notes_reply = by_candidate(notes)
+
+    def respond(call: LlmCall) -> FakeReply:
+        return MultiSummary(message=summary) if call.output is MultiSummary else notes_reply(call)
+
+    return respond
+
+
+async def test_multi_slow_candidate_marked_check(
     sample_applicants: Applicants,
     sample_company: CompanyProfile,
     sample_posting: PostingContent,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(answer, "ANSWER_TIMEOUT_SECONDS", 0.01)
-    respond = by_candidate(PAIR)
+    monkeypatch.setattr(answer, "NOTES_SECONDS", 0.05)
+    respond = with_summary(PAIR, "김하늘만 확인했어요.")
+    llm = SlowLlm(FakeLlm(respond, respond, respond), lambda user, output: "정리할 지원자: C3 박서준" in user)
 
-    def slow(call: LlmCall) -> FakeReply:
-        time.sleep(0.05)
-        return respond(call)
+    plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
 
-    llm = FakeLlm(slow, slow, MultiSummary(message="비교했어요."))
+    park = sample_applicants["박서준"].info.application_id
+    assert plan.message == "김하늘만 확인했어요."
+    assert [(item.status, item.text) for item in plan.items] == [("OK", "Oracle 원장 설계"), ("CHECK", NOT_CHECKED)]
+    assert plan.items[1].application_id == park
+
+
+async def test_multi_all_slow_clarifies(
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(answer, "NOTES_SECONDS", 0.05)
+    respond = with_summary(PAIR, "비교했어요.")
+    llm = SlowLlm(FakeLlm(respond, respond), lambda user, output: output is CandidateNotes)
 
     plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
 
     assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+
+
+async def test_multi_summary_timeout_falls_back(
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(answer, "SUMMARY_SECONDS", 0.05)
+    respond = with_summary(PAIR, "비교했어요.")
+    llm = SlowLlm(FakeLlm(respond, respond, respond), lambda user, output: output is MultiSummary)
+
+    plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
+
+    assert plan.message == MULTI_FALLBACK.format(names="김하늘, 박서준")
+    assert [item.status for item in plan.items] == ["OK", "OK"]
+
+
+async def test_summary_naming_other_applicant_falls_back(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    respond = by_candidate(PAIR)
+    summary = MultiSummary(message="정유민은 정산 배치 경험이 있고, 박서준은 쿼리 튜닝 경험이 있어요.")
+    llm = FakeLlm(respond, respond, summary)
+
+    plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
+
+    assert plan.message == MULTI_FALLBACK.format(names="김하늘, 박서준")
