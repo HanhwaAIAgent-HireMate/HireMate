@@ -1,5 +1,5 @@
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from uuid import UUID, uuid4
 
 import pytest
@@ -10,10 +10,14 @@ from hiremate_ai.agents.root import answer
 from hiremate_ai.agents.root.answer import (
     BULK,
     FOCUSED,
+    MULTI_FALLBACK,
     NO_QUESTION_TARGET,
+    NOT_CHECKED,
     NOT_FINISHED,
     AnswerEvidence,
     AnswerItem,
+    CandidateNotes,
+    MultiSummary,
     QuestionFocusItem,
     RootAnswer,
     RootQuestionFocus,
@@ -23,6 +27,7 @@ from hiremate_ai.agents.root.answer import (
 from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.targets import resolve
 from hiremate_ai.agents.root.toolkit import ANSWER_TOOLS, RootToolContext, RootToolkit, default_toolkit, keyword_search
+from hiremate_ai.agents.root.turns import Turn, TurnItem
 from hiremate_ai.agents.root.types import (
     ChatContext,
     ChatPlan,
@@ -34,7 +39,7 @@ from hiremate_ai.agents.root.types import (
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.chat import LlmOutputError
-from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
+from hiremate_ai.llm.fake import FakeLlm, FakeReply, LlmCall, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
 
@@ -371,9 +376,7 @@ async def test_single_target_item_gets_candidate(
 async def test_ref_in_text_assigns_candidate_and_reads_as_name(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
-    context = make_context(
-        sample_applicants, sample_company, sample_posting, message="비교해줘", mentions=["정유민", "김하늘"]
-    )
+    context = make_context(sample_applicants, sample_company, sample_posting, message="지원자 경력 요약해줘")
     item = AnswerItem(label="경력", text="C2 김하늘은 은행 경력이 있다", status="OK")
     llm = FakeLlm(answered(item, message="C1 정유민과 C2를 비교했어요."))
 
@@ -387,9 +390,7 @@ async def test_ref_in_text_assigns_candidate_and_reads_as_name(
 async def test_unverifiable_evidence_without_candidate_turns_check(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
-    context = make_context(
-        sample_applicants, sample_company, sample_posting, message="비교해줘", mentions=["정유민", "김하늘"]
-    )
+    context = make_context(sample_applicants, sample_company, sample_posting, message="지원자 경력 요약해줘")
     evidence = AnswerEvidence(sentence=BATCH, source="이력서")
     llm = FakeLlm(answered(AnswerItem(label="공통점", text="둘 다 정산 경험", status="OK", evidence=[evidence])))
 
@@ -453,8 +454,198 @@ async def test_checked_applicants_are_answer_targets(
         message="체크한 두 사람 비교해줘",
         checked=["김하늘", "박서준"],
     )
-    llm = FakeLlm(answered(message="비교했어요."))
+    respond = by_candidate(PAIR)
+    llm = FakeLlm(respond, respond, MultiSummary(message="비교했어요."))
 
     await ask(llm, context)
 
-    assert "C2 김하늘, C3 박서준" in llm.calls[0].user
+    assert "정리할 지원자: C2 김하늘" in llm.calls[0].user
+    assert "정리할 지원자: C3 박서준" in llm.calls[1].user
+
+
+KIM_ORACLE = "Oracle 원장 테이블 설계와 쿼리 튜닝을 맡았습니다."
+PARK_TUNING = "PostgreSQL 쿼리를 튜닝해 주문 조회 p99를 1.2초에서 300ms로 줄였습니다."
+
+
+def note(text: str, sentence: str) -> CandidateNotes:
+    evidence = AnswerEvidence(sentence=sentence, source="이력서")
+    return CandidateNotes(items=[AnswerItem(label="RDBMS", text=text, status="OK", evidence=[evidence])])
+
+
+PAIR: dict[str, CandidateNotes | Exception] = {
+    "C2 김하늘": note("Oracle 원장 설계", KIM_ORACLE),
+    "C3 박서준": note("PostgreSQL 튜닝", PARK_TUNING),
+}
+
+
+def by_candidate(notes: Mapping[str, CandidateNotes | Exception]) -> Callable[[LlmCall], FakeReply]:
+    """지원자별 정리 호출에 그 지원자의 응답을 준다. 정리 호출은 동시에 나가므로 순서가 아니라 지원자로 고른다."""
+
+    def respond(call: LlmCall) -> FakeReply:
+        for header, reply in notes.items():
+            if f"정리할 지원자: {header}" in call.user:
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+        raise AssertionError(f"모르는 지원자 정리 호출: {call.user[:60]}")
+
+    return respond
+
+
+def pair_context(applicants: Applicants, company: CompanyProfile, posting: PostingContent) -> ChatContext:
+    return make_context(applicants, company, posting, message="두 사람 비교해줘", mentions=["김하늘", "박서준"])
+
+
+def failing(call: LlmCall) -> FakeReply:
+    raise LlmOutputError("형식에 맞는 답을 받지 못했다")
+
+
+async def test_multi_target_runs_notes_then_summary(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = pair_context(sample_applicants, sample_company, sample_posting)
+    respond = by_candidate(PAIR)
+    summary = "김하늘은 원장 설계, 박서준은 쿼리 튜닝 경험이 있어요."
+    llm = FakeLlm(respond, respond, MultiSummary(message=summary))
+
+    plan = await ask(llm, context)
+
+    assert [call.output for call in llm.calls] == [CandidateNotes, CandidateNotes, MultiSummary]
+    kim, park = (sample_applicants[name].info.application_id for name in ("김하늘", "박서준"))
+    assert [(item.application_id, item.status) for item in plan.items] == [(kim, "OK"), (park, "OK")]
+    assert "Oracle 원장 설계" in llm.calls[2].user and "PostgreSQL 튜닝" in llm.calls[2].user
+    assert (plan.intent, plan.message, plan.sources) == (Intent.ANSWER, summary, ["이력서"])
+
+
+async def test_multi_prompts_hold_one_candidate(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    respond = by_candidate(PAIR)
+    llm = FakeLlm(respond, respond, MultiSummary(message="비교했어요."))
+
+    await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
+
+    kim_call, park_call = llm.calls[0].user, llm.calls[1].user
+    assert "새솔은행" in kim_call and "다온마켓" not in kim_call
+    assert "다온마켓" in park_call and "새솔은행" not in park_call
+
+
+async def test_multi_unverified_evidence_turns_check(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    respond = by_candidate({**PAIR, "C3 박서준": note("은행 경력", "은행에서 10년 일했습니다.")})
+    llm = FakeLlm(respond, respond, MultiSummary(message="비교했어요."))
+
+    plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
+
+    assert [item.status for item in plan.items] == ["OK", "CHECK"]
+
+
+async def test_multi_one_failure_marks_check(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    respond = by_candidate({**PAIR, "C3 박서준": LlmOutputError("형식에 맞는 답을 받지 못했다")})
+    llm = FakeLlm(respond, respond, MultiSummary(message="김하늘만 확인했어요."))
+
+    plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
+
+    park = sample_applicants["박서준"].info.application_id
+    assert plan.message == "김하늘만 확인했어요."
+    assert (plan.items[1].application_id, plan.items[1].label, plan.items[1].text, plan.items[1].status) == (
+        park,
+        "확인할 점",
+        NOT_CHECKED,
+        "CHECK",
+    )
+
+
+async def test_multi_all_fail_clarifies(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    llm = FakeLlm(failing, failing)
+
+    plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+    assert len(llm.calls) == 2
+
+
+async def test_multi_summary_failure_falls_back(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    respond = by_candidate(PAIR)
+    llm = FakeLlm(respond, respond, failing)
+
+    plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
+
+    assert plan.message == MULTI_FALLBACK.format(names="김하늘, 박서준")
+    assert len(plan.items) == 2
+
+
+async def test_multi_prompt_has_previous_notes(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="방금 만든 질문 왜 만든 거야?",
+        mentions=["정유민", "김하늘"],
+    )
+    jung = str(sample_applicants["정유민"].info.application_id)
+    turn = Turn(
+        message="면접 질문 만들어줘",
+        kind="ANSWER",
+        intent="ANSWER",
+        targets=[jung],
+        answer="만들었어요.",
+        items=[TurnItem(application_id=jung, label="확인할 점", text="배치 단축 근거")],
+        focus={jung: "정산 배치 설계 판단 확인"},
+        total=8,
+        plan={},
+    )
+    empty = CandidateNotes(items=[])
+    llm = FakeLlm(empty, empty, MultiSummary(message="이유예요."))
+
+    await plan_answer(llm, ASK, context, resolve(context), default_toolkit(), [turn])
+
+    assert "정산 배치 설계 판단 확인" in llm.calls[0].user
+    assert "정산 배치 설계 판단 확인" not in llm.calls[1].user
+
+
+async def test_six_targets_use_tool_loop(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="이 사람들 요약해줘",
+        checked=["정유민", "김하늘", "박서준", "이도윤", "최지우", "한예린"],
+    )
+    llm = FakeLlm(answered(message="여섯 명을 요약했어요."))
+
+    plan = await ask(llm, context)
+
+    assert plan.message == "여섯 명을 요약했어요."
+    assert llm.calls[0].output is RootAnswer
+
+
+async def test_multi_timeout_clarifies(
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(answer, "ANSWER_TIMEOUT_SECONDS", 0.01)
+    respond = by_candidate(PAIR)
+
+    def slow(call: LlmCall) -> FakeReply:
+        time.sleep(0.05)
+        return respond(call)
+
+    llm = FakeLlm(slow, slow, MultiSummary(message="비교했어요."))
+
+    plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)

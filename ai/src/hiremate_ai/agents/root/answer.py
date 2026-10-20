@@ -15,12 +15,21 @@ from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.edit import SAME_NAME
 from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.targets import Targets, checked
-from hiremate_ai.agents.root.toolkit import RootToolContext, RootToolkit, candidate_ref, resolve_ref, scope_of
+from hiremate_ai.agents.root.toolkit import (
+    RootToolContext,
+    RootToolkit,
+    candidate_ref,
+    company_text,
+    posting_text,
+    resolve_ref,
+    scope_of,
+)
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem, ChatPlan, Decision, Intent
 from hiremate_ai.contract import DocumentType, StageType
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import LlmClient
+from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 # backend는 ai 응답을 60초 기다리고 분류 호출이 앞에 있다
 ANSWER_TIMEOUT_SECONDS = 45.0
@@ -40,6 +49,10 @@ INTERVIEW_SOURCE = "면접 기록"
 RESULT_SOURCE = "전형 결과"
 COMPANY_SOURCE = "회사 소개"
 POSTING_SOURCE = "공고"
+# 대상이 이 인원까지면 도구 루프 대신 지원자별 정리와 종합으로 답한다 (기획 17절)
+MULTI_LIMIT = 5
+NOT_CHECKED = "자료를 확인하지 못했어요"
+MULTI_FALLBACK = "{names}의 근거를 지원자별로 정리했어요."
 # 하위 Agent를 감싼 도구. 부르면 답의 agents에 이 이름이 들어간다
 SUB_AGENT_TOOLS = {"analyze_application": "Application Agent", "analyze_assessment": "Assessment Agent"}
 
@@ -83,6 +96,29 @@ class RootAnswer(BaseModel):
     items: list[AnswerItem] = Field(default=[], description="지원자별 · 항목별 근거")
 
 
+NOTES_SYSTEM = """너는 채용 담당자의 질문에 답하려고 지원자 한 명의 자료를 정리한다.
+다른 지원자와 비교는 하지 않는다(비교는 나중에 한다).
+
+- 질문에 필요한 항목만 2~4개 만든다. 항목마다 근거 문장을 자료에서 글자 그대로 옮기고 출처를 적는다.
+  출처는 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, 회사 소개, 공고 가운데 하나다.
+- 자료가 없거나 확인하지 못한 점은 status=CHECK로 둔다.
+- 앞 대화 기록이 있고 그때의 이유를 물으면 그 기록으로 답한다. 이유를 새로 지어내지 않는다.
+- 채용 결정, 점수 변경, 상태 변경은 하지 않는다."""
+
+SUMMARY_SYSTEM = """너는 지원자별로 정리한 항목만 보고 채용 담당자의 질문에 짧게 답한다.
+
+- 항목에 없는 사실을 더하지 않는다. 확인 필요 항목은 확인이 필요하다고 말한다.
+- 지원자는 이름으로 부른다. 채용 결정, 점수 변경, 상태 변경은 하지 않는다."""
+
+
+class CandidateNotes(BaseModel):
+    items: list[AnswerItem] = Field(default=[], description="이 지원자의 항목")
+
+
+class MultiSummary(BaseModel):
+    message: str = Field(description="담당자에게 하는 짧은 답")
+
+
 FOCUS_SYSTEM = """너는 면접 질문을 만들기 전에 지원자마다 면접에서 더 확인할 점을 정리한다. 질문 문장은 만들지 않는다.
 
 - 요청에 필요한 자료만 도구로 고른다. 서류만 보면 되는 요청이면 면접 기록이나 전형 결과를 읽지 않아도 된다.
@@ -111,12 +147,14 @@ async def plan_answer(
 ) -> ChatPlan:
     if targets.ambiguous and not targets.rows:
         return ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names=", ".join(targets.ambiguous)))
+    # 멘션 · 이름이 없으면 체크한 지원자를 대상으로 본다
+    rows = targets.rows or checked(context)
+    if 2 <= len(rows) <= MULTI_LIMIT:
+        return await plan_multi(llm, context, rows, toolkit, turns)
     scope = scope_of(context, turns)
     agent = llm.tool_agent(
         RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
     )
-    # 멘션 · 이름이 없으면 체크한 지원자를 대상으로 본다
-    rows = targets.rows or checked(context)
     try:
         async with asyncio.timeout(ANSWER_TIMEOUT_SECONDS):
             answered = await agent.run(answer_prompt(context, Targets(rows=rows, ambiguous=[])), context=scope)
@@ -126,6 +164,81 @@ async def plan_answer(
     items, sources = verify_items(answered.items, context, only)
     message = readable(answered.message, context)
     return ChatPlan.answer(Intent.ANSWER, message, items, sources, sub_agents(scope.called))
+
+
+async def plan_multi(
+    llm: LlmClient,
+    context: ChatContext,
+    rows: Sequence[CandidateRow],
+    toolkit: RootToolkit,
+    turns: Sequence[Turn] = (),
+) -> ChatPlan:
+    """대상이 여럿인 분석. 코드가 지원자마다 자료를 모아 지원자별로 정리하고(동시에), 확인된 항목만으로 답을 쓴다.
+
+    도구 루프가 지원자 자료를 한 명씩 부르다 호출 상한에 걸리거나, 여러 지원자의 근거가 한 항목에 섞이지 않게 한다.
+    항목의 지원자는 코드가 붙이고 근거는 원문과 맞춰 본다 (규칙 7).
+    """
+    scope = scope_of(context, turns)
+    shared = f"공고:\n{posting_text(context)}\n\n회사:\n{company_text(context)}"
+    items: list[ChatItem] = []
+    sources: list[str] = []
+    try:
+        async with asyncio.timeout(ANSWER_TIMEOUT_SECONDS):
+            briefs = [await toolkit.brief(scope, row) for row in rows]
+            notes = await asyncio.gather(
+                *(_notes(llm, context, row, shared, brief) for row, brief in zip(rows, briefs, strict=True)),
+                return_exceptions=True,
+            )
+            for note in notes:
+                if isinstance(note, BaseException) and not isinstance(note, LlmOutputError):
+                    raise note
+            if all(isinstance(note, LlmOutputError) for note in notes):
+                return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+            for row, note in zip(rows, notes, strict=True):
+                if isinstance(note, BaseException):
+                    items.append(
+                        ChatItem(application_id=row.application_id, label="확인할 점", text=NOT_CHECKED, status="CHECK")
+                    )
+                    continue
+                ref = candidate_ref(context, row.application_id)
+                own = [item.model_copy(update={"candidate": ref}) for item in note.items]
+                verified, found = verify_items(own, context, row)
+                items += verified
+                sources += [source for source in found if source not in sources]
+            message = await _summary(llm, context, rows, items)
+    except TimeoutError:
+        return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+    return ChatPlan.answer(Intent.ANSWER, message, items, sources)
+
+
+async def _notes(llm: LlmClient, context: ChatContext, row: CandidateRow, shared: str, brief: str) -> CandidateNotes:
+    user = (
+        f"질문: {context.message}\n"
+        f"정리할 지원자: {candidate_ref(context, row.application_id)} {row.name}\n\n"
+        f"{shared}\n\n지원자 자료:\n{brief}"
+    )
+    return await llm.structured(CandidateNotes, agent="root", system=f"{NOTES_SYSTEM}\n\n{UNTRUSTED_RULE}", user=user)
+
+
+async def _summary(llm: LlmClient, context: ChatContext, rows: Sequence[CandidateRow], items: list[ChatItem]) -> str:
+    """지원자별로 확인된 항목만 보고 답을 쓴다. 실패하면 정리했다는 말로 답한다."""
+    blocks = []
+    for row in rows:
+        lines = [
+            f"[{item.label}] {item.text} ({'근거 있음' if item.status == 'OK' else '확인 필요'})"
+            for item in items
+            if item.application_id == row.application_id
+        ]
+        blocks.append(data_block("notes", "\n".join(lines) or "정리한 항목 없음", name=row.name))
+    user = f"질문: {context.message}\n\n" + "\n\n".join(blocks)
+    fallback = MULTI_FALLBACK.format(names=", ".join(row.name for row in rows))
+    try:
+        summary = await llm.structured(
+            MultiSummary, agent="root", system=f"{SUMMARY_SYSTEM}\n\n{UNTRUSTED_RULE}", user=user
+        )
+    except LlmOutputError:
+        return fallback
+    return readable(summary.message.strip(), context) or fallback
 
 
 async def plan_questions(
