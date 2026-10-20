@@ -137,4 +137,4 @@ async def test_state_does_not_keep_chat_context(
     state = await graph.ainvoke({}, context=context)
 
     assert "context" not in state
-    assert state["plan"].edit is EditAction.CLEAR
+    assert state["turns"][-1]["plan"]["edit"] == EditAction.CLEAR.value

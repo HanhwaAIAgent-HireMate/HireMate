@@ -21,6 +21,8 @@ NOT_UNDERSTOOD = "요청을 이해하지 못했어요. " + DEFAULT_CLARIFY
 NO_ASSESSMENT = "아직 평가 결과가 없어요. 지원서에서 협업 경험이 약한 지원자를 찾아볼까요?"
 NO_INTERVIEW = "아직 면접 답변 기록이 없어요. @로 지원자를 골라 면접에서 확인할 점을 물어볼 수 있어요."
 NO_PREVIOUS = "앞 대화에서 가리킨 지원자를 찾지 못했어요. @로 골라 다시 말씀해 주세요."
+# backend ChatService와 같은 문구. 확정한 전형에서는 선택 지원자를 바꾸지 않는다
+LOCKED = "결과를 확정한 전형이라 선택 지원자를 바꿀 수 없어요. 분석이나 요약은 계속 물어볼 수 있어요."
 # 분류 프롬프트에 넣는 최근 턴 수
 RECENT_TURNS = 3
 
@@ -136,7 +138,7 @@ def route_prompt(context: ChatContext, targets: Targets, turns: Sequence[Turn] =
         lines = []
         for number, turn in enumerate(turns[-RECENT_TURNS:], start=1):
             people = ", ".join(by_id[target] for target in turn["targets"] if target in by_id) or "없음"
-            label = "찾기 결과" if turn["intent"] == "FIND" else "대상"
+            label = "찾기 결과" if turn["kind"] == "FIND" else "대상"
             lines.append(f'{number}. "{turn["message"]}" → {label}: {people}')
         prompt += "\n앞 대화 (오래된 것부터):\n" + "\n".join(lines)
     return prompt
@@ -169,6 +171,8 @@ def precheck(route: RootRoute, context: ChatContext) -> ChatPlan | None:
     """결정 요청, 아직 없는 전형 자료, 되묻기는 경로를 타지 않고 바로 답한다. 해당 없으면 None."""
     if route.kind == "DECISION":
         return ChatPlan.answer(Intent.CLARIFY, DECISION_REPLY)
+    if route.kind in ("FIND", "EDIT") and not context.selectable:
+        return ChatPlan.answer(Intent.CLARIFY, LOCKED)
     available = {context.stage_type, *context.previous_types}
     missing = required_data(route, context.message) - available
     if StageType.ASSESSMENT in missing:

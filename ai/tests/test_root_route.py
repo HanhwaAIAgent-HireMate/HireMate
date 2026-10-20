@@ -3,6 +3,7 @@ from root_context import make_context
 from hiremate_ai.agents.root.route import (
     DECISION_REPLY,
     DEFAULT_CLARIFY,
+    LOCKED,
     NO_ASSESSMENT,
     NO_INTERVIEW,
     RootRoute,
@@ -217,3 +218,13 @@ def test_assessment_words_next_to_document_words_still_count() -> None:
     assert required_data(route, "@정유민 자기소개서에 쓴 협업이 과제에서도 보였어?") == {StageType.ASSESSMENT}
     assert required_data(route, "서류 점수는 높은데 평가 결과가 낮은 사람") == {StageType.ASSESSMENT}
     assert required_data(route, "80점 이상인 사람 골라줘") == {StageType.ASSESSMENT}
+
+
+def test_locked_stage_refuses_find_and_edit(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(sample_applicants, sample_company, sample_posting).model_copy(update={"selectable": False})
+
+    assert precheck(RootRoute(kind="FIND", concepts=["금융"]), context) == ChatPlan.answer(Intent.CLARIFY, LOCKED)
+    assert precheck(RootRoute(kind="EDIT", edit=EditAction.CLEAR), context) == ChatPlan.answer(Intent.CLARIFY, LOCKED)
+    assert precheck(RootRoute(kind="ANSWER"), context) is None
