@@ -71,7 +71,7 @@ class NoticeDraftContext(ContractModel):
 class NoticeBody(BaseModel):
     """모델에게서 받는 답."""
 
-    content: str = Field(description="메일 본문. 인사말과 맺음말 없이 3~5문장")
+    content: str = Field(description="메일 본문. 인사말과 맺음말 없이 3~5문장, 문단 사이에 빈 줄")
 
 
 class WrittenNotice(BaseModel):
@@ -89,7 +89,9 @@ SYSTEM = """너는 기업 인사팀이 지원자에게 보내는 채용 안내 �
 2. 인사말(안녕하세요 등)과 맺음말(감사합니다, 드림 등)은 쓰지 않는다.
 3. 지원자 이름이나 {지원자명} 같은 중괄호 변수는 쓰지 않는다.
 4. 불합격 사유, 점수, 평가 내용은 쓰지 않는다.
-5. 3~5문장의 정중하고 자연스러운 한국어로 쓴다. 한자나 외국어를 섞지 않는다."""
+5. 3~5문장의 정중하고 자연스러운 한국어로 쓴다. 한자나 외국어를 섞지 않는다.
+6. 한국어 맞춤법의 띄어쓰기를 지킨다. 숫자와 단위는 붙여 쓴다(1차, 11월 3일).
+7. 내용이 바뀌는 곳에서 문단을 나눈다. 한 문단은 1~2문장이고 문단 사이에는 빈 줄을 하나 넣는다."""
 
 
 class NoticeCheckError(RuntimeError):

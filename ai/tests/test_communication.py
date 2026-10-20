@@ -83,7 +83,20 @@ def test_write_rejects_unknown_template_type() -> None:
 def test_tidy_fixes_number_and_punctuation_spacing() -> None:
     tidied = tidy(" 다음 전형은 1 차 면접입니다.일정은 11 월 3 일에 안내드리겠습니다,곧 연락드리겠습니다. ")
 
-    assert tidied == "다음 전형은 1차 면접입니다. 일정은 11월 3일에 안내드리겠습니다, 곧 연락드리겠습니다."
+    assert tidied == "다음 전형은 1차 면접입니다.\n\n일정은 11월 3일에 안내드리겠습니다, 곧 연락드리겠습니다."
+
+
+def test_tidy_keeps_paragraphs_and_cleans_extra_spaces_and_blank_lines() -> None:
+    tidied = tidy("서류 전형에  합격하셨습니다.  \r\n\r\n\r\n  다음 전형은 1차 면접입니다.\n일정은 별도로 안내드려요.")
+
+    assert tidied == "서류 전형에 합격하셨습니다.\n\n다음 전형은 1차 면접입니다.\n일정은 별도로 안내드려요."
+
+
+def test_problems_finds_invented_evaluation_or_reason() -> None:
+    found = problems("뛰어난 역량에도 경험이 부족하여 함께하기 어렵습니다.", source="쓸 내용: 결과를 알린다")
+
+    assert found == ["주어진 정보에 없는 평가나 불합격 사유를 썼다: 뛰어난, 부족, 역량"]
+    assert problems("열정에 감사드립니다.", source="HR 요청: 지원자의 열정에 감사하다고 써 줘") == []
 
 
 def test_problems_passes_clean_content() -> None:
@@ -122,7 +135,7 @@ def test_write_retries_once_with_reasons() -> None:
 
     assert response.json()["content"] == "서류 전형에 합격하셨습니다."
     assert len(llm.calls) == 2
-    assert "안녕하세요. 서류 전형에 합격하셨습니다." in llm.calls[1].user
+    assert "안녕하세요.\n\n서류 전형에 합격하셨습니다." in llm.calls[1].user
     assert "인사말로 시작한다" in llm.calls[1].user
 
 
