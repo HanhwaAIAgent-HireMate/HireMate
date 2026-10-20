@@ -45,6 +45,8 @@ def test_write_returns_draft_from_model() -> None:
     assert "예시 기업" in call.user
     assert "다음 전형: 1차 면접" in call.user
     assert "HR 요청" not in call.user
+    assert "서류 전형에 합격하셨음을 알려드리며" in call.user
+    assert "다음 전형은 1차 면접입니다." in call.user
 
 
 def test_write_does_not_send_next_stage_for_rejection() -> None:
@@ -67,6 +69,7 @@ def test_write_sends_current_content_and_request_when_revising() -> None:
     assert response.json() == {"reply": "요청하신 대로 고쳤어요.", "content": "고친 본문"}
     assert "지금 본문입니다." in llm.calls[0].user
     assert "HR 요청: 더 따뜻하게 써 줘" in llm.calls[0].user
+    assert "예시 본문" not in llm.calls[0].user
 
 
 def test_write_rejects_unknown_template_type() -> None:
