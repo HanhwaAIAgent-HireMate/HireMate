@@ -8,7 +8,7 @@ from typing import Any, TypedDict
 from uuid import UUID
 
 from hiremate_ai.agents.root.targets import Targets
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan, Intent, SelectionMode
 
 
 class TurnItem(TypedDict):
@@ -30,10 +30,11 @@ class Turn(TypedDict):
 
 
 def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan, kind: str = "") -> Turn:
-    subject: list[UUID] = plan.targets or plan.question_targets
-    if not subject:
+    """찾기 턴은 찾은 결과만 남긴다. 아무도 못 찾았으면 비워 둔다."""
+    subject: list[UUID] = list(plan.targets) if kind == "FIND" else plan.targets or plan.question_targets
+    if not subject and kind != "FIND":
         subject = list(dict.fromkeys(item.application_id for item in plan.items if item.application_id))
-    if not subject and targets is not None:
+    if not subject and kind != "FIND" and targets is not None:
         subject = [row.application_id for row in targets.rows]
     return Turn(
         message=context.message,
@@ -57,6 +58,41 @@ def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan, kind:
 
 def remember(turns: list[Turn], turn: Turn, limit: int) -> list[Turn]:
     return [*turns, turn][-limit:]
+
+
+def next_result(result: list[str] | None, kind: str, mode: SelectionMode | None, plan: ChatPlan) -> list[str] | None:
+    """지금 결과 목록. 찾기와 면접 질문 만들기만 바꾼다. None은 아직 결과 목록을 만든 적이 없다는 뜻이다.
+
+    새로 찾았는데 아무도 없으면 비운다. 좁히기 · 추가가 비면 화면의 선택 지원자처럼 그대로 둔다.
+    """
+    if plan.question_targets:
+        return [str(application_id) for application_id in plan.question_targets]
+    if kind != "FIND":
+        return result
+    ids = [str(application_id) for application_id in plan.targets]
+    if plan.intent is Intent.FIND:
+        if mode is SelectionMode.ADD:
+            kept = result or []
+            return kept + [application_id for application_id in ids if application_id not in kept]
+        return ids
+    if plan.intent is Intent.ANSWER and mode in (None, SelectionMode.REPLACE):
+        return []
+    return result
+
+
+def remembered(result: list[str] | None, subject: list[str], ref: str) -> list[str]:
+    """앞 대화가 가리키는 지원자 id. result는 지금 결과 목록(만든 적이 없으면 직전에 다룬 지원자)이다."""
+    if ref == "result":
+        return subject if result is None else result
+    return subject
+
+
+def recall(context: ChatContext, ids: Sequence[str], ordinal: int | None) -> list[CandidateRow]:
+    """순서를 주면 그 사람만 고른다. 지금 전형에 없는 지원자는 뺀다."""
+    if ordinal is not None:
+        ids = ids[ordinal - 1 : ordinal] if 1 <= ordinal <= len(ids) else []
+    by_id = {str(row.application_id): row for row in context.candidates}
+    return [by_id[application_id] for application_id in ids if application_id in by_id]
 
 
 def from_history(context: ChatContext, turns: Sequence[Turn], ref: str, ordinal: int | None) -> list[CandidateRow]:
