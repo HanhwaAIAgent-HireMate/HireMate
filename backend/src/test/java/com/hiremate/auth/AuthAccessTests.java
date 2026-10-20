@@ -1,11 +1,8 @@
-package com.hiremate;
+package com.hiremate.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.hiremate.auth.AuthAccess;
-import com.hiremate.auth.MemberPrincipal;
-import com.hiremate.auth.MemberRole;
 import com.hiremate.global.ApiException;
 import java.util.List;
 import java.util.UUID;

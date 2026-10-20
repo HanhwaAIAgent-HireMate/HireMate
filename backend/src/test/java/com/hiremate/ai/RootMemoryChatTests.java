@@ -1,4 +1,4 @@
-package com.hiremate;
+package com.hiremate.ai;
 
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
@@ -9,6 +9,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hiremate.IntegrationTest;
+import com.hiremate.TestApi;
+import com.hiremate.TestFixtures;
 import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatPlan;
@@ -112,8 +115,8 @@ class RootMemoryChatTests extends IntegrationTest {
 
     private Setup documentStage() throws Exception {
         TestApi hr = newHr();
-        ApplyTests.Posting posting = ApplyTests.publish(hr, false, "전형은 서류, 1차 면접 순으로 해줘");
-        Map<String, Object> form = ApplyTests.form("applicant@example.com", false);
+        TestFixtures.Posting posting = TestFixtures.publish(hr, false, "전형은 서류, 1차 면접 순으로 해줘");
+        Map<String, Object> form = TestFixtures.form("applicant@example.com", false);
         form.put("name", "지원자1");
         expect(anonymous().multipart(posting.applyPath(), form), 201);
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());

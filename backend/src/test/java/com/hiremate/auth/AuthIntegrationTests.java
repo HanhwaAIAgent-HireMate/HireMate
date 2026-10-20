@@ -1,9 +1,8 @@
-package com.hiremate;
+package com.hiremate.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.hiremate.auth.MemberPrincipal;
-import com.hiremate.auth.MemberRole;
+import com.hiremate.TestcontainersConfiguration;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.HttpCookie;

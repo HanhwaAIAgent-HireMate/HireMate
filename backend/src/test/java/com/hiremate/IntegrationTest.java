@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Import;
 @Import({TestcontainersConfiguration.class, TestMailConfiguration.class})
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "hiremate.files.local-dir=${java.io.tmpdir}/hiremate-test-files")
-abstract class IntegrationTest {
+public abstract class IntegrationTest {
 
     @LocalServerPort
     private int port;

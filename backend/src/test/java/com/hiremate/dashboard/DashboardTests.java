@@ -1,9 +1,12 @@
-package com.hiremate;
+package com.hiremate.dashboard;
 
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hiremate.IntegrationTest;
+import com.hiremate.TestApi;
+import com.hiremate.TestFixtures;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
@@ -15,8 +18,8 @@ class DashboardTests extends IntegrationTest {
     void listsRecruitmentsWithWorkflow() throws Exception {
         TestApi hr = newHr();
         expect(hr.post("/api/recruitments", null), 201);
-        ApplyTests.Posting posting = ApplyTests.publish(hr, false);
-        expect(anonymous().multipart(posting.applyPath(), ApplyTests.form("a@example.com", false)), 201);
+        TestFixtures.Posting posting = TestFixtures.publish(hr, false);
+        expect(anonymous().multipart(posting.applyPath(), TestFixtures.form("a@example.com", false)), 201);
 
         JsonNode dashboard = json(expect(hr.get("/api/recruitments"), 200));
         assertThat(dashboard.path("counts").path("all").asLong()).isEqualTo(2);
