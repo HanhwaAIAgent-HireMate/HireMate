@@ -16,13 +16,27 @@ _GREETING = re.compile(r"^\s*(안녕하세요|안녕하십니까)")
 _CLOSINGS = {"감사합니다", "감사드립니다"}
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _DATE = re.compile(r"\d{1,4}\s*(?:년|월|일|시|분)")
+# 지원자 평가나 불합격 사유로 쓰이는 말. 모델이 "뛰어난 역량", "부족함이 있어"처럼 지어낸다
+_EVALUATION = re.compile(r"역량|열정|잠재력|자질|뛰어난|우수한|인상\s*깊|긍정적|부족|미흡|적합하지|일치하지")
+# 줄 안의 연속 공백과 세 줄 이상 빈 줄. 메일이 글자로만 가서 그대로 보인다
+_INLINE_SPACES = re.compile(r"[ \t]{2,}")
+_BLANK_LINES = re.compile(r"\n{3,}")
 
 
 def tidy(content: str) -> str:
-    """띄어쓰기처럼 뜻이 바뀌지 않는 것만 코드로 고친다."""
+    """띄어쓰기와 줄 바꿈처럼 뜻이 바뀌지 않는 것만 코드로 고친다.
+
+    모델이 문단을 나누지 않았으면 문장마다 문단을 나눈다. 메일이 글자로만 가서 한 덩어리면 읽기 어렵다.
+    """
+    content = content.replace("\r\n", "\n")
     content = _NUMBER_SPACE.sub(r"\1\2", content)
     content = _PUNCTUATION_SPACE.sub(r"\1 ", content)
-    return content.strip()
+    content = _INLINE_SPACES.sub(" ", content)
+    content = "\n".join(line.strip() for line in content.split("\n"))
+    content = _BLANK_LINES.sub("\n\n", content).strip()
+    if "\n" not in content:
+        content = "\n\n".join(_SENTENCE_END.split(content))
+    return content
 
 
 def problems(content: str, source: str) -> list[str]:
@@ -42,6 +56,8 @@ def problems(content: str, source: str) -> list[str]:
         found.append("맺음말로 끝난다")
     if invented := [date for date in _DATE.findall(content) if _compact(date) not in _compact(source)]:
         found.append(f"주어진 정보에 없는 날짜나 시각을 썼다: {', '.join(invented)}")
+    if judged := sorted({word for word in _EVALUATION.findall(content) if _compact(word) not in _compact(source)}):
+        found.append(f"주어진 정보에 없는 평가나 불합격 사유를 썼다: {', '.join(judged)}")
     return found
 
 
