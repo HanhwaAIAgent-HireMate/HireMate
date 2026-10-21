@@ -109,6 +109,24 @@ async def test_stage_summary_lists_refs(
     assert "미결정 8명" in result
 
 
+async def test_stage_summary_lists_career(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    """경력을 묻는 질문에 지원자 문서를 한 명씩 읽지 않고 요약 한 번으로 답할 수 있게 한다."""
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    careers = {"정유민": 4, "김하늘": 7, "이도윤": 0}
+    rows = [row.model_copy(update={"career_years": careers.get(row.name)}) for row in context.candidates]
+    context = context.model_copy(update={"candidates": rows})
+
+    llm, _ = await run_tools(context, ToolCall("get_stage_summary"))
+
+    result = llm.calls[-1].user
+    assert "C1 정유민 · 미결정 · 경력 4년" in result
+    assert "C2 김하늘 · 미결정 · 경력 7년" in result
+    assert "C4 이도윤 · 미결정 · 경력 신입" in result
+    assert "C7 윤태오 · 미결정 · 경력 알 수 없음" in result
+
+
 async def test_company_and_posting(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
