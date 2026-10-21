@@ -1,13 +1,17 @@
 from typing import Any
 from uuid import UUID
 
+import pytest
+
 from hiremate_ai.agents.generation.posting.reviser import (
     ANSWER_ONLY_REPLY,
     BLOCKED_REPLY,
     CHECK_FAILED_REPLY,
     CONTENT_STEP,
+    DEFAULT_ITEMS,
     FIELD_LABELS,
     LOCKED_REPLY,
+    MAX_DRAFT_ITEMS,
     MAX_NCS_UNITS,
     NCS_DETAIL_CHARS,
     NCS_SYSTEM,
@@ -429,7 +433,7 @@ async def test_revise_writes_requirements_from_picked_ncs_units_and_cites_them()
         ),
     )
 
-    result = await revise_posting(llm, posting(), "", "NCS 기반으로 자격 요건과 우대 사항 써 줘")
+    result = await revise_posting(llm, posting(), "", "NCS 기반으로 자격 요건 2개와 우대 사항 1개 써 줘")
 
     assert result.suggestion is not None
     assert result.suggestion.content.qualifications == [
@@ -519,11 +523,129 @@ async def test_revise_keeps_current_list_when_ncs_writer_leaves_it_empty() -> No
         ncs_draft([SourcedItem(text="서버 프로그램 구현 경험", sources=[SERVER])]),
     )
 
-    result = await revise_posting(llm, posting(), "", "자격 요건만 NCS로 써 줘")
+    result = await revise_posting(llm, posting(), "", "NCS 기반으로 다시 써 줘")
 
     assert result.suggestion is not None
     assert result.suggestion.content.preferred == CONTENT.preferred
     assert result.suggestion.changed_fields == ["qualifications"]
+
+
+EMPTY_LISTS = CONTENT.model_copy(update={"qualifications": [], "preferred": []})
+
+
+def items(count: int) -> list[SourcedItem]:
+    return [SourcedItem(text=f"서버 프로그램 구현 경험 {number}", sources=[SERVER]) for number in range(1, count + 1)]
+
+
+@pytest.mark.parametrize(
+    ("current", "request_text", "task"),
+    [
+        (EMPTY_LISTS, "NCS 기반으로 자격 요건과 우대 사항 써 줘", "자격 요건 5개, 우대 사항 5개를 쓴다."),
+        (CONTENT, "NCS 기반으로 다시 써 줘", "자격 요건 5개, 우대 사항 5개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건 3개, 우대 사항 4개로 써 줘", "자격 요건 3개, 우대 사항 4개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건과 우대 사항을 각각 세 개씩 써 줘", "자격 요건 3개, 우대 사항 3개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건은 7개로 써 줘", "자격 요건 7개, 우대 사항 5개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건 만들어 줘", "자격 요건 5개, 우대 사항 5개를 쓴다."),
+        (CONTENT, "자격 요건은 7개로 써 줘", "자격 요건 7개를 쓴다. 우대 사항은 쓰지 않고 빈 목록으로 둔다."),
+        (EMPTY_LISTS, "우대 사항만 써 줘", "우대 사항 5개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다."),
+        (
+            EMPTY_LISTS,
+            "자격 요건은 그대로 두고 우대 사항 다섯 가지 써 줘",
+            "우대 사항 5개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.",
+        ),
+        (EMPTY_LISTS, "자격 요건 15개 써 줘", f"자격 요건 {MAX_DRAFT_ITEMS}개, 우대 사항 5개를 쓴다."),
+    ],
+)
+async def test_revise_tells_ncs_writer_which_lists_to_write_and_how_many(
+    current: PostingContent, request_text: str, task: str
+) -> None:
+    """말한 목록은 요청대로(개수가 없으면 5개), 말하지 않은 목록은 비어 있을 때만 쓴다."""
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft([]))
+
+    await revise_posting(llm, posting(content=current), "", request_text)
+
+    assert llm.calls[2].user.endswith(f"HR 요청: {request_text}\n\n지금 할 일: {task}")
+
+
+async def test_revise_writes_whole_list_with_ncs_even_if_routed_to_content() -> None:
+    llm = FakeLlm(
+        route("CONTENT"),
+        content(preferred=["고용보험 가입 기간 1년 이상인 경우 우대"]),
+        NcsPick(ncs_codes=[SERVER]),
+        ncs_draft([], items(3)),
+    )
+
+    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "우대 사항만 3개 써 줘")
+
+    assert [call.output for call in llm.calls] == [Route, ContentChanges, NcsPick, NcsDraft]
+    assert result.suggestion is not None
+    assert result.suggestion.content.preferred == [item.text for item in items(3)]
+
+
+@pytest.mark.parametrize(
+    "request_text", ["우대 사항에 AWS 경험 하나 추가해 줘", "우대 사항 두 번째 항목을 고쳐 줘", "근무지 성남"]
+)
+async def test_revise_keeps_item_edits_as_content(request_text: str) -> None:
+    llm = FakeLlm(route("CONTENT"), content(preferred=["금융 도메인 경험", "AWS 경험"]))
+
+    await revise_posting(llm, posting(), "", request_text)
+
+    assert [call.output for call in llm.calls] == [Route, ContentChanges]
+
+
+async def test_revise_skips_ncs_when_request_keeps_every_list() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"))
+
+    result = await revise_posting(llm, posting(), "", "자격 요건은 그대로 둬")
+
+    assert len(llm.calls) == 1
+    assert result.reply == NOTHING_CHANGED_REPLY
+
+
+async def test_revise_trims_ncs_lists_to_the_planned_count() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(7), items(6)))
+
+    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "자격 요건과 우대 사항 써 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.qualifications == [item.text for item in items(DEFAULT_ITEMS)]
+    assert len(result.suggestion.content.preferred) == DEFAULT_ITEMS
+    assert "만 썼어요" not in result.reply
+
+
+async def test_revise_ignores_lists_it_was_not_asked_to_write() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(5), items(5)))
+
+    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "우대 사항만 써 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.qualifications == []
+    assert result.suggestion.changed_fields == ["preferred"]
+
+
+async def test_revise_tells_when_ncs_writer_writes_fewer_items() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(2)))
+
+    result = await revise_posting(llm, posting(), "", "자격 요건 3개 써 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.qualifications == [item.text for item in items(2)]
+    assert result.reply == (
+        "자격 요건 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요. "
+        "자격 요건은 3개 중 2개만 썼어요. 더 필요하면 다시 요청해 주세요. "
+        "근거(NCS): 응용SW엔지니어링 · 서버프로그램 구현"
+    )
+
+
+async def test_revise_writes_at_most_the_limit_and_says_so() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(12)))
+
+    result = await revise_posting(llm, posting(), "", "자격 요건 15개 써 줘")
+
+    assert result.suggestion is not None
+    assert len(result.suggestion.content.qualifications) == MAX_DRAFT_ITEMS
+    assert f"자격 요건은 {MAX_DRAFT_ITEMS}개까지 써요." in result.reply
+    assert "만 썼어요" not in result.reply
 
 
 async def test_revise_skips_ncs_writer_when_no_known_unit_is_picked() -> None:
