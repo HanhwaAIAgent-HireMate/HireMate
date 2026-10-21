@@ -64,7 +64,10 @@ class AnalysisStatus(StrEnum):
 
 
 class ApplicantInfo(ContractModel):
-    """전형 화면의 지원자 한 명 (apply.ApplicantInfo). 분석 전이면 경력 · 점수가 None이다."""
+    """전형 화면의 지원자 한 명 (apply.ApplicantInfo). 분석 전이면 경력 · 점수가 None이다.
+
+    passed는 자격요건을 75% 이상 채웠는지, held는 서류 점수를 보류했는지다. 보류면 document_score가 None이다.
+    """
 
     application_id: UUID
     recruitment_id: UUID
@@ -75,6 +78,8 @@ class ApplicantInfo(ContractModel):
     last_company: str | None
     document_score: int | None
     passed: bool
+    held: bool = False
+    shortfalls: list[str] = []  # 채우지 못한 자격요건의 짧은 표시 (예: 신입)
     analysis_status: AnalysisStatus
     submitted_at: datetime
 
@@ -153,12 +158,27 @@ class Evidence(ContractModel):
     sentence: str
 
 
+class FitLine(ContractModel):
+    """AI 적합도 점수의 한 항목 (CandidateAnalysis.FitLine). 예: 직무 실무 경험 8/10."""
+
+    label: str
+    points: int
+    max: int
+    reason: str
+
+
 class CandidateAnalysis(ContractModel):
-    """지원자 카드의 AI 분석 요약 (ai.application.CandidateAnalysis). 근거가 없으면 확인 필요로 둔다."""
+    """지원자 카드의 AI 분석 요약 (ai.application.CandidateAnalysis). 근거가 없으면 확인 필요로 둔다.
+
+    holds는 서류 점수를 보류한 이유다. 보류가 아니면 비어 있다.
+    fit은 AI 적합도 점수(0~100)의 항목별 점수와 이유다. 분석 전이거나 보류면 비어 있다.
+    """
 
     conditions: list[Condition]
     notable: list[Finding]
     checks: list[Finding]
+    holds: list[Finding]
+    fit: list[FitLine]
     highlights: list[Evidence]
     agent: str
     stub: bool

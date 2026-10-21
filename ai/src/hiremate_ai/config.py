@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     root_memory_turns: int = 20
     # 공공데이터포털 인증키. scripts/ncs_download.py로 NCS 자료를 받을 때만 쓰고, ai 서버는 실행 중에 쓰지 않는다
     ncs_api_key: SecretStr = SecretStr("")
+    # Application Agent: 지원 접수 분석은 backend가 따로 기다린다 (hiremate.ai.application-timeout, 180초)
+    application_timeout_seconds: float = 170
+    # 카드를 열 때 저장된 결과가 없어 새로 분석하면 backend 기본 60초 안에 끝내야 한다
+    application_card_timeout_seconds: float = 50
+    # 동시에 부르는 모델 호출 수 (문서별 추출, 우대사항별 판정)
+    application_concurrency: int = 4
+    # 제출 문서 본문이 이 글자 수 이하면 판정에 원문 전체를 넣고, 넘으면 조건과 맞닿은 문장만 넣는다
+    application_full_text_chars: int = 8000
 
 
 settings = Settings()

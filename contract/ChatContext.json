@@ -17,7 +17,10 @@
       "aiSelected": true,
       "aboveLine": true,
       "score": 82.5,
-      "analysisStatus": "DONE"
+      "analysisStatus": "DONE",
+      "held": false,
+      "shortfalls": [],
+      "documentScore": null
     },
     {
       "applicationId": "4a7c2d3f-9b5e-4a2f-8c8b-2e3d4f5a6b71",
@@ -29,7 +32,10 @@
       "aiSelected": false,
       "aboveLine": true,
       "score": null,
-      "analysisStatus": "PENDING"
+      "analysisStatus": "PENDING",
+      "held": false,
+      "shortfalls": [],
+      "documentScore": null
     }
   ],
   "documents": {
