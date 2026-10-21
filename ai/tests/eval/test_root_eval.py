@@ -2,17 +2,21 @@
 
 문항마다 분류 결과를 기대값과 맞춰 보고 종류별 정확도를 출력한다. needs_assessment · needs_interview는
 모든 문항에서 확인한다(필요 없는 자료를 표시하면 "아직 평가 결과가 없어요" 같은 잘못된 되묻기로 이어진다).
+찾기 · 분석 · 대화 기억 문항은 문서만 쓰는 묶음(documents)과 더미 프로필을 저장한 DB를 쓰는 묶음(profiles)으로
+한 번씩 돈다. profiles는 Docker가 필요하다.
 """
 
 import json
 import time
 from collections import Counter
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import pytest
+import pytest_asyncio
 from langgraph.checkpoint.memory import InMemorySaver
-from root_context import make_context
+from root_context import make_context, save_sample_profiles
 
 from hiremate_ai.agents.root.graph import RootThread, run_plan
 from hiremate_ai.agents.root.route import (
@@ -24,9 +28,11 @@ from hiremate_ai.agents.root.route import (
     required_data,
 )
 from hiremate_ai.agents.root.targets import resolve
+from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit, profile_toolkit
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.call_log import CallRecord
 from hiremate_ai.llm.client import build_llm
 
@@ -48,6 +54,21 @@ class MemoryCallLog:
 
     async def record(self, record: CallRecord) -> None:
         self.records.append(record)
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module", params=["documents", "profiles"])
+async def toolkit(
+    request: pytest.FixtureRequest, sample_applicants: dict[str, ApplicantDetail], sample_company: CompanyProfile
+) -> AsyncIterator[RootToolkit]:
+    if request.param == "documents":
+        yield default_toolkit()
+        return
+    sessions = session_factory(request.getfixturevalue("database_url"))
+    async with sessions() as session:
+        await save_sample_profiles(session, sample_company, sample_applicants)
+        await session.commit()
+    yield profile_toolkit(sessions)
+    await sessions.kw["bind"].dispose()
 
 
 def context_for(
@@ -112,7 +133,10 @@ async def test_root_route_cases(
 
 
 async def test_root_find_cases(
-    sample_applicants: dict[str, ApplicantDetail], sample_company: CompanyProfile, sample_posting: PostingContent
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    toolkit: RootToolkit,
 ) -> None:
     llm = build_llm(MemoryCallLog())
     cases = [case for case in CASES if "include" in case]
@@ -123,7 +147,7 @@ async def test_root_find_cases(
         runs = []
         started = time.perf_counter()
         for _ in range(FIND_RUNS):
-            plan = await run_plan(llm, context)
+            plan = await run_plan(llm, context, toolkit)
             runs.append((plan.intent, [by_id[application_id] for application_id in plan.targets]))
         seconds = (time.perf_counter() - started) / FIND_RUNS
         problems = []
@@ -204,14 +228,17 @@ def answer_problems(case: dict[str, Any], plan: ChatPlan, context: ChatContext) 
 
 
 async def test_root_answer_cases(
-    sample_applicants: dict[str, ApplicantDetail], sample_company: CompanyProfile, sample_posting: PostingContent
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    toolkit: RootToolkit,
 ) -> None:
     llm = build_llm(MemoryCallLog())
     passed = 0
     for case in ANSWER_CASES:
         context = context_for(case, sample_applicants, sample_company, sample_posting)
         started = time.perf_counter()
-        plan = await run_plan(llm, context)
+        plan = await run_plan(llm, context, toolkit)
         seconds = time.perf_counter() - started
         problems = answer_problems(case, plan, context)
         passed += not problems
@@ -293,7 +320,10 @@ def memory_problems(case_id: str, plan: ChatPlan, context: ChatContext) -> list[
 
 
 async def test_root_memory_cases(
-    sample_applicants: dict[str, ApplicantDetail], sample_company: CompanyProfile, sample_posting: PostingContent
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    toolkit: RootToolkit,
 ) -> None:
     llm = build_llm(MemoryCallLog())
     passed = 0
@@ -308,7 +338,7 @@ async def test_root_memory_cases(
             thread = thread or RootThread(
                 id=case["id"], company_id=context.company.company_id, stage_id=context.stage_id
             )
-            plan = await run_plan(llm, context, saver=saver, thread=thread)
+            plan = await run_plan(llm, context, toolkit, saver=saver, thread=thread)
         assert plan is not None and context is not None
         problems = memory_problems(case["id"], plan, context)
         passed += not problems

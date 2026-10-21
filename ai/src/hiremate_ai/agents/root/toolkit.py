@@ -459,7 +459,10 @@ def profile_toolkit(sessions: async_sessionmaker[AsyncSession]) -> RootToolkit:
 
 
 def get_toolkit() -> RootToolkit:
-    """FastAPI 의존성. ai DB의 지원자 프로필을 쓴다. 테스트는 default_toolkit으로 바꿔 넣는다."""
+    """FastAPI 의존성. ai DB의 지원자 프로필을 쓴다.
+
+    DB 없이 찾기 · 분석을 거치는 테스트는 default_toolkit으로 바꿔 넣는다.
+    """
     return profile_toolkit(session_factory())
 
 
