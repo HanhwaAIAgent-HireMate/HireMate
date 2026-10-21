@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     root_memory_turns: int = 20
     # 공공데이터포털 인증키. scripts/ncs_download.py로 NCS 자료를 받을 때만 쓰고, ai 서버는 실행 중에 쓰지 않는다
     ncs_api_key: SecretStr = SecretStr("")
-    # Application Agent: 지원 접수 분석은 backend가 따로 기다린다 (hiremate.ai.application-timeout, 180초)
+    # Application Agent: 지원 접수 분석 한 번의 시간 한도. AI 워커가 대기열에서 꺼내 돌리므로 backend는 기다리지 않는다
     application_timeout_seconds: float = 170
     # 카드를 열 때 저장된 결과가 없어 새로 분석하면 backend 기본 60초 안에 끝내야 한다
     application_card_timeout_seconds: float = 50
@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     application_concurrency: int = 4
     # 제출 문서 본문이 이 글자 수 이하면 판정에 원문 전체를 넣고, 넘으면 조건과 맞닿은 문장만 넣는다
     application_full_text_chars: int = 8000
+    # AI 워커: backend job 모듈이 작업을 넣는 Redis 스트림과 결과를 돌려주는 스트림 (hiremate.jobs.*와 같은 이름)
+    worker_job_stream: str = "hiremate:jobs"
+    worker_result_stream: str = "hiremate:job-results"
+    worker_group: str = "ai-worker"
+    # 동시에 처리하는 작업 수. 요청을 하나씩 처리하는 로컬 모델(llama.cpp -np 1)은 1, vLLM은 모델 용량에 맞춘다
+    worker_concurrency: int = 1
+    # 작업 하나를 처리하는 시도 횟수. 모두 실패하면 FAILED 결과를 보내고 담당자가 다시 요청한다
+    worker_attempts: int = 3
+    # 작업을 가진 워커가 이 시간 동안 소식이 없으면(멈췄으면) 다른 워커가 가져간다. 처리 중에는 주기적으로 알린다
+    worker_claim_idle_seconds: float = 120
 
 
 settings = Settings()

@@ -208,7 +208,8 @@ class JobStatus(StrEnum):
 class JobResult(ContractModel):
     """작업 결과 (job.JobResult). AI 워커가 Redis 결과 스트림에 넣고 backend가 꺼내 기록한다.
 
-    DONE이면 result가 그 경로의 응답 본문이다. FAILED면 result가 None이고 error에 이유를 남긴다 (화면에는 보이지 않는다).
+    DONE이면 result가 그 경로의 응답 본문이다. FAILED면 result가 None이고 error에 이유를 남긴다.
+    error는 로그에만 남고 화면에는 보이지 않는다.
     """
 
     job_id: UUID
