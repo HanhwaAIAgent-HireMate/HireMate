@@ -237,13 +237,12 @@ def documents_text(chat: ChatContext, row: CandidateRow) -> str:
 
 def stage_result_text(chat: ChatContext, row: CandidateRow) -> str:
     document = chat.document_scores.get(row.application_id)
-    career = "알 수 없음" if row.career_years is None else "신입" if row.career_years == 0 else f"{row.career_years}년"
     lines = [
         _who(chat, row),
         f"결정: {_DECISIONS[row.decision]}",
         f"평가 점수: {f'{row.score:g}점' if row.score is not None else '없음'}",
         f"서류 점수: {f'{document}점' if document is not None else '없음'}",
-        f"경력: {career}" + (f" · 마지막 회사 {row.last_company}" if row.last_company else ""),
+        f"경력: {_career(row)}" + (f" · 마지막 회사 {row.last_company}" if row.last_company else ""),
         f"서류 기준선: {'위' if row.above_line else '아래'}",
     ]
     return "\n".join(lines)
@@ -345,7 +344,7 @@ async def get_posting(runtime: ToolRuntime[RootToolContext]) -> str:
 
 @tool
 async def get_stage_summary(runtime: ToolRuntime[RootToolContext]) -> str:
-    """현재 전형의 인원과 결정 현황, 지원자 번호 · 이름 목록을 읽는다."""
+    """현재 전형의 인원과 결정 현황, 지원자 번호 · 이름 · 결정 · 점수 · 경력 목록을 읽는다."""
     chat = _used(runtime, "get_stage_summary").chat
     counts = {decision: sum(row.decision is decision for row in chat.candidates) for decision in Decision}
     lines = [
@@ -354,7 +353,7 @@ async def get_stage_summary(runtime: ToolRuntime[RootToolContext]) -> str:
     ]
     for index, row in enumerate(chat.candidates[:_SUMMARY_LIMIT], start=1):
         score = f" · 평가 {row.score:g}점" if row.score is not None else ""
-        lines.append(f"C{index} {row.name} · {_DECISIONS[row.decision]}{score}")
+        lines.append(f"C{index} {row.name} · {_DECISIONS[row.decision]}{score} · 경력 {_career(row)}")
     if len(chat.candidates) > _SUMMARY_LIMIT:
         lines.append(f"(그 밖 {len(chat.candidates) - _SUMMARY_LIMIT}명)")
     return "\n".join(lines)
@@ -559,6 +558,10 @@ def _used(runtime: ToolRuntime[RootToolContext], name: str) -> RootToolContext:
 
 def _who(context: ChatContext, row: CandidateRow) -> str:
     return f"{candidate_ref(context, row.application_id)} {row.name}"
+
+
+def _career(row: CandidateRow) -> str:
+    return "알 수 없음" if row.career_years is None else "신입" if row.career_years == 0 else f"{row.career_years}년"
 
 
 def _readable_documents(chat: ChatContext, row: CandidateRow) -> list[ApplicantDocument]:
