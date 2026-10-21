@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useStageGuides } from '@/features/notice/api'
+import { STAGE_GUIDES_ID } from '@/features/notice/StageGuides'
 import { usePosting, usePublishPosting, type Posting } from '@/features/posting/api'
 import { CareersHeader, CareersPosting } from '@/features/posting/CareersPosting'
 import { careersPath } from '@/features/recruit/labels'
@@ -53,6 +55,12 @@ function PublishForm({ posting }: { posting: Posting }) {
   const [period, setPeriod] = useState(initial)
   const [device, setDevice] = useState<'mobile' | 'pc'>('pc')
   const [confirming, setConfirming] = useState(false)
+  const guides = useStageGuides(
+    posting.recruitmentId,
+    posting.stages.map((stage) => stage.id).join(),
+  )
+  // 안내 칸이 빈 전형. 게시는 막지 않고 알린다 (일정은 게시 뒤에 정하기도 한다)
+  const emptyGuides = (guides.data ?? []).filter((guide) => guide.missing.length > 0)
   const url = `${window.location.origin}${careersPath(posting.postingId)}`
   const valid =
     Boolean(period.open && period.close) && new Date(period.close) > new Date(period.open)
@@ -213,8 +221,33 @@ function PublishForm({ posting }: { posting: Posting }) {
               value={posting.stages.map((stage) => stage.name).join(' → ')}
             />
           </dl>
+          {emptyGuides.length > 0 && (
+            <div className="space-y-1 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+              <p className="font-semibold">전형별 안내에 비어 있는 칸이 있어요</p>
+              <ul className="space-y-0.5">
+                {emptyGuides.map((guide) => (
+                  <li key={guide.stageId}>
+                    · {guide.name}: {guide.missing.join(', ')}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs">안내는 게시한 뒤에도 입력할 수 있어요.</p>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
+            {emptyGuides.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  void navigate(
+                    `/hr/recruitments/${posting.recruitmentId}/posting#${STAGE_GUIDES_ID}`,
+                  )
+                }
+              >
+                입력하러 가기
+              </Button>
+            )}
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault()
@@ -222,7 +255,7 @@ function PublishForm({ posting }: { posting: Posting }) {
               }}
               disabled={publish.isPending}
             >
-              게시
+              {emptyGuides.length > 0 ? '그대로 게시' : '게시'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
