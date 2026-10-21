@@ -79,6 +79,9 @@ src/main/java/com/hiremate/
 - AI Agent 구현은 `ai/infra`에 둔다. stub은 `@ConditionalOnAiMode(agent = ..., mode = AiMode.STUB)`,
   ai 서버를 부르는 구현은 `mode = AiMode.REMOTE`로 달고 `AiServerClient`로만 호출한다.
   연동 방식은 `hiremate.ai.agents.{key}`로 Agent마다 바꾼다(없으면 `hiremate.ai.mode`).
+- 자료가 들어올 때 미리 돌리는 분석(지원서 분석 등)은 기다리지 않고 `job.JobQueue`로 AI 워커에 맡긴다. 작업 유형은
+  ai 서버 경로와 같은 `{agent}/{method}`, 본문은 그 경로의 요청 본문이다. 결과는 `JobFinished` 이벤트로 받아 기록하고,
+  실패는 분석 실패로 두어 담당자가 다시 요청할 수 있게 한다. 화면이 기다리는 요청은 지금처럼 `AiServerClient`로 부른다.
 
 현재 모듈별 하위 패키지는 다음과 같다. 각 `package-info.java`에 해당 계층의 책임과 예정 엔티티가 적혀 있다.
 
@@ -155,13 +158,15 @@ src/hiremate_ai/
 ├── llm/                        모델 클라이언트 (LlmClient, 도구 루프 Agent, 테스트용 FakeLlm), 프롬프트 자료 블록, 호출 로그
 ├── db/                         ai 스키마 (Base, 세션)
 │   └── migrations/             Alembic 리비전
-└── worker/                     분석 작업 소비자
+└── worker/                     AI 워커: Redis 작업 대기열 소비자 (uv run python -m hiremate_ai.worker)
 ```
 
 - 분석 Agent는 자료가 들어올 때 지원자 프로필을 갱신한다. 생성 Agent는 초안만 만들고 게시나 발송은 수행하지 않는다.
 - Root Agent는 분석과 생성 작업을 연결한다. 지원자를 직접 분석하거나 채용 상태를 변경하지 않는다.
 - 하위 Agent(분석, 생성)는 패키지 최상위에 async 함수로 기능을 공개한다. Root Agent는 그 함수를 import해 부르거나
   `@tool`로 감싸 도구 루프에 준다. ai 서버 안에서 Agent끼리 HTTP로 부르지 않는다.
+- AI 워커는 backend가 넣은 작업을 꺼내 Agent가 공개한 함수를 부르고 결과를 결과 스트림에 넣는다. backend를 부르지 않는다.
+  새 작업 유형은 `worker/handlers.py`의 표에 더하고, 다시 해도 같은 결과일 실패는 `PermanentError`로 알린다.
 - 설정은 `config.py`의 `settings`로만 읽는다. `os.environ`을 직접 쓰지 않는다.
 - 함수에는 타입 힌트를 단다. mypy가 검사한다.
 - 테이블은 `ai` 스키마에 둔다. backend가 Flyway로 관리하는 `public` 스키마에는 쓰지 않는다. 마이그레이션은 Alembic으로 한다.

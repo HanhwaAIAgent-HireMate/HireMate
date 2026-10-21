@@ -35,6 +35,10 @@ cd frontend && npm install && npm run dev
 # ai만 개발할 때는 먼저 저장소 루트에서 docker compose up -d
 # 모델 연결은 ai/.env.example을 ai/.env로 복사해 채운다
 cd ai && uv sync && uv run alembic upgrade head && uv run uvicorn hiremate_ai.main:app --reload --port 8001
+
+# ai 워커: 지원서 분석 작업을 Redis 대기열에서 꺼내 처리한다
+# backend에서 Application Agent를 remote로 켤 때(HIREMATE_AI_AGENTS_APPLICATION=remote) 같이 띄운다
+cd ai && uv run python -m hiremate_ai.worker
 ```
 
 ## 규칙

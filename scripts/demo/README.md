@@ -26,7 +26,11 @@ uv run python scripts/ncs_load.py
 #    Windows에서는 --reload로 띄운다 (psycopg 비동기 연결이 기본 이벤트 루프에서 동작하지 않는다)
 uv run uvicorn hiremate_ai.main:app --port 8001 --reload --reload-dir src
 
-# 4. backend. 지원서 분석과 카드 분석만 ai 서버로 보낸다
+# 3-1. AI 워커 (ai 폴더, 다른 터미널). 지원서 분석 작업을 대기열에서 하나씩 꺼내 처리한다.
+#      로컬 모델은 지원자 한 명에 몇 분 걸리므로 APPLICATION_TIMEOUT_SECONDS를 늘린다
+uv run python -m hiremate_ai.worker
+
+# 4. backend. 지원서 분석은 대기열로 AI 워커에, 카드 분석은 ai 서버로 보낸다
 cd backend
 HIREMATE_AI_AGENTS_APPLICATION=remote HIREMATE_AI_AGENTS_CANDIDATE_ANALYST=remote ./gradlew bootRun
 
