@@ -3,15 +3,16 @@
 문항마다 분류 결과를 기대값과 맞춰 보고 종류별 정확도를 출력한다. needs_assessment · needs_interview는
 모든 문항에서 확인한다(필요 없는 자료를 표시하면 "아직 평가 결과가 없어요" 같은 잘못된 되묻기로 이어진다).
 찾기 · 분석 · 대화 기억 문항은 문서만 쓰는 묶음(documents)과 더미 프로필을 저장한 DB를 쓰는 묶음(profiles)으로
-한 번씩 돈다. profiles는 Docker가 필요하다.
+한 번씩 돈다. profiles는 Docker가 필요하고, 지원서 분석 프로필에 더해 서민재의 평가 분석 항목을 저장한다.
 """
 
 import json
 import time
 from collections import Counter
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -28,10 +29,12 @@ from hiremate_ai.agents.root.route import (
     required_data,
 )
 from hiremate_ai.agents.root.targets import resolve
-from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit, profile_toolkit
+from hiremate_ai.agents.root.toolkit import AgentEvidence, RootToolkit, default_toolkit, profile_toolkit, scope_of
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.db.profile import ItemAgent, ItemCategory
+from hiremate_ai.db.profile_store import NewItem, save_profile
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.call_log import CallRecord
 from hiremate_ai.llm.client import build_llm
@@ -56,6 +59,25 @@ class MemoryCallLog:
         self.records.append(record)
 
 
+# Assessment Agent가 평가 결과 등록 때 저장했을 항목. 평가 자료 원문은 ChatContext에 없어 프로필로만 읽힌다
+ASSESSMENT_ITEMS = {
+    "서민재": [
+        NewItem(
+            category=ItemCategory.STRENGTH,
+            content="실패한 메시지를 다시 처리하는 흐름을 직접 구현했어요",
+            evidence="실패한 메시지를 재처리 토픽으로 옮겨 다시 처리하는 흐름을 직접 구현했다.",
+            source="평가 제출물",
+        ),
+        NewItem(
+            category=ItemCategory.CHECK,
+            content="예외 상황 테스트가 없어 확인이 필요해요",
+            evidence="테스트 코드는 정상 흐름에만 있고 예외 상황 테스트는 없었다.",
+            source="평가 메모",
+        ),
+    ]
+}
+
+
 @pytest_asyncio.fixture(scope="module", loop_scope="module", params=["documents", "profiles"])
 async def toolkit(
     request: pytest.FixtureRequest, sample_applicants: dict[str, ApplicantDetail], sample_company: CompanyProfile
@@ -66,6 +88,17 @@ async def toolkit(
     sessions = session_factory(request.getfixturevalue("database_url"))
     async with sessions() as session:
         await save_sample_profiles(session, sample_company, sample_applicants)
+        for name, items in ASSESSMENT_ITEMS.items():
+            info = sample_applicants[name].info
+            await save_profile(
+                session,
+                company_id=sample_company.company_id,
+                recruitment_id=info.recruitment_id,
+                application_id=info.application_id,
+                agent=ItemAgent.ASSESSMENT,
+                items=items,
+                stage_id=uuid4(),
+            )
         await session.commit()
     yield profile_toolkit(sessions)
     await sessions.kw["bind"].dispose()
@@ -181,6 +214,14 @@ ANSWER_CASES: list[dict[str, Any]] = [
         "stage_type": "INTERVIEW",
         "previous_types": ["DOCUMENT"],
     },
+    # 평가 자료는 Assessment Agent가 프로필에 남긴 근거로만 확인된다 (profiles 묶음)
+    {
+        "id": "answer-assessment",
+        "message": "@서민재 과제 평가에서 드러난 강점이랑 확인할 점 알려줘",
+        "mentions": ["서민재"],
+        "stage_type": "ASSESSMENT",
+        "previous_types": ["DOCUMENT"],
+    },
 ]
 
 
@@ -193,7 +234,13 @@ def strangers(plan: ChatPlan, context: ChatContext, names: tuple[str, ...]) -> l
     ]
 
 
-def answer_problems(case: dict[str, Any], plan: ChatPlan, context: ChatContext) -> list[str]:
+def answer_problems(
+    case: dict[str, Any],
+    plan: ChatPlan,
+    context: ChatContext,
+    recorded: Mapping[UUID, Sequence[AgentEvidence]],
+) -> list[str]:
+    """recorded는 대상 지원자의 프로필 근거다. documents 묶음이면 비어 있다."""
     ids = {row.name: row.application_id for row in context.candidates}
     text = plan.message + " ".join(item.text for item in plan.items)
     problems = [] if plan.intent is Intent.ANSWER else [f"intent={plan.intent}"]
@@ -224,6 +271,11 @@ def answer_problems(case: dict[str, Any], plan: ChatPlan, context: ChatContext) 
         case "answer-interview-focus":
             if ids["정유민"] not in plan.question_focus:
                 problems.append("확인할 점 없음")
+        case "answer-assessment" if recorded.get(ids["서민재"]):
+            if not any(item.application_id == ids["서민재"] and item.status == "OK" for item in plan.items):
+                problems.append("근거 있는 항목 없음")
+            if "Assessment Agent" not in plan.agents:
+                problems.append(f"평가 분석 근거를 쓰지 않음 (출처 {plan.sources})")
     return problems
 
 
@@ -240,7 +292,8 @@ async def test_root_answer_cases(
         started = time.perf_counter()
         plan = await run_plan(llm, context, toolkit)
         seconds = time.perf_counter() - started
-        problems = answer_problems(case, plan, context)
+        recorded = await toolkit.evidence(scope_of(context), [row.application_id for row in context.candidates])
+        problems = answer_problems(case, plan, context, recorded)
         passed += not problems
         summary = plan.message[:60].replace("\n", " ")
         print(f"{'OK ' if not problems else 'BAD'} {seconds:4.1f}s {case['id']}: {summary} {'; '.join(problems)}")
