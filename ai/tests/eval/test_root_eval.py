@@ -15,7 +15,14 @@ from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context
 
 from hiremate_ai.agents.root.graph import RootThread, run_plan
-from hiremate_ai.agents.root.route import RootRoute, asks_comparison, classify, refers_previous, required_data
+from hiremate_ai.agents.root.route import (
+    RootRoute,
+    asks_comparison,
+    classify,
+    posting_section,
+    refers_previous,
+    required_data,
+)
 from hiremate_ai.agents.root.targets import resolve
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
 from hiremate_ai.config import settings
@@ -62,7 +69,8 @@ def context_for(
 def mismatches(route: RootRoute, context: ChatContext, expect: dict[str, Any]) -> list[str]:
     """낱말 검사를 거치는 칸은 코드가 실제로 쓰는 값으로 비교한다.
 
-    필요한 자료는 required_data, 비교는 asks_comparison, 앞 대화는 refers_previous를 거친 값이다.
+    필요한 자료는 required_data, 비교는 asks_comparison, 앞 대화는 refers_previous,
+    공고 기준은 posting_section을 거친 값이다.
     """
     message = context.message
     required = required_data(route, message)
@@ -72,6 +80,7 @@ def mismatches(route: RootRoute, context: ChatContext, expect: dict[str, Any]) -
         "needs_interview": StageType.INTERVIEW in required,
         "compare": asks_comparison(route, message),
         "previous_ref": route.previous_ref if refers_previous(route, context) else "none",
+        "posting_criteria": posting_section(route, message) or "none",
     }
     checked = {"needs_assessment": False, "needs_interview": False, **expect}
     return [f"{key}={actual[key]!r} (기대 {value!r})" for key, value in checked.items() if actual[key] != value]
