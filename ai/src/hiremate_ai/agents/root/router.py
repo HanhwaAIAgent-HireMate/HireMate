@@ -10,6 +10,7 @@ from fastapi import APIRouter
 
 from hiremate_ai.agents.root.graph import RootThread, run_plan
 from hiremate_ai.agents.root.memory import SaverDep, forget_stage, forget_thread
+from hiremate_ai.agents.root.toolkit import ToolkitDep
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import ChatContext, ChatHistoryTurn, ChatPlan
 from hiremate_ai.contract import ContractModel
@@ -35,13 +36,13 @@ class Deleted(ContractModel):
 
 
 @router.post("/plan")
-async def plan(request: PlanRequest, llm: LlmDep, saver: SaverDep) -> ChatPlan:
+async def plan(request: PlanRequest, llm: LlmDep, saver: SaverDep, toolkit: ToolkitDep) -> ChatPlan:
     context = request.context
     if not context.thread_id:
         # 끝난 전형: 대화방을 만들지 않는다 (대화는 전형 종료까지만 보관)
-        return await run_plan(llm, context)
+        return await run_plan(llm, context, toolkit)
     thread = RootThread(id=context.thread_id, company_id=context.company.company_id, stage_id=context.stage_id)
-    return await run_plan(llm, context, saver=saver, thread=thread)
+    return await run_plan(llm, context, toolkit, saver=saver, thread=thread)
 
 
 @router.post("/history")

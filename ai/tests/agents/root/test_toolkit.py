@@ -1,13 +1,24 @@
+from collections.abc import Sequence
 from uuid import UUID, uuid4
 
 import pytest
-from root_context import make_context
+from root_context import make_context, save_sample_profiles, sessions_of
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from hiremate_ai.agents.root.toolkit import context_brief, default_toolkit, keyword_search, scope_of
+from hiremate_ai.agents.root.toolkit import (
+    context_brief,
+    default_toolkit,
+    keyword_search,
+    merged_search,
+    profile_toolkit,
+    scope_of,
+)
 from hiremate_ai.agents.root.turns import Turn, TurnItem
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
-from hiremate_ai.tools.candidates import CandidateMatch
+from hiremate_ai.db.profile import ItemAgent, ItemCategory
+from hiremate_ai.db.profile_store import NewItem, save_profile
+from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
 from hiremate_ai.tools.scope import ToolScope
 
 type Applicants = dict[str, ApplicantDetail]
@@ -136,6 +147,107 @@ async def test_false_hit_does_not_hide_real_evidence(
     matches = await keyword_search(scope_of(context), ["금융 도메인 경험"], [kim])
 
     assert "새솔은행 계정계 개발 3년." in [sourced.sentence for sourced in matches[0].sentences]
+
+
+def fixed(found: dict[str, dict[UUID, list[str]]], source: str) -> CandidateSearch:
+    """조건마다 정해 둔 지원자와 문장을 돌려주는 검색."""
+
+    async def search(scope: ToolScope, concepts: Sequence[str], pool: Sequence[UUID]) -> list[CandidateMatch]:
+        (concept,) = concepts
+        return [
+            CandidateMatch(application_id, [SourcedSentence(sentence, source) for sentence in sentences], hits=1)
+            for application_id, sentences in found.get(concept, {}).items()
+            if application_id in pool
+        ]
+
+    return search
+
+
+async def test_merged_search_counts_a_condition_found_by_any_search() -> None:
+    a, b = uuid4(), uuid4()
+    profiles = fixed({"금융": {a: ["카드 결제"]}}, "이력서")
+    documents = fixed({"트래픽": {a: ["120만 건"]}, "금융": {b: ["은행"]}}, "자기소개서")
+    scope = ToolScope(company_id=uuid4(), recruitment_id=uuid4(), stage_id=uuid4(), application_ids=frozenset())
+
+    matches = await merged_search(profiles, documents)(scope, ["금융", "트래픽"], [b, a])
+
+    assert matches == [
+        CandidateMatch(a, [SourcedSentence("카드 결제", "이력서"), SourcedSentence("120만 건", "자기소개서")], hits=2),
+        CandidateMatch(b, [SourcedSentence("은행", "자기소개서")], hits=1),
+    ]
+
+
+async def test_merged_search_fills_each_condition_with_later_search_up_to_limit() -> None:
+    a = uuid4()
+    profiles = fixed({"금융": {a: ["카드 결제", "정산"]}}, "이력서")
+    documents = fixed({"금융": {a: ["정산", "은행", "보험"]}}, "이력서")
+    scope = ToolScope(company_id=uuid4(), recruitment_id=uuid4(), stage_id=uuid4(), application_ids=frozenset())
+
+    (match,) = await merged_search(profiles, documents)(scope, ["금융"], [a])
+
+    assert [sourced.sentence for sourced in match.sentences] == ["카드 결제", "정산", "은행"]
+
+
+async def test_profile_toolkit_search_puts_profile_sentences_first(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    await save_sample_profiles(db_session, sample_company, sample_applicants)
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    search = profile_toolkit(sessions_of(db_session)).search
+
+    matches = await search(scope_of(context), ["금융 도메인 경험"], ids(sample_applicants, *sample_applicants))
+
+    jung = next(match for match in matches if match.application_id == sample_applicants["정유민"].info.application_id)
+    assert jung.sentences[0] == SourcedSentence("한빛카드 결제플랫폼팀 2022.03 ~ 현재", "이력서")
+    assert {"정유민", "김하늘", "한예린"} <= set(names(sample_applicants, matches))
+
+
+async def test_profile_toolkit_search_reads_documents_of_applicants_without_profile(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    # 지원서 분석을 마친 지원자는 정유민뿐이다
+    await save_sample_profiles(db_session, sample_company, sample_applicants, names=["정유민"])
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    search = profile_toolkit(sessions_of(db_session)).search
+
+    matches = await search(scope_of(context), ["금융 도메인 경험"], ids(sample_applicants, *sample_applicants))
+
+    assert {"정유민", "김하늘", "한예린"} <= set(names(sample_applicants, matches))
+
+
+async def test_profile_toolkit_search_finds_assessment_items_not_in_documents(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    seo = sample_applicants["서민재"].info
+    await save_profile(
+        db_session,
+        company_id=sample_company.company_id,
+        recruitment_id=seo.recruitment_id,
+        application_id=seo.application_id,
+        agent=ItemAgent.ASSESSMENT,
+        items=[
+            NewItem(category=ItemCategory.STRENGTH, content="과제에서 Kafka 재처리를 직접 구현", source="평가 결과")
+        ],
+        stage_id=uuid4(),
+    )
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    pool = ids(sample_applicants, *sample_applicants)
+
+    with_profiles = await profile_toolkit(sessions_of(db_session)).search(scope_of(context), ["Kafka 재처리"], pool)
+    documents_only = await keyword_search(scope_of(context), ["Kafka 재처리"], pool)
+
+    seo_match = next(match for match in with_profiles if match.application_id == seo.application_id)
+    assert SourcedSentence("과제에서 Kafka 재처리를 직접 구현", "평가 결과") in seo_match.sentences
+    assert "서민재" not in names(sample_applicants, documents_only)
 
 
 def row_of(context: ChatContext, name: str) -> CandidateRow:

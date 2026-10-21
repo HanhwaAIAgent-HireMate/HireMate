@@ -1,18 +1,27 @@
-"""Root Agent가 쓰는 도구 묶음. 프로필 · 검색 도구가 들어오기 전까지는 ChatContext 문서로 동작하는 임시 구현을 쓴다."""
+"""Root Agent가 쓰는 도구 묶음.
+
+앱은 지원자 프로필(프로필 · 검색 담당)과 ChatContext 문서를 함께 쓰는 profile_toolkit을 쓴다.
+프로필은 분석을 마친 지원자만 있으므로 문서로 동작하는 도구를 같이 둔다. 테스트는 문서만 쓰는 default_toolkit을 쓴다.
+"""
 
 import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
+from typing import Annotated
 from uuid import UUID
 
+from fastapi import Depends
 from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion
 from hiremate_ai.contract import ApplicantDocument, StageType
+from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block, documents_block
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
+from hiremate_ai.tools.profile_search import profile_search
 from hiremate_ai.tools.scope import ToolScope
 
 
@@ -145,6 +154,37 @@ async def keyword_search(scope: ToolScope, concepts: Sequence[str], pool: Sequen
         if found:
             matches.append(CandidateMatch(application_id=application_id, sentences=found, hits=hits))
     return sorted(matches, key=lambda match: -match.hits)
+
+
+def merged_search(*searches: CandidateSearch) -> CandidateSearch:
+    """검색 여럿을 조건마다 불러 지원자별로 합친다. 어느 검색에서든 걸린 조건을 맞은 조건으로 센다.
+
+    조건마다 앞 검색의 문장부터 SENTENCES_PER_CONCEPT개까지 쓴다. 재확인에 넣는 문장 수는 검색 하나일 때와 같다.
+    """
+
+    async def search(scope: ToolScope, concepts: Sequence[str], pool: Sequence[UUID]) -> list[CandidateMatch]:
+        sentences: dict[UUID, list[SourcedSentence]] = {}
+        hits: dict[UUID, int] = {}
+        for concept in concepts:
+            found: dict[UUID, list[SourcedSentence]] = {}
+            for each in searches:
+                for match in await each(scope, [concept], pool):
+                    picked = found.setdefault(match.application_id, [])
+                    picked += [sourced for sourced in match.sentences if sourced not in picked]
+            for application_id, picked in found.items():
+                hits[application_id] = hits.get(application_id, 0) + 1
+                kept = sentences.setdefault(application_id, [])
+                kept += [sourced for sourced in picked[:SENTENCES_PER_CONCEPT] if sourced not in kept]
+        matches = [
+            CandidateMatch(
+                application_id=application_id, sentences=sentences[application_id], hits=hits[application_id]
+            )
+            for application_id in dict.fromkeys(pool)
+            if application_id in hits
+        ]
+        return sorted(matches, key=lambda match: -match.hits)
+
+    return search
 
 
 def _best_sentences(sentences: list[SourcedSentence], terms: list[str]) -> list[SourcedSentence]:
@@ -381,7 +421,7 @@ type CandidateBrief = Callable[[RootToolContext, CandidateRow], Awaitable[str]]
 
 @dataclass(frozen=True)
 class RootToolkit:
-    """search는 찾기, answer_tools는 도구 루프, brief는 여러 명 분석이 쓴다. PR 5에서 다른 역할의 구현으로 바꾼다."""
+    """search는 찾기, answer_tools는 도구 루프, brief는 여러 명 분석이 쓴다."""
 
     search: CandidateSearch
     answer_tools: Sequence[BaseTool] = ()
@@ -389,7 +429,25 @@ class RootToolkit:
 
 
 def default_toolkit() -> RootToolkit:
+    """ChatContext 문서만 쓰는 묶음. DB 없이 돈다."""
     return RootToolkit(search=keyword_search, answer_tools=ANSWER_TOOLS, brief=context_brief)
+
+
+def profile_toolkit(sessions: async_sessionmaker[AsyncSession]) -> RootToolkit:
+    """지원자 프로필을 함께 쓰는 묶음.
+
+    찾기는 프로필 문장을 먼저 쓰고, 모자라거나 프로필이 없으면 제출 문서 문장으로 채운다.
+    """
+    search = merged_search(profile_search(sessions, terms=concept_terms), keyword_search)
+    return RootToolkit(search=search, answer_tools=ANSWER_TOOLS, brief=context_brief)
+
+
+def get_toolkit() -> RootToolkit:
+    """FastAPI 의존성. ai DB의 지원자 프로필을 쓴다. 테스트는 default_toolkit으로 바꿔 넣는다."""
+    return profile_toolkit(session_factory())
+
+
+ToolkitDep = Annotated[RootToolkit, Depends(get_toolkit)]
 
 
 def _used(runtime: ToolRuntime[RootToolContext], name: str) -> RootToolContext:
