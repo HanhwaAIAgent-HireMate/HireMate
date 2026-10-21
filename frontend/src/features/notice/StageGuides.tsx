@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   useSaveStageGuide,
   useStageGuides,
@@ -22,21 +23,33 @@ import {
 } from '@/features/notice/api'
 import { errorMessage } from '@/lib/api/client'
 
-/** 안내 칸. 길이는 backend stages 테이블과 같다. 끝나는 시간은 일정에 함께 쓴다 */
-const FIELDS: { key: keyof StageGuide; label: string; placeholder: string; maxLength: number }[] = [
+/**
+ * 안내 칸. 길이는 backend stages 테이블과 같다. 끝나는 시간은 일정에 함께 쓴다.
+ * 기타 안내(note)만 선택이고, 나머지가 비어 있으면 게시 · 발송 전에 경고한다.
+ * 기타 안내는 메일에 이름 없이 한 줄마다 ※로 붙는다
+ */
+const FIELDS: {
+  key: keyof StageGuide
+  label: string
+  placeholder: string
+  maxLength: number
+  optional?: boolean
+}[] = [
   { key: 'schedule', label: '일정', placeholder: '예: 11월 3일(화) 오후 2시~4시', maxLength: 200 },
   { key: 'method', label: '진행 방식', placeholder: '예: 대면, 화상, 온라인', maxLength: 100 },
   {
     key: 'place',
     label: '장소·접속 링크',
-    placeholder: '예: 서울 중구 OO빌딩 5층 / 접속 링크',
+    placeholder: '예: 서울 중구 OO빌딩 5층 / 링크는 시험 전날 따로 보내 드립니다',
     maxLength: 500,
   },
+  { key: 'preparation', label: '준비 사항', placeholder: '예: 신분증, 노트북', maxLength: 1000 },
   {
-    key: 'preparation',
-    label: '준비 사항',
-    placeholder: '예: 신분증, 노트북 (복장 안내도 여기에)',
+    key: 'note',
+    label: '기타 안내',
+    placeholder: '한 줄에 하나씩 써요. 예: 11월 1일까지 참석 여부를 알려 주세요',
     maxLength: 1000,
+    optional: true,
   },
 ]
 
@@ -97,6 +110,7 @@ function GuideCard({
   const [confirming, setConfirming] = useState(false)
   const save = useSaveStageGuide(recruitmentId, view.stageId)
   const dirty = FIELDS.some((field) => draft[field.key] !== view.guide[field.key])
+  const empty = FIELDS.filter((field) => !field.optional && !draft[field.key].trim())
 
   const submit = () =>
     save.mutate(draft, {
@@ -113,22 +127,36 @@ function GuideCard({
             {view.notifiedCount}명에게 보냄
           </span>
         )}
+        {empty.length > 0 && (
+          <span className="text-[11px] font-normal text-amber-700">
+            비어 있음: {empty.map((field) => field.label).join(', ')}
+          </span>
+        )}
       </div>
-      {FIELDS.map((field) => (
-        <label key={field.key} className="grid grid-cols-[96px_1fr] items-center gap-2">
-          <span className="text-xs text-muted-foreground">{field.label}</span>
-          <Input
-            aria-label={`${view.name} ${field.label}`}
-            value={draft[field.key]}
-            placeholder={field.placeholder}
-            maxLength={field.maxLength}
-            disabled={!editable}
-            onChange={(event) =>
-              setDraft((current) => ({ ...current, [field.key]: event.target.value }))
-            }
-          />
-        </label>
-      ))}
+      {FIELDS.map((field) => {
+        const props = {
+          'aria-label': `${view.name} ${field.label}`,
+          value: draft[field.key],
+          placeholder: field.placeholder,
+          maxLength: field.maxLength,
+          disabled: !editable,
+          onChange: (event: { target: { value: string } }) =>
+            setDraft((current) => ({ ...current, [field.key]: event.target.value })),
+        }
+        return (
+          <label key={field.key} className="grid grid-cols-[96px_1fr] items-start gap-2">
+            <span className="pt-1.5 text-xs text-muted-foreground">
+              {field.label}
+              {field.optional && <span className="ml-1 text-[11px]">(선택)</span>}
+            </span>
+            {field.optional ? (
+              <Textarea {...props} rows={2} className="min-h-0" />
+            ) : (
+              <Input {...props} />
+            )}
+          </label>
+        )
+      })}
       {editable && dirty && (
         <div className="flex justify-end">
           <Button

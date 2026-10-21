@@ -155,9 +155,11 @@ function Editor({
   }
 
   const remaining = notice.recipientCount - notice.sentCount
-  // 다음 전형 안내인데 다음 전형의 안내(일정 · 장소 등)가 없으면 보내기 전에 묻는다
+  // 다음 전형 안내인데 다음 전형의 안내 칸(기타 안내 제외)이 비어 있으면 보내기 전에 묻는다
   const missingGuide =
-    notice.templateType === 'NEXT_STAGE' && notice.status === 'DRAFT' && !notice.guide
+    notice.templateType === 'NEXT_STAGE' &&
+    notice.status === 'DRAFT' &&
+    notice.guideMissing.length > 0
 
   return (
     <div className="flex h-full flex-col">
@@ -179,10 +181,15 @@ function Editor({
         <AlertDialog open={confirmingGuide} onOpenChange={setConfirmingGuide}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>다음 전형 안내가 비어 있어요</AlertDialogTitle>
+              <AlertDialogTitle>
+                {notice.guide
+                  ? '다음 전형 안내에 비어 있는 칸이 있어요'
+                  : '다음 전형 안내가 비어 있어요'}
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                공고 작성의 전형별 안내에 일정, 진행 방식, 장소 같은 안내를 입력하면 메일 아래에
-                함께 보내요. 그대로 보내면 합격 결과와 다음 전형 이름만 보내요.
+                {notice.guide
+                  ? `비어 있는 칸: ${notice.guideMissing.join(', ')}. 그대로 보내면 이 칸은 메일에서 빠져요.`
+                  : '공고 작성의 전형별 안내에 일정, 장소 같은 안내를 입력하면 메일 아래에 함께 보내요. 그대로 보내면 합격 결과와 다음 전형 이름만 보내요.'}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

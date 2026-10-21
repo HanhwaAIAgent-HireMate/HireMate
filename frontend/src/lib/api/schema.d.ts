@@ -957,6 +957,7 @@ export interface components {
             greeting: string;
             content: string;
             guide: string;
+            guideMissing: string[];
             closing: string;
             requiredText: string;
             /** Format: int32 */
@@ -1005,12 +1006,14 @@ export interface components {
             method: string;
             place: string;
             preparation: string;
+            note: string;
         };
         StageGuide: {
             schedule: string;
             method: string;
             place: string;
             preparation: string;
+            note: string;
         };
         StageGuideView: {
             /** Format: uuid */
@@ -1019,6 +1022,7 @@ export interface components {
             seq: number;
             name: string;
             guide: components["schemas"]["StageGuide"];
+            missing: string[];
             /** Format: int32 */
             notifiedCount: number;
         };
