@@ -196,6 +196,30 @@ async def test_revise_tidies_text_bullets_and_number_spacing() -> None:
     assert result.suggestion.content.benefits == ["유연 근무", "식대 지원", "연 1회 건강검진"]
 
 
+async def test_revise_attaches_particles_after_english_words() -> None:
+    llm = FakeLlm(
+        route("CONTENT"),
+        content(
+            qualifications=[
+                "Java 와 Spring Boot 를 활용한 서버 개발 경험",
+                "AWS 에서 서비스를 운영한 경험",
+                "Java 17 이상, Kafka 로그 수집 경험",
+                "REST API 기반 설계 능력",
+            ]
+        ),
+    )
+
+    result = await revise_posting(llm, posting(), "", "자격 요건 항목을 고쳐 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.qualifications == [
+        "Java와 Spring Boot를 활용한 서버 개발 경험",
+        "AWS에서 서비스를 운영한 경험",
+        "Java 17 이상, Kafka 로그 수집 경험",
+        "REST API 기반 설계 능력",
+    ]
+
+
 async def test_revise_says_nothing_changed_when_content_step_changes_nothing() -> None:
     llm = FakeLlm(route("CONTENT"), content(career=CONTENT.career))
 
