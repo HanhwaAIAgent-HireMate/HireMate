@@ -11,6 +11,7 @@ from hiremate_ai.agents.root.route import (
     RootRoute,
     asks_comparison,
     classify,
+    posting_section,
     precheck,
     refers_previous,
     required_data,
@@ -311,3 +312,18 @@ def test_words_starting_with_jung_are_not_previous(
         )
     for message in ("그중 강점은?", "그 중에서 강점은?", "그중에 누가 나아?", "그중엔 누구야?"):
         assert refers_previous(route, checked_context(sample_applicants, sample_company, sample_posting, message, two))
+
+
+def test_posting_section_needs_word() -> None:
+    route = RootRoute(kind="FIND", posting_criteria="preferred", criteria_match="all")
+
+    assert posting_section(route, "우대 사항을 다 충족하는 사람을 찾아줘") == "preferred"
+    assert posting_section(route, "공고에 아주 적합한 사람 찾아줘") == "preferred"
+    assert posting_section(route, "금융 경험 있는 사람 찾아줘") is None
+    assert posting_section(RootRoute(kind="FIND"), "우대 사항 다 충족하는 사람") is None
+
+
+def test_posting_section_only_for_find() -> None:
+    route = RootRoute(kind="ANSWER", posting_criteria="qualifications")
+
+    assert posting_section(route, "@김하늘 자격 요건 다 충족해?") is None
