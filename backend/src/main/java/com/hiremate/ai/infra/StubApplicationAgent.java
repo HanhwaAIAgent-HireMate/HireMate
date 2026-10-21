@@ -13,6 +13,7 @@ import java.time.YearMonth;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,12 +43,14 @@ class StubApplicationAgent implements ApplicationAgent {
             "통해", "위한", "대한", "등의", "또는", "그리고", "with", "and", "the");
 
     @Override
-    public ApplicationAnalysis analyze(ApplicantDetail applicant, PostingContent posting, ScreeningRubric rubric) {
+    public Optional<ApplicationAnalysis> analyze(ApplicantDetail applicant, PostingContent posting,
+            ScreeningRubric rubric) {
         String text = applicant.documents().stream().map(ApplicantDocument::text).collect(Collectors.joining("\n"));
         int careerYears = careerYears(text);
         String lastCompany = careerYears == 0 ? null : lastCompany(text);
         int score = score(text, posting, careerYears);
-        return new ApplicationAnalysis(careerYears, lastCompany, score, score >= PASS_SCORE, false, List.of());
+        return Optional.of(new ApplicationAnalysis(careerYears, lastCompany, score, score >= PASS_SCORE, false,
+                List.of()));
     }
 
     static int careerYears(String text) {

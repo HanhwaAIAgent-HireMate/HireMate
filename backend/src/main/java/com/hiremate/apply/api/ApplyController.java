@@ -53,6 +53,14 @@ public class ApplyController {
         return applications.page(member.companyId(), recruitmentId, page, size);
     }
 
+    /** 분석에 실패한 지원서를 다시 분석한다 (NFR-05). 결과는 분석이 끝나면 지원자 목록에 반영된다. */
+    @PostMapping("/api/recruitments/{recruitmentId}/applications/{applicationId}/analysis")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void retryAnalysis(AuthenticatedMember member, @PathVariable UUID recruitmentId,
+            @PathVariable UUID applicationId) {
+        applications.retryAnalysis(member.companyId(), recruitmentId, applicationId);
+    }
+
     @GetMapping("/api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}")
     public ResponseEntity<byte[]> document(AuthenticatedMember member, @PathVariable UUID recruitmentId,
             @PathVariable UUID applicationId, @PathVariable DocumentType type) {

@@ -75,6 +75,25 @@ class ApplyTests extends IntegrationTest {
         expect(applicant.multipart(posting.applyPath(), form("b@example.com", true)), 409);
     }
 
+    @Test
+    @DisplayName("분석에 실패한 지원서만 다시 분석을 요청할 수 있고, 다시 분석하면 결과가 기록된다")
+    void retriesOnlyFailedAnalysis() throws Exception {
+        TestApi hr = newHr();
+        Posting posting = publish(hr, false);
+        expect(anonymous().multipart(posting.applyPath(), form("retry@example.com", false)), 201);
+        ApplicantInfo analyzed = awaitAnalysis(hr.companyId(), posting.recruitmentId());
+        String retry = "/api/recruitments/" + posting.recruitmentId() + "/applications/" + analyzed.applicationId()
+                + "/analysis";
+        expect(hr.post(retry, null), 409);
+
+        applications.markAnalysisFailed(analyzed.applicationId());
+        expect(newHr().post(retry, null), 404);
+        expect(hr.post(retry, null), 202);
+
+        assertThat(awaitAnalysis(hr.companyId(), posting.recruitmentId()).analysisStatus())
+                .isEqualTo(AnalysisStatus.DONE);
+    }
+
     private ApplicantInfo awaitAnalysis(UUID companyId, String recruitmentId) throws InterruptedException {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {

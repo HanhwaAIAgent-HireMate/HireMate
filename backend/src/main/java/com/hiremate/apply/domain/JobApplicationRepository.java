@@ -1,5 +1,7 @@
 package com.hiremate.apply.domain;
 
+import com.hiremate.apply.AnalysisStatus;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,6 +24,8 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     List<JobApplication> findByIdInAndCompanyId(List<UUID> ids, UUID companyId);
 
     long countByRecruitmentIdAndCompanyId(UUID recruitmentId, UUID companyId);
+
+    List<JobApplication> findByAnalysisStatusAndSubmittedAtBefore(AnalysisStatus status, Instant submittedBefore);
 
     @Query("select coalesce(max(a.applicationNo), 0) from JobApplication a where a.recruitmentId = ?1")
     int maxApplicationNo(UUID recruitmentId);

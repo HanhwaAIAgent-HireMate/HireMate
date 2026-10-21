@@ -117,4 +117,9 @@ public class JobApplication {
     public void markAnalysisFailed() {
         this.analysisStatus = AnalysisStatus.FAILED;
     }
+
+    /** 실패한 분석을 다시 맡긴다. 지난 분석 결과는 새 결과가 올 때까지 그대로 둔다. */
+    public void requestAnalysis() {
+        this.analysisStatus = AnalysisStatus.PENDING;
+    }
 }
