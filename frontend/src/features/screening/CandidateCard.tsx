@@ -1,4 +1,4 @@
-import { ArrowLeft, NotebookPen } from 'lucide-react'
+import { ArrowLeft, NotebookPen, RotateCw } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   careerLabel,
   useCandidateDetail,
+  useRetryAnalysis,
   useSaveMemo,
   type StageOverview,
 } from '@/features/screening/api'
@@ -82,6 +83,13 @@ export function CandidateCard({
                 </p>
               </div>
             </div>
+            {detail.data.row.analysisStatus === 'FAILED' && (
+              <RetryAnalysis
+                stageId={overview.stageId}
+                recruitmentId={overview.recruitmentId}
+                applicationId={applicationId}
+              />
+            )}
             {overview.type === 'INTERVIEW' ? (
               <InterviewViewer
                 stageId={overview.stageId}
@@ -105,6 +113,38 @@ export function CandidateCard({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/** AI 분석에 실패한 지원자. 담당자가 다시 분석을 요청하면 분석 중으로 바뀌고 끝나는 대로 결과가 반영된다 */
+function RetryAnalysis({
+  stageId,
+  recruitmentId,
+  applicationId,
+}: {
+  stageId: string
+  recruitmentId: string
+  applicationId: string
+}) {
+  const retry = useRetryAnalysis(stageId, recruitmentId, applicationId)
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
+      <span>AI 분석에 실패했어요. 다시 분석하면 끝나는 대로 결과가 반영돼요.</span>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={retry.isPending}
+        onClick={() =>
+          retry.mutate(undefined, {
+            onSuccess: () => toast.success('다시 분석을 요청했어요.'),
+            onError: (error) => toast.error(errorMessage(error)),
+          })
+        }
+      >
+        <RotateCw />
+        다시 분석
+      </Button>
     </div>
   )
 }

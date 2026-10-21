@@ -9,6 +9,13 @@ export type CandidateAnalysis = Schemas['CandidateAnalysis']
 export type Decision = CandidateRow['decision']
 
 const PAGE_SIZE = 30
+/** 분석 중인 지원자가 있으면 이 간격으로 다시 불러온다. 분석은 AI 워커가 대기열에서 하나씩 처리해 몇 분 걸린다 */
+const ANALYSIS_POLL_MS = 5000
+
+/** 분석 중(PENDING)인 지원자가 있는가 */
+export function hasPendingAnalysis(rows: Pick<CandidateRow, 'analysisStatus'>[]) {
+  return rows.some((row) => row.analysisStatus === 'PENDING')
+}
 
 export const stageKeys = {
   all: (stageId: string) => ['stage', stageId] as const,
@@ -48,6 +55,10 @@ export function useCandidates(stageId: string, query: string) {
       pages.reduce((sum, page) => sum + page.items.length, 0) < last.total
         ? pages.length
         : undefined,
+    refetchInterval: (query) =>
+      hasPendingAnalysis(query.state.data?.pages.flatMap((page) => page.items) ?? [])
+        ? ANALYSIS_POLL_MS
+        : false,
   })
 }
 
@@ -67,12 +78,23 @@ export function useCandidateDetail(stageId: string, applicationId: string) {
           params: { path: { stageId, applicationId } },
         }),
       ),
+    refetchInterval: (query) =>
+      query.state.data?.row.analysisStatus === 'PENDING' ? ANALYSIS_POLL_MS : false,
   })
 }
 
-export function useCandidateAnalysis(stageId: string, applicationId: string) {
+/**
+ * 카드의 AI 분석. 분석이 끝난 지원자만 불러온다. 분석 중에 부르면 ai 서버가 워커와 따로 분석을 시작하기 때문이다.
+ * 분석 상태가 바뀌면(분석 중 → 끝남) 새로 불러온다
+ */
+export function useCandidateAnalysis(
+  stageId: string,
+  applicationId: string,
+  status: CandidateRow['analysisStatus'],
+) {
   return useQuery({
-    queryKey: stageKeys.analysis(stageId, applicationId),
+    queryKey: [...stageKeys.analysis(stageId, applicationId), status],
+    enabled: status === 'DONE',
     queryFn: () =>
       unwrap(
         api.GET('/api/stages/{stageId}/candidates/{applicationId}/analysis', {
@@ -144,6 +166,17 @@ export function useDecisionActions(stageId: string) {
       unwrap(api.POST('/api/stages/{stageId}/confirm', path(stageId))),
     ),
   }
+}
+
+/** 분석에 실패한 지원자를 다시 분석한다. 결과는 분석이 끝나면 리스트와 카드에 반영된다 */
+export function useRetryAnalysis(stageId: string, recruitmentId: string, applicationId: string) {
+  return useStageMutation(stageId, () =>
+    unwrap(
+      api.POST('/api/recruitments/{recruitmentId}/applications/{applicationId}/analysis', {
+        params: { path: { recruitmentId, applicationId } },
+      }),
+    ),
+  )
 }
 
 export function useSaveMemo(stageId: string, applicationId: string) {

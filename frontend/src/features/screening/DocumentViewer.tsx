@@ -26,7 +26,11 @@ export function DocumentViewer({
   detail: CandidateDetail
 }) {
   const [tab, setTab] = useState<Tab>('RESUME')
-  const analysis = useCandidateAnalysis(stageId, detail.row.applicationId)
+  const analysis = useCandidateAnalysis(
+    stageId,
+    detail.row.applicationId,
+    detail.row.analysisStatus,
+  )
   const document = detail.documents.find((item) => item.type === tab)
   const highlights = (analysis.data?.highlights ?? [])
     .filter((item) => item.document === tab)
@@ -83,16 +87,22 @@ export function DocumentViewer({
           </>
         )}
       </div>
-      <AnalysisBox loading={analysis.isPending} analysis={analysis.data} />
+      <AnalysisBox
+        status={detail.row.analysisStatus}
+        loading={analysis.isPending}
+        analysis={analysis.data}
+      />
     </div>
   )
 }
 
 /** AI 분석 요약: 공고 조건 충족 · 눈여겨볼 점 · 확인 필요를 출처와 함께 */
 function AnalysisBox({
+  status,
   loading,
   analysis,
 }: {
+  status: CandidateDetail['row']['analysisStatus']
   loading: boolean
   analysis?: ReturnType<typeof useCandidateAnalysis>['data']
 }) {
@@ -103,7 +113,13 @@ function AnalysisBox({
         AI 분석
         {analysis && <AgentChip name={analysis.agent} stub={analysis.stub} />}
       </div>
-      {loading || !analysis ? (
+      {status !== 'DONE' ? (
+        <p className="text-muted-foreground">
+          {status === 'FAILED'
+            ? 'AI 분석에 실패했어요.'
+            : 'AI가 서류를 분석하고 있어요. 끝나면 여기에 보여 드려요.'}
+        </p>
+      ) : loading || !analysis ? (
         <Skeleton className="h-16 w-full" />
       ) : (
         <dl className="space-y-2.5">
