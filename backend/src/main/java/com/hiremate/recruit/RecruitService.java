@@ -34,7 +34,7 @@ public class RecruitService {
     @Transactional
     public RecruitmentInfo create(UUID companyId, String title, List<StageDraft> plan) {
         Recruitment recruitment = recruitments.save(new Recruitment(companyId, title));
-        saveStages(recruitment.getId(), plan);
+        saveStages(recruitment.getId(), plan, Map.of());
         return toInfo(recruitment);
     }
 
@@ -71,15 +71,30 @@ public class RecruitService {
         recruitment(companyId, recruitmentId).rename(title);
     }
 
-    /** 게시 전에만 전형 구성을 바꿀 수 있다 (OI-01 MVP 기본값). */
+    /**
+     * 게시 전에만 전형 구성을 바꿀 수 있다 (OI-01 MVP 기본값). 이름이 같은 전형은 입력해 둔 안내를 이어 받는다.
+     */
     @Transactional
     public RecruitmentInfo replaceStages(UUID companyId, UUID recruitmentId, List<StageDraft> plan) {
         Recruitment recruitment = recruitment(companyId, recruitmentId);
         requireStatus(recruitment, RecruitmentStatus.DRAFT, "RECRUITMENT_LOCKED");
+        Map<String, StageGuide> guides = stages.findByRecruitmentIdOrderBySeq(recruitmentId).stream()
+                .collect(Collectors.toMap(Stage::getName, Stage::guide, (first, second) -> first));
         stages.deleteByRecruitmentId(recruitmentId);
         stages.flush();
-        saveStages(recruitmentId, plan);
+        saveStages(recruitmentId, plan, guides);
         return toInfo(recruitment);
+    }
+
+    /** 전형 안내는 채용이 끝나기 전까지 고칠 수 있다. 면접 일정처럼 앞 전형이 끝난 뒤에 정하는 안내가 있다. */
+    @Transactional
+    public StageInfo changeGuide(UUID companyId, UUID stageId, StageGuide guide) {
+        Stage stage = stage(companyId, stageId);
+        if (recruitment(companyId, stage.getRecruitmentId()).getStatus() == RecruitmentStatus.CLOSED) {
+            throw new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_CLOSED", "The recruitment has ended.");
+        }
+        stage.changeGuide(guide);
+        return toInfo(stage);
     }
 
     @Transactional
@@ -142,10 +157,12 @@ public class RecruitService {
         return Optional.of(toInfo(next.get()));
     }
 
-    private void saveStages(UUID recruitmentId, List<StageDraft> plan) {
+    private void saveStages(UUID recruitmentId, List<StageDraft> plan, Map<String, StageGuide> guides) {
         List<Stage> created = new ArrayList<>();
         for (int i = 0; i < plan.size(); i++) {
-            created.add(new Stage(recruitmentId, i + 1, plan.get(i).name(), plan.get(i).type()));
+            StageDraft draft = plan.get(i);
+            created.add(new Stage(recruitmentId, i + 1, draft.name(), draft.type(),
+                    guides.getOrDefault(draft.name(), StageGuide.EMPTY)));
         }
         stages.saveAll(created);
     }
@@ -187,6 +204,6 @@ public class RecruitService {
     private static StageInfo toInfo(Stage stage) {
         return new StageInfo(stage.getId(), stage.getRecruitmentId(), stage.getSeq(), stage.getName(),
                 stage.getType(), stage.getStatus(), stage.getConfirmedAt(), stage.getConfirmedByName(),
-                stage.getDoneAt());
+                stage.getDoneAt(), stage.guide());
     }
 }

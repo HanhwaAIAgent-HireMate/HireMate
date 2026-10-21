@@ -1,5 +1,6 @@
 package com.hiremate.recruit.domain;
 
+import com.hiremate.recruit.StageGuide;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import jakarta.persistence.Column;
@@ -49,13 +50,37 @@ public class Stage {
 
     private Instant doneAt;
 
-    public Stage(UUID recruitmentId, int seq, String name, StageType type) {
+    @Column(nullable = false, length = 200)
+    private String guideSchedule = "";
+
+    @Column(nullable = false, length = 100)
+    private String guideMethod = "";
+
+    @Column(nullable = false, length = 500)
+    private String guidePlace = "";
+
+    @Column(nullable = false, length = 1000)
+    private String guidePreparation = "";
+
+    public Stage(UUID recruitmentId, int seq, String name, StageType type, StageGuide guide) {
         this.id = UUID.randomUUID();
         this.recruitmentId = recruitmentId;
         this.seq = seq;
         this.name = name;
         this.type = type;
         this.status = StageStatus.PENDING;
+        changeGuide(guide);
+    }
+
+    public StageGuide guide() {
+        return new StageGuide(guideSchedule, guideMethod, guidePlace, guidePreparation);
+    }
+
+    public void changeGuide(StageGuide guide) {
+        this.guideSchedule = guide.schedule();
+        this.guideMethod = guide.method();
+        this.guidePlace = guide.place();
+        this.guidePreparation = guide.preparation();
     }
 
     public void activate() {

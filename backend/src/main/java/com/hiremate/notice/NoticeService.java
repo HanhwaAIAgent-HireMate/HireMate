@@ -15,11 +15,15 @@ import com.hiremate.notice.domain.NoticeDeliveryRepository;
 import com.hiremate.notice.domain.NoticeRepository;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
+import com.hiremate.recruit.StageGuide;
 import com.hiremate.recruit.StageInfo;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.StageResults;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -32,6 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class NoticeService {
+
+    static final String GUIDE_LEAD = "일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.";
 
     private final NoticeRepository notices;
     private final NoticeDeliveryRepository deliveries;
@@ -66,7 +72,7 @@ public class NoticeService {
         ensure(companyId, recruitment, stageId, NoticeGroup.FAIL,
                 last ? NoticeTemplateType.FINAL_REJECT : NoticeTemplateType.REJECT, results.failed().size());
         return notices.findByStageIdAndCompanyIdOrderByGroupTypeDesc(stageId, companyId).stream()
-                .map(NoticeService::toView)
+                .map(notice -> toView(notice, recruitment))
                 .toList();
     }
 
@@ -93,17 +99,19 @@ public class NoticeService {
             throw new ApiException(HttpStatus.CONFLICT, "NOTICE_SENT", "The notice has already been sent.");
         }
         notice.edit(subject, greeting, content, closing);
-        return toView(notice);
+        return toView(notice, recruits.getByStage(companyId, stageId));
     }
 
     /**
      * HR이 확인한 초안을 지원자별 변수를 채워 보낸다. 이미 보낸 지원자는 건너뛰고, 실패한 지원자만 다시 보낼 수 있다.
+     * 다음 전형 안내에는 보내는 때의 다음 전형 안내를 붙인다.
      */
     @Transactional
     public NoticeView send(UUID companyId, UUID stageId, NoticeGroup group, UUID memberId) {
         Notice notice = notice(companyId, stageId, group);
+        RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         if (notice.isDone()) {
-            return toView(notice);
+            return toView(notice, recruitment);
         }
         if (notice.getContent().isBlank()) {
             throw new ApiException(HttpStatus.CONFLICT, "NOTICE_EMPTY", "Write the notice content first.");
@@ -112,8 +120,14 @@ public class NoticeService {
         List<UUID> recipients = group == NoticeGroup.PASS ? results.passed() : results.failed();
         Map<UUID, NoticeDelivery> previous = deliveries.findByNoticeId(notice.getId()).stream()
                 .collect(Collectors.toMap(NoticeDelivery::getApplicationId, Function.identity()));
-        RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         String stageName = recruitment.stage(stageId).orElseThrow().name();
+        List<String> parts = new ArrayList<>(List.of(notice.getGreeting(), notice.getContent()));
+        String guide = guideText(notice, recruitment);
+        if (!guide.isEmpty()) {
+            parts.add(guide);
+        }
+        parts.addAll(List.of(notice.getClosing(), notice.getRequiredText()));
+        String body = String.join("\n\n", parts);
         String companyName = companies.profile(companyId).name();
         int sent = 0;
         int failed = 0;
@@ -125,9 +139,7 @@ public class NoticeService {
             }
             Map<String, String> values = Map.of("{지원자명}", applicant.name(), "{회사명}", companyName,
                     "{공고명}", recruitment.title(), "{전형명}", stageName);
-            MailResult result = mail.send(applicant.email(), fill(notice.getSubject(), values),
-                    fill(String.join("\n\n", notice.getGreeting(), notice.getContent(), notice.getClosing(),
-                            notice.getRequiredText()), values));
+            MailResult result = mail.send(applicant.email(), fill(notice.getSubject(), values), fill(body, values));
             if (delivery == null) {
                 delivery = deliveries.save(new NoticeDelivery(notice.getId(), applicant.applicationId(),
                         applicant.email()));
@@ -142,7 +154,24 @@ public class NoticeService {
         notice.recordSending(sent, failed, memberId);
         activity.record(companyId, memberId, "SEND_NOTICE", "STAGE", stageId,
                 group + " sent=" + sent + ", failed=" + failed);
-        return toView(notice);
+        return toView(notice, recruitment);
+    }
+
+    /** 공고 작성 화면의 전형 안내. 첫 전형은 안내하는 메일이 없어 뺀다. */
+    @Transactional(readOnly = true)
+    public List<StageGuideView> guides(UUID companyId, UUID recruitmentId) {
+        RecruitmentInfo recruitment = recruits.get(companyId, recruitmentId);
+        return recruitment.stages().stream()
+                .filter(stage -> stage.seq() > 1)
+                .map(stage -> guideView(companyId, recruitment, stage))
+                .toList();
+    }
+
+    /** 이미 보낸 메일은 바뀌지 않는다. 화면은 notifiedCount로 받은 사람이 있음을 알린다. */
+    @Transactional
+    public StageGuideView changeGuide(UUID companyId, UUID stageId, StageGuide guide) {
+        StageInfo stage = recruits.changeGuide(companyId, stageId, guide);
+        return guideView(companyId, recruits.getByStage(companyId, stageId), stage);
     }
 
     /** 모든 그룹의 안내를 보냈는지. 전형 종료 전에 확인한다. */
@@ -183,10 +212,51 @@ public class NoticeService {
         };
     }
 
-    private static NoticeView toView(Notice notice) {
+    /** 전형 안내와, 그 전형을 안내하는 메일(앞 전형의 다음 전형 안내)을 받은 지원자 수. */
+    private StageGuideView guideView(UUID companyId, RecruitmentInfo recruitment, StageInfo stage) {
+        int notified = recruitment.stages().stream()
+                .filter(other -> other.seq() == stage.seq() - 1)
+                .findFirst()
+                .flatMap(before -> notices.findByStageIdAndCompanyIdAndGroupType(before.id(), companyId,
+                        NoticeGroup.PASS))
+                .map(Notice::getSentCount)
+                .orElse(0);
+        return new StageGuideView(stage.id(), stage.seq(), stage.name(), stage.guide(), notified);
+    }
+
+    /**
+     * 다음 전형 안내에 붙일 다음 전형의 안내. 안내가 없으면 빈 문자열이다. AI 본문과 따로 두어,
+     * 초안을 쓴 뒤에 안내를 고쳐도 다시 쓰지 않고 보내는 때의 안내가 붙는다. 비어 있는 칸은 넣지 않는다.
+     */
+    static String guideText(Notice notice, RecruitmentInfo recruitment) {
+        if (notice.getTemplateType() != NoticeTemplateType.NEXT_STAGE) {
+            return "";
+        }
+        int seq = recruitment.stage(notice.getStageId()).orElseThrow().seq();
+        Optional<StageInfo> next = recruitment.stages().stream().filter(stage -> stage.seq() == seq + 1).findFirst();
+        if (next.isEmpty() || !next.get().guide().hasContent()) {
+            return "";
+        }
+        StageGuide guide = next.get().guide();
+        List<String> lines = new ArrayList<>(List.of(GUIDE_LEAD, "", "■ " + next.get().name() + " 안내"));
+        Map<String, String> items = new LinkedHashMap<>();
+        items.put("일정", guide.schedule());
+        items.put("진행 방식", guide.method());
+        items.put("장소·접속 링크", guide.place());
+        items.put("준비 사항", guide.preparation());
+        items.forEach((label, value) -> {
+            if (!value.isEmpty()) {
+                lines.add("- " + label + ": " + value);
+            }
+        });
+        return String.join("\n", lines);
+    }
+
+    private static NoticeView toView(Notice notice, RecruitmentInfo recruitment) {
         return new NoticeView(notice.getId(), notice.getStageId(), notice.getGroupType(), notice.getTemplateType(),
                 label(notice.getTemplateType()), notice.getSubject(), notice.getGreeting(), notice.getContent(),
-                notice.getClosing(), notice.getRequiredText(), notice.getRecipientCount(), notice.getStatus(),
-                notice.getSentCount(), notice.getFailedCount(), notice.getSentAt());
+                guideText(notice, recruitment), notice.getClosing(), notice.getRequiredText(),
+                notice.getRecipientCount(), notice.getStatus(), notice.getSentCount(), notice.getFailedCount(),
+                notice.getSentAt());
     }
 }
