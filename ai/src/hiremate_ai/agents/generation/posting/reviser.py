@@ -69,7 +69,11 @@ ATTEMPTS = 2
 """처음 한 번과, 검사에 걸렸을 때 이유를 붙여 다시 쓰는 한 번."""
 
 MAX_NCS_UNITS = 8
-"""정의를 보여 줄 능력단위 수. 모델이 한 번에 읽는 양을 넘지 않게 한다."""
+"""정의와 수행준거를 보여 줄 능력단위 수."""
+
+NCS_DETAIL_CHARS = 3000
+"""두 번째 호출에 넣는 능력단위 정의와 수행준거의 글자 수 한도. 능력단위 하나에 평균 700자라 다 넣으면
+노트북 모델이 한 번에 읽는 양(약 4천 토큰)을 넘는다. 지식 · 기술은 일반적인 말이라 공고 문장에는 넣지 않는다."""
 
 ContentLabel = Literal[
     "채용명", "직무", "고용 형태", "경력", "근무지", "회사 소개", "주요 업무", "자격 요건", "우대 사항", "복지"
@@ -198,7 +202,8 @@ EXTRAS_STEP = "지금 할 일: 요청대로 바꾼 뒤, 이력서 · 자기소�
 NCS_SYSTEM = """너는 채용 공고의 자격 요건과 우대 사항을 NCS(국가직무능력표준) 능력단위를 근거로 쓰는 Posting Agent다.
 
 규칙:
-1. 주어진 능력단위의 정의에 있는 능력을 공고 문장으로 바꿔 쓴다. 정의에 없는 기술 이름(언어, 프레임워크, 자격증)은
+1. 주어진 능력단위의 정의와 수행준거에 있는 능력을 지원자가 읽기 쉬운 공고 문장으로 바꿔 쓴다.
+   수행준거 문장을 그대로 옮기지 않는다. 정의와 수행준거에 없는 기술 이름(언어, 프레임워크, 자격증)은
    지금 공고나 HR 요청에 있을 때만 쓴다.
 2. 항목마다 근거로 쓴 능력단위 코드를 sources에 적는다. 근거가 없는 항목은 sources를 비운다.
 3. 자격 요건은 지원에 꼭 필요한 조건이고, 우대 사항은 있으면 좋은 조건이다. 수준이 높은 능력단위는 우대 사항에 어울린다.
@@ -480,11 +485,32 @@ def _ncs_prompt(posting: PostingDraftContext, writing_style: str, request: str, 
         f"공고 작성 스타일: {writing_style.strip() or '(없음)'}",
         "",
         f"NCS 능력단위 ({ncs_data().source}):",
-        *[f"- {unit.code} {unit.name} (수준 {unit.level}): {unit.definition}" for unit in units],
+        *_unit_lines(units),
         "",
         f"HR 요청: {request}",
     ]
     return "\n".join(lines)
+
+
+def _unit_lines(units: list[NcsUnit]) -> list[str]:
+    """능력단위마다 정의와 수행준거를 적는다. 글자 수 한도는 능력단위끼리 나눠 쓴다."""
+    share = NCS_DETAIL_CHARS // max(len(units), 1)
+    lines = []
+    for unit in units:
+        lines.append(f"- {unit.code} {unit.name} (수준 {unit.level}): {unit.definition}")
+        used = len(unit.definition)
+        for criterion in _spread_criteria(unit):
+            if used + len(criterion) > share:
+                break
+            lines.append(f"  · {criterion}")
+            used += len(criterion)
+    return lines
+
+
+def _spread_criteria(unit: NcsUnit) -> list[str]:
+    """요소마다 첫 수행준거, 그다음 두 번째 수행준거 순서로 늘어놓는다. 한도에 걸려도 요소가 고루 들어간다."""
+    rounds = max((len(element.criteria) for element in unit.elements), default=0)
+    return [element.criteria[i] for i in range(rounds) for element in unit.elements if i < len(element.criteria)]
 
 
 def _context(posting: PostingDraftContext, writing_style: str, request: str) -> str:

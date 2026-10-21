@@ -55,7 +55,8 @@ def main() -> None:
     with httpx.Client(timeout=60) as client:
         data = build(Fetcher(client, key), args.duties)
     NcsData.model_validate(data)
-    args.output.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # Windows에서도 줄 끝을 LF로 쓴다
+    args.output.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     units = data["units"]
     criteria = sum(len(element["criteria"]) for unit in units for element in unit["elements"])
     print(f"저장: {args.output} ({args.output.stat().st_size / 1000:.0f}KB)")
