@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     # 동시에 처리하는 작업 수. 요청을 하나씩 처리하는 로컬 모델(llama.cpp -np 1)은 1, vLLM은 모델 용량에 맞춘다
     worker_concurrency: int = 1
     # 작업 하나를 처리하는 시도 횟수. 모두 실패하면 FAILED 결과를 보내고 담당자가 다시 요청한다
-    worker_attempts: int = 3
+    worker_attempts: int = 2
     # 작업을 가진 워커가 이 시간 동안 소식이 없으면(멈췄으면) 다른 워커가 가져간다. 처리 중에는 주기적으로 알린다
     worker_claim_idle_seconds: float = 120
 
