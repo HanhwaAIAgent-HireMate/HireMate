@@ -58,6 +58,35 @@ hiremate:
     base-url: ${HIREMATE_AI_BASE_URL:http://localhost:8001}
     # ai 서버 응답을 기다리는 시간. LLM 호출이 길어질 수 있다
     timeout: ${HIREMATE_AI_TIMEOUT:60s}
+    # 지원 접수 분석(Application Agent)은 화면이 기다리지 않고 모델을 여러 번 불러 더 기다린다
+    application-timeout: ${HIREMATE_AI_APPLICATION_TIMEOUT:180s}
+  dummy:
+    # 서류 평가 기준 더미. 공고 작성 화면에서 우대 사항 가중치 · 선발 인원을 입력하기 전까지 모든 채용에 쓴다.
+    # 우대 사항 글은 공고 본문의 우대 사항과 같아야 짝이 맞는다. NCS 코드는 ai 스키마에 적재한 능력단위다.
+    # certificates는 AI 적합도의 '자격증 · 학습' 항목에서 직무 관련 자격증으로 본다
+    screening-rubric:
+      hire-count: 1
+      preferred:
+        - text: 외부 시스템 연동 인터페이스를 설계한 경험
+          weight: 5
+          ncs-unit-code: 2001020218_23v6
+          certificates: [정보처리기사]
+        - text: 연동 API를 구현하고 오류 · 보안 처리를 적용한 경험
+          weight: 4
+          ncs-unit-code: 2001020212_23v6
+          certificates: [정보처리기사]
+        - text: 요구사항을 분석 · 확인해 개발 범위를 정한 경험
+          weight: 3
+          ncs-unit-code: 2001020201_23v5
+          certificates: [정보처리기사]
+        - text: 빌드 · 배포 자동화(CI/CD)를 구성한 경험
+          weight: 3
+          ncs-unit-code: 2001020214_23v6
+          certificates: [리눅스마스터, AWS Solutions Architect]
+        - text: 클래스 · 데이터 모델 등 정적 모델을 설계한 경험
+          weight: 2
+          ncs-unit-code: 2001020222_23v6
+          certificates: [정보처리기사, SQLD]
   files:
     # 로컬 개발용 파일 저장 위치. 운영은 비공개 S3를 쓴다
     local-dir: ${HIREMATE_FILES_DIR:${user.home}/.hiremate/files}

@@ -4,6 +4,7 @@ import com.hiremate.company.CompanyProfile;
 import com.hiremate.company.CompanyService;
 import com.hiremate.global.ApiException;
 import com.hiremate.global.JsonText;
+import com.hiremate.posting.application.DummyScreeningRubric;
 import com.hiremate.posting.domain.JobPosting;
 import com.hiremate.posting.domain.JobPostingRepository;
 import com.hiremate.recruit.RecruitService;
@@ -33,13 +34,15 @@ public class PostingService {
     private final RecruitService recruits;
     private final CompanyService companies;
     private final ApplicationEventPublisher events;
+    private final DummyScreeningRubric dummyRubric;
 
     public PostingService(JobPostingRepository postings, RecruitService recruits, CompanyService companies,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events, DummyScreeningRubric dummyRubric) {
         this.postings = postings;
         this.recruits = recruits;
         this.companies = companies;
         this.events = events;
+        this.dummyRubric = dummyRubric;
     }
 
     @Transactional
@@ -65,6 +68,16 @@ public class PostingService {
         return new PostingDraftContext(recruitmentId, recruitment.status(), posting.content(),
                 recruitment.stages().stream().map(stage -> new StageDraft(stage.name(), stage.type())).toList(),
                 requiredExtras(posting));
+    }
+
+    /**
+     * 서류 평가 기준(우대 사항 가중치 · NCS 능력단위 · 선발 인원). 공고 작성 화면에서 입력하기 전까지는 설정의 더미를 쓴다.
+     * 다른 기업의 채용이면 404다.
+     */
+    @Transactional(readOnly = true)
+    public ScreeningRubric screeningRubric(UUID companyId, UUID recruitmentId) {
+        posting(companyId, recruitmentId);
+        return dummyRubric.of(companyId, recruitmentId);
     }
 
     /** 본문은 게시 후에도 고칠 수 있다. 채용명이 바뀌면 채용 이름도 함께 바꾼다. */

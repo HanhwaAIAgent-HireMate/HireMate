@@ -5,6 +5,7 @@ import com.hiremate.global.ApiException;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatus;
@@ -16,6 +17,8 @@ import org.springframework.web.reactive.function.client.WebClient;
  *
  * <p>경로는 /agents/{agent}/{method}이고, 요청 본문은 Agent 메서드의 매개변수 이름을 키로 한 JSON 객체,
  * 응답 본문은 메서드 반환 타입의 JSON이다. 연결 실패 · 시간 초과 · 오류 응답은 502 AI_UNAVAILABLE로 바꾼다.
+ *
+ * <p>지원 접수 분석(Application Agent)은 화면이 기다리지 않는 이벤트에서 부르고 모델을 여러 번 불러, 따로 더 기다린다.
  */
 @Component
 class AiServerClient {
@@ -24,11 +27,19 @@ class AiServerClient {
 
     private final WebClient client;
     private final Duration timeout;
+    private final Duration applicationTimeout;
 
+    AiServerClient(WebClient.Builder builder, String baseUrl, Duration timeout) {
+        this(builder, baseUrl, timeout, timeout);
+    }
+
+    @Autowired
     AiServerClient(WebClient.Builder builder, @Value("${hiremate.ai.base-url}") String baseUrl,
-            @Value("${hiremate.ai.timeout:60s}") Duration timeout) {
+            @Value("${hiremate.ai.timeout:60s}") Duration timeout,
+            @Value("${hiremate.ai.application-timeout:180s}") Duration applicationTimeout) {
         this.client = builder.baseUrl(baseUrl).build();
         this.timeout = timeout;
+        this.applicationTimeout = applicationTimeout;
     }
 
     <T> T post(AiAgent agent, String method, Object body, Class<T> type) {
@@ -44,7 +55,7 @@ class AiServerClient {
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(type)
-                    .timeout(timeout)
+                    .timeout(agent == AiAgent.APPLICATION ? applicationTimeout : timeout)
                     .block();
         } catch (RuntimeException exception) {
             log.warn("AI server call failed: {}", path, exception);

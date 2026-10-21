@@ -159,7 +159,8 @@ public class ApplicationService {
     @Transactional
     public void recordAnalysis(UUID applicationId, ApplicationAnalysis analysis) {
         applications.findById(applicationId).ifPresent(application -> application.recordAnalysis(
-                analysis.careerYears(), analysis.lastCompany(), analysis.documentScore(), analysis.passed()));
+                analysis.careerYears(), analysis.lastCompany(), analysis.documentScore(), analysis.passed(),
+                analysis.held(), analysis.shortfalls()));
     }
 
     @Transactional
@@ -205,6 +206,7 @@ public class ApplicationService {
         return new ApplicantInfo(application.getId(), application.getRecruitmentId(), application.getApplicationNo(),
                 application.getName(), application.getEmail(), application.getCareerYears(),
                 application.getLastCompany(), application.getDocumentScore(), application.isScorePassed(),
-                application.getAnalysisStatus(), application.getSubmittedAt());
+                application.isScoreHeld(), application.shortfalls(), application.getAnalysisStatus(),
+                application.getSubmittedAt());
     }
 }

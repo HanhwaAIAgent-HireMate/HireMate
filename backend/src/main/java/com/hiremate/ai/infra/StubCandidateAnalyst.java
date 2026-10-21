@@ -8,6 +8,7 @@ import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicantDocument;
 import com.hiremate.posting.DocumentType;
 import com.hiremate.posting.PostingContent;
+import com.hiremate.posting.ScreeningRubric;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -34,7 +35,7 @@ class StubCandidateAnalyst implements CandidateAnalyst {
             "위한", "대한", "등의", "또는", "그리고", "해본", "본", "분");
 
     @Override
-    public CandidateAnalysis analyze(ApplicantDetail applicant, PostingContent posting) {
+    public CandidateAnalysis analyze(ApplicantDetail applicant, PostingContent posting, ScreeningRubric rubric) {
         Map<String, DocumentType> sentences = sentences(applicant.documents());
         List<CandidateAnalysis.Condition> conditions = new ArrayList<>();
         List<CandidateAnalysis.Finding> notable = new ArrayList<>();
@@ -67,7 +68,7 @@ class StubCandidateAnalyst implements CandidateAnalyst {
         if (sentences.isEmpty()) {
             checks.add(new CandidateAnalysis.Finding("제출 문서에서 글자를 읽지 못했어요. 원본 PDF를 확인해 주세요.", "제출 문서"));
         }
-        return new CandidateAnalysis(conditions, notable, checks,
+        return new CandidateAnalysis(conditions, notable, checks, List.of(), List.of(),
                 highlights.entrySet().stream()
                         .map(entry -> new CandidateAnalysis.Evidence(entry.getValue(), entry.getKey()))
                         .toList(),

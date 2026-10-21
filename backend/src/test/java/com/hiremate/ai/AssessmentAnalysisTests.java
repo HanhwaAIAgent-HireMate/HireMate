@@ -46,7 +46,7 @@ class AssessmentAnalysisTests extends IntegrationTest {
         expect(anonymous().multipart(posting.applyPath(), form), 201);
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());
         UUID applicationId = awaitApplicant(hr.companyId(), recruitmentId);
-        applications.recordAnalysis(applicationId, new ApplicationAnalysis(3, "OO카드", 90, true));
+        applications.recordAnalysis(applicationId, new ApplicationAnalysis(3, "OO카드", 90, true, false, List.of()));
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         String document = "/api/stages/" + closed.path("stages").get(0).path("id").asString();
         expect(hr.post(document + "/decisions",

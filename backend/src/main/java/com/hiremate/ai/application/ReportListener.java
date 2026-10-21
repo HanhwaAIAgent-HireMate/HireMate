@@ -58,8 +58,9 @@ class ReportListener {
         StageInfo last = recruitment.stages().getLast();
         StageResults results = screening.results(companyId, last.id());
         var posting = postings.draftContext(companyId, recruitment.id()).content();
+        var rubric = postings.screeningRubric(companyId, recruitment.id());
         List<ReportInput.FinalistInput> finalists = applications.applicants(companyId, results.passed()).stream()
-                .map(applicant -> finalist(companyId, applicant, posting))
+                .map(applicant -> finalist(companyId, applicant, posting, rubric))
                 .toList();
         List<Long> undecided = recruitment.stages().stream()
                 .filter(stage -> counts.containsKey(stage.id()))
@@ -72,9 +73,9 @@ class ReportListener {
     }
 
     private ReportInput.FinalistInput finalist(UUID companyId, ApplicantInfo applicant,
-            com.hiremate.posting.PostingContent posting) {
+            com.hiremate.posting.PostingContent posting, com.hiremate.posting.ScreeningRubric rubric) {
         CandidateAnalysis analysis = analyst.analyze(applications.detail(companyId, applicant.applicationId()),
-                posting);
+                posting, rubric);
         List<String> memos = screening.history(companyId, applicant.applicationId()).stream()
                 .map(StageCandidateView::memo)
                 .filter(memo -> !memo.isBlank())

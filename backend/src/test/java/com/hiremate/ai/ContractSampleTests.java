@@ -7,10 +7,12 @@ import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.apply.ApplicantDetail;
+import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.PostingDraftContext;
 import com.hiremate.posting.PostingSuggestion;
+import com.hiremate.posting.ScreeningRubric;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,16 +38,18 @@ class ContractSampleTests {
     private static final Path CONTRACT_DIR = Path.of("..", "contract");
 
     /** 샘플 파일 이름 → 타입. ai의 tests/test_contract.py SAMPLES와 같게 유지한다. */
-    private static final Map<String, Class<?>> SAMPLES = Map.of(
-            "ApplicantDetail", ApplicantDetail.class,
-            "CandidateAnalysis", CandidateAnalysis.class,
-            "ChatContext", ChatContext.class,
-            "ChatHistoryTurn", ChatHistoryTurn.class,
-            "ChatPlan", ChatPlan.class,
-            "CompanyProfile", CompanyProfile.class,
-            "PostingContent", PostingContent.class,
-            "PostingDraftContext", PostingDraftContext.class,
-            "PostingSuggestion", PostingSuggestion.class);
+    private static final Map<String, Class<?>> SAMPLES = Map.ofEntries(
+            Map.entry("ApplicantDetail", ApplicantDetail.class),
+            Map.entry("ApplicationAnalysis", ApplicationAnalysis.class),
+            Map.entry("CandidateAnalysis", CandidateAnalysis.class),
+            Map.entry("ChatContext", ChatContext.class),
+            Map.entry("ChatHistoryTurn", ChatHistoryTurn.class),
+            Map.entry("ChatPlan", ChatPlan.class),
+            Map.entry("CompanyProfile", CompanyProfile.class),
+            Map.entry("PostingContent", PostingContent.class),
+            Map.entry("PostingDraftContext", PostingDraftContext.class),
+            Map.entry("PostingSuggestion", PostingSuggestion.class),
+            Map.entry("ScreeningRubric", ScreeningRubric.class));
 
     @Autowired
     private JsonMapper mapper;
