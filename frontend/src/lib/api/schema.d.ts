@@ -1304,6 +1304,10 @@ export interface components {
             score: number | null;
             /** @enum {string} */
             analysisStatus: "PENDING" | "DONE" | "FAILED";
+            held: boolean;
+            shortfalls: string[];
+            /** Format: int32 */
+            documentScore: number | null;
         };
         ChatTurn: {
             message: string;
@@ -1346,6 +1350,8 @@ export interface components {
             conditions: components["schemas"]["Condition"][];
             notable: components["schemas"]["Finding"][];
             checks: components["schemas"]["Finding"][];
+            holds: components["schemas"]["Finding"][];
+            fit: components["schemas"]["FitLine"][];
             highlights: components["schemas"]["Evidence"][];
             agent: string;
             stub: boolean;
@@ -1363,6 +1369,14 @@ export interface components {
         Finding: {
             text: string;
             source: string;
+        };
+        FitLine: {
+            label: string;
+            /** Format: int32 */
+            points: number;
+            /** Format: int32 */
+            max: number;
+            reason: string;
         };
         DashboardStep: {
             /** Format: uuid */
@@ -1478,9 +1492,9 @@ export interface components {
             type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
         };
         CsrfToken: {
-            headerName: string;
             parameterName: string;
             token: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;

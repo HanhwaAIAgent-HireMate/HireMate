@@ -107,6 +107,18 @@ function AnalysisBox({
         <Skeleton className="h-16 w-full" />
       ) : (
         <dl className="space-y-2.5">
+          {analysis.holds.length > 0 && (
+            <Row label="점수 보류">
+              <div className="rounded-lg bg-muted px-3 py-2">
+                <Findings items={analysis.holds} empty="" />
+              </div>
+            </Row>
+          )}
+          {analysis.fit.length > 0 && (
+            <Row label="AI 적합도">
+              <FitScore lines={analysis.fit} />
+            </Row>
+          )}
           <Row label="공고 조건">
             {analysis.conditions.length === 0 ? (
               <span className="text-muted-foreground">공고에 자격 요건이 없어요.</span>
@@ -147,6 +159,34 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
     <div className="grid grid-cols-[72px_1fr] gap-3">
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd>{children}</dd>
+    </div>
+  )
+}
+
+/** AI 적합도 점수(100점)와 항목별 점수 · 이유. 첫 줄은 우대사항 NCS 평가 조건(60점), 나머지는 직무 적합도(40점)다. */
+function FitScore({
+  lines,
+}: {
+  lines: { label: string; points: number; max: number; reason: string }[]
+}) {
+  const total = lines.reduce((sum, line) => sum + line.points, 0)
+  return (
+    <div className="space-y-1.5">
+      <div className="font-semibold">
+        {total}
+        <span className="text-xs font-normal text-muted-foreground"> / 100점</span>
+      </div>
+      <ul className="space-y-1">
+        {lines.map((line) => (
+          <li key={line.label} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3">
+            <span className="text-xs">{line.label}</span>
+            <span className="text-xs font-medium tabular-nums">
+              {line.points}/{line.max}
+            </span>
+            <span className="col-span-2 text-xs text-muted-foreground">{line.reason}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
