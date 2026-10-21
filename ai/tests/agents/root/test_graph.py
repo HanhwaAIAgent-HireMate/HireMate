@@ -9,7 +9,7 @@ from hiremate_ai.agents.root.route import COMPARE_NEEDS_TWO, DECISION_REPLY, NOT
 from hiremate_ai.agents.root.types import ChatPlan, EditAction, Intent, SelectionMode
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.chat import LlmOutputError
-from hiremate_ai.llm.fake import FakeLlm, LlmCall
+from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
 
@@ -194,6 +194,23 @@ async def test_clear_with_previous_ref_still_clears(
     plan = await run_plan(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR, previous_ref="subject")), context)
 
     assert (plan.intent, plan.edit) == (Intent.EDIT, EditAction.CLEAR)
+
+
+async def test_unspoken_previous_without_memory_answers_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 이름이 없는 질문에 앞 대화를 표시한다. 문장이 앞 대화를 가리키지 않으면 되묻지 않고 전형 전체로 답한다
+    context = make_context(sample_applicants, sample_company, sample_posting, message="미결정이 몇 명 남았어?")
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER", previous_ref="subject"),
+        ToolCall("get_stage_summary"),
+        RootAnswer(message="미결정은 8명이에요."),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert (plan.intent, plan.message) == (Intent.ANSWER, "미결정은 8명이에요.")
+    assert "대상 지원자: 지정 없음" in llm.calls[1].user
 
 
 async def test_find_flagged_compare_is_not_refused(

@@ -27,6 +27,7 @@ from hiremate_ai.agents.root.route import (
     classify,
     precheck,
     refers_previous,
+    says_previous,
 )
 from hiremate_ai.agents.root.targets import Targets, checked, resolve
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
@@ -91,11 +92,12 @@ def build_root_graph(
         needs_targets = decided.kind == "ANSWER" or decided.edit in (EditAction.ADD, EditAction.REMOVE)
         if needs_targets and not targets.rows and not targets.ambiguous:
             # 대상은 코드가 정한다: @멘션 · 이름 → 체크한 지원자 → 앞 대화.
-            # 앞 대화는 순서나 앞 대화를 가리키는 말이 있으면 체크한 지원자보다 먼저다
+            # 앞 대화는 순서나 앞 대화를 가리키는 말이 있으면 체크한 지원자보다 먼저다.
+            # 앞 대화에 가리킬 지원자가 없으면 문장이 앞 대화를 가리킬 때만 되묻고, 아니면 대상 없이 간다
             if refers_previous(decided, context):
                 ids = remembered(state.get("result"), state.get("subject") or [], decided.previous_ref)
                 rows = recall(context, ids, decided.ordinal)
-                if not rows:
+                if not rows and says_previous(decided, context.message):
                     return {"route": decided, "plan": ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)}
             else:
                 rows = checked(context)
