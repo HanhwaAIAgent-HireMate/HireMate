@@ -3,12 +3,13 @@
 같은 질문에 같은 후보가 나오도록 순서는 코드가 정한다. 결과는 선택 지원자 변경 명령(FIND)으로만 낸다.
 """
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.guardrails import evidence_source
-from hiremate_ai.agents.root.route import DEFAULT_CLARIFY, NOT_UNDERSTOOD, RootRoute
+from hiremate_ai.agents.root.route import DEFAULT_CLARIFY, NOT_UNDERSTOOD, RootRoute, posting_section
 from hiremate_ai.agents.root.toolkit import RootToolkit, concept_terms, scope_of
 from hiremate_ai.agents.root.types import (
     CandidateRow,
@@ -37,6 +38,16 @@ REPLACED = "지원자 {total}명 중 조건에 맞는 **{count}명**을 선택�
 ADDED = "조건에 맞는 **{count}명**을 선택 지원자에 더했어요."
 NARROWED = "{pool}명 중 **{{count}}명**으로 좁혔어요."
 NOT_FOUND = "조건에 맞는 지원자를 찾지 못했어요. 선택 지원자는 그대로예요."
+# 공고 기준 찾기 (기획 18절)
+_SECTION_LABELS = {"qualifications": "자격 요건", "preferred": "우대 사항", "both": "자격 요건 · 우대 사항"}
+# 공고 항목을 가리키기만 하는 말. 공고 기준으로 찾을 때 이런 말만 든 조건은 따로 세지 않는다
+_POSTING_TERMS = {"공고", "우대", "사항", "자격", "요건", "필수", "조건", "적합", "적합성", "충족", "만족", "부합"}
+NO_POSTING_ITEMS = "공고에 {label}이 없어요. 찾을 조건을 직접 말씀해 주세요."
+CRITERIA_ALL = " {label} {n}개를 모두 충족한 사람이에요."
+CRITERIA_MOST = " {label} {n}개 중 {k}개를 충족해 가장 많이 맞는 사람이에요."
+CRITERIA_ANY = " {label} {n}개 중 하나 이상을 충족한 사람이에요. 많이 충족한 순서예요."
+NONE_ALL = "{label} {n}개를 모두 충족한 지원자는 없어요. 가장 많이 충족한 사람은 {k}개예요. 선택 지원자는 그대로예요."
+POSTING_SOURCE = "공고"
 
 RECHECK_SYSTEM = """너는 채용 담당자의 지원자 찾기 요청에서, 검색으로 모은 후보가 조건을 실제로 충족하는지 판정한다.
 후보마다 주어진 원문 문장만 보고 판단한다. 문장에 없는 내용을 짐작하지 않는다.
@@ -49,6 +60,16 @@ RECHECK_SYSTEM = """너는 채용 담당자의 지원자 찾기 요청에서, �
 - 후보는 블록의 번호(candidate_no)로, 근거는 블록 안 문장 번호(sentence_nos)로 답한다. 문장을 옮겨 쓰지 않는다.
   근거가 된 조건마다 문장 번호를 하나씩 적는다. met=false면 sentence_nos를 비운다."""
 
+CRITERIA_SYSTEM = """너는 채용 담당자가 공고 항목을 기준으로 지원자를 찾을 때,
+검색으로 모은 후보가 항목을 하나씩 충족하는지 판정한다.
+후보마다 주어진 원문 문장만 보고 판단한다. 문장에 없는 내용을 짐작하지 않는다.
+
+- 항목마다 따로 판정한다. 충족한 항목만 met에 적고, 항목 번호(criterion_no)와 근거 문장 번호(sentence_no)를 하나 단다.
+- 도메인 경험은 그 업계의 회사나 서비스에서 일한 경력이다.
+  다른 업계에서 비슷한 기능을 만든 일, 개인 · 학교 프로젝트, 데이터를 분석만 한 일은 그 도메인 경험이 아니다.
+- 기간 조건("3년 이상")은 문장에 기간이 드러날 때만 충족으로 본다.
+- 후보는 블록의 번호(candidate_no)로 답하고 문장을 옮겨 쓰지 않는다. 충족한 항목이 없으면 met을 비운다."""
+
 
 class RecheckItem(BaseModel):
     candidate_no: int = Field(description="후보 블록의 번호 (no)")
@@ -58,6 +79,20 @@ class RecheckItem(BaseModel):
 
 class RecheckResult(BaseModel):
     results: list[RecheckItem]
+
+
+class CriterionEvidence(BaseModel):
+    criterion_no: int = Field(description="충족한 항목 번호")
+    sentence_no: int = Field(description="그 항목의 근거 문장 번호 (블록 안의 1, 2, ...)")
+
+
+class CriteriaItem(BaseModel):
+    candidate_no: int = Field(description="후보 블록의 번호 (no)")
+    met: list[CriterionEvidence] = Field(default=[], description="충족한 항목마다 근거 문장 하나")
+
+
+class CriteriaResult(BaseModel):
+    results: list[CriteriaItem]
 
 
 def candidate_pool(route: RootRoute, context: ChatContext) -> list[CandidateRow]:
@@ -99,6 +134,9 @@ def score_filter(
 async def plan_find(llm: LlmClient, route: RootRoute, context: ChatContext, toolkit: RootToolkit) -> ChatPlan:
     pool = candidate_pool(route, context)
     rows, notes = score_filter(route, context, pool)
+    section = posting_section(route, context.message)
+    if section is not None:
+        return await _plan_posting(llm, route, context, toolkit, section, pool, rows)
     conditions = list(route.concepts)
     talents: list[str] = []
     if route.use_talents:
@@ -130,6 +168,118 @@ async def plan_find(llm: LlmClient, route: RootRoute, context: ChatContext, tool
     if limited and plan.intent is Intent.FIND:
         plan = plan.model_copy(update={"message": plan.message + LIMIT_NOTE})
     return plan
+
+
+async def _plan_posting(
+    llm: LlmClient,
+    route: RootRoute,
+    context: ChatContext,
+    toolkit: RootToolkit,
+    section: Literal["qualifications", "preferred", "both"],
+    pool: list[CandidateRow],
+    rows: list[CandidateRow],
+) -> ChatPlan:
+    """공고의 자격 요건 · 우대 사항으로 찾는다. 항목은 공고에서 코드가 꺼내고, 충족한 항목 수로 고른다.
+
+    HR이 따로 말한 조건은 반드시 충족해야 한다. 근거 문장이 원문에 있는 항목만 충족으로 센다 (규칙 7).
+    """
+    label = _SECTION_LABELS[section]
+    posting = context.posting
+    items = {"qualifications": posting.qualifications, "preferred": posting.preferred}.get(
+        section, [*posting.qualifications, *posting.preferred]
+    )
+    if not items:
+        return ChatPlan.answer(Intent.CLARIFY, NO_POSTING_ITEMS.format(label=label))
+    required = [concept for concept in route.concepts if set(concept_terms(concept)) - _POSTING_TERMS]
+    criteria = [*items, *required]
+    allowed = {row.application_id: row for row in rows}
+    found = await toolkit.search(scope_of(context), criteria, list(allowed))
+    matches = [match for match in found if match.application_id in allowed]
+    limited = len(matches) > RECHECK_LIMIT
+    matches = matches[:RECHECK_LIMIT]
+    if not matches:
+        return ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
+    try:
+        judged = await recheck_criteria(llm, context, matches, items, required)
+    except LlmOutputError:
+        return ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
+
+    n = len(items)
+    scored = []
+    for application_id, met in judged:
+        if all(index in met for index in range(n, len(criteria))):
+            count = sum(index in met for index in range(n))
+            if count:
+                scored.append((application_id, count, met))
+    best = max((count for _, count, _ in scored), default=0)
+    match_mode = route.criteria_match
+    if match_mode == "all" and best < n:
+        message = NONE_ALL.format(label=label, n=n, k=best) if best else NOT_FOUND
+        return ChatPlan.answer(Intent.ANSWER, message)
+    keep = n if match_mode == "all" else best if match_mode == "most" else 1
+    kept = sorted((entry for entry in scored if entry[1] >= keep), key=lambda entry: -entry[1])
+    chosen = [
+        (allowed[application_id], f"{label} {count}/{n} · {_shorten(_first(met).sentence)}")
+        for application_id, count, met in kept
+    ]
+    sources = list(dict.fromkeys(sourced.source for _, _, met in kept for sourced in met.values())) + [POSTING_SOURCE]
+    plan = _plan(route, len(pool), chosen, sources)
+    if plan.intent is not Intent.FIND:
+        return plan
+    note = {"all": CRITERIA_ALL, "most": CRITERIA_MOST, "any": CRITERIA_ANY}[match_mode]
+    message = plan.message + note.format(label=label, n=n, k=best) + (LIMIT_NOTE if limited else "")
+    return plan.model_copy(update={"message": message})
+
+
+def _first(met: dict[int, SourcedSentence]) -> SourcedSentence:
+    return met[min(met)]
+
+
+async def recheck_criteria(
+    llm: LlmClient,
+    context: ChatContext,
+    matches: list[CandidateMatch],
+    items: list[str],
+    required: list[str],
+) -> list[tuple[UUID, dict[int, SourcedSentence]]]:
+    """후보마다 충족한 항목(0부터 센 번호)과 그 근거 문장. 검색 순서를 지킨다.
+
+    모델은 항목 · 후보 · 문장을 번호로만 답한다. 제출 문서 문장은 원문에 있는지 한 번 더 확인한다 (규칙 7).
+    """
+    criteria = [*items, *(f"{condition} (반드시 충족)" for condition in required)]
+    listed = "\n".join(f"{number}. {criterion}" for number, criterion in enumerate(criteria, start=1))
+    blocks = "\n\n".join(
+        data_block(
+            "candidate",
+            "\n".join(
+                f"{number}. [{sourced.source}] {sourced.sentence}"
+                for number, sourced in enumerate(match.sentences, start=1)
+            ),
+            no=str(candidate_no),
+        )
+        for candidate_no, match in enumerate(matches, start=1)
+    )
+    user = f"요청: {context.message}\n공고 항목:\n{listed}\n\n{blocks}"
+    result = await llm.structured(
+        CriteriaResult, agent="root", system=f"{CRITERIA_SYSTEM}\n\n{UNTRUSTED_RULE}", user=user
+    )
+    judged = {item.candidate_no: item for item in result.results}
+    verified = []
+    for candidate_no, match in enumerate(matches, start=1):
+        item = judged.get(candidate_no)
+        if item is None:
+            continue
+        met: dict[int, SourcedSentence] = {}
+        for evidence in item.met:
+            index, number = evidence.criterion_no - 1, evidence.sentence_no
+            if index in met or not 0 <= index < len(criteria) or not 1 <= number <= len(match.sentences):
+                continue
+            sourced = match.sentences[number - 1]
+            if _in_source(context, match.application_id, sourced):
+                met[index] = sourced
+        if met:
+            verified.append((match.application_id, met))
+    return verified
 
 
 async def recheck(

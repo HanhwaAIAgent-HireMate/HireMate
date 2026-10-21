@@ -6,8 +6,13 @@ from root_context import extra_row, make_context
 
 from hiremate_ai.agents.root.find import (
     LIMIT_NOTE,
+    NO_POSTING_ITEMS,
+    NONE_ALL,
     NOT_FOUND,
     RECHECK_LIMIT,
+    CriteriaItem,
+    CriteriaResult,
+    CriterionEvidence,
     RecheckItem,
     RecheckResult,
     candidate_pool,
@@ -451,3 +456,201 @@ async def test_own_condition_with_talents_keeps_both_groups(
     user = llm.calls[0].user
     assert "조건 (모두 충족해야 한다):\n- 금융 도메인 경험" in user
     assert "인재상 (하나 이상 드러나야 한다)" in user
+
+
+# 공고 기준 찾기. 샘플 공고의 우대 사항은 1. 금융 도메인 경험 2. 대용량 트래픽 처리 경험이다
+POSTING_SENTENCES = {
+    "정유민": [
+        "한빛카드 결제플랫폼팀 2022.03 ~ 현재",
+        "하루 120만 건 승인 트랜잭션을 처리하는 승인 서버의 응답 시간을 180ms에서 90ms로 줄였습니다.",
+    ],
+    "김하늘": [
+        "새솔은행 IT본부 계정계개발팀 2019.01 ~ 2024.12",
+        "하루 300만 건 이체 트랜잭션의 장애 대응 당번을 2년간 맡았습니다.",
+    ],
+    "박서준": [
+        "연말 할인 기간 초당 8천 건 주문 트래픽을 처리하도록 주문 서버를 수평 확장했습니다.",
+        "Kotlin과 Spring Boot로 주문 · 배송 API를 개발했습니다.",
+    ],
+}
+
+
+def posting_search(applicants: Applicants, order: Sequence[str], sentences: Mapping[str, list[str]]) -> SpySearch:
+    return SpySearch(
+        [
+            CandidateMatch(
+                application_id=applicants[name].info.application_id,
+                sentences=[SourcedSentence(sentence, "이력서") for sentence in sentences[name]],
+                hits=2,
+            )
+            for name in order
+        ]
+    )
+
+
+def criteria(order: Sequence[str], met: Mapping[str, list[tuple[int, int]]]) -> CriteriaResult:
+    """이름 → (조건 번호, 문장 번호)들. 후보 번호는 order(검색 순서)로 정한다."""
+    return CriteriaResult(
+        results=[
+            CriteriaItem(
+                candidate_no=order.index(name) + 1,
+                met=[CriterionEvidence(criterion_no=no, sentence_no=sentence) for no, sentence in pairs],
+            )
+            for name, pairs in met.items()
+        ]
+    )
+
+
+def preferred(match: str, **changes: Any) -> RootRoute:
+    return RootRoute(kind="FIND", posting_criteria="preferred", criteria_match=match, **changes)
+
+
+def posting_context(
+    applicants: Applicants,
+    company: CompanyProfile,
+    posting: PostingContent,
+    message: str = "우대 사항 다 충족하는 사람",
+) -> ChatContext:
+    return make_context(applicants, company, posting, message=message)
+
+
+ORDER = ["정유민", "김하늘", "박서준"]
+BOTH_TWO = {"정유민": [(1, 1), (2, 2)], "김하늘": [(1, 1), (2, 2)], "박서준": [(2, 1)]}
+
+
+async def test_all_keeps_only_full_match(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = posting_context(sample_applicants, sample_company, sample_posting)
+    search = posting_search(sample_applicants, ORDER, POSTING_SENTENCES)
+    llm = FakeLlm(criteria(ORDER, BOTH_TWO))
+
+    plan = await plan_find(llm, preferred("all"), context, RootToolkit(search=search))
+
+    assert search.calls[0][0] == sample_posting.preferred
+    assert "1. 금융 도메인 경험" in llm.calls[0].user and "2. 대용량 트래픽 처리 경험" in llm.calls[0].user
+    assert UNTRUSTED_RULE in llm.calls[0].system
+    assert names(context, plan) == ["정유민", "김하늘"]
+    assert plan.message.endswith(" 우대 사항 2개를 모두 충족한 사람이에요.")
+    assert plan.items[0].text.startswith("우대 사항 2/2 · ")
+    assert "공고" in plan.sources
+
+
+async def test_most_keeps_top_tier(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = posting_context(sample_applicants, sample_company, sample_posting, "공고 우대 사항에 아주 적합한 사람")
+    search = posting_search(sample_applicants, ORDER, POSTING_SENTENCES)
+    llm = FakeLlm(criteria(ORDER, {"정유민": [(1, 1)], "박서준": [(2, 1)]}))
+
+    plan = await plan_find(llm, preferred("most"), context, RootToolkit(search=search))
+
+    assert names(context, plan) == ["정유민", "박서준"]
+    assert plan.message.endswith(" 우대 사항 2개 중 1개를 충족해 가장 많이 맞는 사람이에요.")
+
+
+async def test_most_drops_lower_tier(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = posting_context(sample_applicants, sample_company, sample_posting, "공고 우대 사항에 아주 적합한 사람")
+    search = posting_search(sample_applicants, ORDER, POSTING_SENTENCES)
+
+    plan = await plan_find(FakeLlm(criteria(ORDER, BOTH_TWO)), preferred("most"), context, RootToolkit(search=search))
+
+    assert names(context, plan) == ["정유민", "김하늘"]
+
+
+async def test_any_orders_by_count(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = posting_context(sample_applicants, sample_company, sample_posting, "우대 사항에 맞는 사람")
+    order = ["박서준", "정유민"]
+    search = posting_search(sample_applicants, order, POSTING_SENTENCES)
+    llm = FakeLlm(criteria(order, {"박서준": [(2, 1)], "정유민": [(1, 1), (2, 2)]}))
+
+    plan = await plan_find(llm, preferred("any"), context, RootToolkit(search=search))
+
+    assert names(context, plan) == ["정유민", "박서준"]
+    assert [item.text.split(" · ")[0] for item in plan.items] == ["우대 사항 2/2", "우대 사항 1/2"]
+    assert plan.message.endswith(" 우대 사항 2개 중 하나 이상을 충족한 사람이에요. 많이 충족한 순서예요.")
+
+
+async def test_posting_without_items_clarifies(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    empty = sample_posting.model_copy(update={"preferred": []})
+    context = posting_context(sample_applicants, sample_company, empty)
+    llm = FakeLlm()
+
+    plan = await plan_find(llm, preferred("all"), context, RootToolkit(search=SpySearch()))
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, NO_POSTING_ITEMS.format(label="우대 사항"))
+    assert llm.calls == []
+
+
+async def test_extra_condition_is_required(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = posting_context(sample_applicants, sample_company, sample_posting, "우대 사항 맞고 Kotlin 쓰는 사람")
+    order = ["정유민", "박서준"]
+    search = posting_search(sample_applicants, order, POSTING_SENTENCES)
+    llm = FakeLlm(criteria(order, {"정유민": [(1, 1), (2, 2)], "박서준": [(2, 1), (3, 2)]}))
+
+    plan = await plan_find(llm, preferred("any", concepts=["Kotlin"]), context, RootToolkit(search=search))
+
+    assert search.calls[0][0] == [*sample_posting.preferred, "Kotlin"]
+    assert "3. Kotlin (반드시 충족)" in llm.calls[0].user
+    assert names(context, plan) == ["박서준"]
+    assert plan.items[0].text.startswith("우대 사항 1/2 · ")
+
+
+async def test_posting_words_dropped_from_concepts(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = posting_context(sample_applicants, sample_company, sample_posting)
+    search = SpySearch()
+    route = preferred("all", concepts=["우대 사항 충족", "공고 우대 사항 적합성"])
+
+    await plan_find(FakeLlm(), route, context, RootToolkit(search=search))
+
+    assert search.calls[0][0] == sample_posting.preferred
+
+
+async def test_all_none_reports_best(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = posting_context(sample_applicants, sample_company, sample_posting)
+    search = posting_search(sample_applicants, ORDER, POSTING_SENTENCES)
+    llm = FakeLlm(criteria(ORDER, {"정유민": [(1, 1)], "박서준": [(2, 1)]}))
+
+    plan = await plan_find(llm, preferred("all"), context, RootToolkit(search=search))
+
+    assert plan == ChatPlan.answer(Intent.ANSWER, NONE_ALL.format(label="우대 사항", n=2, k=1))
+
+
+async def test_unverified_criterion_not_counted(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = posting_context(sample_applicants, sample_company, sample_posting)
+    fake = {
+        **POSTING_SENTENCES,
+        "박서준": ["카드사에서 결제 시스템을 5년 운영했습니다.", POSTING_SENTENCES["박서준"][0]],
+    }
+    order = ["정유민", "박서준"]
+    search = posting_search(sample_applicants, order, fake)
+    llm = FakeLlm(criteria(order, {"정유민": [(1, 1), (2, 2)], "박서준": [(1, 1), (2, 2)]}))
+
+    plan = await plan_find(llm, preferred("all"), context, RootToolkit(search=search))
+
+    assert names(context, plan) == ["정유민"]
+
+
+async def test_posting_route_without_word_uses_concepts(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+    search = SpySearch()
+
+    await plan_find(FakeLlm(), preferred("all", concepts=["금융 도메인 경험"]), context, RootToolkit(search=search))
+
+    assert search.calls[0][0] == ["금융 도메인 경험"]
