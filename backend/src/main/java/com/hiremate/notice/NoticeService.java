@@ -221,41 +221,67 @@ public class NoticeService {
                         NoticeGroup.PASS))
                 .map(Notice::getSentCount)
                 .orElse(0);
-        return new StageGuideView(stage.id(), stage.seq(), stage.name(), stage.guide(), notified);
+        return new StageGuideView(stage.id(), stage.seq(), stage.name(), stage.guide(), missing(stage.guide()),
+                notified);
     }
 
-    /**
-     * 다음 전형 안내에 붙일 다음 전형의 안내. 안내가 없으면 빈 문자열이다. AI 본문과 따로 두어,
-     * 초안을 쓴 뒤에 안내를 고쳐도 다시 쓰지 않고 보내는 때의 안내가 붙는다. 비어 있는 칸은 넣지 않는다.
-     */
-    static String guideText(Notice notice, RecruitmentInfo recruitment) {
-        if (notice.getTemplateType() != NoticeTemplateType.NEXT_STAGE) {
-            return "";
-        }
-        int seq = recruitment.stage(notice.getStageId()).orElseThrow().seq();
-        Optional<StageInfo> next = recruitment.stages().stream().filter(stage -> stage.seq() == seq + 1).findFirst();
-        if (next.isEmpty() || !next.get().guide().hasContent()) {
-            return "";
-        }
-        StageGuide guide = next.get().guide();
-        List<String> lines = new ArrayList<>(List.of(GUIDE_LEAD, "", "■ " + next.get().name() + " 안내"));
+    /** 안내 칸 이름과 값. 메일과 화면 경고에 같은 이름을 쓴다. 기타 안내(note)는 이름 없이 ※로 붙여 여기 없다. */
+    private static Map<String, String> items(StageGuide guide) {
         Map<String, String> items = new LinkedHashMap<>();
         items.put("일정", guide.schedule());
         items.put("진행 방식", guide.method());
         items.put("장소·접속 링크", guide.place());
         items.put("준비 사항", guide.preparation());
-        items.forEach((label, value) -> {
+        return items;
+    }
+
+    /** 비어 있는 안내 칸 이름. 게시하거나 다음 전형 안내를 보내기 전에 화면이 경고한다 (막지는 않는다). */
+    static List<String> missing(StageGuide guide) {
+        return items(guide).entrySet().stream()
+                .filter(item -> item.getValue().isEmpty())
+                .map(Map.Entry::getKey)
+                .toList();
+    }
+
+    /** 다음 전형 안내면 다음 전형. */
+    private static Optional<StageInfo> nextStage(Notice notice, RecruitmentInfo recruitment) {
+        if (notice.getTemplateType() != NoticeTemplateType.NEXT_STAGE) {
+            return Optional.empty();
+        }
+        int seq = recruitment.stage(notice.getStageId()).orElseThrow().seq();
+        return recruitment.stages().stream().filter(stage -> stage.seq() == seq + 1).findFirst();
+    }
+
+    /**
+     * 다음 전형 안내에 붙일 다음 전형의 안내. 안내가 없으면 빈 문자열이다. AI 본문과 따로 두어,
+     * 초안을 쓴 뒤에 안내를 고쳐도 다시 쓰지 않고 보내는 때의 안내가 붙는다. 비어 있는 칸은 넣지 않고,
+     * 기타 안내는 이름 없이 한 줄마다 ※를 붙인다 ("기타 안내:"는 지원자에게 어색하다).
+     */
+    static String guideText(Notice notice, RecruitmentInfo recruitment) {
+        Optional<StageInfo> next = nextStage(notice, recruitment);
+        if (next.isEmpty() || !next.get().guide().hasContent()) {
+            return "";
+        }
+        StageGuide guide = next.get().guide();
+        List<String> lines = new ArrayList<>(List.of(GUIDE_LEAD, "", "■ " + next.get().name() + " 안내"));
+        items(guide).forEach((label, value) -> {
             if (!value.isEmpty()) {
                 lines.add("- " + label + ": " + value);
             }
         });
+        List<String> notes = guide.note().lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
+        if (!notes.isEmpty()) {
+            lines.add("");
+            notes.forEach(note -> lines.add("※ " + note));
+        }
         return String.join("\n", lines);
     }
 
     private static NoticeView toView(Notice notice, RecruitmentInfo recruitment) {
+        List<String> guideMissing = nextStage(notice, recruitment).map(next -> missing(next.guide())).orElse(List.of());
         return new NoticeView(notice.getId(), notice.getStageId(), notice.getGroupType(), notice.getTemplateType(),
                 label(notice.getTemplateType()), notice.getSubject(), notice.getGreeting(), notice.getContent(),
-                guideText(notice, recruitment), notice.getClosing(), notice.getRequiredText(),
+                guideText(notice, recruitment), guideMissing, notice.getClosing(), notice.getRequiredText(),
                 notice.getRecipientCount(), notice.getStatus(), notice.getSentCount(), notice.getFailedCount(),
                 notice.getSentAt());
     }

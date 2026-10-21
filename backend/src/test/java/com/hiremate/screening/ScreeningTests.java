@@ -197,7 +197,8 @@ class ScreeningTests extends IntegrationTest {
         String guidePath = "/api/stages/"
                 + json(expect(hr.get(guides), 200)).get(0).path("stageId").asString() + "/guide";
         expect(hr.put(guidePath, Map.of("schedule", "11월 3일(화) 오후 2시~4시", "method", "대면", "place", "",
-                "preparation", "신분증")), 200);
+                "preparation", "신분증", "note", "11월 1일까지 참석 여부를 알려 주세요.\n\n 건물 주차는 지원되지 않습니다. ")),
+                200);
         expect(hr.post(stage.path() + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
         expect(hr.post(stage.path() + "/decisions",
                 Map.of("applicationIds", stage.ids().subList(0, 1), "decision", "PASS")), 204);
@@ -210,11 +211,16 @@ class ScreeningTests extends IntegrationTest {
                 ■ 1차 면접 안내
                 - 일정: 11월 3일(화) 오후 2시~4시
                 - 진행 방식: 대면
-                - 준비 사항: 신분증""");
+                - 준비 사항: 신분증
+
+                ※ 11월 1일까지 참석 여부를 알려 주세요.
+                ※ 건물 주차는 지원되지 않습니다.""");
+        assertThat(notices.get(0).path("guideMissing").toString()).isEqualTo("[\"장소·접속 링크\"]");
         assertThat(notices.get(1).path("guide").asString()).isEmpty();
+        assertThat(notices.get(1).path("guideMissing").size()).isZero();
 
         expect(hr.put(guidePath, Map.of("schedule", "11월 4일(수) 오전 10시~11시", "method", "", "place", "",
-                "preparation", "")), 200);
+                "preparation", "", "note", "")), 200);
         expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
         assertThat(mail.sent).anySatisfy(message -> assertThat(message)
                 .contains("지원자1님", "다음 전형은 1차 면접입니다.", "■ 1차 면접 안내\n- 일정: 11월 4일(수) 오전 10시~11시")

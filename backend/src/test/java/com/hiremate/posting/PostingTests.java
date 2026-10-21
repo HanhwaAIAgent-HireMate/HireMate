@@ -83,9 +83,14 @@ class PostingTests extends IntegrationTest {
         assertThat(guides.get(0).path("name").asString()).isEqualTo("1차 면접");
         String interview = guides.get(0).path("stageId").asString();
 
+        assertThat(guides.get(0).path("missing").toString())
+                .isEqualTo("[\"일정\",\"진행 방식\",\"장소·접속 링크\",\"준비 사항\"]");
+
         JsonNode saved = json(expect(hr.put("/api/stages/" + interview + "/guide", Map.of("schedule",
-                " 11월 3일(화) 오후 2시~4시 ", "method", "대면", "place", "", "preparation", "신분증")), 200));
+                " 11월 3일(화) 오후 2시~4시 ", "method", "대면", "place", "", "preparation", "신분증", "note", "")),
+                200));
         assertThat(saved.path("guide").path("schedule").asString()).isEqualTo("11월 3일(화) 오후 2시~4시");
+        assertThat(saved.path("missing").toString()).isEqualTo("[\"장소·접속 링크\"]");
         assertThat(saved.path("notifiedCount").asInt()).isZero();
 
         expect(hr.post(base + "/ai-requests", Map.of("message", "전형은 서류, 코딩테스트, 1차 면접 순으로 해줘")), 200);
@@ -97,9 +102,9 @@ class PostingTests extends IntegrationTest {
 
         String guidePath = "/api/stages/" + changed.get(1).path("stageId").asString() + "/guide";
         expect(hr.put(guidePath, Map.of("schedule", "x".repeat(201), "method", "", "place", "",
-                "preparation", "")), 400);
-        expect(newHr().put(guidePath, Map.of("schedule", "", "method", "", "place", "", "preparation", "")),
-                404);
+                "preparation", "", "note", "")), 400);
+        expect(newHr().put(guidePath, Map.of("schedule", "", "method", "", "place", "", "preparation", "",
+                "note", "")), 404);
     }
 
     @Test

@@ -34,12 +34,13 @@ public class StageGuideController {
     public StageGuideView changeStageGuide(AuthenticatedMember member, @PathVariable UUID stageId,
             @Valid @RequestBody StageGuideRequest request) {
         return notices.changeGuide(member.companyId(), stageId,
-                new StageGuide(request.schedule(), request.method(), request.place(), request.preparation()));
+                new StageGuide(request.schedule(), request.method(), request.place(), request.preparation(),
+                        request.note()));
     }
 
-    /** 길이는 stages 테이블의 안내 칸과 같다. */
+    /** 길이는 stages 테이블의 안내 칸과 같다. note는 기타 안내다. */
     public record StageGuideRequest(@NotNull @Size(max = 200) String schedule,
             @NotNull @Size(max = 100) String method, @NotNull @Size(max = 500) String place,
-            @NotNull @Size(max = 1000) String preparation) {
+            @NotNull @Size(max = 1000) String preparation, @NotNull @Size(max = 1000) String note) {
     }
 }
