@@ -62,6 +62,9 @@ public class Stage {
     @Column(nullable = false, length = 1000)
     private String guidePreparation = "";
 
+    @Column(nullable = false, length = 1000)
+    private String guideNote = "";
+
     public Stage(UUID recruitmentId, int seq, String name, StageType type, StageGuide guide) {
         this.id = UUID.randomUUID();
         this.recruitmentId = recruitmentId;
@@ -73,7 +76,7 @@ public class Stage {
     }
 
     public StageGuide guide() {
-        return new StageGuide(guideSchedule, guideMethod, guidePlace, guidePreparation);
+        return new StageGuide(guideSchedule, guideMethod, guidePlace, guidePreparation, guideNote);
     }
 
     public void changeGuide(StageGuide guide) {
@@ -81,6 +84,7 @@ public class Stage {
         this.guideMethod = guide.method();
         this.guidePlace = guide.place();
         this.guidePreparation = guide.preparation();
+        this.guideNote = guide.note();
     }
 
     public void activate() {
