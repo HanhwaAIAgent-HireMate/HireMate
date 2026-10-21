@@ -6,6 +6,7 @@ Agent를 만들고 확인할 때 쓰는 가상의 채용 자료다. 실제 인�
 - `posting.json`: 결제 플랫폼 백엔드 개발자 공고 (`PostingContent`)
 - `company.json`: 하이메이트페이 회사 소개 (`CompanyProfile`)
 - `applicants.json`: 지원자 8명 (`ApplicantDetail`). 모두 분석 전(`PENDING`) 상태다.
+- `profiles.json`: 지원자 8명을 지원서 분석 Agent가 정리했다고 가정한 더미 프로필 (`test_profile_store.py`). 근거 문장은 모두 `applicants.json` 원문에 있다. 서류 점수는 임의 값이다.
 
 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 넣지 않는다 (아키텍처 규칙 6). `test_samples.py`가 검사한다.
 
