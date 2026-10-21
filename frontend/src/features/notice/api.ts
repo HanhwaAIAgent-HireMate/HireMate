@@ -5,8 +5,39 @@ import { stageKeys } from '@/features/screening/api'
 
 export type Notice = Schemas['NoticeView']
 export type NoticeGroup = Notice['group']
+export type StageGuide = Schemas['StageGuide']
+export type StageGuideView = Schemas['StageGuideView']
 
 export const noticeKeys = { all: (stageId: string) => ['stage', stageId, 'notices'] as const }
+
+export const stageGuideKeys = {
+  all: (recruitmentId: string) => ['recruitment', recruitmentId, 'stage-guides'] as const,
+  /** 전형 절차가 바뀌면(AI 수정안 적용) 전형 ID도 바뀌어 새로 받는다 */
+  stages: (recruitmentId: string, stageIds: string) =>
+    [...stageGuideKeys.all(recruitmentId), stageIds] as const,
+}
+
+/** 공고 작성 화면의 전형별 안내. 첫 전형은 안내하는 메일이 없어 빠져 있다. */
+export function useStageGuides(recruitmentId: string, stageIds: string) {
+  return useQuery({
+    queryKey: stageGuideKeys.stages(recruitmentId, stageIds),
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/recruitments/{recruitmentId}/stage-guides', {
+          params: { path: { recruitmentId } },
+        }),
+      ),
+  })
+}
+
+export function useSaveStageGuide(recruitmentId: string, stageId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: StageGuide) =>
+      unwrap(api.PUT('/api/stages/{stageId}/guide', { params: { path: { stageId } }, body })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: stageGuideKeys.all(recruitmentId) }),
+  })
+}
 
 /** 결과를 확정한 전형의 안내 초안. 처음 열면 양식으로 초안을 만들고 Communication Agent가 내용을 채운다. */
 export function useNotices(stageId: string, enabled = true) {

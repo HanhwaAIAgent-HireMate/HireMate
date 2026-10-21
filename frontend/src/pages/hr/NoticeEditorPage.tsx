@@ -4,6 +4,16 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { useHeaderCrumb } from '@/app/header-store'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
@@ -17,6 +27,7 @@ import {
   type Notice,
 } from '@/features/notice/api'
 import { sentenceDiff } from '@/features/notice/sentenceDiff'
+import { STAGE_GUIDES_ID } from '@/features/notice/StageGuides'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import { useStageOverview } from '@/features/screening/api'
@@ -57,6 +68,7 @@ export function NoticeEditorPage() {
       notices={notices.data ?? []}
       stageName={overview.data.name}
       closePath={`/hr/recruitments/${overview.data.recruitmentId}/stages/${stageId}/close`}
+      guidesPath={`/hr/recruitments/${overview.data.recruitmentId}/posting#${STAGE_GUIDES_ID}`}
     />
   )
 }
@@ -66,13 +78,17 @@ function Editor({
   notices,
   stageName,
   closePath,
+  guidesPath,
 }: {
   notice: Notice
   notices: Notice[]
   stageName: string
   closePath: string
+  /** 공고 작성 화면의 전형별 안내 칸 */
+  guidesPath: string
 }) {
   const navigate = useNavigate()
+  const [confirmingGuide, setConfirmingGuide] = useState(false)
   const [draft, setDraft] = useState({
     subject: notice.subject,
     greeting: notice.greeting,
@@ -139,6 +155,9 @@ function Editor({
   }
 
   const remaining = notice.recipientCount - notice.sentCount
+  // 다음 전형 안내인데 다음 전형의 안내(일정 · 장소 등)가 없으면 보내기 전에 묻는다
+  const missingGuide =
+    notice.templateType === 'NEXT_STAGE' && notice.status === 'DRAFT' && !notice.guide
 
   return (
     <div className="flex h-full flex-col">
@@ -150,13 +169,32 @@ function Editor({
           disabled={
             !(editable || notice.status === 'PARTIAL') || send.isPending || proposal !== null
           }
-          onClick={() => void onSend()}
+          onClick={() => (missingGuide ? setConfirmingGuide(true) : void onSend())}
         >
           <Send />
           {notice.status === 'PARTIAL'
             ? `실패한 ${notice.failedCount}명에게 다시 발송`
             : `${remaining}명에게 발송`}
         </Button>
+        <AlertDialog open={confirmingGuide} onOpenChange={setConfirmingGuide}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>다음 전형 안내가 비어 있어요</AlertDialogTitle>
+              <AlertDialogDescription>
+                공고 작성의 전형별 안내에 일정, 진행 방식, 장소 같은 안내를 입력하면 메일 아래에
+                함께 보내요. 그대로 보내면 합격 결과와 다음 전형 이름만 보내요.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                onClick={() => void save().then((ok) => ok && navigate(guidesPath))}
+              >
+                입력하러 가기
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={() => void onSend()}>그대로 보내기</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
       <div className="flex min-h-0 flex-1">
         <aside className="w-[180px] shrink-0 space-y-2 border-r p-3">
@@ -237,6 +275,18 @@ function Editor({
                   rows={5}
                   className="resize-none border-dashed"
                 />
+              )}
+              {notice.guide && (
+                <div className="space-y-1 rounded-lg bg-muted/50 px-3 py-2">
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Lock className="size-3.5" />
+                    보낼 때 붙는 다음 전형 안내 ·
+                    <Link to={guidesPath} className="underline">
+                      공고 작성에서 고치기
+                    </Link>
+                  </p>
+                  <p className="leading-6 whitespace-pre-line">{notice.guide}</p>
+                </div>
               )}
               <VariableField
                 aria-label="맺음말"

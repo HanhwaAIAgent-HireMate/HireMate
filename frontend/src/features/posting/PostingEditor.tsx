@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { StageGuides } from '@/features/notice/StageGuides'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
 import {
   useApplySuggestion,
@@ -247,6 +248,11 @@ export function PostingEditor({
               />
               {actions('stages')}
             </FixedBox>
+            <StageGuides
+              recruitmentId={id}
+              stageIds={posting.stages.map((stage) => stage.id).join()}
+              editable={posting.status !== 'CLOSED'}
+            />
             <FixedBox title="필수 제출 서류">
               <div className="flex flex-wrap gap-2">
                 {(suggestion?.documents ?? posting.documents)

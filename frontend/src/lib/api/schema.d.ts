@@ -36,6 +36,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/guide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["changeStageGuide"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates/{applicationId}/memo": {
         parameters: {
             query?: never;
@@ -724,6 +740,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/stage-guides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stageGuides"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/report": {
         parameters: {
             query?: never;
@@ -924,6 +956,7 @@ export interface components {
             subject: string;
             greeting: string;
             content: string;
+            guide: string;
             closing: string;
             requiredText: string;
             /** Format: int32 */
@@ -966,6 +999,28 @@ export interface components {
             /** Format: date-time */
             scheduledAt: string | null;
             interviewers: string;
+        };
+        StageGuideRequest: {
+            schedule: string;
+            method: string;
+            place: string;
+            preparation: string;
+        };
+        StageGuide: {
+            schedule: string;
+            method: string;
+            place: string;
+            preparation: string;
+        };
+        StageGuideView: {
+            /** Format: uuid */
+            stageId: string;
+            /** Format: int32 */
+            seq: number;
+            name: string;
+            guide: components["schemas"]["StageGuide"];
+            /** Format: int32 */
+            notifiedCount: number;
         };
         MemoRequest: {
             memo: string;
@@ -1576,6 +1631,32 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["InterviewView"];
+                };
+            };
+        };
+    };
+    changeStageGuide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageGuideRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageGuideView"];
                 };
             };
         };
@@ -2823,6 +2904,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CandidateAnalysis"];
+                };
+            };
+        };
+    };
+    stageGuides: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageGuideView"][];
                 };
             };
         };
