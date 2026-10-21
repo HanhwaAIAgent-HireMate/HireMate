@@ -3,6 +3,7 @@
 같은 질문에 같은 후보가 나오도록 순서는 코드가 정한다. 결과는 선택 지원자 변경 명령(FIND)으로만 낸다.
 """
 
+from collections.abc import Iterable, Sequence
 from typing import Literal
 from uuid import UUID
 
@@ -10,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.route import DEFAULT_CLARIFY, NOT_UNDERSTOOD, RootRoute, posting_section
-from hiremate_ai.agents.root.toolkit import RootToolkit, concept_terms, scope_of
+from hiremate_ai.agents.root.toolkit import RootToolkit, cited_agents, concept_terms, scope_of
 from hiremate_ai.agents.root.types import (
     CandidateRow,
     ChatContext,
@@ -164,7 +165,10 @@ async def plan_find(llm: LlmClient, route: RootRoute, context: ChatContext, tool
         return ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
     chosen = [(allowed[application_id], _shorten(evidence[0].sentence)) for application_id, evidence in verified]
     sources = list(dict.fromkeys(sourced.source for _, evidence in verified for sourced in evidence)) + score_sources
-    plan = _plan(route, len(pool), chosen, sources)
+    agents = await _agents(
+        toolkit, context, [(application_id, sourced) for application_id, evidence in verified for sourced in evidence]
+    )
+    plan = _plan(route, len(pool), chosen, sources, agents)
     if limited and plan.intent is Intent.FIND:
         plan = plan.model_copy(update={"message": plan.message + LIMIT_NOTE})
     return plan
@@ -223,7 +227,10 @@ async def _plan_posting(
         for application_id, count, met in kept
     ]
     sources = list(dict.fromkeys(sourced.source for _, _, met in kept for sourced in met.values())) + [POSTING_SOURCE]
-    plan = _plan(route, len(pool), chosen, sources)
+    agents = await _agents(
+        toolkit, context, [(application_id, sourced) for application_id, _, met in kept for sourced in met.values()]
+    )
+    plan = _plan(route, len(pool), chosen, sources, agents)
     if plan.intent is not Intent.FIND:
         return plan
     note = {"all": CRITERIA_ALL, "most": CRITERIA_MOST, "any": CRITERIA_ANY}[match_mode]
@@ -342,7 +349,22 @@ def _in_source(context: ChatContext, application_id: UUID, sourced: SourcedSente
     return evidence_source(sourced.sentence, context.documents.get(application_id, [])) is not None
 
 
-def _plan(route: RootRoute, pool_size: int, chosen: list[tuple[CandidateRow, str]], sources: list[str]) -> ChatPlan:
+async def _agents(
+    toolkit: RootToolkit, context: ChatContext, cited: Iterable[tuple[UUID, SourcedSentence]]
+) -> list[str]:
+    """찾기 근거를 낸 분석 Agent. 프로필 검색이 돌려준 문장이면 그 항목을 만든 Agent다."""
+    pairs = [(application_id, sourced.sentence) for application_id, sourced in cited]
+    recorded = await toolkit.evidence(scope_of(context), [application_id for application_id, _ in pairs])
+    return cited_agents(recorded, pairs)
+
+
+def _plan(
+    route: RootRoute,
+    pool_size: int,
+    chosen: list[tuple[CandidateRow, str]],
+    sources: list[str],
+    agents: Sequence[str] = (),
+) -> ChatPlan:
     if not chosen:
         return ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
     mode = route.mode or SelectionMode.REPLACE
@@ -363,7 +385,7 @@ def _plan(route: RootRoute, pool_size: int, chosen: list[tuple[CandidateRow, str
         message=message,
         items=items,
         sources=sources,
-        agents=[],
+        agents=list(agents),
         question_targets=[],
         question_focus={},
     )
