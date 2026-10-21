@@ -8,6 +8,7 @@
 모든 호출의 system과 앞부분(지금 공고, HR 요청)이 같아, 모델은 앞부분을 다시 읽지 않는다. 할 일은 끝에 붙인다.
 지금 공고에 합치고 바뀐 칸을 고르는 일은 코드가 한다. 모델이 바뀌었다고 말하는 칸을 믿지 않고 원래 공고와 비교한다.
 NCS 근거는 고른 능력단위의 정의를 보여 주고 쓰게 하며, 근거 코드는 실제로 있는 능력단위인지 확인한다 (규칙 7).
+자격 요건 · 우대 사항 중 무엇을 몇 개 쓸지는 코드가 요청과 지금 공고를 보고 정해 모델에게 알려 준다.
 """
 
 import re
@@ -75,6 +76,12 @@ NCS_DETAIL_CHARS = 3000
 """두 번째 호출에 넣는 능력단위 정의와 수행준거의 글자 수 한도. 능력단위 하나에 평균 700자라 다 넣으면
 노트북 모델이 한 번에 읽는 양(약 4천 토큰)을 넘는다. 지식 · 기술은 일반적인 말이라 공고 문장에는 넣지 않는다."""
 
+DEFAULT_ITEMS = 5
+"""요청에 개수가 없을 때 NCS 근거로 쓰는 자격 요건 · 우대 사항 수."""
+
+MAX_DRAFT_ITEMS = 10
+"""NCS 근거로 한 번에 쓰는 목록 하나의 항목 수 한도. 항목이 많을수록 오래 걸리고 근거가 얇아진다."""
+
 ContentLabel = Literal[
     "채용명", "직무", "고용 형태", "경력", "근무지", "회사 소개", "주요 업무", "자격 요건", "우대 사항", "복지"
 ]
@@ -100,6 +107,21 @@ _JUDGING = re.compile(r"우대|자격|요건|선호|조건|제한|이하|이상�
 # 무엇의 종류인지 알 수 없어, 모델을 부르지 않고 처음 요청에 붙여 다시 말해 달라고 한다
 _ANSWER_ONLY = re.compile(r"(?:서류|평가|면접)(?:전형)?(?:이요|요|입니다|이에요|예요)?[.!]?")
 _NCS_WORDS = re.compile(r"자격|우대|요건|NCS", re.IGNORECASE)
+
+# NCS 근거로 쓸 목록을 요청에서 찾는 말. '자격증'은 필수 제출 서류라 자격 요건으로 보지 않는다
+_LIST_WORDS = {"qualifications": r"자격\s*요건|자격(?!증)|요건", "preferred": r"우대\s*사항|우대"}
+# 목록 이름 바로 뒤의 "그대로 두고", "말고"는 그 목록을 쓰지 말라는 뜻이고, "만"은 그 목록만 쓰라는 뜻이다
+_KEEP = r"\s*(?:은|는|을|를)?\s*(?:그대로|말고|빼고|제외)"
+_ONLY = r"\s*만(?![들큼약일족])"
+_COUNT = r"(\d+|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*(?:개|가지)"
+_KOREAN_NUMBERS = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9, "열": 10}
+_COUNT_WINDOW = 8
+"""목록 이름 뒤에서 개수를 찾는 글자 수 (예: "자격 요건은 7개로")."""
+# 목록 전체를 쓰라는 말과, 항목을 더하거나 빼라는 말. 작은 모델이 "우대 사항만 3개 써 줘"를 고치기(CONTENT)로 골라
+# 근거 없이 항목을 지어내서, 목록을 새로 쓰라는 요청은 코드가 NCS 근거 쓰기로 돌린다
+_WRITE_WORDS = re.compile(r"써|쓰|작성|만들|채워")
+_REWRITE_WORDS = re.compile(r"다시|새로|전부|전체")
+_EDIT_WORDS = re.compile(r"추가|더해|넣어|넣고|빼|삭제|지워|고쳐|수정")
 
 # 모델이 숫자와 단위 사이에 넣는 공백 (예: "1 차 면접", "20 대")
 _NUMBER_SPACE = re.compile(r"(\d)\s+(차|대|년|개월|월|일|시간|시|분|명|회|개|단계|주)")
@@ -209,17 +231,18 @@ NCS_SYSTEM = """너는 채용 공고의 자격 요건과 우대 사항을 NCS(�
 3. 자격 요건은 지원에 꼭 필요한 조건이고, 우대 사항은 있으면 좋은 조건이다. 수준이 높은 능력단위는 우대 사항에 어울린다.
 4. 지금 공고의 항목 중 요청과 관계없이 그대로 둘 항목도 함께 쓴다.
 5. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 넣지 않는다. 회사가 알려 주지 않은 사실은 지어내지 않는다.
-6. 항목은 "~ 경험", "~ 능력"처럼 한 줄로 짧게 쓰고, 목록마다 3~6개로 쓴다. 한국어로 쓴다."""
+6. 항목은 "~ 경험", "~ 능력"처럼 한 줄로 짧게 쓰고, 목록마다 "지금 할 일"에 적힌 개수만큼 쓴다. 한국어로 쓴다."""
 
 
 @dataclass(frozen=True)
 class _Edit:
-    """고른 대상마다 받은 답을 모은 것. 고르지 않은 대상은 None이다."""
+    """고른 대상마다 받은 답을 모은 것. 고르지 않은 대상은 None이다. notes는 답에 덧붙일 안내다."""
 
     changes: list[FieldChange] = field(default_factory=list)
     stages: list[StageEdit] | None = None
     required_extras: list[str] | None = None
     cited: list[NcsUnit] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -247,6 +270,8 @@ async def revise_posting(
     context = _context(posting, writing_style, request)
     route = await _ask(llm, Route, context, ROUTE_STEP)
     targets = set(route.targets)
+    if "CONTENT" in targets and _writes_whole_list(posting.content, request):
+        targets.add("NCS_REQUIREMENTS")
     if not _NCS_WORDS.search(request):
         # 근거로 새로 쓰는 일은 오래 걸려, 자격 요건 · 우대 사항을 말한 요청일 때만 한다
         targets.discard("NCS_REQUIREMENTS")
@@ -267,7 +292,7 @@ async def revise_posting(
             return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
         found = problems(draft.content, draft.changed, draft.stages, FIELD_LABELS, source=context)
         if not found:
-            return _result(draft, edit.cited, locked)
+            return _result(draft, edit, locked)
     return RevisionResult(reply=CHECK_FAILED_REPLY, suggestion=None)
 
 
@@ -283,31 +308,79 @@ async def _write(
     """고른 대상마다 그 대상만 쓰게 한다. found가 있으면 앞서 쓴 수정안이 걸린 이유를 붙인다."""
     changes: list[FieldChange] = []
     cited: list[NcsUnit] = []
+    notes: list[str] = []
     if "CONTENT" in targets:
         changes = (await _ask(llm, ContentChanges, context, CONTENT_STEP, found)).changes
-    if "NCS_REQUIREMENTS" in targets:
+    if "NCS_REQUIREMENTS" in targets and (plan := _ncs_plan(posting.content, request)):
         pick = await _ask(llm, NcsPick, context, _ncs_pick_step(), found)
         if units := _chosen_units(pick.ncs_codes):
+            counts = {name: min(max(count, 1), MAX_DRAFT_ITEMS) for name, count in plan.items()}
             ncs = await llm.structured(
                 NcsDraft,
                 agent=AGENT,
                 system=NCS_SYSTEM,
-                user=_with_reasons(_ncs_prompt(posting, writing_style, request, units), found),
+                user=_with_reasons(_ncs_prompt(posting, writing_style, request, units, counts), found),
             )
-            changes, cited = _apply_ncs(changes, ncs, units)
+            changes, cited, written = _apply_ncs(changes, ncs, units, counts)
+            notes = _count_notes(plan, counts, written)
     stages: list[StageEdit] | None = None
     if "STAGES" in targets:
         stages = (await _ask(llm, StagePlan, context, STAGES_STEP, found)).stages
     extras: list[str] | None = None
     if "REQUIRED_EXTRAS" in targets:
         extras = list((await _ask(llm, ExtrasPlan, context, EXTRAS_STEP, found)).required_extras)
-    return _Edit(changes=changes, stages=stages, required_extras=extras, cited=cited)
+    return _Edit(changes=changes, stages=stages, required_extras=extras, cited=cited, notes=notes)
 
 
 async def _ask[T: BaseModel](
     llm: LlmClient, output: type[T], context: str, step: str, found: list[str] | None = None
 ) -> T:
     return await llm.structured(output, agent=AGENT, system=SYSTEM, user=f"{_with_reasons(context, found)}\n\n{step}")
+
+
+def _ncs_plan(content: PostingContent, request: str) -> dict[str, int]:
+    """NCS 근거로 쓸 목록과 요청한 항목 수.
+
+    요청에서 말한 목록은 요청대로 쓰고(개수가 없으면 DEFAULT_ITEMS), 말하지 않은 목록은 비어 있을 때만 쓴다.
+    HR이 다듬어 둔 목록을 덮어쓰지 않기 위해서다. "우대 사항만"이면 그 목록만 쓰고, "자격 요건은 그대로 두고"면
+    그 목록은 쓰지 않는다. 목록을 말하지 않은 요청(예: "NCS 기반으로 써 줘")은 둘 다 말한 것으로 본다.
+    """
+    said = {name for name, words in _LIST_WORDS.items() if re.search(words, request)} or set(_LIST_WORDS)
+    kept = {name for name, words in _LIST_WORDS.items() if re.search(f"(?:{words}){_KEEP}", request)}
+    only = {name for name, words in _LIST_WORDS.items() if re.search(f"(?:{words}){_ONLY}", request)}
+    empty = {name for name in _LIST_WORDS if not getattr(content, name)}
+    names = (only or (said | empty)) - kept
+    plan: dict[str, int] = {}
+    for name, words in _LIST_WORDS.items():
+        if name in names:
+            spoken = _spoken_count(words, request)
+            plan[name] = _number(spoken.group(1)) if spoken else DEFAULT_ITEMS
+    return plan
+
+
+def _writes_whole_list(content: PostingContent, request: str) -> bool:
+    """자격 요건 · 우대 사항 목록을 새로 쓰라는 요청인지.
+
+    개수를 말했거나, 다시 쓰라고 했거나, 비어 있는 목록을 쓰라는 요청이다.
+    항목을 더하거나 빼라는 말이 있으면 고치기로 둔다 (예: "우대 사항에 AWS 경험 하나 추가해 줘").
+    """
+    if _EDIT_WORDS.search(request) or not _WRITE_WORDS.search(request):
+        return False
+    return any(
+        re.search(words, request)
+        and (not getattr(content, name) or _REWRITE_WORDS.search(request) or _spoken_count(words, request))
+        for name, words in _LIST_WORDS.items()
+    )
+
+
+def _spoken_count(words: str, request: str) -> re.Match[str] | None:
+    """목록 이름 바로 뒤의 개수(예: "자격 요건은 7개"), 없으면 "3개씩"처럼 모든 목록에 붙인 개수."""
+    own = re.search(rf"(?:{words})[^\d\n]{{0,{_COUNT_WINDOW}}}?{_COUNT}", request)
+    return own or re.search(rf"{_COUNT}\s*씩", request)
+
+
+def _number(word: str) -> int:
+    return int(word) if word.isdigit() else _KOREAN_NUMBERS[word]
 
 
 def _chosen_units(codes: list[str]) -> list[NcsUnit]:
@@ -317,17 +390,22 @@ def _chosen_units(codes: list[str]) -> list[NcsUnit]:
 
 
 def _apply_ncs(
-    changes: list[FieldChange], ncs: NcsDraft, units: list[NcsUnit]
-) -> tuple[list[FieldChange], list[NcsUnit]]:
-    """NCS 정의를 보고 쓴 목록을 바꿀 칸에 넣고, 보여 준 능력단위 중 근거로 쓴 것을 돌려준다.
+    changes: list[FieldChange], ncs: NcsDraft, units: list[NcsUnit], counts: dict[str, int]
+) -> tuple[list[FieldChange], list[NcsUnit], dict[str, int]]:
+    """NCS 정의를 보고 쓴 목록을 바꿀 칸에 넣고, 보여 준 능력단위 중 근거로 쓴 것과 목록마다 넣은 항목 수를 돌려준다.
 
-    목록이 비어 있으면 지금 공고의 목록을 지우지 않게 넣지 않는다. 보여 주지 않은 능력단위는 근거로 치지 않는다.
+    쓰기로 한 목록만 정한 개수까지 넣는다. 목록이 비어 있으면 지금 공고의 목록을 지우지 않게 넣지 않는다.
+    보여 주지 않은 능력단위는 근거로 치지 않는다.
     """
     shown = {unit.code for unit in units}
     written: list[FieldChange] = []
     cited: dict[str, NcsUnit] = {}
+    sizes: dict[str, int] = {}
     for name, label in NCS_FIELDS:
-        items = [item for item in getattr(ncs, name) if item.text.strip()]
+        if name not in counts:
+            continue
+        items = [item for item in getattr(ncs, name) if item.text.strip()][: counts[name]]
+        sizes[name] = len(items)
         if not items:
             continue
         written.append(FieldChange(field=label, text=None, items=[item.text for item in items]))
@@ -336,7 +414,24 @@ def _apply_ncs(
                 cited.setdefault(unit.code, unit)
     rewritten = {change.field for change in written}
     kept = [change for change in changes if change.field not in rewritten]
-    return kept + written, list(cited.values())
+    return kept + written, list(cited.values()), sizes
+
+
+def _count_notes(plan: dict[str, int], counts: dict[str, int], written: dict[str, int]) -> list[str]:
+    """요청보다 적게 쓴 목록을 알린다. 모델이 적게 썼으면 다시 쓰게 하지 않는다. 노트북 모델로는 시간 제한을 넘는다."""
+    notes = [
+        f"{FIELD_LABELS[name]}은 {MAX_DRAFT_ITEMS}개까지 써요."
+        for name, count in plan.items()
+        if count > MAX_DRAFT_ITEMS and written.get(name)
+    ]
+    short = [
+        f"{FIELD_LABELS[name]}은 {count}개 중 {written[name]}개만 썼어요."
+        for name, count in counts.items()
+        if 0 < written.get(name, 0) < count
+    ]
+    if short:
+        notes += [*short, "더 필요하면 다시 요청해 주세요."]
+    return notes
 
 
 def _draft(posting: PostingDraftContext, edit: _Edit, request: str) -> _Draft:
@@ -419,10 +514,10 @@ def _tidy(text: str) -> str:
     return _NUMBER_SPACE.sub(r"\1\2", text).strip()
 
 
-def _result(draft: _Draft, cited: list[NcsUnit], locked: bool) -> RevisionResult:
-    notes = []
-    if cited and {name for name, _ in NCS_FIELDS} & set(draft.changed):
-        notes.append("근거(NCS): " + ", ".join(f"{unit.subdivision} · {unit.name}" for unit in cited))
+def _result(draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
+    notes = list(edit.notes)
+    if edit.cited and {name for name, _ in NCS_FIELDS} & set(draft.changed):
+        notes.append("근거(NCS): " + ", ".join(f"{unit.subdivision} · {unit.name}" for unit in edit.cited))
     if locked:
         notes.append(LOCKED_REPLY)
     labels = [FIELD_LABELS[name] for name in draft.changed]
@@ -470,7 +565,9 @@ def _ncs_pick_step() -> str:
     return "\n".join(lines)
 
 
-def _ncs_prompt(posting: PostingDraftContext, writing_style: str, request: str, units: list[NcsUnit]) -> str:
+def _ncs_prompt(
+    posting: PostingDraftContext, writing_style: str, request: str, units: list[NcsUnit], counts: dict[str, int]
+) -> str:
     content = posting.content
     lines = [
         f"채용명: {content.title or '(비어 있음)'}",
@@ -488,8 +585,18 @@ def _ncs_prompt(posting: PostingDraftContext, writing_style: str, request: str, 
         *_unit_lines(units),
         "",
         f"HR 요청: {request}",
+        "",
+        _ncs_task(counts),
     ]
     return "\n".join(lines)
+
+
+def _ncs_task(counts: dict[str, int]) -> str:
+    """쓸 목록과 개수. 요청을 읽고 정하는 일은 코드가 하고 모델에게는 정한 대로 알려 준다."""
+    task = f"지금 할 일: {', '.join(f'{FIELD_LABELS[name]} {count}개' for name, count in counts.items())}를 쓴다."
+    if skipped := [label for name, label in NCS_FIELDS if name not in counts]:
+        task += f" {', '.join(skipped)}은 쓰지 않고 빈 목록으로 둔다."
+    return task
 
 
 def _unit_lines(units: list[NcsUnit]) -> list[str]:
