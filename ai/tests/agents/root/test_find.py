@@ -19,7 +19,7 @@ from hiremate_ai.agents.root.find import (
     plan_find,
 )
 from hiremate_ai.agents.root.route import DEFAULT_CLARIFY, NOT_UNDERSTOOD, RootRoute
-from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
+from hiremate_ai.agents.root.toolkit import AgentEvidence, RootToolkit, default_toolkit
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, Intent, SelectionMode
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.chat import LlmOutputError
@@ -204,6 +204,29 @@ async def test_finance_keeps_rechecked(
     assert plan.sources == ["이력서"]
     assert plan.agents == []
     assert [call.agent for call in llm.calls] == ["root"]
+
+
+async def test_find_names_agent_of_profile_sentence(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="협업 잘하는 사람 찾아줘")
+    jung = sample_applicants["정유민"].info.application_id
+    note = "장애 원인을 로그로 좁혀 가는 과정을 팀원에게 차근차근 설명했어요."
+    sourced = SourcedSentence(sentence=note, source="평가 메모")
+    search = SpySearch([CandidateMatch(application_id=jung, sentences=[sourced], hits=1)])
+
+    async def evidence(scope: ToolScope, application_ids: Sequence[UUID]) -> dict[UUID, list[AgentEvidence]]:
+        return {jung: [AgentEvidence(sentence=note, source="평가 메모", agent="assessment")]}
+
+    plan = await plan_find(
+        FakeLlm(rechecked(["정유민"], {"정유민": [1]})),
+        RootRoute(kind="FIND", mode=SelectionMode.REPLACE, concepts=["협업"]),
+        context,
+        RootToolkit(search=search, evidence=evidence),
+    )
+
+    assert names(context, plan) == ["정유민"]
+    assert (plan.sources, plan.agents) == (["평가 메모"], ["Assessment Agent"])
 
 
 async def test_recheck_drops_sentence_missing_from_documents(
