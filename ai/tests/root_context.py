@@ -1,12 +1,59 @@
-"""Root Agent 테스트에서 가상 지원자로 ChatContext를 만드는 도우미. 지원자는 이름으로 가리킨다."""
+"""Root Agent 테스트에서 가상 지원자로 ChatContext를 만들고 더미 프로필을 저장하는 도우미.
+
+지원자는 이름으로 가리킨다.
+"""
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from uuid import UUID, uuid4
+
+from pydantic import BaseModel, TypeAdapter
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewView
 from hiremate_ai.contract import AnalysisStatus, ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.db.profile import ItemAgent
+from hiremate_ai.db.profile_store import NewItem, ProfileFields, save_profile
 
 STAGE_ID = UUID("9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b61")
+SAMPLES_DIR = Path(__file__).resolve().parent / "samples"
+
+
+class SampleProfile(BaseModel):
+    name: str
+    fields: ProfileFields
+    items: list[NewItem]
+
+
+SAMPLE_PROFILES = TypeAdapter(list[SampleProfile]).validate_json((SAMPLES_DIR / "profiles.json").read_bytes())
+
+
+async def save_sample_profiles(
+    session: AsyncSession,
+    company: CompanyProfile,
+    applicants: dict[str, ApplicantDetail],
+    names: Sequence[str] | None = None,
+) -> None:
+    """더미 프로필(tests/samples/profiles.json)을 지원서 분석 Agent처럼 저장한다. names를 주면 그 지원자만 저장한다."""
+    for sample in SAMPLE_PROFILES:
+        if names is not None and sample.name not in names:
+            continue
+        applicant = applicants[sample.name]
+        await save_profile(
+            session,
+            company_id=company.company_id,
+            recruitment_id=applicant.info.recruitment_id,
+            application_id=applicant.info.application_id,
+            agent=ItemAgent.APPLICATION,
+            fields=sample.fields,
+            items=sample.items,
+            documents=applicant.documents,
+        )
+
+
+def sessions_of(session: AsyncSession) -> async_sessionmaker[AsyncSession]:
+    """테스트 세션의 연결과 트랜잭션을 함께 쓰는 세션 공장. 테스트가 끝나면 db_session과 함께 되돌린다."""
+    return async_sessionmaker(bind=session.bind, join_transaction_mode="create_savepoint", expire_on_commit=False)
 
 
 def extra_row(name: str) -> CandidateRow:
