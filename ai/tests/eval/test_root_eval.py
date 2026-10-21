@@ -265,6 +265,10 @@ MEMORY_CASES: list[dict[str, Any]] = [
         "turns": [{"message": "@김하늘 강점이 뭐야?", "mentions": ["김하늘"]}, {"message": "아까 그 사람 빼줘"}],
     },
     {
+        "id": "memory-count-after-subject",
+        "turns": [{"message": "@김하늘 강점이 뭐야?", "mentions": ["김하늘"]}, {"message": "미결정이 몇 명 남았어?"}],
+    },
+    {
         "id": "memory-checked-compare",
         "turns": [
             {"message": "금융 도메인과 관련된 경험이 있는 지원자 보여줘"},
@@ -304,6 +308,10 @@ def memory_problems(case_id: str, plan: ChatPlan, context: ChatContext) -> list[
         case "memory-subject-edit":
             ok = plan.intent is Intent.EDIT and plan.targets == [ids["김하늘"]]
             return [] if ok else [f"김하늘을 빼지 못함: {plan.intent} {plan.targets}"]
+        case "memory-count-after-subject":
+            # 가상 지원자 8명은 모두 미결정이다. 앞 대화의 김하늘 한 사람이 아니라 전형 전체를 센다
+            ok = plan.intent is Intent.ANSWER and "8" in plan.message
+            return [] if ok else [f"전형 전체 인원을 답하지 못함: {plan.intent} {plan.message[:40]}"]
         case "memory-checked-compare":
             items = {item.application_id for item in plan.items}
             missing = [name for name in ("박서준", "이도윤") if ids[name] not in items]
