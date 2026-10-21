@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     llm_eval: bool = False
     # Root Agent 대화방에 남기는 최근 턴 수
     root_memory_turns: int = 20
+    # 공공데이터포털 인증키. scripts/ncs_download.py로 NCS 자료를 받을 때만 쓰고, ai 서버는 실행 중에 쓰지 않는다
+    ncs_api_key: SecretStr = SecretStr("")
 
 
 settings = Settings()
