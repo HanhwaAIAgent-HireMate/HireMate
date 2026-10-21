@@ -43,6 +43,8 @@ _PREVIOUS_WORDS = re.compile(
     # "그중", "그 중에서"만. "그 중요한", "그 중간"은 아니다
     r"|그\s*중(?:에서는|에서|에는|에|엔|의)?(?![가-힣])"
 )
+# 공고 항목을 가리키는 말. 이 말이 있어야 공고의 자격 요건 · 우대 사항으로 찾는다
+_POSTING_WORDS = re.compile(r"공고|우대|자격\s*요건|요건")
 # 지원자끼리 견주는 말. 모델은 "@김하늘 공고 요건과 비교해줘"처럼 한 사람을 기준과 견주는 요청에도 compare를 표시한다
 _BETWEEN_APPLICANTS = re.compile(
     r"둘|두\s*(?:사람|명|분)|세\s*(?:사람|명|분)|\d+\s*명|사람들|지원자들|이들|끼리|서로|누가\s*더|어느\s*쪽|중\s*누가"
@@ -59,6 +61,12 @@ class RootRoute(BaseModel):
     without_score: bool = Field(default=False, description="FIND: 평가 결과가 아직 없는 사람")
     score_gap: bool = Field(default=False, description="FIND: 평가 결과와 지원서가 엇갈리는 사람")
     use_talents: bool = Field(default=False, description="FIND: 회사 인재상 · 중요하게 보는 요소로 찾기")
+    posting_criteria: Literal["none", "qualifications", "preferred", "both"] = Field(
+        default="none", description="FIND: 공고의 자격 요건(qualifications) · 우대 사항(preferred) · 둘 다(both)로 찾기"
+    )
+    criteria_match: Literal["any", "most", "all"] = Field(
+        default="any", description="FIND 공고 기준: 하나 이상 any, 가장 많이 most, 모두 all"
+    )
     edit: EditAction | None = Field(
         default=None, description="EDIT: 넣기 ADD, 빼기 REMOVE, 비우기 CLEAR, 되돌리기 RESTORE"
     )
@@ -101,6 +109,10 @@ FIND
 - score_gap: 평가 결과와 지원서 내용이 엇갈리거나 차이가 큰 사람을 찾을 때.
 - use_talents: "우리 회사가 중요하게 보는 요소", "인재상"처럼 회사 기준으로 찾을 때.
   이때 concepts에는 HR이 따로 말한 직무 조건만 넣고, "인재상", "중요하게 보는 요소" 같은 말은 넣지 않는다.
+- posting_criteria: 공고의 항목을 기준으로 찾을 때. "우대 사항"은 preferred, "자격 요건" · "필수 요건"은 qualifications,
+  "공고에 맞는 사람"처럼 공고 전체면 both. 이때 concepts에는 HR이 따로 말한 직무 조건만 넣고,
+  "우대 사항", "자격 요건", "적합성", "충족" 같은 말은 넣지 않는다.
+- criteria_match: "다", "모두", "전부" 충족이면 all. "아주", "가장", "잘 맞는", "많이"면 most. 그 밖은 any.
 
 EDIT
 - edit: 넣기 · 추가는 ADD, 빼기 · 제외는 REMOVE, 비우기는 CLEAR, 되돌리기는 RESTORE.
@@ -130,6 +142,8 @@ ANSWER
 예
 - "결제 시스템을 만들어 본 사람 보여줘" → FIND, REPLACE, concepts ["결제 시스템 개발 경험"]
 - "그중에 리더 경험 있는 사람만" → FIND, NARROW, concepts ["리더 경험"]
+- "우대 사항을 다 충족하는 사람 찾아줘" → FIND, REPLACE, posting_criteria preferred, criteria_match all, concepts []
+- "공고 우대 사항에 아주 적합한 사람 찾아줘" → FIND, REPLACE, posting_criteria preferred, criteria_match most
 - "과제 점수는 높은데 자기소개서와 다른 사람" → FIND, REPLACE, score_gap, needs_assessment
 - "@김하늘 강점이 뭐야?" → ANSWER
 - "@김하늘 빼줘" → EDIT, REMOVE
@@ -174,6 +188,13 @@ def refers_previous(route: RootRoute, context: ChatContext) -> bool:
     if not checked(context) or route.ordinal is not None:
         return True
     return bool(_PREVIOUS_WORDS.search(context.message))
+
+
+def posting_section(route: RootRoute, message: str) -> Literal["qualifications", "preferred", "both"] | None:
+    """공고 항목으로 찾는 찾기의 기준. 모델이 표시하고 문장에도 공고 항목을 가리키는 말이 있어야 한다."""
+    if route.kind != "FIND" or route.posting_criteria == "none" or not _POSTING_WORDS.search(message):
+        return None
+    return route.posting_criteria
 
 
 def asks_comparison(route: RootRoute, message: str) -> bool:
