@@ -21,7 +21,7 @@ from hiremate_ai.contract import ApplicantDocument, StageType
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block, documents_block
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
-from hiremate_ai.tools.profile_lookup import profile_tool
+from hiremate_ai.tools.profile_lookup import Sessions, profile_text, profile_tool, read_profile
 from hiremate_ai.tools.profile_search import profile_search
 from hiremate_ai.tools.scope import ToolScope
 
@@ -400,7 +400,7 @@ ANSWER_TOOLS: tuple[BaseTool, ...] = (
 async def context_brief(scope: RootToolContext, row: CandidateRow) -> str:
     """지원자 한 명의 자료 묶음: 제출 문서, 전형 결과, 면접 기록, 앞 대화에서 정리한 것.
 
-    여러 명 분석이 미리 모아 넣는다. 임시 구현은 ChatContext로 만들고 도구와 같은 글을 쓴다.
+    여러 명 분석이 미리 모아 넣는다. ChatContext로 만들고 도구와 같은 글을 쓴다.
     지원자 자료는 <data> 블록으로 감싼다 (규칙 5).
     """
     chat = scope.chat
@@ -418,6 +418,20 @@ async def context_brief(scope: RootToolContext, row: CandidateRow) -> str:
 
 
 type CandidateBrief = Callable[[RootToolContext, CandidateRow], Awaitable[str]]
+
+
+def profile_brief(sessions: Sessions) -> CandidateBrief:
+    """context_brief 뒤에 지원자 프로필(항목 · 근거 · 출처)을 붙인다. 프로필이 없으면 context_brief 그대로다."""
+
+    async def brief(scope: RootToolContext, row: CandidateRow) -> str:
+        async with sessions() as session:
+            profile = await read_profile(session, scope, row.application_id)
+            # 세션이 열려 있는 동안 글로 바꾼다 (닫힌 뒤에는 항목을 읽을 수 없다)
+            profile_part = data_block("profile", profile_text(profile)) if profile else ""
+        base = await context_brief(scope, row)
+        return f"{base}\n\n{profile_part}" if profile_part else base
+
+    return brief
 
 
 @dataclass(frozen=True)
@@ -441,7 +455,7 @@ def profile_toolkit(sessions: async_sessionmaker[AsyncSession]) -> RootToolkit:
     """
     search = merged_search(profile_search(sessions, terms=concept_terms), keyword_search)
     answer_tools = (*ANSWER_TOOLS, profile_tool(sessions, resolve=_chat_ref))
-    return RootToolkit(search=search, answer_tools=answer_tools, brief=context_brief)
+    return RootToolkit(search=search, answer_tools=answer_tools, brief=profile_brief(sessions))
 
 
 def get_toolkit() -> RootToolkit:

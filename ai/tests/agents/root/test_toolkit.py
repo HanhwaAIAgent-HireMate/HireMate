@@ -331,3 +331,24 @@ async def test_brief_without_documents(
 
 def test_default_toolkit_has_brief() -> None:
     assert default_toolkit().brief is context_brief
+
+
+async def test_profile_brief_adds_profile_after_context(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    # 지원서 분석을 마친 지원자는 정유민뿐이다
+    await save_sample_profiles(db_session, sample_company, sample_applicants, names=["정유민"])
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    brief = profile_toolkit(sessions_of(db_session)).brief
+    scope = scope_of(context)
+    jung, kim = row_of(context, "정유민"), row_of(context, "김하늘")
+
+    jung_brief = await brief(scope, jung)
+
+    assert jung_brief.startswith(await context_brief(scope, jung))
+    assert '<data kind="profile">' in jung_brief
+    assert '[도메인] 금융 (카드 결제 · 정산) — 근거: "한빛카드 결제플랫폼팀 2022.03 ~ 현재" (이력서)' in jung_brief
+    assert await brief(scope, kim) == await context_brief(scope, kim)
