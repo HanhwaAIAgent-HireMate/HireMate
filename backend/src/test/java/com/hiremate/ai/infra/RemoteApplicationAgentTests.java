@@ -1,6 +1,8 @@
 package com.hiremate.ai.infra;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import com.hiremate.ai.application.AiAgent;
 import com.hiremate.ai.application.CandidateAnalysis;
@@ -8,6 +10,7 @@ import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationAnalysis;
+import com.hiremate.job.JobQueue;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.ScreeningRubric;
 import java.time.Duration;
@@ -15,6 +18,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -34,18 +38,15 @@ class RemoteApplicationAgentTests {
                     List.of("정보처리기사"))));
 
     @Test
-    @DisplayName("ai 서버의 application/analyze로 지원서 · 공고 · 평가 기준을 보내고 요약을 받는다")
-    void analyzesThroughAiServer() {
-        ApplicationAnalysis answer = new ApplicationAnalysis(4, "한빛카드", null, true, true, List.of("Git 근거 없음"));
-        RecordingClient client = new RecordingClient(answer);
+    @DisplayName("지원서 · 공고 · 평가 기준을 application/analyze 작업으로 대기열에 넣고 결과를 기다리지 않는다")
+    void queuesAnalysisJob() {
+        JobQueue jobs = mock(JobQueue.class);
 
-        ApplicationAnalysis result = new RemoteApplicationAgent(client).analyze(APPLICANT, POSTING, RUBRIC);
+        Optional<ApplicationAnalysis> result = new RemoteApplicationAgent(jobs).analyze(APPLICANT, POSTING, RUBRIC);
 
-        assertThat(result).isEqualTo(answer);
-        assertThat(client.agent).isEqualTo(AiAgent.APPLICATION);
-        assertThat(client.method).isEqualTo("analyze");
-        assertThat(client.body).containsEntry("applicant", APPLICANT).containsEntry("posting", POSTING)
-                .containsEntry("rubric", RUBRIC);
+        assertThat(result).isEmpty();
+        verify(jobs).enqueue("application/analyze", APPLICANT.info().applicationId().toString(),
+                Map.of("applicant", APPLICANT, "posting", POSTING, "rubric", RUBRIC));
     }
 
     @Test

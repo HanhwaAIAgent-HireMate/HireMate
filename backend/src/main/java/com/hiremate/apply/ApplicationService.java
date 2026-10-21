@@ -12,6 +12,7 @@ import com.hiremate.global.ApiException;
 import com.hiremate.posting.ApplicationTarget;
 import com.hiremate.posting.DocumentType;
 import com.hiremate.posting.PostingService;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -166,6 +167,30 @@ public class ApplicationService {
     @Transactional
     public void markAnalysisFailed(UUID applicationId) {
         applications.findById(applicationId).ifPresent(JobApplication::markAnalysisFailed);
+    }
+
+    /** 분석에 실패한 지원서를 다시 분석한다 (NFR-05). 분석 중이거나 끝난 지원서는 409다. */
+    @Transactional
+    public void retryAnalysis(UUID companyId, UUID recruitmentId, UUID applicationId) {
+        JobApplication application = application(companyId, applicationId);
+        if (!application.getRecruitmentId().equals(recruitmentId)) {
+            throw notFound();
+        }
+        if (application.getAnalysisStatus() != AnalysisStatus.FAILED) {
+            throw new ApiException(HttpStatus.CONFLICT, "ANALYSIS_NOT_FAILED",
+                    "Only a failed analysis can be retried.");
+        }
+        application.requestAnalysis();
+        events.publishEvent(new ApplicationAnalysisRequested(applicationId, recruitmentId, companyId));
+    }
+
+    /** submittedBefore 전에 접수했는데 아직 분석 중인 지원서. 분석 작업을 잃었을 때 다시 맡기는 데 쓴다. */
+    @Transactional(readOnly = true)
+    public List<ApplicationAnalysisRequested> pendingAnalyses(Instant submittedBefore) {
+        return applications.findByAnalysisStatusAndSubmittedAtBefore(AnalysisStatus.PENDING, submittedBefore).stream()
+                .map(application -> new ApplicationAnalysisRequested(application.getId(),
+                        application.getRecruitmentId(), application.getCompanyId()))
+                .toList();
     }
 
     /** 분석에 넘길 제출 자료. 이벤트로 받은 지원서라 기업 범위 확인 없이 읽는다. */
