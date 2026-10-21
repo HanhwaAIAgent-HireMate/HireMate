@@ -125,6 +125,11 @@ _EDIT_WORDS = re.compile(r"추가|더해|넣어|넣고|빼|삭제|지워|고쳐|
 
 # 모델이 숫자와 단위 사이에 넣는 공백 (예: "1 차 면접", "20 대")
 _NUMBER_SPACE = re.compile(r"(\d)\s+(차|대|년|개월|월|일|시간|시|분|명|회|개|단계|주)")
+# 모델이 영어 · 숫자와 조사 사이에 넣는 공백 (예: "Java 와 Spring Boot 를"). 조사 뒤가 띄어쓰기나 끝일 때만 붙여
+# "Java 이상", "Kafka 로그"처럼 조사로 시작하는 낱말은 건드리지 않는다
+_PARTICLE_SPACE = re.compile(
+    r"(?<=[A-Za-z0-9+#)])\s+(?=(?:와|과|를|을|는|은|이|가|의|으로|로|에서|에|도|만|까지|부터)(?:[\s,.·)]|$))"
+)
 
 Target = Literal["CONTENT", "STAGES", "REQUIRED_EXTRAS", "NCS_REQUIREMENTS"]
 PROCESS_TARGETS: frozenset[Target] = frozenset({"STAGES", "REQUIRED_EXTRAS"})
@@ -511,7 +516,7 @@ def _clean(value: str | list[str]) -> str | list[str]:
 
 def _tidy(text: str) -> str:
     """뜻이 바뀌지 않는 띄어쓰기만 고친다."""
-    return _NUMBER_SPACE.sub(r"\1\2", text).strip()
+    return _PARTICLE_SPACE.sub("", _NUMBER_SPACE.sub(r"\1\2", text)).strip()
 
 
 def _result(draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
