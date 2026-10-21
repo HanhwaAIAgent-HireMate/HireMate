@@ -6,6 +6,8 @@ from root_context import make_context, save_sample_profiles, sessions_of
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.root.toolkit import (
+    AgentEvidence,
+    cited_agents,
     context_brief,
     default_toolkit,
     keyword_search,
@@ -352,3 +354,58 @@ async def test_profile_brief_adds_profile_after_context(
     assert '<data kind="profile">' in jung_brief
     assert '[도메인] 금융 (카드 결제 · 정산) — 근거: "한빛카드 결제플랫폼팀 2022.03 ~ 현재" (이력서)' in jung_brief
     assert await brief(scope, kim) == await context_brief(scope, kim)
+
+
+def test_cited_agents_names_agents_of_matching_sentences() -> None:
+    first, second = uuid4(), uuid4()
+    recorded = {
+        first: [AgentEvidence(sentence="장애 원인을 로그로 좁혀 갔어요.", source="평가 메모", agent="assessment")],
+        second: [AgentEvidence(sentence="한빛카드 결제플랫폼팀 2022.03 ~ 현재", source="이력서", agent="application")],
+    }
+
+    cited = [
+        (second, "한빛카드 결제플랫폼팀"),
+        (first, "장애 원인을 로그로 좁혀 갔어요."),
+        (first, "한빛카드 결제플랫폼팀"),  # 다른 지원자의 근거
+        (second, "없는 문장"),
+    ]
+
+    assert cited_agents(recorded, cited) == ["Application Agent", "Assessment Agent"]
+    assert cited_agents(recorded, [(first, "  ")]) == []
+
+
+async def test_profile_evidence_reads_items_with_evidence_in_scope(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    jung = sample_applicants["정유민"].info
+    note = "장애 원인을 로그로 좁혀 가는 과정을 팀원에게 차근차근 설명했어요."
+    await save_profile(
+        db_session,
+        company_id=sample_company.company_id,
+        recruitment_id=jung.recruitment_id,
+        application_id=jung.application_id,
+        agent=ItemAgent.ASSESSMENT,
+        items=[
+            NewItem(category=ItemCategory.STRENGTH, content="원인 분석", evidence=note, source="평가 메모"),
+            NewItem(category=ItemCategory.CHECK, content="문제해결 점수가 없어요", source="평가 결과"),
+        ],
+        stage_id=uuid4(),
+    )
+    outside = uuid4()
+    await save_profile(
+        db_session,
+        company_id=sample_company.company_id,
+        recruitment_id=jung.recruitment_id,
+        application_id=outside,
+        agent=ItemAgent.ASSESSMENT,
+        items=[NewItem(category=ItemCategory.STRENGTH, content="범위 밖", evidence=note, source="평가 메모")],
+        stage_id=uuid4(),
+    )
+    scope = scope_of(context_of(sample_applicants, sample_company, sample_posting))
+
+    found = await profile_toolkit(sessions_of(db_session)).evidence(scope, [jung.application_id, outside])
+
+    assert found == {jung.application_id: [AgentEvidence(sentence=note, source="평가 메모", agent="assessment")]}

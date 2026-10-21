@@ -5,22 +5,27 @@
 
 import asyncio
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from hiremate_ai.agents.analysis.assessment.checks import NOTE_SOURCE, SUBMISSION_SOURCE
+from hiremate_ai.agents.analysis.assessment.checks import RESULT_SOURCE as SCORE_SOURCE
 from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.edit import SAME_NAME
 from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.targets import Targets, checked
 from hiremate_ai.agents.root.toolkit import (
+    AgentEvidence,
     RootToolContext,
     RootToolkit,
     candidate_ref,
+    cited_agents,
     company_text,
     posting_text,
+    recorded_evidence,
     resolve_ref,
     scope_of,
 )
@@ -57,8 +62,8 @@ NOTES_SECONDS = 33.0
 SUMMARY_SECONDS = 10.0
 NOT_CHECKED = "자료를 확인하지 못했어요"
 MULTI_FALLBACK = "{names}의 근거를 지원자별로 정리했어요."
-# 하위 Agent를 감싼 도구. 부르면 답의 agents에 이 이름이 들어간다
-SUB_AGENT_TOOLS = {"analyze_application": "Application Agent", "analyze_assessment": "Assessment Agent"}
+# 평가 전형 자료. 원문이 ChatContext에 없어 Assessment Agent가 프로필에 남긴 근거와 맞춰 본다
+PROFILE_SOURCES = (SUBMISSION_SOURCE, NOTE_SOURCE)
 
 _DOCUMENT_LABELS = {document.label: document for document in DocumentType}
 _REF = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)(?![0-9])")
@@ -73,7 +78,8 @@ ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확�
 - 지원자는 C1 같은 번호로만 가리킨다. 도구 인자와 답의 candidate 모두 번호를 쓴다.
 - 지원자에 관한 항목은 candidate에 반드시 그 지원자 번호를 적는다. 여러 지원자를 비교하면 지원자마다 항목을 따로 만든다.
 - 근거 문장(evidence.sentence)은 도구 결과의 문장을 글자 그대로 옮기고, 출처(source)를 적는다.
-  출처는 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, 회사 소개, 공고 가운데 하나다.
+  출처는 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, 평가 제출물, 평가 메모, 회사 소개, 공고
+  가운데 하나다.
   지원자 프로필 항목은 '근거:' 뒤 따옴표 안 문장을 근거 문장으로, 끝 괄호 안을 출처로 옮긴다.
 - 앞 대화나 이전에 만든 면접 질문의 이유를 물으면 get_previous_turns로 그때 정리한 확인할 점과 근거를 보고 답한다.
   이유를 새로 지어내지 않는다.
@@ -84,7 +90,10 @@ ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확�
 class AnswerEvidence(BaseModel):
     sentence: str = Field(description="근거 문장. 도구 결과의 문장을 글자 그대로")
     source: str = Field(
-        description="출처: 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, 회사 소개, 공고"
+        description=(
+            "출처: 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, 평가 제출물, 평가 메모, "
+            "회사 소개, 공고"
+        )
     )
 
 
@@ -105,7 +114,8 @@ NOTES_SYSTEM = """너는 채용 담당자의 질문에 답하려고 지원자 �
 다른 지원자와 비교는 하지 않는다(비교는 나중에 한다).
 
 - 질문에 필요한 항목만 1~3개 만든다. 항목마다 근거 문장 하나를 자료에서 글자 그대로 옮기고 출처를 적는다.
-  출처는 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, 회사 소개, 공고 가운데 하나다.
+  출처는 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, 평가 제출물, 평가 메모, 회사 소개, 공고
+  가운데 하나다.
   지원자 프로필 항목은 '근거:' 뒤 따옴표 안 문장을 근거 문장으로, 끝 괄호 안을 출처로 옮긴다.
 - label은 "강점", "경력", "RDBMS 경험", "확인할 점"처럼 짧은 항목 이름이다. 공고 제목이나 문장을 쓰지 않는다.
 - text는 한 줄로 짧게 쓴다.
@@ -173,9 +183,10 @@ async def plan_answer(
     except (LlmOutputError, TimeoutError):
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
     only = rows[0] if len(rows) == 1 else None
-    items, sources = verify_items(answered.items, context, only)
+    recorded = await _recorded(toolkit, scope, context, answered.items, rows)
+    items, sources, agents = verify_items(answered.items, context, only, recorded)
     message = readable(answered.message, context)
-    return ChatPlan.answer(Intent.ANSWER, message, items, sources, sub_agents(scope.called))
+    return ChatPlan.answer(Intent.ANSWER, message, items, sources, agents)
 
 
 async def plan_multi(
@@ -205,8 +216,10 @@ async def plan_multi(
         if error is not None and not isinstance(error, LlmOutputError):
             raise error
 
+    recorded = await toolkit.evidence(scope, [row.application_id for row in rows]) if done else {}
     items: list[ChatItem] = []
     sources: list[str] = []
+    agents: list[str] = []
     finished = 0
     for row, task in zip(rows, tasks, strict=True):
         if task not in done or task.exception() is not None:
@@ -217,12 +230,13 @@ async def plan_multi(
         finished += 1
         ref = candidate_ref(context, row.application_id)
         own = [item.model_copy(update={"candidate": ref}) for item in task.result().items]
-        verified, found = verify_items(own, context, row)
+        verified, found, used = verify_items(own, context, row, recorded)
         items += verified
         sources += [source for source in found if source not in sources]
+        agents += [agent for agent in used if agent not in agents]
     if not finished:
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
-    return ChatPlan.answer(Intent.ANSWER, await _summary(llm, context, rows, items), items, sources)
+    return ChatPlan.answer(Intent.ANSWER, await _summary(llm, context, rows, items), items, sources, agents)
 
 
 async def _notes(
@@ -306,8 +320,9 @@ async def plan_questions(
         if item.focus.strip():
             focus[row.application_id] = readable(item.focus.strip(), context)
         reasons += [reason.model_copy(update={"candidate": item.candidate}) for reason in item.reasons]
-    items, sources = verify_items(reasons, context)
-    agents = [*sub_agents(scope.called), INTERVIEW_AGENT]
+    recorded = await _recorded(toolkit, scope, context, reasons, rows)
+    items, sources, used = verify_items(reasons, context, recorded=recorded)
+    agents = list(dict.fromkeys([*used, INTERVIEW_AGENT]))
     return _questions_plan(FOCUSED.format(count=len(rows)), ids, focus, items, sources, agents)
 
 
@@ -328,6 +343,21 @@ def _questions_plan(
     )
 
 
+async def _recorded(
+    toolkit: RootToolkit,
+    scope: RootToolContext,
+    context: ChatContext,
+    items: Sequence[AnswerItem],
+    rows: Sequence[CandidateRow],
+) -> dict[UUID, list[AgentEvidence]]:
+    """대상과 항목이 가리키는 지원자의 프로필 근거. 근거를 단 항목이 없으면 읽지 않는다."""
+    if not any(item.evidence for item in items):
+        return {}
+    ids = [row.application_id for row in rows]
+    ids += [row.application_id for item in items if item.candidate and (row := resolve_ref(context, item.candidate))]
+    return await toolkit.evidence(scope, ids)
+
+
 def answer_prompt(context: ChatContext, targets: Targets) -> str:
     previous = ", ".join(_STAGE_LABELS[stage] for stage in context.previous_types) or "없음"
     return (
@@ -339,16 +369,22 @@ def answer_prompt(context: ChatContext, targets: Targets) -> str:
 
 
 def verify_items(
-    items: Sequence[AnswerItem], context: ChatContext, only: CandidateRow | None = None
-) -> tuple[list[ChatItem], list[str]]:
-    """번호를 지원자로 바꾸고 근거를 원문과 맞춰 본다.
+    items: Sequence[AnswerItem],
+    context: ChatContext,
+    only: CandidateRow | None = None,
+    recorded: Mapping[UUID, Sequence[AgentEvidence]] | None = None,
+) -> tuple[list[ChatItem], list[str], list[str]]:
+    """번호를 지원자로 바꾸고 근거를 원문과 맞춰 본다. (항목, 남은 근거의 출처, 근거를 낸 분석 Agent)를 돌려준다.
 
     없는 번호의 항목은 버린다. 번호를 비운 항목은 글에 번호가 하나만 있으면 그 지원자로,
     근거를 단 항목이고 대상이 한 명이면 그 대상으로 본다(근거는 지원자 문서와 맞춰 봐야 한다).
     근거를 댔지만 하나도 확인되지 않았거나, 근거 없이 지원자를 OK라 한 항목은 CHECK다.
+    recorded는 분석 Agent가 프로필에 남긴 근거다. 평가 자료 근거를 여기서 확인하고, 같은 문장을 낸 Agent를 알린다.
     """
+    recorded = recorded or {}
     verified: list[ChatItem] = []
     sources: list[str] = []
+    cited: list[tuple[UUID, str]] = []
     for item in items:
         if item.candidate is not None:
             row = resolve_ref(context, item.candidate)
@@ -356,10 +392,13 @@ def verify_items(
                 continue
         else:
             row = _mentioned_row(context, f"{item.label} {item.text}", only if item.evidence else None)
-        kept = [source for source in (_verified_source(context, row, evidence) for evidence in item.evidence) if source]
+        checked = [(evidence, _verified_source(context, row, evidence, recorded)) for evidence in item.evidence]
+        kept = [source for _, source in checked if source]
         unsupported = item.status == "OK" and not kept and (bool(item.evidence) or row is not None)
         status = "CHECK" if unsupported else item.status
         sources += [source for source in kept if source not in sources]
+        if row is not None:
+            cited += [(row.application_id, evidence.sentence) for evidence, source in checked if source]
         verified.append(
             ChatItem(
                 application_id=row.application_id if row else None,
@@ -368,7 +407,7 @@ def verify_items(
                 status=status,
             )
         )
-    return verified, sources
+    return verified, sources, cited_agents(recorded, cited)
 
 
 def readable(text: str, context: ChatContext) -> str:
@@ -385,10 +424,6 @@ def readable(text: str, context: ChatContext) -> str:
     return _REF.sub(name_only, _REF_WITH_NAME.sub(with_name, text))
 
 
-def sub_agents(called: Sequence[str]) -> list[str]:
-    return [SUB_AGENT_TOOLS[name] for name in dict.fromkeys(called) if name in SUB_AGENT_TOOLS]
-
-
 def _mentioned_row(context: ChatContext, text: str, only: CandidateRow | None) -> CandidateRow | None:
     refs = {row.application_id: row for match in _REF.finditer(text) if (row := resolve_ref(context, match.group(1)))}
     if len(refs) == 1:
@@ -396,13 +431,22 @@ def _mentioned_row(context: ChatContext, text: str, only: CandidateRow | None) -
     return only if not refs else None
 
 
-def _verified_source(context: ChatContext, row: CandidateRow | None, evidence: AnswerEvidence) -> str | None:
+def _verified_source(
+    context: ChatContext,
+    row: CandidateRow | None,
+    evidence: AnswerEvidence,
+    recorded: Mapping[UUID, Sequence[AgentEvidence]],
+) -> str | None:
     """근거가 원문에 있으면 출처 이름(문서는 실제 문서로 고친다), 없으면 None.
 
     출처는 정해 둔 이름으로 맞춘다("이력서 경력란" → 이력서). 맞출 수 없는 출처의 근거는 버린다.
-    전형 결과(점수 · 결정)는 코드가 준 값이라 그대로 둔다.
+    전형 결과 · 평가 결과(점수 · 결정)는 backend가 준 값이라 그대로 둔다.
+    평가 제출물 · 메모는 Assessment Agent가 원문과 맞춰 프로필에 남긴 근거에 있어야 한다.
     """
     source = _canonical_source(evidence.source)
+    if source in PROFILE_SOURCES:
+        saved = recorded_evidence(recorded, row.application_id, evidence.sentence) if row is not None else None
+        return saved.source if saved else None
     if source in _DOCUMENT_LABELS:
         if row is None:
             return None
@@ -414,7 +458,7 @@ def _verified_source(context: ChatContext, row: CandidateRow | None, evidence: A
         return source if _contains(_company_text(context), evidence.sentence) else None
     if source == POSTING_SOURCE:
         return source if _contains(_posting_text(context), evidence.sentence) else None
-    return source if source == RESULT_SOURCE else None
+    return source if source in (RESULT_SOURCE, SCORE_SOURCE) else None
 
 
 def _canonical_source(source: str) -> str | None:
@@ -426,7 +470,11 @@ def _canonical_source(source: str) -> str | None:
         return "자기소개서"
     if "면접" in compact:
         return INTERVIEW_SOURCE
-    for label in (RESULT_SOURCE, COMPANY_SOURCE, POSTING_SOURCE):
+    if "제출물" in compact:
+        return SUBMISSION_SOURCE
+    if "메모" in compact:
+        return NOTE_SOURCE
+    for label in (RESULT_SOURCE, SCORE_SOURCE, COMPANY_SOURCE, POSTING_SOURCE):
         if "".join(label.split()) in compact:
             return label
     return None

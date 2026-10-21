@@ -5,7 +5,6 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 from root_context import make_context, save_sample_profiles, sessions_of
@@ -33,6 +32,7 @@ from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.targets import resolve
 from hiremate_ai.agents.root.toolkit import (
     ANSWER_TOOLS,
+    AgentEvidence,
     RootToolContext,
     RootToolkit,
     default_toolkit,
@@ -50,6 +50,8 @@ from hiremate_ai.agents.root.types import (
 )
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.db.profile import ItemAgent, ItemCategory
+from hiremate_ai.db.profile_store import NewItem, save_profile
 from hiremate_ai.llm.chat import LlmOutputError, ToolAgent
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.fake import FakeLlm, FakeReply, LlmCall, ToolCall
@@ -133,6 +135,7 @@ async def test_answer_reads_profile_and_keeps_its_evidence(
     assert "[도메인] 금융 (카드 결제 · 정산)" in llm.calls[1].user
     assert [(item.label, item.status) for item in plan.items] == [("도메인", "OK")]
     assert plan.sources == ["이력서"]
+    assert plan.agents == ["Application Agent"]
 
 
 async def test_unverified_evidence_turns_check(
@@ -257,23 +260,114 @@ async def test_call_limit_clarifies(
     assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
 
 
-@tool
-async def analyze_application(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
-    """지원 서류를 분석한다 (테스트용 하위 Agent 도구)."""
-    runtime.context.called.append("analyze_application")
-    return "분석 결과"
+ASSESSMENT_NOTE = "장애 원인을 로그로 좁혀 가는 과정을 팀원에게 차근차근 설명했어요."
 
 
-async def test_agents_from_called_tools(
+def assessment_note(application_id: UUID) -> dict[UUID, list[AgentEvidence]]:
+    return {application_id: [AgentEvidence(sentence=ASSESSMENT_NOTE, source="평가 메모", agent="assessment")]}
+
+
+def with_evidence(recorded: Mapping[UUID, list[AgentEvidence]]) -> RootToolkit:
+    """분석 Agent가 프로필에 남긴 근거를 정해 두는 묶음. 받은 지원자 것만 돌려준다."""
+
+    async def evidence(scope: RootToolContext, application_ids: Sequence[UUID]) -> dict[UUID, list[AgentEvidence]]:
+        return {
+            application_id: recorded[application_id] for application_id in application_ids if application_id in recorded
+        }
+
+    return RootToolkit(search=keyword_search, answer_tools=ANSWER_TOOLS, evidence=evidence)
+
+
+async def test_assessment_evidence_checked_against_profile(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = context_for(sample_applicants, sample_company, sample_posting)
-    toolkit = RootToolkit(search=keyword_search, answer_tools=(*ANSWER_TOOLS, analyze_application))
-    llm = FakeLlm(ToolCall("get_stage_summary"), ToolCall("analyze_application", {"candidate": "C1"}), answered())
+    toolkit = with_evidence(assessment_note(sample_applicants["정유민"].info.application_id))
+    llm = FakeLlm(
+        answered(
+            AnswerItem(
+                candidate="C1",
+                label="소통",
+                text="원인 설명",
+                status="OK",
+                evidence=[AnswerEvidence(sentence=ASSESSMENT_NOTE, source="평가 메모")],
+            ),
+            AnswerItem(
+                candidate="C1",
+                label="과제",
+                text="테스트 코드",
+                status="OK",
+                evidence=[AnswerEvidence(sentence="모든 기능에 테스트 코드를 작성했어요.", source="과제 제출물")],
+            ),
+        )
+    )
 
     plan = await ask(llm, context, toolkit)
 
-    assert plan.agents == ["Application Agent"]
+    assert [item.status for item in plan.items] == ["OK", "CHECK"]
+    assert plan.sources == ["평가 메모"]
+    assert plan.agents == ["Assessment Agent"]
+
+
+async def test_assessment_evidence_without_profile_turns_check(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(sample_applicants, sample_company, sample_posting)
+    evidence = AnswerEvidence(sentence=ASSESSMENT_NOTE, source="평가 메모")
+    llm = FakeLlm(answered(AnswerItem(candidate="C1", label="소통", text="설명", status="OK", evidence=[evidence])))
+
+    plan = await ask(llm, context)
+
+    assert plan.items[0].status == "CHECK"
+    assert (plan.sources, plan.agents) == ([], [])
+
+
+async def test_score_source_is_kept_without_agent(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(sample_applicants, sample_company, sample_posting)
+    evidence = AnswerEvidence(sentence="평가 점수: 82점", source="평가 결과")
+    llm = FakeLlm(answered(AnswerItem(candidate="C1", label="평가", text="82점", status="OK", evidence=[evidence])))
+
+    plan = await ask(llm, context)
+
+    assert plan.items[0].status == "OK"
+    assert (plan.sources, plan.agents) == (["평가 결과"], [])
+
+
+async def test_answer_keeps_assessment_evidence_saved_in_profile(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    jung = sample_applicants["정유민"].info
+    await save_profile(
+        db_session,
+        company_id=sample_company.company_id,
+        recruitment_id=jung.recruitment_id,
+        application_id=jung.application_id,
+        agent=ItemAgent.ASSESSMENT,
+        items=[
+            NewItem(
+                category=ItemCategory.STRENGTH,
+                content="원인 분석을 설명한다",
+                evidence=ASSESSMENT_NOTE,
+                source="평가 메모",
+            )
+        ],
+        stage_id=uuid4(),
+    )
+    context = context_for(sample_applicants, sample_company, sample_posting)
+    evidence = AnswerEvidence(sentence=ASSESSMENT_NOTE, source="평가 메모")
+    item = AnswerItem(candidate="C1", label="소통", text="원인 설명", status="OK", evidence=[evidence])
+    llm = FakeLlm(ToolCall("get_candidate_profile", {"candidate": "C1"}), answered(item))
+
+    plan = await ask(llm, context, profile_toolkit(sessions_of(db_session)))
+
+    assert ASSESSMENT_NOTE in llm.calls[1].user
+    assert [(item.label, item.status) for item in plan.items] == [("소통", "OK")]
+    assert (plan.sources, plan.agents) == (["평가 메모"], ["Assessment Agent"])
 
 
 QUESTIONS = RootRoute(kind="ANSWER", interview_questions=True)
@@ -331,6 +425,28 @@ async def test_focus_for_mentioned(
     assert plan.sources == ["이력서"]
     assert plan.agents == ["Interview Agent"]
     assert plan.targets == []
+
+
+async def test_focus_names_assessment_agent_of_reason(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting, mentions=["정유민"])
+    reason = AnswerItem(
+        label="확인할 점",
+        text="원인 분석 방식",
+        status="OK",
+        evidence=[AnswerEvidence(sentence=ASSESSMENT_NOTE, source="평가 메모")],
+    )
+    llm = FakeLlm(
+        ToolCall("get_candidate_profile", {"candidate": "C1"}),
+        focused(QuestionFocusItem(candidate="C1", focus=FOCUS, reasons=[reason])),
+    )
+    toolkit = with_evidence(assessment_note(sample_applicants["정유민"].info.application_id))
+
+    plan = await plan_questions(llm, QUESTIONS, context, resolve(context), toolkit)
+
+    assert plan.items[0].status == "OK"
+    assert plan.agents == ["Assessment Agent", "Interview Agent"]
 
 
 async def test_untargeted_refine_clarifies(
@@ -571,6 +687,24 @@ async def test_multi_unverified_evidence_turns_check(
     plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
 
     assert [item.status for item in plan.items] == ["OK", "CHECK"]
+
+
+async def test_multi_names_assessment_agent_of_notes(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    kim = sample_applicants["김하늘"].info.application_id
+    evidence = AnswerEvidence(sentence=ASSESSMENT_NOTE, source="평가 메모")
+    notes = CandidateNotes(items=[AnswerItem(label="소통", text="원인 설명", status="OK", evidence=[evidence])])
+    respond = by_candidate({**PAIR, "C2 김하늘": notes})
+    llm = FakeLlm(respond, respond, MultiSummary(message="비교했어요."))
+
+    plan = await ask(
+        llm, pair_context(sample_applicants, sample_company, sample_posting), with_evidence(assessment_note(kim))
+    )
+
+    assert [item.status for item in plan.items] == ["OK", "OK"]
+    assert plan.sources == ["평가 메모", "이력서"]
+    assert plan.agents == ["Assessment Agent"]
 
 
 async def test_multi_one_failure_marks_check(
