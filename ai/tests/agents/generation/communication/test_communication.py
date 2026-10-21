@@ -46,7 +46,8 @@ def test_write_returns_draft_from_model() -> None:
     assert "다음 전형: 1차 면접" in call.user
     assert "HR 요청" not in call.user
     assert "서류 전형에 합격하셨음을 알려드리며" in call.user
-    assert "다음 전형은 1차 면접입니다." in call.user
+    assert call.user.endswith("다음 전형은 1차 면접입니다.")
+    assert "별도로" not in call.user
 
 
 def test_write_does_not_send_next_stage_for_rejection() -> None:
@@ -100,6 +101,15 @@ def test_problems_finds_invented_evaluation_or_reason() -> None:
 
     assert found == ["주어진 정보에 없는 평가나 불합격 사유를 썼다: 뛰어난, 부족, 역량"]
     assert problems("열정에 감사드립니다.", source="HR 요청: 지원자의 열정에 감사하다고 써 줘") == []
+
+
+def test_problems_finds_later_notice_promise_not_in_source() -> None:
+    """다음 전형 안내는 backend가 안내를 붙여, 본문에 따로 안내한다고 쓰면 붙은 안내와 어긋난다."""
+    found = problems("다음 전형은 1차 면접입니다. 일정은 별도로 안내드리겠습니다.", source="쓸 내용: 결과만 알린다")
+
+    assert found == ["쓸 내용에 없는 나중 안내 약속을 썼다: 별도로 안내"]
+    final = "쓸 내용: 입사 일정과 준비 사항은 담당자가 별도로 안내드린다고 쓴다."
+    assert problems("입사 일정은 담당자가 따로 안내드릴 예정입니다.", source=final) == []
 
 
 def test_problems_passes_clean_content() -> None:
