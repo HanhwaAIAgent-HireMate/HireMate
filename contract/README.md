@@ -12,3 +12,6 @@ backend와 ai 서버가 주고받는 JSON의 샘플이다. 파일 하나가 타�
 1. 이 폴더에 `<타입 이름>.json`. 모든 필드를 넣는다. 값이 없는 필드는 `null`로 적는다.
 2. `backend/src/test/java/com/hiremate/ai/ContractSampleTests.java`의 `SAMPLES`
 3. `ai/tests/test_contract.py`의 `SAMPLES`
+
+`Job` · `JobResult`는 Redis 작업 대기열로 오가는 메시지다. `type`은 ai 서버 경로(`{agent}/{method}`)와 같고,
+`payload` · `result`는 그 경로의 요청 · 응답 본문과 같다.
