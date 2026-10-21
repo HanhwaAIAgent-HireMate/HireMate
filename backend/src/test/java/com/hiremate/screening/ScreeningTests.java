@@ -188,6 +188,41 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("다음 전형 안내에는 보내는 때의 다음 전형 안내가 붙고, 공고 화면은 안내를 받은 지원자 수를 알려 준다")
+    void nextStageNoticeCarriesStageGuide() throws Exception {
+        Stage stage = startDocumentStage(2);
+        TestApi hr = stage.hr();
+        String recruitment = json(expect(hr.get(stage.path()), 200)).path("recruitmentId").asString();
+        String guides = "/api/recruitments/" + recruitment + "/stage-guides";
+        String guidePath = "/api/stages/"
+                + json(expect(hr.get(guides), 200)).get(0).path("stageId").asString() + "/guide";
+        expect(hr.put(guidePath, Map.of("schedule", "11월 3일(화) 오후 2시~4시", "method", "대면", "place", "",
+                "preparation", "신분증")), 200);
+        expect(hr.post(stage.path() + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
+        expect(hr.post(stage.path() + "/decisions",
+                Map.of("applicationIds", stage.ids().subList(0, 1), "decision", "PASS")), 204);
+        expect(hr.post(stage.path() + "/confirm", null), 200);
+
+        JsonNode notices = json(expect(hr.post(stage.path() + "/notices/prepare", null), 200));
+        assertThat(notices.get(0).path("guide").asString()).isEqualTo("""
+                일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.
+
+                ■ 1차 면접 안내
+                - 일정: 11월 3일(화) 오후 2시~4시
+                - 진행 방식: 대면
+                - 준비 사항: 신분증""");
+        assertThat(notices.get(1).path("guide").asString()).isEmpty();
+
+        expect(hr.put(guidePath, Map.of("schedule", "11월 4일(수) 오전 10시~11시", "method", "", "place", "",
+                "preparation", "")), 200);
+        expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
+        assertThat(mail.sent).anySatisfy(message -> assertThat(message)
+                .contains("지원자1님", "다음 전형은 1차 면접입니다.", "■ 1차 면접 안내\n- 일정: 11월 4일(수) 오전 10시~11시")
+                .doesNotContain("신분증"));
+        assertThat(json(expect(hr.get(guides), 200)).get(0).path("notifiedCount").asInt()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("안내는 확인한 초안을 변수를 채워 보내고, 마지막 전형을 종료하면 채용이 끝나고 리포트가 만들어진다")
     void noticesAndFinalReport() throws Exception {
         Stage stage = startDocumentStage(2);

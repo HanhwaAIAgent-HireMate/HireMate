@@ -36,8 +36,7 @@ class StubCommunicationAgent implements CommunicationAgent {
     private static String initial(NoticeDraftContext notice) {
         return switch (notice.templateType()) {
             case NEXT_STAGE -> notice.stageName() + "에 합격하셨습니다. 축하드립니다. 다음 전형은 "
-                    + (notice.nextStageName() == null ? "다음 단계" : notice.nextStageName())
-                    + "이며, 자세한 일정과 준비 사항은 별도로 안내드리겠습니다.";
+                    + (notice.nextStageName() == null ? "다음 단계" : notice.nextStageName()) + "입니다.";
             case REJECT -> "검토 결과 아쉽게도 이번 채용에서는 함께하기 어렵게 되었습니다. "
                     + "앞으로의 여정을 진심으로 응원하겠습니다.";
             case FINAL_PASS -> "최종 합격을 진심으로 축하드립니다. 입사 일정과 준비 서류는 담당자가 곧 연락드리겠습니다.";

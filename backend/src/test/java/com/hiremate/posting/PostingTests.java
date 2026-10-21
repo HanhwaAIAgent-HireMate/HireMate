@@ -71,6 +71,38 @@ class PostingTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("전형별 안내는 첫 전형을 빼고 보여 주고, AI로 전형 절차를 바꿔도 이름이 같은 전형은 안내를 이어 받는다")
+    void stageGuidesSurviveStageChanges() throws Exception {
+        TestApi hr = newHr();
+        String id = json(expect(hr.post("/api/recruitments", null), 201)).path("recruitmentId").asString();
+        String base = "/api/recruitments/" + id + "/posting";
+        expect(hr.post(base + "/ai-requests", Map.of("message", "전형은 서류, 1차 면접 순으로 해줘")), 200);
+        expect(hr.post(base + "/suggestion/apply", null), 200);
+        JsonNode guides = json(expect(hr.get("/api/recruitments/" + id + "/stage-guides"), 200));
+        assertThat(guides.size()).isEqualTo(1);
+        assertThat(guides.get(0).path("name").asString()).isEqualTo("1차 면접");
+        String interview = guides.get(0).path("stageId").asString();
+
+        JsonNode saved = json(expect(hr.put("/api/stages/" + interview + "/guide", Map.of("schedule",
+                " 11월 3일(화) 오후 2시~4시 ", "method", "대면", "place", "", "preparation", "신분증")), 200));
+        assertThat(saved.path("guide").path("schedule").asString()).isEqualTo("11월 3일(화) 오후 2시~4시");
+        assertThat(saved.path("notifiedCount").asInt()).isZero();
+
+        expect(hr.post(base + "/ai-requests", Map.of("message", "전형은 서류, 코딩테스트, 1차 면접 순으로 해줘")), 200);
+        expect(hr.post(base + "/suggestion/apply", null), 200);
+        JsonNode changed = json(expect(hr.get("/api/recruitments/" + id + "/stage-guides"), 200));
+        assertThat(changed.get(0).path("name").asString()).isEqualTo("코딩테스트");
+        assertThat(changed.get(0).path("guide").path("schedule").asString()).isEmpty();
+        assertThat(changed.get(1).path("guide").path("method").asString()).isEqualTo("대면");
+
+        String guidePath = "/api/stages/" + changed.get(1).path("stageId").asString() + "/guide";
+        expect(hr.put(guidePath, Map.of("schedule", "x".repeat(201), "method", "", "place", "",
+                "preparation", "")), 400);
+        expect(newHr().put(guidePath, Map.of("schedule", "", "method", "", "place", "", "preparation", "")),
+                404);
+    }
+
+    @Test
     @DisplayName("게시하면 채용 페이지가 열리고 전형 구성은 잠기며, 마감하면 첫 전형이 시작된다")
     void publishOpensCareersPageAndCloseStartsFirstStage() throws Exception {
         TestApi hr = newHr();
