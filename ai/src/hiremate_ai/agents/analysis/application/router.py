@@ -13,9 +13,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from hiremate_ai.agents.analysis.application.present import to_analysis, to_candidate_analysis
 from hiremate_ai.agents.analysis.application.service import RubricScopeError, analyze_application
 from hiremate_ai.agents.analysis.application.store import DbReviewStore, ReviewStore
-from hiremate_ai.agents.analysis.application.types import ApplicationAnalysis, ScreeningRubric
+from hiremate_ai.agents.analysis.application.types import AnalyzeRequest, ApplicationAnalysis
 from hiremate_ai.config import settings
-from hiremate_ai.contract import ApplicantDetail, CandidateAnalysis, ContractModel, PostingContent
+from hiremate_ai.contract import CandidateAnalysis
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.client import LlmDep
 
@@ -28,12 +28,6 @@ def get_store() -> ReviewStore:
 
 
 StoreDep = Annotated[ReviewStore, Depends(get_store)]
-
-
-class AnalyzeRequest(ContractModel):
-    applicant: ApplicantDetail
-    posting: PostingContent
-    rubric: ScreeningRubric
 
 
 @router.post("/agents/application/analyze")

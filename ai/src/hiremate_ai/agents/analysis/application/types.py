@@ -2,6 +2,7 @@
 
 - backend와 주고받는 계약: ScreeningRubric(posting.ScreeningRubric), ApplicationAnalysis(apply.ApplicationAnalysis).
   필드를 바꾸면 저장소 루트 contract/의 샘플도 고친다.
+- 요청 본문: AnalyzeRequest. ai 서버 경로와 AI 워커 작업(contract/Job.json의 payload)이 같이 쓴다.
 - 분석 결과 원본: ApplicationReview. ai.application_reviews에 그대로 저장하고, backend에 돌려주는 값은 여기서 만든다.
 """
 
@@ -10,7 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from hiremate_ai.contract import ContractModel, DocumentType
+from hiremate_ai.contract import ApplicantDetail, ContractModel, DocumentType, PostingContent
 
 
 class RubricPreference(ContractModel):
@@ -29,6 +30,17 @@ class ScreeningRubric(ContractModel):
     recruitment_id: UUID
     hire_count: int  # 선발 인원. AI 추천은 이 인원의 10배수까지다 (backend screening이 줄 세운다)
     preferred: list[RubricPreference]
+
+
+class AnalyzeRequest(ContractModel):
+    """분석 요청 본문. ai 서버 경로(application/analyze, candidate-analyst/analyze)와 AI 워커 작업(payload)이 같이 쓴다.
+
+    키는 backend Agent 메서드의 매개변수 이름이다.
+    """
+
+    applicant: ApplicantDetail
+    posting: PostingContent
+    rubric: ScreeningRubric
 
 
 class ApplicationAnalysis(ContractModel):
