@@ -30,7 +30,8 @@ class ApplicationAnalysisListener {
         try {
             ApplicantDetail applicant = applications.detailForAnalysis(event.applicationId());
             applications.recordAnalysis(event.applicationId(), agent.analyze(applicant,
-                    postings.draftContext(event.companyId(), event.recruitmentId()).content()));
+                    postings.draftContext(event.companyId(), event.recruitmentId()).content(),
+                    postings.screeningRubric(event.companyId(), event.recruitmentId())));
         } catch (RuntimeException exception) {
             log.warn("Application analysis failed for {}", event.applicationId(), exception);
             applications.markAnalysisFailed(event.applicationId());

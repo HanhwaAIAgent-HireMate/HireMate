@@ -14,6 +14,8 @@ import com.hiremate.ai.application.RootAgent;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicantDocument;
 import com.hiremate.company.Talent;
+import com.hiremate.posting.PostingService;
+import com.hiremate.posting.ScreeningRubric;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.CandidateRow;
 import com.hiremate.screening.Decision;
@@ -62,9 +64,11 @@ class StubRootAgent implements RootAgent {
             "리더", List.of("리더", "리드", "주도", "lead", "leader"));
 
     private final CandidateAnalyst analyst;
+    private final PostingService postings;
 
-    StubRootAgent(CandidateAnalyst analyst) {
+    StubRootAgent(CandidateAnalyst analyst, PostingService postings) {
         this.analyst = analyst;
+        this.postings = postings;
     }
 
     /** 개발용 Root는 대화를 기억하지 않는다. */
@@ -323,7 +327,7 @@ class StubRootAgent implements RootAgent {
         }
         if (targets.size() > 1 || message.contains("비교")) {
             List<ChatItem> items = targets.stream().map(row -> {
-                CandidateAnalysis analysis = analyst.analyze(detail(context, row), context.posting());
+                CandidateAnalysis analysis = analyst.analyze(detail(context, row), context.posting(), rubric(context));
                 long met = analysis.conditions().stream().filter(CandidateAnalysis.Condition::met).count();
                 String notable = analysis.notable().isEmpty()
                         ? "" : " · " + shorten(analysis.notable().getFirst().text());
@@ -334,7 +338,7 @@ class StubRootAgent implements RootAgent {
                     List.of("이력서", "자기소개서"), agents);
         }
         CandidateRow row = targets.getFirst();
-        CandidateAnalysis analysis = analyst.analyze(detail(context, row), context.posting());
+        CandidateAnalysis analysis = analyst.analyze(detail(context, row), context.posting(), rubric(context));
         if (message.contains("면접") || message.contains("질문")) {
             List<ChatItem> questions = new ArrayList<>();
             analysis.checks().stream().limit(2).forEach(check -> questions.add(new ChatItem(row.applicationId(),
@@ -441,6 +445,10 @@ class StubRootAgent implements RootAgent {
     private static String shorten(String text) {
         String trimmed = text.strip().replaceAll("\\s+", " ");
         return trimmed.length() > 48 ? trimmed.substring(0, 47) + "…" : trimmed;
+    }
+
+    private ScreeningRubric rubric(ChatContext context) {
+        return postings.screeningRubric(context.company().companyId(), context.recruitmentId());
     }
 
     private record Match(CandidateRow row, int hits, String evidence, String source) {

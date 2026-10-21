@@ -51,10 +51,11 @@ public class InterviewAiService {
     public InterviewView generate(UUID companyId, UUID stageId, UUID applicationId, String focus) {
         InterviewView current = interviews.view(companyId, stageId, applicationId);
         ApplicantDetail applicant = applications.detail(companyId, applicationId);
-        PostingContent posting = postings.draftContext(companyId,
-                screening.overview(companyId, stageId).recruitmentId()).content();
+        UUID recruitmentId = screening.overview(companyId, stageId).recruitmentId();
+        PostingContent posting = postings.draftContext(companyId, recruitmentId).content();
+        CandidateAnalysis analysis = analyst.analyze(applicant, posting,
+                postings.screeningRubric(companyId, recruitmentId));
         return interviews.addQuestions(companyId, stageId, applicationId,
-                agent.questions(applicant, posting, analyst.analyze(applicant, posting), current, focus),
-                QuestionSource.AI);
+                agent.questions(applicant, posting, analysis, current, focus), QuestionSource.AI);
     }
 }

@@ -27,6 +27,7 @@ public class CandidateAnalysisService {
         screening.detail(companyId, stageId, applicationId);
         UUID recruitmentId = screening.overview(companyId, stageId).recruitmentId();
         return analyst.analyze(applications.detail(companyId, applicationId),
-                postings.draftContext(companyId, recruitmentId).content());
+                postings.draftContext(companyId, recruitmentId).content(),
+                postings.screeningRubric(companyId, recruitmentId));
     }
 }

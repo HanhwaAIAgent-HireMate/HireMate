@@ -1,0 +1,87 @@
+package com.hiremate.ai.infra;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.hiremate.ai.application.AiAgent;
+import com.hiremate.ai.application.CandidateAnalysis;
+import com.hiremate.apply.AnalysisStatus;
+import com.hiremate.apply.ApplicantDetail;
+import com.hiremate.apply.ApplicantInfo;
+import com.hiremate.apply.ApplicationAnalysis;
+import com.hiremate.posting.PostingContent;
+import com.hiremate.posting.ScreeningRubric;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.web.reactive.function.client.WebClient;
+
+class RemoteApplicationAgentTests {
+
+    private static final UUID RECRUITMENT = UUID.randomUUID();
+    private static final ApplicantDetail APPLICANT = new ApplicantDetail(new ApplicantInfo(UUID.randomUUID(),
+            RECRUITMENT, 1, "정유민", "yumin@example.com", null, null, null, false, false, List.of(),
+            AnalysisStatus.PENDING, Instant.parse("2026-10-21T00:00:00Z")), "010-0000-0000", null, List.of());
+    private static final PostingContent POSTING = new PostingContent("응용 소프트웨어 엔지니어", "백엔드 개발", "정규직",
+            "경력 3년 이상", "서울", "", List.of(), List.of("Git 기반 협업 경험"), List.of("외부 시스템 연동 인터페이스를 설계한 경험"),
+            List.of());
+    private static final ScreeningRubric RUBRIC = new ScreeningRubric(UUID.randomUUID(), RECRUITMENT, 1,
+            List.of(new ScreeningRubric.Preference("외부 시스템 연동 인터페이스를 설계한 경험", 5, "2001020218_23v6",
+                    List.of("정보처리기사"))));
+
+    @Test
+    @DisplayName("ai 서버의 application/analyze로 지원서 · 공고 · 평가 기준을 보내고 요약을 받는다")
+    void analyzesThroughAiServer() {
+        ApplicationAnalysis answer = new ApplicationAnalysis(4, "한빛카드", null, true, true, List.of("Git 근거 없음"));
+        RecordingClient client = new RecordingClient(answer);
+
+        ApplicationAnalysis result = new RemoteApplicationAgent(client).analyze(APPLICANT, POSTING, RUBRIC);
+
+        assertThat(result).isEqualTo(answer);
+        assertThat(client.agent).isEqualTo(AiAgent.APPLICATION);
+        assertThat(client.method).isEqualTo("analyze");
+        assertThat(client.body).containsEntry("applicant", APPLICANT).containsEntry("posting", POSTING)
+                .containsEntry("rubric", RUBRIC);
+    }
+
+    @Test
+    @DisplayName("ai 서버의 candidate-analyst/analyze로 카드의 AI 분석을 받는다")
+    void analyzesCandidateThroughAiServer() {
+        CandidateAnalysis answer = new CandidateAnalysis(List.of(), List.of(), List.of(),
+                List.of(new CandidateAnalysis.Finding("보류 이유", "이력서")), List.of(), List.of(), "Application Agent",
+                false);
+        RecordingClient client = new RecordingClient(answer);
+
+        CandidateAnalysis result = new RemoteCandidateAnalyst(client).analyze(APPLICANT, POSTING, RUBRIC);
+
+        assertThat(result).isEqualTo(answer);
+        assertThat(client.agent).isEqualTo(AiAgent.CANDIDATE_ANALYST);
+        assertThat(client.body).containsKeys("applicant", "posting", "rubric");
+    }
+
+    /** ai 서버 대신 받은 요청을 기록하고 정해 둔 응답을 돌려준다. */
+    private static final class RecordingClient extends AiServerClient {
+
+        private final Object response;
+        private AiAgent agent;
+        private String method;
+        private Map<Object, Object> body;
+
+        RecordingClient(Object response) {
+            super(WebClient.builder(), "http://ai.test", Duration.ofSeconds(1));
+            this.response = response;
+        }
+
+        @Override
+        <T> T post(AiAgent agent, String method, Object body, Class<T> type) {
+            this.agent = agent;
+            this.method = method;
+            this.body = new HashMap<>((Map<?, ?>) body);
+            return type.cast(response);
+        }
+    }
+}

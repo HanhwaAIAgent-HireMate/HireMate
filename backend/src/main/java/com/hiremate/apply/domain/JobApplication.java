@@ -8,7 +8,9 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -64,8 +66,17 @@ public class JobApplication {
 
     private Integer documentScore;
 
+    /** 자격요건을 75% 이상 채웠는가. */
     @Column(nullable = false)
     private boolean scorePassed;
+
+    /** 서류 점수를 보류했는가. 보류면 documentScore가 null이다. */
+    @Column(nullable = false)
+    private boolean scoreHeld;
+
+    /** 채우지 못한 자격요건의 짧은 표시. 줄바꿈으로 나눈다. */
+    @Column(nullable = false)
+    private String qualificationShortfalls = "";
 
     private Instant analyzedAt;
 
@@ -86,13 +97,21 @@ public class JobApplication {
         this.analysisStatus = AnalysisStatus.PENDING;
     }
 
-    public void recordAnalysis(int careerYears, String lastCompany, int documentScore, boolean passed) {
+    public void recordAnalysis(Integer careerYears, String lastCompany, Integer documentScore, boolean passed,
+            boolean held, List<String> shortfalls) {
         this.careerYears = careerYears;
         this.lastCompany = lastCompany;
-        this.documentScore = documentScore;
+        this.documentScore = held ? null : documentScore;
         this.scorePassed = passed;
+        this.scoreHeld = held;
+        this.qualificationShortfalls = shortfalls.stream().map(String::strip).filter(text -> !text.isEmpty())
+                .collect(Collectors.joining("\n"));
         this.analysisStatus = AnalysisStatus.DONE;
         this.analyzedAt = Instant.now();
+    }
+
+    public List<String> shortfalls() {
+        return qualificationShortfalls.isEmpty() ? List.of() : List.of(qualificationShortfalls.split("\n"));
     }
 
     public void markAnalysisFailed() {

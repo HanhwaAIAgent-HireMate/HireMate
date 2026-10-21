@@ -45,6 +45,41 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("서류 전형은 선발 인원 10배수까지 AI 추천으로 선 위에 두고, 보류는 바로 뒤, 자격요건 미달은 맨 아래다")
+    void documentStageRanksRecommendationsHoldsAndShortfalls() throws Exception {
+        Stage stage = startDocumentStage(14);
+        UUID recruitmentId = UUID.fromString(json(expect(stage.hr().get(stage.path()), 200))
+                .path("recruitmentId").asString());
+        for (var applicant : applications.applicants(stage.hr().companyId(), recruitmentId)) {
+            int order = Integer.parseInt(applicant.name().replace("지원자", ""));
+            ApplicationAnalysis analysis = switch (order) {
+                // 점수가 가장 높아도 자격요건을 75% 못 채우면 맨 아래다
+                case 1 -> new ApplicationAnalysis(0, null, 99, false, false, List.of("신입", "Spring 경험 없음"));
+                // 자격요건을 하나 못 채웠지만 75%는 넘었다. 모두 채운 지원자 뒤에 선다
+                case 2 -> new ApplicationAnalysis(4, "OO카드", 98, true, false, List.of("Git 근거 없음"));
+                case 3 -> new ApplicationAnalysis(5, "OO은행", null, true, true, List.of());
+                default -> new ApplicationAnalysis(3, "OO페이", 90 - order, true, false, List.of());
+            };
+            applications.recordAnalysis(applicant.applicationId(), analysis);
+        }
+
+        JsonNode items = json(expect(stage.hr().get(stage.path() + "/candidates?size=50"), 200)).path("items");
+        List<String> names = new ArrayList<>();
+        items.forEach(item -> names.add(item.path("name").asString()));
+
+        // 선발 인원 1명(더미) × 10 = 추천 10명: 모두 채운 지원자4~13, 그다음 선 아래로 보류 → 추천 밖 → 자격요건 미달
+        assertThat(names).containsExactly("지원자4", "지원자5", "지원자6", "지원자7", "지원자8", "지원자9", "지원자10",
+                "지원자11", "지원자12", "지원자13", "지원자3", "지원자14", "지원자2", "지원자1");
+        assertThat(items.get(0).path("documentScore").asInt()).isEqualTo(86);
+        assertThat(items.get(9).path("aboveLine").asBoolean()).isTrue();
+        assertThat(items.get(10).path("aboveLine").asBoolean()).isFalse();
+        assertThat(items.get(10).path("held").asBoolean()).isTrue();
+        assertThat(items.get(10).path("documentScore").isNull()).isTrue();
+        assertThat(items.get(12).path("shortfalls").get(0).asString()).isEqualTo("Git 근거 없음");
+        assertThat(items.get(13).path("shortfalls")).hasSize(2);
+    }
+
+    @Test
     @DisplayName("기준 미달 지원자는 ↑로 올린 뒤에만 넣고, 빼기는 결정이 아니다")
     void belowLineNeedsPromotionBeforeAdding() throws Exception {
         Stage stage = startDocumentStage(3);
@@ -311,12 +346,12 @@ class ScreeningTests extends IntegrationTest {
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());
         awaitAnalyzed(hr.companyId(), recruitmentId, applicants);
         List<String> ids = new ArrayList<>();
-        // 점수를 고정해 지원자1이 가장 높고 마지막 지원자는 기준 미달이 되게 한다
+        // 점수를 고정해 지원자1이 가장 높고 마지막 지원자는 자격요건 미달로 선 아래가 되게 한다
         for (var applicant : applications.applicants(hr.companyId(), recruitmentId)) {
             int order = Integer.parseInt(applicant.name().replace("지원자", ""));
             boolean last = order == applicants && applicants > 1;
-            applications.recordAnalysis(applicant.applicationId(),
-                    new ApplicationAnalysis(order, "OO카드", 100 - order * 10 - (last ? 40 : 0), !last));
+            applications.recordAnalysis(applicant.applicationId(), new ApplicationAnalysis(order, "OO카드",
+                    100 - order * 10 - (last ? 40 : 0), !last, false, last ? List.of("신입") : List.of()));
         }
         applications.applicants(hr.companyId(), recruitmentId).stream()
                 .sorted(java.util.Comparator.comparing(applicant -> applicant.name()))

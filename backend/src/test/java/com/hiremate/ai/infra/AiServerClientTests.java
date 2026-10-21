@@ -71,6 +71,17 @@ class AiServerClientTests {
     }
 
     @Test
+    @DisplayName("지원 접수 분석(Application Agent)은 따로 정한 시간까지 기다린다")
+    void waitsLongerForApplicationAnalysis() {
+        AiServerClient client = new AiServerClient(WebClient.builder().exchangeFunction(
+                request -> Mono.delay(Duration.ofMillis(200)).map(tick -> json(HttpStatus.OK, "{\"reply\":\"ok\"}"))),
+                "http://ai.test", Duration.ofMillis(50), Duration.ofSeconds(5));
+
+        assertThat(client.post(AiAgent.APPLICATION, "analyze", Map.of(), Reply.class)).isEqualTo(new Reply("ok"));
+        assertUnavailable(() -> client.post(AiAgent.CANDIDATE_ANALYST, "analyze", Map.of(), Reply.class));
+    }
+
+    @Test
     @DisplayName("연결하지 못하면 502 AI_UNAVAILABLE이다")
     void mapsConnectionFailure() {
         AiServerClient client = client(request -> Mono.error(new IllegalStateException("connection refused")),

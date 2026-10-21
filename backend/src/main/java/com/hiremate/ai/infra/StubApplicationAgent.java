@@ -7,6 +7,7 @@ import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicantDocument;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.posting.PostingContent;
+import com.hiremate.posting.ScreeningRubric;
 import java.time.Year;
 import java.time.YearMonth;
 import java.util.LinkedHashSet;
@@ -21,7 +22,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * 개발용 Application Agent. 제출 문서 본문에서 경력 연수와 마지막 회사를 찾고, 공고의 업무 · 자격 요건 · 우대 사항
- * 낱말이 문서에 얼마나 나오는지로 서류 점수(0~100)를 매긴다. 60점 이상을 AI 기준 통과로 본다 (OI-02 개발용 기본값).
+ * 낱말이 문서에 얼마나 나오는지로 서류 점수(0~100)를 매긴다. 60점 이상을 자격요건 통과로 보고, 점수는 보류하지 않는다
+ * (개발용 기본값. 실제 판정은 ai 서버의 Application Agent가 한다).
  */
 @Component
 @ConditionalOnAiMode(agent = AiAgent.APPLICATION, mode = AiMode.STUB)
@@ -40,12 +42,12 @@ class StubApplicationAgent implements ApplicationAgent {
             "통해", "위한", "대한", "등의", "또는", "그리고", "with", "and", "the");
 
     @Override
-    public ApplicationAnalysis analyze(ApplicantDetail applicant, PostingContent posting) {
+    public ApplicationAnalysis analyze(ApplicantDetail applicant, PostingContent posting, ScreeningRubric rubric) {
         String text = applicant.documents().stream().map(ApplicantDocument::text).collect(Collectors.joining("\n"));
         int careerYears = careerYears(text);
         String lastCompany = careerYears == 0 ? null : lastCompany(text);
         int score = score(text, posting, careerYears);
-        return new ApplicationAnalysis(careerYears, lastCompany, score, score >= PASS_SCORE);
+        return new ApplicationAnalysis(careerYears, lastCompany, score, score >= PASS_SCORE, false, List.of());
     }
 
     static int careerYears(String text) {

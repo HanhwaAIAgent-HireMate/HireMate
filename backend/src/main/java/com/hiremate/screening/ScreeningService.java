@@ -1,6 +1,7 @@
 package com.hiremate.screening;
 
 import com.hiremate.activity.ActivityService;
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationService;
@@ -39,6 +40,18 @@ import tools.jackson.core.type.TypeReference;
  */
 @Service
 public class ScreeningService {
+
+    /** 서류 전형의 AI 추천은 선발 인원의 이 배수까지다. */
+    static final int RECOMMEND_MULTIPLE = 10;
+
+    /**
+     * 서류 전형 AI 추천 순위: 자격요건을 모두 채운 지원자가 먼저, 그다음 서류 점수 높은 순, 같으면 지원 번호순.
+     * 자격요건을 하나라도 못 채운 지원자는 점수가 높아도 모두 채운 지원자 뒤에 선다.
+     */
+    private static final Comparator<ApplicantInfo> RANK = Comparator
+            .comparing((ApplicantInfo info) -> !info.shortfalls().isEmpty())
+            .thenComparing(ApplicantInfo::documentScore, Comparator.nullsLast(Comparator.reverseOrder()))
+            .thenComparing(ApplicantInfo::applicationNo);
 
     private final StageCandidateRepository candidates;
     private final SelectionSnapshotRepository snapshots;
@@ -92,7 +105,8 @@ public class ScreeningService {
     }
 
     /**
-     * 전체 지원자 리스트. 서류 전형은 AI 기준을 넘은(또는 올린) 지원자를 서류 점수 높은 순으로 먼저, 평가 전형은 점수 높은 순이다.
+     * 전체 지원자 리스트. 서류 전형은 AI 추천(선발 인원 10배수) → 점수 보류 → 추천 밖 → 자격요건 미달 순이고,
+     * 평가 전형은 점수 높은 순이다.
      */
     @Transactional(readOnly = true)
     public CandidatePage candidates(UUID companyId, UUID stageId, String query, int page, int size) {
@@ -180,11 +194,11 @@ public class ScreeningService {
         StageContext context = activeContext(companyId, stageId);
         List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
         Set<UUID> requested = new HashSet<>(applicationIds);
-        Map<UUID, ApplicantInfo> infos = infos(context);
+        Set<UUID> recommended = recommended(context, all, infos(context));
         List<StageCandidate> chosen = all.stream()
                 .filter(candidate -> requested.contains(candidate.getApplicationId()))
                 .filter(candidate -> candidate.getDecision() == Decision.PENDING)
-                .filter(candidate -> aboveLine(context.type(), candidate, infos.get(candidate.getApplicationId())))
+                .filter(candidate -> aboveLine(context.type(), candidate, recommended))
                 .filter(candidate -> mode != SelectionMode.NARROW || candidate.isSelected())
                 .toList();
         if (mode != SelectionMode.ADD) {
@@ -238,7 +252,10 @@ public class ScreeningService {
         StageContext context = context(companyId, stageId);
         StageCandidate candidate = candidate(companyId, stageId, applicationId);
         ApplicantDetail applicant = applications.detail(companyId, applicationId);
-        return new CandidateDetail(toRow(context.type(), candidate, applicant.info()), applicant.info().email(),
+        Set<UUID> recommended = recommended(context, candidates.findByStageIdAndCompanyId(stageId, companyId),
+                infos(context));
+        return new CandidateDetail(toRow(context.type(), candidate, applicant.info(), recommended),
+                applicant.info().email(),
                 applicant.phone(), applicant.info().submittedAt(), applicant.certificates(), applicant.documents(),
                 candidate.getMemo());
     }
@@ -335,9 +352,11 @@ public class ScreeningService {
         if (candidate.getDecision() != Decision.PENDING) {
             throw new ApiException(HttpStatus.CONFLICT, "ALREADY_DECIDED", "Decided applicants are not selectable.");
         }
-        ApplicantInfo info = applications.applicants(context.companyId(), List.of(candidate.getApplicationId()))
-                .getFirst();
-        if (!aboveLine(context.type(), candidate, info)) {
+        Set<UUID> recommended = context.type() == StageType.DOCUMENT
+                ? recommended(context, candidates.findByStageIdAndCompanyId(context.stageId(), context.companyId()),
+                        infos(context))
+                : Set.of();
+        if (!aboveLine(context.type(), candidate, recommended)) {
             throw new ApiException(HttpStatus.CONFLICT, "BELOW_LINE", "Move the applicant above the line first.");
         }
     }
@@ -372,24 +391,66 @@ public class ScreeningService {
 
     private List<CandidateRow> rows(StageContext context, List<StageCandidate> all) {
         Map<UUID, ApplicantInfo> infos = infos(context);
+        Set<UUID> recommended = recommended(context, all, infos);
+        Map<UUID, DocumentGroup> groups = all.stream().collect(Collectors.toMap(StageCandidate::getApplicationId,
+                candidate -> group(candidate, infos.get(candidate.getApplicationId()), recommended)));
         Comparator<CandidateRow> byDocumentScore = Comparator.comparing(
                 row -> infos.get(row.applicationId()).documentScore(),
                 Comparator.nullsLast(Comparator.reverseOrder()));
         Comparator<CandidateRow> order = switch (context.type()) {
-            case DOCUMENT -> Comparator.comparing(CandidateRow::aboveLine).reversed().thenComparing(byDocumentScore);
+            // ↑로 올린 지원자는 추천 그룹 끝에, 자격요건을 못 채운 지원자는 같은 그룹 안에서 뒤에 선다
+            case DOCUMENT -> Comparator.comparing((CandidateRow row) -> groups.get(row.applicationId()))
+                    .thenComparing(row -> !recommended.contains(row.applicationId()))
+                    .thenComparing(row -> !row.shortfalls().isEmpty())
+                    .thenComparing(byDocumentScore);
             case ASSESSMENT -> Comparator
                     .comparing(CandidateRow::score, Comparator.nullsLast(Comparator.reverseOrder()))
                     .thenComparing(byDocumentScore);
             case INTERVIEW -> byDocumentScore;
         };
         return all.stream()
-                .map(candidate -> toRow(context.type(), candidate, infos.get(candidate.getApplicationId())))
+                .map(candidate -> toRow(context.type(), candidate, infos.get(candidate.getApplicationId()),
+                        recommended))
                 .sorted(order.thenComparing(row -> infos.get(row.applicationId()).applicationNo()))
                 .toList();
     }
 
-    private static boolean aboveLine(StageType type, StageCandidate candidate, ApplicantInfo info) {
-        return type != StageType.DOCUMENT || candidate.isPromoted() || info != null && info.passed();
+    /**
+     * 서류 전형의 AI 추천: 자격요건을 75% 이상 채웠고 점수를 보류하지 않은 지원자 가운데 순위(RANK) 상위
+     * (선발 인원 × 10)명. 서류 전형이 아니면 비어 있다.
+     */
+    private Set<UUID> recommended(StageContext context, List<StageCandidate> all, Map<UUID, ApplicantInfo> infos) {
+        if (context.type() != StageType.DOCUMENT) {
+            return Set.of();
+        }
+        long limit = (long) postings.screeningRubric(context.companyId(), context.recruitmentId()).hireCount()
+                * RECOMMEND_MULTIPLE;
+        return all.stream()
+                .map(candidate -> infos.get(candidate.getApplicationId()))
+                .filter(info -> info != null && info.analysisStatus() == AnalysisStatus.DONE && info.passed()
+                        && !info.held() && info.documentScore() != null)
+                .sorted(RANK)
+                .limit(limit)
+                .map(ApplicantInfo::applicationId)
+                .collect(Collectors.toSet());
+    }
+
+    private static DocumentGroup group(StageCandidate candidate, ApplicantInfo info, Set<UUID> recommended) {
+        if (recommended.contains(candidate.getApplicationId()) || candidate.isPromoted()) {
+            return DocumentGroup.RECOMMENDED;
+        }
+        if (info == null || info.analysisStatus() != AnalysisStatus.DONE) {
+            return DocumentGroup.NOT_ANALYZED;
+        }
+        if (info.held()) {
+            return DocumentGroup.HELD;
+        }
+        return info.passed() ? DocumentGroup.QUALIFIED : DocumentGroup.UNQUALIFIED;
+    }
+
+    private static boolean aboveLine(StageType type, StageCandidate candidate, Set<UUID> recommended) {
+        return type != StageType.DOCUMENT || candidate.isPromoted()
+                || recommended.contains(candidate.getApplicationId());
     }
 
     private static boolean matches(CandidateRow row, String keyword) {
@@ -399,11 +460,14 @@ public class ScreeningService {
                 || row.lastCompany() != null && row.lastCompany().toLowerCase(Locale.ROOT).contains(keyword);
     }
 
-    private static CandidateRow toRow(StageType type, StageCandidate candidate, ApplicantInfo info) {
+    private static CandidateRow toRow(StageType type, StageCandidate candidate, ApplicantInfo info,
+            Set<UUID> recommended) {
+        boolean document = type == StageType.DOCUMENT;
         return new CandidateRow(candidate.getApplicationId(), info.name(), info.careerYears(), info.lastCompany(),
                 candidate.getFinalResult() != null ? candidate.getFinalResult() : candidate.getDecision(),
-                candidate.isSelected(), candidate.isAiMarked(), aboveLine(type, candidate, info),
-                candidate.getScore(), info.analysisStatus());
+                candidate.isSelected(), candidate.isAiMarked(), aboveLine(type, candidate, recommended),
+                candidate.getScore(), info.analysisStatus(), document && info.held(),
+                document ? info.shortfalls() : List.of(), document ? info.documentScore() : null);
     }
 
     private static StageOverview.DecisionCounts counts(List<StageCandidate> all) {
@@ -421,5 +485,14 @@ public class ScreeningService {
     }
 
     private record SnapshotEntry(UUID applicationId, boolean ai) {
+    }
+
+    /** 서류 전형 리스트의 묶음. 이 순서로 보인다. 추천과 보류 사이에 선을 긋는다. */
+    private enum DocumentGroup {
+        RECOMMENDED,
+        HELD,
+        QUALIFIED,
+        UNQUALIFIED,
+        NOT_ANALYZED
     }
 }
