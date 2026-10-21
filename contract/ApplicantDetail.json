@@ -9,6 +9,8 @@
     "lastCompany": "한빛카드",
     "documentScore": 78,
     "passed": true,
+    "held": false,
+    "shortfalls": [],
     "analysisStatus": "DONE",
     "submittedAt": "2026-10-01T09:00:00Z"
   },

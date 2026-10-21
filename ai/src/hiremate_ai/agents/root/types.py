@@ -66,6 +66,9 @@ class CandidateRow(ContractModel):
     above_line: bool
     score: float | None
     analysis_status: AnalysisStatus
+    held: bool = False  # 서류 점수 보류
+    shortfalls: list[str] = []  # 채우지 못한 자격요건의 짧은 표시
+    document_score: int | None = None  # 서류 전형의 AI 적합도 점수. 다른 전형이면 null
 
 
 class QuestionSource(StrEnum):

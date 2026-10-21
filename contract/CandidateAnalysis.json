@@ -9,6 +9,11 @@
   "checks": [
     {"text": "\"RDBMS 설계와 운영 경험\"의 근거가 제출 문서에 없어요. 면접에서 확인이 필요해요.", "source": "공고 · 자격 요건"}
   ],
+  "holds": [],
+  "fit": [
+    {"label": "우대사항 · NCS 평가 조건", "points": 31, "max": 60, "reason": "평가 조건 32개 가운데 16개를 만족했어요."},
+    {"label": "직무 실무 경험", "points": 8, "max": 10, "reason": "카드 결제 API를 4년간 개발 · 운영했다."}
+  ],
   "highlights": [
     {"document": "RESUME", "sentence": "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다."}
   ],
