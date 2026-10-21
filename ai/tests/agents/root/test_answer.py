@@ -8,7 +8,8 @@ import pytest
 from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
-from root_context import make_context
+from root_context import make_context, save_sample_profiles, sessions_of
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.root import answer
 from hiremate_ai.agents.root.answer import (
@@ -30,7 +31,14 @@ from hiremate_ai.agents.root.answer import (
 )
 from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.targets import resolve
-from hiremate_ai.agents.root.toolkit import ANSWER_TOOLS, RootToolContext, RootToolkit, default_toolkit, keyword_search
+from hiremate_ai.agents.root.toolkit import (
+    ANSWER_TOOLS,
+    RootToolContext,
+    RootToolkit,
+    default_toolkit,
+    keyword_search,
+    profile_toolkit,
+)
 from hiremate_ai.agents.root.turns import Turn, TurnItem
 from hiremate_ai.agents.root.types import (
     ChatContext,
@@ -106,6 +114,25 @@ async def test_answer_flows_through_tools(
     assert plan.targets == [] and plan.question_targets == []
     assert "C1 정유민" in llm.calls[0].user
     assert [call.agent for call in llm.calls] == ["root", "root"]
+
+
+async def test_answer_reads_profile_and_keeps_its_evidence(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    await save_sample_profiles(db_session, sample_company, sample_applicants)
+    context = context_for(sample_applicants, sample_company, sample_posting)
+    evidence = AnswerEvidence(sentence="한빛카드 결제플랫폼팀 2022.03 ~ 현재", source="이력서")
+    item = AnswerItem(candidate="C1", label="도메인", text="카드 결제 · 정산", status="OK", evidence=[evidence])
+    llm = FakeLlm(ToolCall("get_candidate_profile", {"candidate": "C1"}), answered(item))
+
+    plan = await ask(llm, context, profile_toolkit(sessions_of(db_session)))
+
+    assert "[도메인] 금융 (카드 결제 · 정산)" in llm.calls[1].user
+    assert [(item.label, item.status) for item in plan.items] == [("도메인", "OK")]
+    assert plan.sources == ["이력서"]
 
 
 async def test_unverified_evidence_turns_check(
