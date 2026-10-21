@@ -7,6 +7,7 @@
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -182,3 +183,37 @@ class CandidateAnalysis(ContractModel):
     highlights: list[Evidence]
     agent: str
     stub: bool
+
+
+class Job(ContractModel):
+    """AI 워커가 처리할 분석 작업 (job.Job). backend가 Redis 작업 스트림에 넣는다.
+
+    type은 ai 서버 경로와 같은 '{agent}/{method}'이고 payload는 그 경로의 요청 본문과 같다.
+    target은 작업 대상이다 (application/analyze면 지원서 ID). 같은 대상의 작업을 묶는 데 쓴다.
+    """
+
+    job_id: UUID
+    type: str
+    target: str
+    payload: dict[str, Any]
+
+
+class JobStatus(StrEnum):
+    """작업 결과 (job.JobStatus)."""
+
+    DONE = "DONE"
+    FAILED = "FAILED"
+
+
+class JobResult(ContractModel):
+    """작업 결과 (job.JobResult). AI 워커가 Redis 결과 스트림에 넣고 backend가 꺼내 기록한다.
+
+    DONE이면 result가 그 경로의 응답 본문이다. FAILED면 result가 None이고 error에 이유를 남긴다 (화면에는 보이지 않는다).
+    """
+
+    job_id: UUID
+    type: str
+    target: str
+    status: JobStatus
+    result: dict[str, Any] | None
+    error: str | None

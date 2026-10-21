@@ -1,0 +1,17 @@
+{
+  "jobId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+  "type": "application/analyze",
+  "target": "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60",
+  "status": "DONE",
+  "result": {
+    "careerYears": 0,
+    "lastCompany": null,
+    "documentScore": 52,
+    "passed": true,
+    "held": false,
+    "shortfalls": [
+      "신입"
+    ]
+  },
+  "error": null
+}
