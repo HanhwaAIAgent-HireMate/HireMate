@@ -36,13 +36,19 @@ _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 async def write_report(data: ReportInput, llm: LlmClient) -> ReportContent:
     """확정 결과로 최종 리포트를 쓴다. 채용 상태는 바꾸지 않는다.
 
+    모델 문장이 검사를 통과하지 못하면 이유를 붙여 한 번만 다시 쓰게 한다. 그래도 남은 문제 문장은 버리고,
     모델이 형식에 맞는 답을 내지 못하면 숫자와 분석 근거만 옮긴 리포트를 돌려준다.
     """
-    draft = ReportDraft(summary="", finalists=[], notes=[])
-    if data.finalists:
-        with suppress(LlmOutputError):
-            draft = await llm.structured(ReportDraft, agent=AGENT, system=_system(), user=_user_prompt(data))
     allowed_numbers = _numbers_in(data)
+    draft = None
+    if data.finalists:
+        user = _user_prompt(data)
+        draft = await _draft(llm, user)
+        if draft is None:
+            draft = await _draft(llm, user)
+        elif found := _problems(draft, data, allowed_numbers):
+            draft = await _draft(llm, _retry_prompt(user, draft, found)) or draft
+    draft = draft or ReportDraft(summary="", finalists=[], notes=[])
     return ReportContent(
         summary=" ".join([_count_summary(data), *_usable([draft.summary], allowed_numbers)]),
         applicant_count=data.applicant_count,
@@ -50,6 +56,43 @@ async def write_report(data: ReportInput, llm: LlmClient) -> ReportContent:
         stages=data.stages,
         finalists=[_finalist(finalist, draft.finalists, allowed_numbers) for finalist in data.finalists],
         notes=_dedupe([*_count_notes(data), *_usable(draft.notes, allowed_numbers)]),
+    )
+
+
+async def _draft(llm: LlmClient, user: str) -> ReportDraft | None:
+    with suppress(LlmOutputError):
+        return await llm.structured(ReportDraft, agent=AGENT, system=_system(), user=user)
+    return None
+
+
+def _problems(draft: ReportDraft, data: ReportInput, allowed_numbers: set[str]) -> list[str]:
+    """모델 문장 중 그대로 쓸 수 없는 것. 다시 쓰게 할 때 모델에게 이유로 보여 준다."""
+    found = []
+    texts = [("summary", draft.summary), *((f"notes[{i}]", note) for i, note in enumerate(draft.notes))]
+    for label, text in texts:
+        if text.strip() and not _usable([text], allowed_numbers):
+            found.append(f"{label}에 자료에 없는 숫자나 쓰면 안 되는 조건이 있다: {text}")
+    drafts = {finalist.name.strip(): finalist for finalist in draft.finalists}
+    for finalist in data.finalists:
+        written = drafts.get(finalist.name)
+        if written is None:
+            found.append(f"최종 합격자 {finalist.name}의 reason이 없다")
+            continue
+        if not _usable([written.reason], allowed_numbers):
+            found.append(f"{finalist.name}의 reason에 자료에 없는 숫자나 쓰면 안 되는 조건이 있다")
+        allowed_sources = _allowed_sources(finalist)
+        if unknown := [source for source in written.sources if source not in allowed_sources]:
+            found.append(f"{finalist.name}의 sources에 자료에 없는 출처가 있다: {', '.join(unknown)}")
+    if unknown_names := sorted(set(drafts) - {finalist.name for finalist in data.finalists}):
+        found.append(f"자료에 없는 이름이 finalists에 있다: {', '.join(unknown_names)}")
+    return found
+
+
+def _retry_prompt(user: str, draft: ReportDraft, found: list[str]) -> str:
+    reasons = "\n".join(f"- {reason}" for reason in found)
+    return (
+        f"{user}\n\n앞서 쓴 답:\n{draft.model_dump_json()}\n\n앞서 쓴 답의 문제:\n{reasons}\n"
+        "문제를 고쳐 답 전체를 다시 쓴다."
     )
 
 
@@ -90,15 +133,21 @@ def _count_notes(data: ReportInput) -> list[str]:
 
 
 def _finalist(finalist: FinalistInput, drafts: list[FinalistDraft], allowed_numbers: set[str]) -> Finalist:
-    allowed_sources = {finding.source for finding in finalist.notable}
-    if finalist.memos:
-        allowed_sources.add(MEMO_SOURCE)
+    allowed_sources = _allowed_sources(finalist)
     draft = next((draft for draft in drafts if draft.name.strip() == finalist.name), None)
     if draft is not None and _usable([draft.reason], allowed_numbers):
         sources = _dedupe(source for source in draft.sources if source in allowed_sources)
         if sources:
             return Finalist(name=finalist.name, reason=draft.reason.strip(), sources=sources)
     return _fallback_finalist(finalist)
+
+
+def _allowed_sources(finalist: FinalistInput) -> set[str]:
+    """그 합격자의 reason에 쓸 수 있는 출처. 분석 근거의 출처와, 메모가 있으면 전형 메모다."""
+    sources = {finding.source for finding in finalist.notable}
+    if finalist.memos:
+        sources.add(MEMO_SOURCE)
+    return sources
 
 
 def _fallback_finalist(finalist: FinalistInput) -> Finalist:
