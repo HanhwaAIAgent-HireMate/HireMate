@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field
 from pydantic.alias_generators import to_camel
 
 from hiremate_ai.agents.generation.posting.checks import blocked_terms, problems
-from hiremate_ai.agents.generation.posting.ncs import NcsUnit, ncs_data, subdivisions, unit_by_code, units_of
 from hiremate_ai.agents.generation.posting.types import (
     PostingDraftContext,
     PostingSuggestion,
@@ -29,6 +28,7 @@ from hiremate_ai.agents.generation.posting.types import (
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.contract import DocumentType, PostingContent, StageType
 from hiremate_ai.llm.client import LlmClient
+from hiremate_ai.tools.ncs import NcsUnit, ncs_data, subdivisions, unit_by_code, units_of
 
 AGENT = "posting"
 """호출 로그와 backend 연동 경로(/agents/posting/...)에 쓰는 Agent 키."""

@@ -1,7 +1,6 @@
 from typing import Any
 from uuid import UUID
 
-from hiremate_ai.agents.generation.posting.ncs import ncs_data
 from hiremate_ai.agents.generation.posting.reviser import (
     ANSWER_ONLY_REPLY,
     BLOCKED_REPLY,
@@ -29,6 +28,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, RecruitmentStatus, StageDraft
 from hiremate_ai.contract import DocumentType, PostingContent, StageType
 from hiremate_ai.llm.fake import FakeLlm
+from hiremate_ai.tools.ncs import ncs_data
 
 CONTENT = PostingContent(
     title="결제 플랫폼 백엔드 개발자",
