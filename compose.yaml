@@ -17,8 +17,12 @@ services:
 
   redis:
     image: redis:8
+    # 분석 작업 대기열(Redis 스트림)이 재시작해도 남도록 쓰기 기록(AOF)을 켠다
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
 
   # 로컬 메일 확인용 SMTP 서버. 보낸 메일은 http://localhost:8025 에서 본다
   mailpit:
@@ -29,3 +33,4 @@ services:
 
 volumes:
   postgres-data:
+  redis-data:
