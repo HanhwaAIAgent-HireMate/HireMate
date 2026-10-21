@@ -18,6 +18,7 @@ from hiremate_ai.agents.root.types import CandidateRow, ChatContext
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
 from hiremate_ai.db.profile import ItemAgent, ItemCategory
 from hiremate_ai.db.profile_store import NewItem, save_profile
+from hiremate_ai.db.session import session_factory
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
 from hiremate_ai.tools.scope import ToolScope
 
@@ -125,6 +126,13 @@ def test_default_toolkit_uses_keyword_search() -> None:
         "get_stage_summary",
         "get_previous_turns",
     }
+
+
+def test_profile_toolkit_adds_profile_tool() -> None:
+    toolkit = profile_toolkit(session_factory("postgresql+psycopg://unused@localhost/unused"))
+
+    tools = {tool.name for tool in toolkit.answer_tools}
+    assert tools == {tool.name for tool in default_toolkit().answer_tools} | {"get_candidate_profile"}
 
 
 def test_english_synonyms() -> None:

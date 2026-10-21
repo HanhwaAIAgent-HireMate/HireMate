@@ -21,6 +21,7 @@ from hiremate_ai.contract import ApplicantDocument, StageType
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block, documents_block
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
+from hiremate_ai.tools.profile_lookup import profile_tool
 from hiremate_ai.tools.profile_search import profile_search
 from hiremate_ai.tools.scope import ToolScope
 
@@ -439,7 +440,8 @@ def profile_toolkit(sessions: async_sessionmaker[AsyncSession]) -> RootToolkit:
     찾기는 프로필 문장을 먼저 쓰고, 모자라거나 프로필이 없으면 제출 문서 문장으로 채운다.
     """
     search = merged_search(profile_search(sessions, terms=concept_terms), keyword_search)
-    return RootToolkit(search=search, answer_tools=ANSWER_TOOLS, brief=context_brief)
+    answer_tools = (*ANSWER_TOOLS, profile_tool(sessions, resolve=_chat_ref))
+    return RootToolkit(search=search, answer_tools=answer_tools, brief=context_brief)
 
 
 def get_toolkit() -> RootToolkit:
@@ -448,6 +450,12 @@ def get_toolkit() -> RootToolkit:
 
 
 ToolkitDep = Annotated[RootToolkit, Depends(get_toolkit)]
+
+
+def _chat_ref(scope: ToolScope, ref: str) -> UUID | None:
+    """프로필 조회 도구가 받은 지원자 번호(C1)를 지원서 id로 바꾼다. 다른 도구와 같은 번호를 쓴다."""
+    row = resolve_ref(scope.chat, ref) if isinstance(scope, RootToolContext) else None
+    return row.application_id if row else None
 
 
 def _used(runtime: ToolRuntime[RootToolContext], name: str) -> RootToolContext:
