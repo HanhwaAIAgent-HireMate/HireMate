@@ -185,9 +185,15 @@ def refers_previous(route: RootRoute, context: ChatContext) -> bool:
     """앞 대화의 지원자를 대상으로 쓸지. 체크한 지원자가 있으면 순서나 앞 대화를 가리키는 말이 있어야 한다."""
     if route.previous_ref == "none":
         return False
-    if not checked(context) or route.ordinal is not None:
-        return True
-    return bool(_PREVIOUS_WORDS.search(context.message))
+    return not checked(context) or says_previous(route, context.message)
+
+
+def says_previous(route: RootRoute, message: str) -> bool:
+    """문장이 앞 대화를 가리키는가: 순서를 말하거나 앞 대화를 가리키는 말이 있다.
+
+    실제 모델은 이름이 없는 질문이면 "미결정이 몇 명 남았어?"에도 앞 대화를 표시한다.
+    """
+    return route.ordinal is not None or bool(_PREVIOUS_WORDS.search(message))
 
 
 def posting_section(route: RootRoute, message: str) -> Literal["qualifications", "preferred", "both"] | None:
