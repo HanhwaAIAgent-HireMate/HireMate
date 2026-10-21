@@ -9,6 +9,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
     FIELD_LABELS,
     LOCKED_REPLY,
     MAX_NCS_UNITS,
+    NCS_DETAIL_CHARS,
     NCS_SYSTEM,
     NOTHING_CHANGED_REPLY,
     RETRY_HINT,
@@ -28,7 +29,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, RecruitmentStatus, StageDraft
 from hiremate_ai.contract import DocumentType, PostingContent, StageType
 from hiremate_ai.llm.fake import FakeLlm
-from hiremate_ai.tools.ncs import ncs_data
+from hiremate_ai.tools.ncs import ncs_data, unit_by_code
 
 CONTENT = PostingContent(
     title="결제 플랫폼 백엔드 개발자",
@@ -474,6 +475,33 @@ async def test_revise_shows_only_picked_units_with_definitions_to_ncs_writer() -
     assert SQL not in write.user
     assert "지금 우대 사항:\n- 금융 도메인 경험" in write.user
     assert "HR 요청: 자격 요건 새로 써 줘" in write.user
+
+
+async def test_revise_shows_performance_criteria_of_a_single_picked_unit_in_full() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft([]))
+
+    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
+
+    unit = unit_by_code(SERVER)
+    assert unit is not None
+    write = llm.calls[2].user
+    assert all(f"  · {criterion}" in write for element in unit.elements for criterion in element.criteria)
+    assert unit.elements[0].knowledge[0] not in write
+
+
+async def test_revise_keeps_ncs_detail_within_budget_and_spreads_it_over_elements() -> None:
+    codes = [unit.code for unit in ncs_data().units][: MAX_NCS_UNITS - 1] + [SERVER]
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=codes), ncs_draft([]))
+
+    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
+
+    write = llm.calls[2].user
+    detail = write.split("NCS 능력단위 (")[1].split("\n\nHR 요청")[0]
+    assert len(detail) < NCS_DETAIL_CHARS * 1.3
+    server = unit_by_code(SERVER)
+    assert server is not None
+    shown = [element.number for element in server.elements if f"  · {element.criteria[0]}" in write]
+    assert shown == [1, 2, 3, 4]
 
 
 async def test_revise_lists_ncs_units_only_in_the_pick_step() -> None:
