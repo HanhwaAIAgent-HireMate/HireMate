@@ -7,6 +7,7 @@ public enum AiAgent {
     ROOT("root"),
     APPLICATION("application"),
     CANDIDATE_ANALYST("candidate-analyst"),
+    ASSESSMENT("assessment"),
     INTERVIEW("interview"),
     POSTING("posting"),
     COMMUNICATION("communication"),

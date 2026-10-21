@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,7 +35,7 @@ import tools.jackson.core.type.TypeReference;
 
 /**
  * 외부 평가 결과 등록 (FR-25, FR-26). 결과표 · 지원자별 파일 · 수동 입력 · 제출 파일과 URL을 평가 전형의 결과로 관리한다.
- * 총점은 전형 화면 리스트에 붙고 점수 높은 순 정렬에 쓴다.
+ * 총점은 전형 화면 리스트에 붙고 점수 높은 순 정렬에 쓴다. 결과가 등록되면 AssessmentResultRecorded를 발행한다.
  */
 @Service
 public class AssessmentService {
@@ -44,14 +45,16 @@ public class AssessmentService {
     private final RecruitService recruits;
     private final ApplicationService applications;
     private final FileService files;
+    private final ApplicationEventPublisher events;
 
     public AssessmentService(AssessmentResultRepository results, ScreeningService screening, RecruitService recruits,
-            ApplicationService applications, FileService files) {
+            ApplicationService applications, FileService files, ApplicationEventPublisher events) {
         this.results = results;
         this.screening = screening;
         this.recruits = recruits;
         this.applications = applications;
         this.files = files;
+        this.events = events;
     }
 
     public TablePreview preview(String fileName, byte[] content) {
@@ -79,6 +82,7 @@ public class AssessmentService {
                 result(companyId, stageId, applicationId)
                         .record(entry.total(), JsonText.write(entry.areas()), blankToNull(entry.grade()), "TABLE");
                 screening.recordScore(companyId, stageId, applicationId, entry.total());
+                recorded(companyId, stage, applicationId);
             }
         }
         return new ImportResult(matches.size(), entries.size(), matches, unmatched, !dryRun);
@@ -88,12 +92,13 @@ public class AssessmentService {
     @Transactional
     public AssessmentResultView saveManual(UUID companyId, UUID stageId, UUID applicationId, BigDecimal total,
             Map<String, BigDecimal> areas, String grade, String url, String note) {
-        assessmentStage(companyId, stageId, true);
+        Stage stage = assessmentStage(companyId, stageId, true);
         screening.detail(companyId, stageId, applicationId);
         AssessmentResult result = result(companyId, stageId, applicationId);
         result.record(total, JsonText.write(areas), blankToNull(grade), "MANUAL");
         result.submission(blankToNull(url), blankToNull(note));
         screening.recordScore(companyId, stageId, applicationId, total);
+        recorded(companyId, stage, applicationId);
         return toView(result);
     }
 
@@ -101,11 +106,12 @@ public class AssessmentService {
     @Transactional
     public AssessmentResultView attach(UUID companyId, UUID stageId, UUID applicationId, String fileName,
             byte[] content) {
-        assessmentStage(companyId, stageId, true);
+        Stage stage = assessmentStage(companyId, stageId, true);
         screening.detail(companyId, stageId, applicationId);
         StoredFileInfo stored = files.storePdf(companyId, fileName, content);
         AssessmentResult result = result(companyId, stageId, applicationId);
         result.attach(stored.fileId(), stored.originalName());
+        recorded(companyId, stage, applicationId);
         return toView(result);
     }
 
@@ -121,6 +127,11 @@ public class AssessmentService {
                 .filter(found -> found.getFileId() != null)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "FILE_NOT_FOUND", "File not found."));
         return files.read(companyId, result.getFileId());
+    }
+
+    private void recorded(UUID companyId, Stage stage, UUID applicationId) {
+        events.publishEvent(
+                new AssessmentResultRecorded(companyId, stage.recruitmentId(), stage.stageId(), applicationId));
     }
 
     private AssessmentResult result(UUID companyId, UUID stageId, UUID applicationId) {

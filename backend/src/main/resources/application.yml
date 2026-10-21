@@ -54,7 +54,7 @@ hiremate:
     # stub: backend 안의 개발용 응답, remote: ai 서버(ai/) 호출
     mode: ${HIREMATE_AI_MODE:stub}
     # Agent별로 mode를 덮어쓰려면 hiremate.ai.agents.{key}를 준다 (환경 변수 예: HIREMATE_AI_AGENTS_ROOT=remote)
-    # key: root, application, candidate-analyst, interview, posting, communication, report
+    # key: root, application, candidate-analyst, assessment, interview, posting, communication, report
     base-url: ${HIREMATE_AI_BASE_URL:http://localhost:8001}
     # ai 서버 응답을 기다리는 시간. LLM 호출이 길어질 수 있다
     timeout: ${HIREMATE_AI_TIMEOUT:60s}
