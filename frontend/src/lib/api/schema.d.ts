@@ -516,6 +516,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/applications/{applicationId}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retryAnalysis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/postings/{postingId}/applications": {
         parameters: {
             query?: never;
@@ -2464,6 +2480,27 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["PostingAiAnswer"];
                 };
+            };
+        };
+    };
+    retryAnalysis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
