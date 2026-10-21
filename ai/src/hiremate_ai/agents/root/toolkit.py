@@ -5,7 +5,7 @@
 """
 
 import re
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Annotated
 from uuid import UUID
@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion
 from hiremate_ai.contract import ApplicantDocument, StageType
+from hiremate_ai.db.profile import ItemAgent
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block, documents_block
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
@@ -30,7 +31,7 @@ from hiremate_ai.tools.scope import ToolScope
 class RootToolContext(ToolScope):
     """Root의 도구가 받는 범위. 임시 도구는 chat을 읽고, 다른 역할의 도구는 ToolScope 필드만 읽는다.
 
-    called에는 도구 루프에서 부른 도구 이름이 쌓인다. 답의 agents를 채울 때 쓴다.
+    called에는 도구 루프에서 부른 도구 이름이 쌓인다.
     """
 
     chat: ChatContext
@@ -435,12 +436,82 @@ def profile_brief(sessions: Sessions) -> CandidateBrief:
 
 
 @dataclass(frozen=True)
+class AgentEvidence:
+    """분석 Agent가 프로필 항목에 남긴 근거 문장. 원문 대조는 그 Agent가 저장할 때 마쳤다."""
+
+    sentence: str
+    source: str
+    agent: str  # ItemAgent 값
+
+
+type ProfileEvidence = Callable[[RootToolContext, Sequence[UUID]], Awaitable[dict[UUID, list[AgentEvidence]]]]
+
+# 프로필 항목을 만든 분석 Agent. 그 항목의 근거를 답에 쓰면 답의 agents에 이 이름이 들어간다
+AGENT_NAMES: dict[str, str] = {
+    ItemAgent.APPLICATION: "Application Agent",
+    ItemAgent.ASSESSMENT: "Assessment Agent",
+    ItemAgent.INTERVIEW: "Interview Agent",
+}
+
+
+async def no_profile_evidence(
+    scope: RootToolContext, application_ids: Sequence[UUID]
+) -> dict[UUID, list[AgentEvidence]]:
+    """프로필 없이 도는 묶음. 근거는 ChatContext 자료로만 확인한다."""
+    return {}
+
+
+def profile_evidence(sessions: Sessions) -> ProfileEvidence:
+    """지원자들의 프로필 항목 가운데 근거 문장이 있는 것을 만든 Agent와 함께 읽는다. 범위 밖 지원자는 읽지 않는다."""
+
+    async def evidence(scope: RootToolContext, application_ids: Sequence[UUID]) -> dict[UUID, list[AgentEvidence]]:
+        found: dict[UUID, list[AgentEvidence]] = {}
+        async with sessions() as session:
+            for application_id in dict.fromkeys(application_ids):
+                profile = await read_profile(session, scope, application_id)
+                if profile is not None:
+                    found[application_id] = [
+                        AgentEvidence(sentence=item.evidence, source=item.source, agent=item.agent)
+                        for item in profile.items
+                        if item.evidence
+                    ]
+        return found
+
+    return evidence
+
+
+def recorded_evidence(
+    recorded: Mapping[UUID, Sequence[AgentEvidence]], application_id: UUID, sentence: str
+) -> AgentEvidence | None:
+    """근거 문장이 든 이 지원자의 프로필 근거. 공백 차이는 무시한다."""
+    needle = "".join(sentence.split())
+    if not needle:
+        return None
+    for each in recorded.get(application_id, ()):
+        if needle in "".join(each.sentence.split()):
+            return each
+    return None
+
+
+def cited_agents(recorded: Mapping[UUID, Sequence[AgentEvidence]], cited: Iterable[tuple[UUID, str]]) -> list[str]:
+    """(지원자, 근거 문장) 가운데 분석 Agent의 프로필 근거와 같은 문장을 낸 Agent 이름. 처음 나온 순서다."""
+    names = []
+    for application_id, sentence in cited:
+        found = recorded_evidence(recorded, application_id, sentence)
+        name = AGENT_NAMES.get(found.agent) if found else None
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+@dataclass(frozen=True)
 class RootToolkit:
-    """search는 찾기, answer_tools는 도구 루프, brief는 여러 명 분석이 쓴다."""
+    """search는 찾기, answer_tools는 도구 루프, brief는 여러 명 분석, evidence는 답 근거 확인이 쓴다."""
 
     search: CandidateSearch
     answer_tools: Sequence[BaseTool] = ()
     brief: CandidateBrief = context_brief
+    evidence: ProfileEvidence = no_profile_evidence
 
 
 def default_toolkit() -> RootToolkit:
@@ -452,10 +523,16 @@ def profile_toolkit(sessions: async_sessionmaker[AsyncSession]) -> RootToolkit:
     """지원자 프로필을 함께 쓰는 묶음.
 
     찾기는 프로필 문장을 먼저 쓰고, 모자라거나 프로필이 없으면 제출 문서 문장으로 채운다.
+    답 근거는 분석 Agent가 프로필에 남긴 근거와도 맞춰 본다 (평가 제출물처럼 ChatContext에 원문이 없는 자료).
     """
     search = merged_search(profile_search(sessions, terms=concept_terms), keyword_search)
     answer_tools = (*ANSWER_TOOLS, profile_tool(sessions, resolve=_chat_ref))
-    return RootToolkit(search=search, answer_tools=answer_tools, brief=profile_brief(sessions))
+    return RootToolkit(
+        search=search,
+        answer_tools=answer_tools,
+        brief=profile_brief(sessions),
+        evidence=profile_evidence(sessions),
+    )
 
 
 def get_toolkit() -> RootToolkit:
