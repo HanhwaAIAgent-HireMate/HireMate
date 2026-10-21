@@ -18,6 +18,9 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _DATE = re.compile(r"\d{1,4}\s*(?:년|월|일|시|분)")
 # 지원자 평가나 불합격 사유로 쓰이는 말. 모델이 "뛰어난 역량", "부족함이 있어"처럼 지어낸다
 _EVALUATION = re.compile(r"역량|열정|잠재력|자질|뛰어난|우수한|인상\s*깊|긍정적|부족|미흡|적합하지|일치하지")
+# 나중에 따로 안내한다는 약속. 다음 전형 안내는 backend가 안내를 본문 아래에 붙이는데, 모델이 예전 버릇대로
+# "일정은 별도로 안내드리겠습니다"를 쓰면 붙은 안내와 어긋난다. 쓸 내용에 있을 때(최종 합격)만 쓴다
+_LATER = re.compile(r"(?:별도로?|따로|추후|나중에)\s*(?:안내|연락)")
 # 줄 안의 연속 공백과 세 줄 이상 빈 줄. 메일이 글자로만 가서 그대로 보인다
 _INLINE_SPACES = re.compile(r"[ \t]{2,}")
 _BLANK_LINES = re.compile(r"\n{3,}")
@@ -58,6 +61,8 @@ def problems(content: str, source: str) -> list[str]:
         found.append(f"주어진 정보에 없는 날짜나 시각을 썼다: {', '.join(invented)}")
     if judged := sorted({word for word in _EVALUATION.findall(content) if _compact(word) not in _compact(source)}):
         found.append(f"주어진 정보에 없는 평가나 불합격 사유를 썼다: {', '.join(judged)}")
+    if (later := _LATER.search(content)) and not _LATER.search(source):
+        found.append(f"쓸 내용에 없는 나중 안내 약속을 썼다: {later.group()}")
     return found
 
 
