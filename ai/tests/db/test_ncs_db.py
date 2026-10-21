@@ -52,7 +52,7 @@ async def test_loads_every_row_of_the_json(db_session: AsyncSession) -> None:
     assert (result.duties, result.units, result.retired) == (2, 38, [])
     assert await count(db_session, NcsUnitRow) == 38
     assert await count(db_session, NcsElementRow) == elements == 107
-    assert await count(db_session, NcsStatementRow) == statements == 355 + 1413
+    assert await count(db_session, NcsStatementRow) == statements == 355 + 1948
 
 
 async def test_units_come_back_exactly_as_in_the_json(db_session: AsyncSession) -> None:
@@ -87,7 +87,7 @@ async def test_loading_twice_gives_the_same_rows(db_session: AsyncSession) -> No
     await load_ncs(db_session, data)
 
     assert await count(db_session, NcsUnitRow) == 38
-    assert await count(db_session, NcsStatementRow) == 355 + 1413
+    assert await count(db_session, NcsStatementRow) == 355 + 1948
 
 
 async def test_new_version_retires_the_old_one(db_session: AsyncSession) -> None:
