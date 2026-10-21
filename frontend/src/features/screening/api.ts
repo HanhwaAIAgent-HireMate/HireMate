@@ -157,11 +157,14 @@ export function useSaveMemo(stageId: string, applicationId: string) {
   )
 }
 
-/** "경력 5년 · OO카드", 신입은 "신입" */
+/** "경력 5년 · OO카드", 신입은 "신입". 분석은 끝났는데 서류에서 경력을 읽지 못하면 "경력 확인 필요" */
 export function careerLabel(
   row: Pick<CandidateRow, 'careerYears' | 'lastCompany' | 'analysisStatus'>,
 ) {
-  if (row.careerYears === null) return row.analysisStatus === 'FAILED' ? '분석 실패' : '분석 중'
+  if (row.careerYears === null) {
+    if (row.analysisStatus === 'DONE') return '경력 확인 필요'
+    return row.analysisStatus === 'FAILED' ? '분석 실패' : '분석 중'
+  }
   if (row.careerYears === 0) return '신입'
   return [`경력 ${row.careerYears}년`, row.lastCompany].filter(Boolean).join(' · ')
 }
