@@ -2,10 +2,12 @@
 
 지원자를 직접 고르거나 상태를 바꾸지 않는다. ChatContext는 그래프 상태가 아니라 실행 context로 넘겨
 지원자 문서 본문이 대화방 상태에 남지 않는다. 대화방(thread)을 주면 체크포인터가 턴 기록을 이어 보관한다.
+처리 중에는 노드가 단계 문구와 검증된 항목을 custom 스트림으로 낸다 (stream_plan).
 """
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
@@ -18,6 +20,7 @@ from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.answer import plan_answer, plan_questions
 from hiremate_ai.agents.root.edit import plan_edit
 from hiremate_ai.agents.root.find import plan_find
+from hiremate_ai.agents.root.progress import writer_progress
 from hiremate_ai.agents.root.route import (
     COMPARE_NEEDS_TWO,
     NO_PREVIOUS,
@@ -32,7 +35,7 @@ from hiremate_ai.agents.root.route import (
 from hiremate_ai.agents.root.targets import Targets, checked, resolve
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
 from hiremate_ai.agents.root.turns import Turn, next_result, recall, remember, remembered, turn_of
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent
+from hiremate_ai.agents.root.types import ChatContext, ChatItem, ChatPlan, ChatStatus, EditAction, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import StageType
 from hiremate_ai.llm.chat import LlmOutputError
@@ -63,6 +66,13 @@ class RootThread:
 # 이번 턴의 값을 지우고 시작하는 입력. 대화방을 이어 쓸 때 앞 턴의 계획이 남지 않게 한다
 _NEW_TURN: RootState = {"targets": None, "route": None, "plan": None}
 
+# 처리 중 화면에 보이는 단계 문구. 분류가 끝나고 경로로 갈 때만 ROUTED를 낸다
+CHECKING = "요청을 확인하고 있어요"
+ROUTED = {"ANSWER": "분석 요청으로 처리해요", "FIND": "찾기 요청으로 처리해요", "EDIT": "선택 지원자를 바꾸고 있어요"}
+
+# (이벤트 이름, data). 마지막은 done 하나다
+type PlanEvent = tuple[Literal["status", "item", "done"], ChatStatus | ChatItem | ChatPlan]
+
 
 def build_root_graph(
     llm: LlmClient, toolkit: RootToolkit | None = None, checkpointer: BaseCheckpointSaver[Any] | None = None
@@ -75,6 +85,7 @@ def build_root_graph(
 
     def guard(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         context = runtime.context
+        writer_progress(runtime.stream_writer).status(CHECKING)
         if blocked_attribute(context.message):
             return {"plan": ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY)}
         return {"targets": resolve(context)}
@@ -105,20 +116,23 @@ def build_root_graph(
         if decided.kind == "ANSWER" and asks_comparison(decided, context.message) and len(targets.rows) < 2:
             plan = ChatPlan.answer(Intent.CLARIFY, COMPARE_NEEDS_TWO)
             return {"route": decided, "targets": targets, "plan": plan}
+        writer_progress(runtime.stream_writer).status(ROUTED.get(decided.kind, ROUTED["ANSWER"]))
         return {"route": decided, "targets": targets}
 
     def edit(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         return {"plan": plan_edit(_route(state), runtime.context, _targets(state))}
 
     async def find(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
-        return {"plan": await plan_find(llm, _route(state), runtime.context, tools)}
+        progress = writer_progress(runtime.stream_writer)
+        return {"plan": await plan_find(llm, _route(state), runtime.context, tools, progress=progress)}
 
     async def answer(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         context = runtime.context
         decided, targets, turns = _route(state), _targets(state), state.get("turns") or []
+        progress = writer_progress(runtime.stream_writer)
         if decided.interview_questions and context.stage_type is StageType.INTERVIEW:
-            return {"plan": await plan_questions(llm, decided, context, targets, tools, turns)}
-        return {"plan": await plan_answer(llm, decided, context, targets, tools, turns)}
+            return {"plan": await plan_questions(llm, decided, context, targets, tools, turns, progress=progress)}
+        return {"plan": await plan_answer(llm, decided, context, targets, tools, turns, progress=progress)}
 
     def record(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         """턴을 남기고 이번 턴의 값을 비운다. 대화방에는 JSON 값(턴 기록)만 남아 라이브러리를 올려도 다시 읽힌다."""
@@ -165,6 +179,21 @@ async def run_plan(
     thread: RootThread | None = None,
 ) -> ChatPlan:
     """계획을 낸다. saver와 thread를 주면 그 대화방에 턴을 남기고 앞 턴 기록을 이어 쓴다."""
+    async for name, data in stream_plan(llm, context, toolkit, saver=saver, thread=thread):
+        if name == "done" and isinstance(data, ChatPlan):
+            return data
+    raise TypeError("Root 그래프가 계획을 내지 않았다")
+
+
+async def stream_plan(
+    llm: LlmClient,
+    context: ChatContext,
+    toolkit: RootToolkit | None = None,
+    *,
+    saver: BaseCheckpointSaver[Any] | None = None,
+    thread: RootThread | None = None,
+) -> AsyncIterator[PlanEvent]:
+    """진행 알림(status, item)을 내고, 턴을 남긴 뒤 마지막에 계획(done)을 낸다."""
     remembering = saver is not None and thread is not None
     graph = build_root_graph(llm, toolkit, saver if remembering else None)
     config: RunnableConfig | None = None
@@ -173,11 +202,18 @@ async def run_plan(
             "configurable": {"thread_id": thread.id},
             "metadata": {"stage_id": str(thread.stage_id), "company_id": str(thread.company_id)},
         }
-    state: dict[str, Any] = await graph.ainvoke(_NEW_TURN, config=config, context=context)
+    state: dict[str, Any] = {}
+    # 여러 모드로 받으면 (모드, 값)이 온다. custom은 노드가 낸 진행 알림, values는 단계마다의 상태다
+    async for streamed in graph.astream(_NEW_TURN, config=config, context=context, stream_mode=["custom", "values"]):
+        mode, chunk = cast(tuple[str, Any], streamed)
+        if mode == "custom":
+            yield chunk
+        else:
+            state = chunk
     turns: list[Turn] = state.get("turns") or []
     if not turns:
         raise TypeError(f"Root 그래프가 턴을 남기지 않았다: {state.keys()}")
-    return ChatPlan.model_validate(turns[-1]["plan"])
+    yield ("done", ChatPlan.model_validate(turns[-1]["plan"]))
 
 
 def _targets(state: RootState) -> Targets:
