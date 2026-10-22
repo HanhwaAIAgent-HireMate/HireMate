@@ -15,6 +15,7 @@ from hiremate_ai.agents.analysis.assessment.checks import NOTE_SOURCE, SUBMISSIO
 from hiremate_ai.agents.analysis.assessment.checks import RESULT_SOURCE as SCORE_SOURCE
 from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.edit import SAME_NAME
+from hiremate_ai.agents.root.progress import SILENT, Progress
 from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.targets import Targets, checked
 from hiremate_ai.agents.root.toolkit import (
@@ -62,6 +63,12 @@ NOTES_SECONDS = 33.0
 SUMMARY_SECONDS = 10.0
 NOT_CHECKED = "자료를 확인하지 못했어요"
 MULTI_FALLBACK = "{names}의 근거를 지원자별로 정리했어요."
+# 처리 중 화면에 보이는 단계 문구 (진행 알림)
+MULTI_STATUS = "{count}명 자료를 정리하고 있어요"
+COMPARE_STATUS = "{count}명을 비교하고 있어요"
+ONE_STATUS = "{name} 자료를 확인하고 있어요"
+STAGE_STATUS = "지원자 자료를 확인하고 있어요"
+FOCUS_STATUS = "면접에서 확인할 점을 정리하고 있어요"
 # 평가 전형 자료. 원문이 ChatContext에 없어 Assessment Agent가 프로필에 남긴 근거와 맞춰 본다
 PROFILE_SOURCES = (SUBMISSION_SOURCE, NOTE_SOURCE)
 
@@ -166,13 +173,16 @@ async def plan_answer(
     targets: Targets,
     toolkit: RootToolkit,
     turns: Sequence[Turn] = (),
+    *,
+    progress: Progress = SILENT,
 ) -> ChatPlan:
     if targets.ambiguous and not targets.rows:
         return ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names=", ".join(targets.ambiguous)))
     # 멘션 · 이름이 없으면 체크한 지원자를 대상으로 본다
     rows = targets.rows or checked(context)
     if 2 <= len(rows) <= MULTI_LIMIT:
-        return await plan_multi(llm, context, rows, toolkit, turns)
+        return await plan_multi(llm, context, rows, toolkit, turns, progress=progress)
+    progress.status(ONE_STATUS.format(name=rows[0].name) if len(rows) == 1 else STAGE_STATUS)
     scope = scope_of(context, turns)
     agent = llm.tool_agent(
         RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
@@ -195,28 +205,45 @@ async def plan_multi(
     rows: Sequence[CandidateRow],
     toolkit: RootToolkit,
     turns: Sequence[Turn] = (),
+    *,
+    progress: Progress = SILENT,
 ) -> ChatPlan:
     """대상이 여럿인 분석. 코드가 지원자마다 자료를 모아 지원자별로 정리하고(동시에), 확인된 항목만으로 답을 쓴다.
 
     도구 루프가 지원자 자료를 한 명씩 부르다 호출 상한에 걸리거나, 여러 지원자의 근거가 한 항목에 섞이지 않게 한다.
     항목의 지원자는 코드가 붙이고 근거는 원문과 맞춰 본다 (규칙 7). 정리가 늦거나 실패한 지원자는 확인 필요로 둔다.
+    정리가 끝난 지원자는 바로 검증해 진행 알림으로 보낸다. 최종 항목은 지원자 순서다.
     """
     scope = scope_of(context, turns)
     shared = f"공고:\n{posting_text(context)}\n\n회사:\n{company_text(context)}"
+    progress.status(MULTI_STATUS.format(count=len(rows)))
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + NOTES_SECONDS
     tasks = [asyncio.create_task(_notes(llm, context, row, shared, toolkit, scope)) for row in rows]
+    row_of = dict(zip(tasks, rows, strict=True))
+    done: set[asyncio.Task[CandidateNotes]] = set()
+    verified: dict[asyncio.Task[CandidateNotes], tuple[list[ChatItem], list[str], list[str]]] = {}
     try:
-        done, pending = await asyncio.wait(tasks, timeout=NOTES_SECONDS)
+        # 정리 결과에 기대지 않는 조회라 정리가 도는 동안 받아 둔다
+        recorded = await toolkit.evidence(scope, [row.application_id for row in rows])
+        pending: set[asyncio.Task[CandidateNotes]] = set(tasks)
+        while pending and (left := deadline - loop.time()) > 0:
+            finished_now, pending = await asyncio.wait(pending, timeout=left, return_when=asyncio.FIRST_COMPLETED)
+            for task in finished_now:
+                done.add(task)
+                error = task.exception()
+                if error is not None and not isinstance(error, LlmOutputError):
+                    raise error
+                if error is None:
+                    verified[task] = _verify_notes(context, row_of[task], task.result(), recorded)
+                    for item in verified[task][0]:
+                        progress.item(item)
     finally:
         # 시간이 다 됐거나 요청이 취소되면 남은 정리 호출을 멈춘다. 모델 서버를 붙잡아 두지 않게 한다
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-    for task in done:
-        error = task.exception()
-        if error is not None and not isinstance(error, LlmOutputError):
-            raise error
 
-    recorded = await toolkit.evidence(scope, [row.application_id for row in rows]) if done else {}
     items: list[ChatItem] = []
     sources: list[str] = []
     agents: list[str] = []
@@ -228,15 +255,26 @@ async def plan_multi(
             )
             continue
         finished += 1
-        ref = candidate_ref(context, row.application_id)
-        own = [item.model_copy(update={"candidate": ref}) for item in task.result().items]
-        verified, found, used = verify_items(own, context, row, recorded)
-        items += verified
+        own, found, used = verified[task]
+        items += own
         sources += [source for source in found if source not in sources]
         agents += [agent for agent in used if agent not in agents]
     if not finished:
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+    progress.status(COMPARE_STATUS.format(count=len(rows)))
     return ChatPlan.answer(Intent.ANSWER, await _summary(llm, context, rows, items), items, sources, agents)
+
+
+def _verify_notes(
+    context: ChatContext,
+    row: CandidateRow,
+    notes: CandidateNotes,
+    recorded: Mapping[UUID, Sequence[AgentEvidence]],
+) -> tuple[list[ChatItem], list[str], list[str]]:
+    """지원자 한 명의 정리를 그 지원자의 항목으로 바꾸고 근거를 원문과 맞춰 본다."""
+    ref = candidate_ref(context, row.application_id)
+    own = [item.model_copy(update={"candidate": ref}) for item in notes.items]
+    return verify_items(own, context, row, recorded)
 
 
 async def _notes(
@@ -284,6 +322,8 @@ async def plan_questions(
     targets: Targets,
     toolkit: RootToolkit,
     turns: Sequence[Turn] = (),
+    *,
+    progress: Progress = SILENT,
 ) -> ChatPlan:
     """면접 전형의 면접 질문 요청. 질문은 backend가 Interview Agent로 만들고, Root는 대상과 확인할 점만 정한다.
 
@@ -306,6 +346,7 @@ async def plan_questions(
         RootQuestionFocus, agent="root", system=FOCUS_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
     )
     prompt = answer_prompt(context, Targets(rows=rows, ambiguous=[]))
+    progress.status(FOCUS_STATUS)
     try:
         async with asyncio.timeout(ANSWER_TIMEOUT_SECONDS):
             result = await agent.run(prompt, context=scope)
