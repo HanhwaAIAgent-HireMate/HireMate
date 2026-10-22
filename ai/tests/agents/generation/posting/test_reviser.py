@@ -4,6 +4,7 @@ from uuid import UUID
 import pytest
 
 from hiremate_ai.agents.generation.posting.reviser import (
+    ADVANCED_LABEL,
     ANSWER_ONLY_REPLY,
     BLOCKED_REPLY,
     CHECK_FAILED_REPLY,
@@ -58,6 +59,12 @@ TEST_RUN = "2001020227_23v6"
 """응용SW엔지니어링 · 애플리케이션 테스트 수행 (조사 점수 1위)"""
 INTEGRATION = "2001020206_23v6"
 """응용SW엔지니어링 · 통합 구현 (조사 점수가 서버프로그램 구현보다 낮다)"""
+INTERFACE_DESIGN = "2001020218_23v6"
+"""응용SW엔지니어링 · 인터페이스 설계 (수준 6)"""
+INTERFACE_BUILD = "2001020212_23v6"
+"""응용SW엔지니어링 · 인터페이스 구현 (수준 5, 서버프로그램 구현과 같다)"""
+DB_BUILD = "2001020405_19v4"
+"""DB엔지니어링 · 데이터베이스 구현 (수준 4)"""
 DOCUMENT = StageDraft(name="서류 전형", type=StageType.DOCUMENT)
 CODING = StageDraft(name="코딩테스트", type=StageType.ASSESSMENT)
 INTERVIEW = StageDraft(name="1차 면접", type=StageType.INTERVIEW)
@@ -522,6 +529,37 @@ async def test_revise_shows_performance_criteria_of_a_single_picked_unit_in_full
     write = llm.calls[2].user
     assert all(f"  · {criterion}" in write for element in unit.elements for criterion in element.criteria)
     assert unit.elements[0].knowledge[0] not in write
+
+
+async def test_revise_shows_criteria_under_their_element_names() -> None:
+    """요소 이름을 보여 줘야 한 능력단위를 두 목록에 쓸 때 서로 다른 세부 능력을 고를 수 있다."""
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft([]))
+
+    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
+
+    unit = unit_by_code(SERVER)
+    assert unit is not None
+    write = llm.calls[2].user
+    for element in unit.elements:
+        assert f"  [{element.name}]\n  · {element.criteria[0]}" in write
+    assert write.index("[개발환경 구축하기]") < write.index("[배치 프로그램 구현하기]")
+
+
+async def test_revise_names_the_highest_level_units() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER, INTERFACE_DESIGN, DB_BUILD]), ncs_draft([]))
+
+    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
+
+    assert f"\n{ADVANCED_LABEL}: 인터페이스 설계\n" in llm.calls[2].user
+    assert f'"{ADVANCED_LABEL}"' in NCS_SYSTEM
+
+
+async def test_revise_names_no_advanced_unit_when_levels_are_equal() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER, INTERFACE_BUILD]), ncs_draft([]))
+
+    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
+
+    assert ADVANCED_LABEL not in llm.calls[2].user
 
 
 async def test_revise_keeps_ncs_detail_within_budget_and_spreads_it_over_elements() -> None:
