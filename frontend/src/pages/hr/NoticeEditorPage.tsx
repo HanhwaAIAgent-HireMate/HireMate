@@ -23,9 +23,13 @@ import {
   useEditNotice,
   useNoticeAiRequest,
   useNotices,
+  useSaveOnboarding,
   useSendNotice,
   type Notice,
+  type OnboardingGuide,
 } from '@/features/notice/api'
+import { emptyFields, type GuideField } from '@/features/notice/guide'
+import { GuideFields } from '@/features/notice/GuideFields'
 import { sentenceDiff } from '@/features/notice/sentenceDiff'
 import { STAGE_GUIDES_ID } from '@/features/notice/StageGuides'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
@@ -39,6 +43,34 @@ const EXAMPLES = [
   '내용을 짧게 줄여줘',
   '추가: 문의는 recruit@example.com으로 해 주세요.',
 ]
+
+/** 입사 안내 칸. 입사일은 최종 합격자를 정한 뒤에 정해져, 공고가 아니라 최종 합격 안내를 보낼 때 이 화면에서 쓴다 */
+const ONBOARDING_FIELDS: GuideField<keyof OnboardingGuide>[] = [
+  { key: 'startDate', label: '입사일', placeholder: '예: 12월 1일(월) 오전 9시', maxLength: 200 },
+  {
+    key: 'place',
+    label: '출근 장소',
+    placeholder: '예: 서울 중구 OO빌딩 5층 인사팀',
+    maxLength: 500,
+  },
+  {
+    key: 'documents',
+    label: '제출 서류',
+    placeholder: '예: 졸업증명서, 경력증명서',
+    maxLength: 1000,
+  },
+  { key: 'preparation', label: '준비 사항', placeholder: '예: 신분증', maxLength: 1000 },
+  {
+    key: 'note',
+    label: '기타 안내',
+    placeholder: '한 줄에 하나씩 써요. 예: 11월 25일까지 서류를 보내 주세요',
+    maxLength: 1000,
+    optional: true,
+  },
+]
+const ONBOARDING_ID = 'onboarding'
+/** 입사 안내를 비워 두면 backend가 본문 아래에 붙이는 문장 */
+const ONBOARDING_LATER = '입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.'
 
 // MSG-01 안내 초안 확인 · 수정. 공고 작성과 같은 방식으로 고치고, HR이 확인한 뒤 직접 발송한다
 export function NoticeEditorPage() {
@@ -95,22 +127,29 @@ function Editor({
     content: notice.content,
     closing: notice.closing,
   })
+  const [onboarding, setOnboarding] = useState<OnboardingGuide>(notice.onboarding)
   const [proposal, setProposal] = useState<string | null>(null)
   const [messages, setMessages] = useState<AiMessage[]>([])
   const edit = useEditNotice(notice.stageId, notice.group)
+  const saveOnboarding = useSaveOnboarding(notice.stageId, notice.group)
   const send = useSendNotice(notice.stageId)
   const ai = useNoticeAiRequest(notice.stageId, notice.group)
   const editable = notice.status === 'DRAFT'
-  const dirty =
+  const final = notice.templateType === 'FINAL_PASS'
+  const textDirty =
     draft.subject !== notice.subject ||
     draft.greeting !== notice.greeting ||
     draft.content !== notice.content ||
     draft.closing !== notice.closing
+  const onboardingDirty =
+    final &&
+    ONBOARDING_FIELDS.some((field) => onboarding[field.key] !== notice.onboarding[field.key])
+  const dirty = textDirty || onboardingDirty
 
   const save = async () => {
-    if (!dirty) return true
     try {
-      await edit.mutateAsync(draft)
+      if (textDirty) await edit.mutateAsync(draft)
+      if (onboardingDirty) await saveOnboarding.mutateAsync(onboarding)
       return true
     } catch (error) {
       toast.error(errorMessage(error))
@@ -155,11 +194,25 @@ function Editor({
   }
 
   const remaining = notice.recipientCount - notice.sentCount
-  // 다음 전형 안내인데 다음 전형의 안내 칸(기타 안내 제외)이 비어 있으면 보내기 전에 묻는다
+  // 다음 전형 안내(다음 전형의 안내)나 최종 합격 안내(입사 안내)의 칸이 비어 있으면 보내기 전에 묻는다.
+  // 기타 안내는 비어도 묻지 않는다. 입사 안내는 이 화면에서 고치는 중인 값으로 본다
+  const guideMissing = final
+    ? emptyFields(ONBOARDING_FIELDS, onboarding).map((field) => field.label)
+    : notice.guideMissing
+  const hasGuide = final
+    ? ONBOARDING_FIELDS.some((field) => onboarding[field.key].trim())
+    : Boolean(notice.guide)
   const missingGuide =
-    notice.templateType === 'NEXT_STAGE' &&
+    (notice.templateType === 'NEXT_STAGE' || final) &&
     notice.status === 'DRAFT' &&
-    notice.guideMissing.length > 0
+    guideMissing.length > 0
+  const guideName = final ? '입사 안내' : '다음 전형 안내'
+  const goFillGuide = () => {
+    if (final) {
+      setConfirmingGuide(false)
+      document.getElementById(ONBOARDING_ID)?.scrollIntoView({ block: 'center' })
+    } else void save().then((ok) => ok && navigate(guidesPath))
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -182,22 +235,18 @@ function Editor({
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {notice.guide
-                  ? '다음 전형 안내에 비어 있는 칸이 있어요'
-                  : '다음 전형 안내가 비어 있어요'}
+                {hasGuide ? `${guideName}에 비어 있는 칸이 있어요` : `${guideName}가 비어 있어요`}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                {notice.guide
-                  ? `비어 있는 칸: ${notice.guideMissing.join(', ')}. 그대로 보내면 이 칸은 메일에서 빠져요.`
-                  : '공고 작성의 전형별 안내에 일정, 장소 같은 안내를 입력하면 메일 아래에 함께 보내요. 그대로 보내면 합격 결과와 다음 전형 이름만 보내요.'}
+                {hasGuide
+                  ? `비어 있는 칸: ${guideMissing.join(', ')}. 그대로 보내면 이 칸은 메일에서 빠져요.`
+                  : final
+                    ? `그대로 보내면 '${ONBOARDING_LATER}'라고 보내요.`
+                    : '공고 작성의 전형별 안내에 일정, 장소 같은 안내를 입력하면 메일 아래에 함께 보내요. 그대로 보내면 합격 결과와 다음 전형 이름만 보내요.'}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel
-                onClick={() => void save().then((ok) => ok && navigate(guidesPath))}
-              >
-                입력하러 가기
-              </AlertDialogCancel>
+              <AlertDialogCancel onClick={goFillGuide}>입력하러 가기</AlertDialogCancel>
               <AlertDialogAction onClick={() => void onSend()}>그대로 보내기</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -283,17 +332,41 @@ function Editor({
                   className="resize-none border-dashed"
                 />
               )}
-              {notice.guide && (
-                <div className="space-y-1 rounded-lg bg-muted/50 px-3 py-2">
-                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Lock className="size-3.5" />
-                    보낼 때 붙는 다음 전형 안내 ·
-                    <Link to={guidesPath} className="underline">
-                      공고 작성에서 고치기
-                    </Link>
+              {final && editable ? (
+                <div id={ONBOARDING_ID} className="space-y-2 rounded-lg bg-muted/50 px-3 py-3">
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-semibold text-foreground">입사 안내</span> · 본문 아래에
+                    목록으로 붙어요. 모두 비워 두면 &lsquo;{ONBOARDING_LATER}&rsquo;가 들어가요
                   </p>
-                  <p className="leading-6 whitespace-pre-line">{notice.guide}</p>
+                  <GuideFields
+                    name="입사 안내"
+                    fields={ONBOARDING_FIELDS}
+                    values={onboarding}
+                    disabled={!editable}
+                    onChange={(key, value) =>
+                      setOnboarding((current) => ({ ...current, [key]: value }))
+                    }
+                  />
                 </div>
+              ) : (
+                notice.guide && (
+                  <div className="space-y-1 rounded-lg bg-muted/50 px-3 py-2">
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Lock className="size-3.5" />
+                      {final ? (
+                        '보낸 입사 안내'
+                      ) : (
+                        <>
+                          보낼 때 붙는 다음 전형 안내 ·
+                          <Link to={guidesPath} className="underline">
+                            공고 작성에서 고치기
+                          </Link>
+                        </>
+                      )}
+                    </p>
+                    <p className="leading-6 whitespace-pre-line">{notice.guide}</p>
+                  </div>
+                )
               )}
               <VariableField
                 aria-label="맺음말"
@@ -311,7 +384,7 @@ function Editor({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={edit.isPending}
+                disabled={edit.isPending || saveOnboarding.isPending}
                 onClick={() => void save().then((ok) => ok && toast.success('초안을 저장했어요.'))}
               >
                 저장

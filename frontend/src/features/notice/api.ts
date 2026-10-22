@@ -7,6 +7,7 @@ export type Notice = Schemas['NoticeView']
 export type NoticeGroup = Notice['group']
 export type StageGuide = Schemas['StageGuide']
 export type StageGuideView = Schemas['StageGuideView']
+export type OnboardingGuide = Schemas['OnboardingGuide']
 
 export const noticeKeys = { all: (stageId: string) => ['stage', stageId, 'notices'] as const }
 
@@ -55,6 +56,21 @@ export function useEditNotice(stageId: string, group: NoticeGroup) {
     mutationFn: (body: { subject: string; greeting: string; content: string; closing: string }) =>
       unwrap(
         api.PUT('/api/stages/{stageId}/notices/{group}', {
+          params: { path: { stageId, group } },
+          body,
+        }),
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: noticeKeys.all(stageId) }),
+  })
+}
+
+/** 최종 합격 안내의 입사 안내. 보내기 전까지 고칠 수 있다 */
+export function useSaveOnboarding(stageId: string, group: NoticeGroup) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: OnboardingGuide) =>
+      unwrap(
+        api.PUT('/api/stages/{stageId}/notices/{group}/onboarding', {
           params: { path: { stageId, group } },
           body,
         }),
