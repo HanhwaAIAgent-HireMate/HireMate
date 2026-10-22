@@ -10,7 +10,7 @@ from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile
-from hiremate_ai.db.profile import ItemAgent, ItemCategory
+from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.profile_store import NewItem, ProfileFields, save_profile
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch
@@ -191,6 +191,58 @@ async def test_assessment_items_without_evidence_are_found_by_content(
 
     assert names(sample_applicants, found) == ["박서준"]
     assert [(s.sentence, s.source) for s in found[0].sentences] == [("과제에서 멱등성 처리를 꼼꼼히 구현", "평가 결과")]
+
+
+async def test_conflict_and_unconfirmed_interview_items_are_not_used(
+    db_session: AsyncSession, sample_company: CompanyProfile, sample_applicants: Applicants
+) -> None:
+    await save_samples(db_session, sample_company, sample_applicants)
+    applicant = sample_applicants["박서준"]
+    # 1) 면접 분석이 확인됨 · 상충 · 미확인 항목을 하나씩 낸 것처럼 저장한다 (셋 다 답변 근거 문장이 있다)
+    await save_profile(
+        db_session,
+        company_id=sample_company.company_id,
+        recruitment_id=applicant.info.recruitment_id,
+        application_id=applicant.info.application_id,
+        agent=ItemAgent.INTERVIEW,
+        stage_id=uuid4(),
+        items=[
+            NewItem(
+                category=ItemCategory.STRENGTH,
+                content="멱등성 처리를 직접 구현",
+                evidence="같은 결제 요청이 두 번 와도 한 번만 처리되게 멱등성 키를 넣었습니다.",
+                source="1차 면접 답변",
+                verification=Verification.CONFIRMED,
+            ),
+            NewItem(
+                category=ItemCategory.EXPERIENCE,
+                content="파티셔닝 설계를 맡았다는 서류 내용과 다름",
+                evidence="파티셔닝은 선배가 설계했고 저는 적용만 했습니다.",
+                source="1차 면접 답변",
+                verification=Verification.CONFLICT,
+            ),
+            NewItem(
+                category=ItemCategory.EXPERIENCE,
+                content="샤딩 운영 경험은 답변이 모호함",
+                evidence="샤딩은 운영 중인 시스템에서 조금 봤던 것 같습니다.",
+                source="1차 면접 답변",
+                verification=Verification.UNCONFIRMED,
+            ),
+        ],
+    )
+    scope, pool = scope_of(sample_company, sample_applicants), everyone(sample_applicants)
+
+    confirmed = await search_profiles(db_session, scope, ["멱등성"], pool)
+    conflict = await search_profiles(db_session, scope, ["파티셔닝"], pool)
+    unconfirmed = await search_profiles(db_session, scope, ["샤딩"], pool)
+
+    # 2) 확인됨은 근거 문장과 함께 찾고, 상충 · 미확인은 근거로 쓰지 않는다
+    assert names(sample_applicants, confirmed) == ["박서준"]
+    assert [(s.sentence, s.source) for s in confirmed[0].sentences] == [
+        ("같은 결제 요청이 두 번 와도 한 번만 처리되게 멱등성 키를 넣었습니다.", "1차 면접 답변")
+    ]
+    assert conflict == []
+    assert unconfirmed == []
 
 
 async def test_discriminatory_conditions_are_not_searched(

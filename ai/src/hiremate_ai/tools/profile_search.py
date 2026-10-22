@@ -3,6 +3,7 @@
 tools.candidates.CandidateSearch 모양을 따른다. (조회 범위, 조건들, 후보 id) → 조건에 걸린 지원자.
 - 프로필 항목(내용, 근거 문장)에서 조건 낱말을 찾는다. 원문 전체를 다시 읽지 않는다.
 - 확인 필요(CHECK) 항목은 근거로 쓰지 않는다. "결제 도메인은 처음"이 금융 경험으로 잡히지 않게 하기 위해서다.
+- 상충 항목과, 분석 Agent가 미확인이라고 적은 항목도 근거로 쓰지 않는다.
 - 현재 기업 · 채용 · 전형 범위 안의 후보만 본다 (아키텍처 규칙 4).
 - 같은 입력에는 늘 같은 순서로 돌려준다: 맞은 조건 수가 많은 순, 같으면 후보 id를 받은 순서.
 - 넓게 모으고, 조건을 정말 충족하는지는 Root Agent가 재확인한다.
@@ -23,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.contract import DocumentType
-from hiremate_ai.db.profile import CandidateProfile, ItemCategory, ProfileItem
+from hiremate_ai.db.profile import CandidateProfile, ItemCategory, ProfileItem, Verification
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
 from hiremate_ai.tools.scope import ToolScope
 
@@ -119,12 +120,20 @@ def profile_search(sessions: async_sessionmaker[AsyncSession], *, terms: TermsOf
 
 
 def _usable(item: ProfileItem) -> bool:
-    """검색 근거로 쓸 수 있는 항목. 확인 필요 항목과, 문서 출처인데 근거 문장이 없는 항목은 뺀다.
+    """검색 근거로 쓸 수 있는 항목. 확인 필요 · 상충 항목과, 문서 출처인데 근거 문장이 없는 항목은 뺀다.
 
     Root의 재확인은 문서 출처 문장이 원문에 있는지 다시 보므로, 문서 출처 항목은 원문 근거 문장을 돌려줘야 한다.
     """
+    # 1) 확인 필요 분류는 내용이 조건과 맞아 보여도 쓰지 않는다
     if item.category == ItemCategory.CHECK:
         return False
+    # 2) 자료끼리 어긋나는 항목은 쓰지 않는다
+    if item.verification == Verification.CONFLICT:
+        return False
+    # 3) 근거 문장이 있는데도 미확인이면 분석 Agent가 '아직 확인되지 않은 점'으로 적은 것이라 쓰지 않는다
+    if item.verification == Verification.UNCONFIRMED and item.evidence is not None:
+        return False
+    # 4) 평가 결과처럼 문서가 아닌 출처는 근거 문장이 없어도 내용으로 찾는다 (전과 같음)
     return item.evidence is not None or item.source not in _DOCUMENT_LABELS
 
 

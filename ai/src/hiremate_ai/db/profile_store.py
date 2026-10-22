@@ -6,6 +6,8 @@
 - 받은 값을 그대로 저장한다. 점수를 다시 매기거나 문장을 고치지 않는다 (다른 역할의 결과를 재해석하지 않음).
 - 같은 Agent가 같은 전형을 다시 분석하면 그 Agent · 전형의 항목만 새 결과로 바꾸고 다른 항목은 그대로 둔다.
 - 제출 문서를 함께 주면 근거 문장이 원문에 있는지 확인하고, 없으면 그 항목을 버린다 (아키텍처 규칙 7).
+- 항목마다 확인 상태를 적는다. 넘기지 않으면 근거 문장이 있으면 근거 있음, 없으면 미확인이다.
+  근거 문장이 없는 항목은 무엇을 넘겼든 미확인이다 ("근거가 없으면 '미확인'").
 - 커밋은 부르는 쪽이 한다 (db.session 규칙). 이 함수는 flush까지만 한다.
 
 사용 예 (지원서 분석 Agent)
@@ -33,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.contract import ApplicantDocument
-from hiremate_ai.db.profile import CandidateProfile, ItemAgent, ItemCategory, ProfileItem, ProfileStatus
+from hiremate_ai.db.profile import CandidateProfile, ItemAgent, ItemCategory, ProfileItem, ProfileStatus, Verification
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,8 @@ class NewItem(_Input):
     content: str
     evidence: str | None = None  # 원문 근거 문장. 근거가 없는 항목(확인 필요 등)은 None
     source: str  # 출처 (이력서, 자기소개서, 평가 결과, 면접 답변 등)
+    # 확인 상태. 평가 · 면접 분석이 확인됨 · 상충을 알 때 넘긴다. 비우면 근거 문장으로 정한다
+    verification: Verification | None = None
 
 
 class ProfileScopeError(ValueError):
@@ -124,6 +128,7 @@ async def save_profile(
             agent=agent,
             content=item.content,
             evidence=item.evidence,
+            verification=_verification(item),
             source=item.source,
             stage_id=stage_id,
         )
@@ -142,3 +147,12 @@ def _checked(item: NewItem, documents: Sequence[ApplicantDocument]) -> NewItem |
     if found is None:
         return None
     return item.model_copy(update={"source": found.label})
+
+
+def _verification(item: NewItem) -> Verification:
+    """항목의 확인 상태를 정한다."""
+    # 1) 근거 문장이 없으면 무엇을 넘겼든 미확인 (근거 없이 '확인됨'을 적지 못하게)
+    if item.evidence is None:
+        return Verification.UNCONFIRMED
+    # 2) 분석 Agent가 넘긴 값이 있으면 그대로, 없으면 근거 있음
+    return item.verification or Verification.EVIDENCED

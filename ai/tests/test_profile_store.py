@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile
-from hiremate_ai.db.profile import CandidateProfile, ItemAgent, ItemCategory, ProfileStatus
+from hiremate_ai.db.profile import CandidateProfile, ItemAgent, ItemCategory, ProfileStatus, Verification
 from hiremate_ai.db.profile_store import NewItem, ProfileFields, ProfileScopeError, save_profile
 
 SAMPLES_DIR = Path(__file__).resolve().parent / "samples"
@@ -83,7 +83,11 @@ async def test_saves_application_analysis(
     assert len(profile.items) == 5
     assert {item.agent for item in profile.items} == {ItemAgent.APPLICATION}
     domain = next(item for item in profile.items if item.category == ItemCategory.DOMAIN)
-    assert (domain.content, domain.source) == ("금융 (카드 결제 · 정산)", "이력서")
+    assert (domain.content, domain.source, domain.verification) == (
+        "금융 (카드 결제 · 정산)",
+        "이력서",
+        Verification.EVIDENCED,
+    )
 
 
 async def test_saves_all_sample_applicants_as_given(
@@ -122,6 +126,59 @@ async def test_drops_item_whose_evidence_is_not_in_documents(
 
     # 원문에 없는 근거를 단 항목은 버리고, 근거가 없는 확인 필요 항목은 남긴다
     assert [item.content for item in profile.items] == ["대용량 근거 확인 필요"]
+
+
+async def test_sets_verification_from_evidence_unless_agent_gives_it(
+    db_session: AsyncSession, sample_company: CompanyProfile, sample_applicants: dict[str, ApplicantDetail]
+) -> None:
+    applicant = sample_applicants["정유민"]
+    sample = SAMPLE_PROFILES["정유민"]
+    no_evidence = NewItem(category=ItemCategory.CHECK, content="대용량 근거 확인 필요", source="이력서")
+    # 1) 지원서 분석은 확인 상태를 넘기지 않는다 → 근거 문장이 있으면 근거 있음, 없으면 미확인
+    await save_sample(db_session, sample_company, applicant, [sample.items[0], no_evidence])
+    # 2) 면접 분석은 확인됨 · 상충을 넘긴다. 근거 문장이 없으면 무엇을 넘겼든 미확인
+    await save_profile(
+        db_session,
+        company_id=sample_company.company_id,
+        recruitment_id=applicant.info.recruitment_id,
+        application_id=applicant.info.application_id,
+        agent=ItemAgent.INTERVIEW,
+        stage_id=uuid4(),
+        items=[
+            NewItem(
+                category=ItemCategory.STRENGTH,
+                content="장애 대응 당번 경험",
+                evidence="장애 당번으로 승인 서버를 직접 운영했습니다.",
+                source="1차 면접 답변",
+                verification=Verification.CONFIRMED,
+            ),
+            NewItem(
+                category=ItemCategory.CHECK,
+                content="정산 배치 개선에서 맡은 역할이 서류와 다름",
+                evidence="설계는 팀장님이 하셨고 저는 테스트를 맡았습니다.",
+                source="1차 면접 답변",
+                verification=Verification.CONFLICT,
+            ),
+            NewItem(
+                category=ItemCategory.STRENGTH,
+                content="근거 없이 확인됨을 적은 항목",
+                source="1차 면접 답변",
+                verification=Verification.CONFIRMED,
+            ),
+        ],
+    )
+    await db_session.commit()
+
+    profile = await reload(db_session, applicant.info.application_id)
+
+    states = {item.content: item.verification for item in profile.items}
+    assert states == {
+        sample.items[0].content: Verification.EVIDENCED,
+        "대용량 근거 확인 필요": Verification.UNCONFIRMED,
+        "장애 대응 당번 경험": Verification.CONFIRMED,
+        "정산 배치 개선에서 맡은 역할이 서류와 다름": Verification.CONFLICT,
+        "근거 없이 확인됨을 적은 항목": Verification.UNCONFIRMED,
+    }
 
 
 async def test_corrects_source_to_document_that_has_the_sentence(
