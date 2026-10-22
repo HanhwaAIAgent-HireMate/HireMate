@@ -8,9 +8,11 @@ import com.hiremate.interview.domain.InterviewScheduleRepository;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageInfo;
+import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.ScreeningService;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,6 +49,11 @@ public class InterviewService {
     @Transactional(readOnly = true)
     public InterviewView view(UUID companyId, UUID stageId, UUID applicationId) {
         StageInfo stage = interviewStage(companyId, stageId, applicationId);
+        return view(companyId, stage, applicationId);
+    }
+
+    private InterviewView view(UUID companyId, StageInfo stage, UUID applicationId) {
+        UUID stageId = stage.id();
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         Map<UUID, InterviewSchedule> scheduleByStage = schedules.findByApplicationIdAndCompanyId(applicationId,
                 companyId).stream().collect(Collectors.toMap(InterviewSchedule::getStageId, Function.identity()));
@@ -63,11 +70,30 @@ public class InterviewService {
                 toQuestions(byStage.getOrDefault(stageId, List.of())), previous);
     }
 
+    /** 시작 전인 다음 면접의 자료. 바로 앞 전형에서 합격이 확정된 지원자만 준비할 수 있다. */
+    @Transactional(readOnly = true)
+    public InterviewView preparationView(UUID companyId, UUID stageId, UUID applicationId) {
+        return view(companyId, preparationStage(companyId, stageId, applicationId), applicationId);
+    }
+
     /** 맞춤 질문을 카드에 넣는다. 이미 있는 질문은 다시 넣지 않는다. */
     @Transactional
     public InterviewView addQuestions(UUID companyId, UUID stageId, UUID applicationId, List<String> texts,
             QuestionSource source) {
-        interviewStage(companyId, stageId, applicationId);
+        StageInfo stage = interviewStage(companyId, stageId, applicationId);
+        saveQuestions(companyId, stageId, applicationId, texts, source);
+        return view(companyId, stage, applicationId);
+    }
+
+    /** 확정 합격자의 다음 면접 질문을 저장한다. 면접 대상자 등록이나 전형 상태는 바꾸지 않는다. */
+    @Transactional
+    public void addPreparedQuestions(UUID companyId, UUID stageId, UUID applicationId, List<String> texts) {
+        preparationStage(companyId, stageId, applicationId);
+        saveQuestions(companyId, stageId, applicationId, texts, QuestionSource.AI);
+    }
+
+    private void saveQuestions(UUID companyId, UUID stageId, UUID applicationId, List<String> texts,
+            QuestionSource source) {
         List<InterviewQuestion> existing = questions.findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(stageId,
                 applicationId, companyId);
         Set<String> seen = existing.stream().map(InterviewQuestion::getText).collect(Collectors.toSet());
@@ -78,7 +104,6 @@ public class InterviewService {
                 questions.save(new InterviewQuestion(stageId, applicationId, companyId, ++seq, trimmed, source));
             }
         }
-        return view(companyId, stageId, applicationId);
     }
 
     @Transactional
@@ -122,6 +147,27 @@ public class InterviewService {
             throw new ApiException(HttpStatus.CONFLICT, "NOT_INTERVIEW_STAGE", "Only interview stages have questions.");
         }
         screening.detail(companyId, stageId, applicationId);
+        return stage;
+    }
+
+    private StageInfo preparationStage(UUID companyId, UUID stageId, UUID applicationId) {
+        RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
+        StageInfo stage = recruitment.stage(stageId).orElseThrow();
+        if (stage.status() != StageStatus.PENDING) {
+            return interviewStage(companyId, stageId, applicationId);
+        }
+        if (stage.type() != StageType.INTERVIEW) {
+            throw new ApiException(HttpStatus.CONFLICT, "NOT_INTERVIEW_STAGE", "Only interview stages have questions.");
+        }
+        StageInfo previous = recruitment.stages().stream()
+                .filter(other -> other.seq() < stage.seq())
+                .max(Comparator.comparingInt(StageInfo::seq))
+                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "NO_PREVIOUS_STAGE",
+                        "Confirm the previous stage first."));
+        if (!screening.results(companyId, previous.id()).passed().contains(applicationId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "INTERVIEW_CANDIDATE_NOT_FOUND",
+                    "Only confirmed successful applicants can have prepared questions.");
+        }
         return stage;
     }
 

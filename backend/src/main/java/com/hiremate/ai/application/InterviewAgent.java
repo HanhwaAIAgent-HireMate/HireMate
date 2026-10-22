@@ -11,7 +11,7 @@ import java.util.UUID;
 /**
  * Interview Agent (면접 질문 생성). 이전 전형에서 확인된 내용 가운데 면접에서 더 확인할 가치가 있는 부분을 질문으로 만든다.
  *
- * <p>AI Chat 요청은 {@link #questions}로 바로 받는다. 면접 전형이 시작될 때 미리 만드는 질문({@link #prepare})은 stub이면
+ * <p>AI Chat 요청은 {@link #questions}로 바로 받는다. 앞 전형 결과를 확정할 때 미리 만드는 질문({@link #prepare})은 stub이면
  * 바로 돌려주고, remote면 작업을 대기열(job 모듈)에 넣고 빈 값을 돌려준다. AI 워커가 만든 질문은
  * {@link InterviewQuestionResults}가 카드에 넣는다 (FR-27).
  */
@@ -27,7 +27,7 @@ public interface InterviewAgent {
     List<String> questions(ApplicantDetail applicant, PostingContent posting, CandidateAnalysis analysis,
             InterviewView interview, CompanyProfile company, String focus);
 
-    /** 면접 전형이 시작될 때 질문을 미리 만든다. 매개변수는 {@link #questions}와 같고 범위(focus)는 없다. */
+    /** 앞 전형 결과를 확정할 때 질문을 미리 만든다. 매개변수는 {@link #questions}와 같고 범위(focus)는 없다. */
     Optional<List<String>> prepare(String target, ApplicantDetail applicant, PostingContent posting,
             CandidateAnalysis analysis, InterviewView interview, CompanyProfile company);
 

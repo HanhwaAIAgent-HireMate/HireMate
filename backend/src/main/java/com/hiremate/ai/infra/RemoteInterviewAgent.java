@@ -17,8 +17,8 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 
 /**
- * ai 서버의 맞춤 면접 질문 생성. AI Chat 요청은 POST /agents/interview/questions로 바로 부르고, 면접 전형이 시작될 때
- * 미리 만드는 질문은 같은 요청 본문을 작업으로 대기열에 넣는다. 모델이 느려도 전형 종료 요청이 기다리지 않는다.
+ * ai 서버의 맞춤 면접 질문 생성. AI Chat 요청은 POST /agents/interview/questions로 바로 부르고, 앞 전형 결과를 확정할 때
+ * 미리 만드는 질문은 같은 요청 본문을 작업으로 대기열에 넣는다. 모델이 느려도 결과 확정 요청이 기다리지 않는다.
  */
 @Component
 @ConditionalOnAiMode(agent = AiAgent.INTERVIEW, mode = AiMode.REMOTE)
