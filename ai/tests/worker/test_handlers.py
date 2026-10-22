@@ -1,4 +1,6 @@
+import json
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -9,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from hiremate_ai.agents.analysis.application.judge import QualificationJudgement
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.agents.analysis.assessment import AssessmentInput
+from hiremate_ai.agents.analysis.interview import InterviewAnalysisInput
 from hiremate_ai.agents.generation.report import ReportContent, ReportInput
+from hiremate_ai.api import interview
 from hiremate_ai.api.assessment import AnalyzeResult
 from hiremate_ai.contract import ApplicantDetail, PostingContent
 from hiremate_ai.db.profile import ProfileStatus
@@ -20,6 +24,7 @@ from hiremate_ai.tools.ncs import NcsUnit
 from hiremate_ai.worker import handlers as worker_handlers
 from hiremate_ai.worker.handlers import PermanentError, job_handlers
 
+CONTRACT_DIR = Path(__file__).resolve().parents[3] / "contract"
 API = "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다."
 # DB에 붙지 않는 세션. Assessment 처리 함수는 저장 함수를 바꿔 끼워 세션을 쓰지 않는다
 SESSIONS: async_sessionmaker[AsyncSession] = async_sessionmaker()
@@ -151,3 +156,36 @@ async def test_report_write_returns_report_content(monkeypatch: pytest.MonkeyPat
 
     assert received[0].applicant_count == 8
     assert result["applicantCount"] == 8 and result["stages"] == [stage]
+
+
+async def test_interview_analyze_saves_through_the_route_function(monkeypatch: pytest.MonkeyPatch) -> None:
+    received: list[InterviewAnalysisInput] = []
+
+    async def analyze_and_save(
+        data: InterviewAnalysisInput, llm: LlmClient, session: AsyncSession
+    ) -> interview.AnalyzeResult:
+        received.append(data)
+        return interview.AnalyzeResult(status=ProfileStatus.DONE, saved=3, dropped=0)
+
+    monkeypatch.setattr(worker_handlers.interview, "analyze_and_save", analyze_and_save)
+    handle = job_handlers(FakeLlm(), MemoryStore(), SESSIONS)["interview-analyst/analyze"]
+    sample = json.loads((CONTRACT_DIR / "InterviewAnalysisInput.json").read_text(encoding="utf-8"))
+
+    result = await handle({"input": sample})
+
+    assert result == {"status": "DONE", "saved": 3, "dropped": 0}
+    assert received[0].stage_name == "2차 면접" and received[0].previous[0].stage_name == "1차 면접"
+
+
+async def test_interview_of_another_company_is_permanent(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def analyze_and_save(
+        data: InterviewAnalysisInput, llm: LlmClient, session: AsyncSession
+    ) -> interview.AnalyzeResult:
+        raise ProfileScopeError("다른 채용의 프로필이다")
+
+    monkeypatch.setattr(worker_handlers.interview, "analyze_and_save", analyze_and_save)
+    handle = job_handlers(FakeLlm(), MemoryStore(), SESSIONS)["interview-analyst/analyze"]
+    sample = json.loads((CONTRACT_DIR / "InterviewAnalysisInput.json").read_text(encoding="utf-8"))
+
+    with pytest.raises(PermanentError):
+        await handle({"input": sample})

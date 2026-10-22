@@ -14,7 +14,7 @@ from hiremate_ai.agents.analysis.application.service import RubricScopeError
 from hiremate_ai.agents.analysis.application.store import ReviewStore
 from hiremate_ai.agents.analysis.application.types import AnalyzeRequest
 from hiremate_ai.agents.generation.report import write_report
-from hiremate_ai.api import assessment, report
+from hiremate_ai.api import assessment, interview, report
 from hiremate_ai.config import settings
 from hiremate_ai.db.profile_store import ProfileScopeError
 from hiremate_ai.llm.client import LlmClient
@@ -58,6 +58,15 @@ def job_handlers(
                 raise PermanentError(str(error)) from error
         return result.model_dump(mode="json")
 
+    async def interview_analyze(payload: dict[str, Any]) -> dict[str, Any]:
+        request = interview.AnalyzeRequest.model_validate(payload)
+        async with sessions() as session:
+            try:
+                result = await interview.analyze_and_save(request.input, llm, session)
+            except ProfileScopeError as error:
+                raise PermanentError(str(error)) from error
+        return result.model_dump(mode="json")
+
     async def report_write(payload: dict[str, Any]) -> dict[str, Any]:
         request = report.WriteRequest.model_validate(payload)
         return (await write_report(request.input, llm)).model_dump(mode="json")
@@ -65,5 +74,6 @@ def job_handlers(
     return {
         "application/analyze": application_analyze,
         "assessment/analyze": assessment_analyze,
+        "interview-analyst/analyze": interview_analyze,
         "report/write": report_write,
     }
