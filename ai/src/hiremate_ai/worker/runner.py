@@ -44,6 +44,15 @@ class WorkerOptions:
     block_seconds: float = 5
 
 
+def connect(url: str, options: WorkerOptions) -> Redis:
+    """워커용 Redis 연결. 읽기 시간 한도를 새 작업을 기다리는 시간(block_seconds)보다 길게 둔다.
+
+    redis-py 비동기 클라이언트는 읽기 한도가 기본 5초라, 그만큼 기다리는 XREADGROUP이 빈 대기열에서
+    매번 시간 초과로 끝난다.
+    """
+    return Redis.from_url(url, decode_responses=True, socket_timeout=options.block_seconds + 10)
+
+
 class Worker:
     """작업 스트림의 소비자 하나. run으로 돌리고 stop을 켜면 처리 중인 작업을 마치고 멈춘다."""
 

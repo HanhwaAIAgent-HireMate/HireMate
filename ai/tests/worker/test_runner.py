@@ -8,7 +8,7 @@ from redis.asyncio import Redis
 
 from hiremate_ai.contract import Job, JobResult, JobStatus
 from hiremate_ai.worker.handlers import Handler, PermanentError
-from hiremate_ai.worker.runner import Worker, WorkerOptions
+from hiremate_ai.worker.runner import Worker, WorkerOptions, connect
 
 OPTIONS = WorkerOptions(
     job_stream="jobs",
@@ -172,3 +172,18 @@ async def test_running_job_is_not_taken_by_another_worker(redis: Redis) -> None:
 
     assert len(calls) == 1
     assert len(found) == 1 and len(await results(redis)) == 1
+
+
+async def test_waiting_for_new_jobs_does_not_hit_the_read_timeout(redis: Redis, redis_url: str) -> None:
+    """빈 대기열을 5초 기다려도 읽기 시간 한도에 걸리지 않는다. redis-py 비동기 클라이언트의 기본 한도가 5초다."""
+    options = replace(OPTIONS, block_seconds=5)
+    client = connect(redis_url, options)
+    await client.xgroup_create(options.job_stream, options.group, id="0", mkstream=True)
+    try:
+        found = await client.xreadgroup(
+            options.group, options.consumer, {options.job_stream: ">"}, count=1, block=int(options.block_seconds * 1000)
+        )
+    finally:
+        await client.aclose()
+
+    assert not found

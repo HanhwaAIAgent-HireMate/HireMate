@@ -10,14 +10,12 @@ import os
 import signal
 import socket
 
-from redis.asyncio import Redis
-
 from hiremate_ai.agents.analysis.application.store import DbReviewStore
 from hiremate_ai.config import settings
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.worker.handlers import job_handlers
-from hiremate_ai.worker.runner import Worker, WorkerOptions
+from hiremate_ai.worker.runner import Worker, WorkerOptions, connect
 
 log = logging.getLogger("hiremate_ai.worker")
 
@@ -33,7 +31,7 @@ async def main() -> None:
         attempts=settings.worker_attempts,
         claim_idle_seconds=settings.worker_claim_idle_seconds,
     )
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    redis = connect(settings.redis_url, options)
     sessions = session_factory()
     worker = Worker(redis, job_handlers(get_llm(), DbReviewStore(sessions), sessions), options)
     stop = asyncio.Event()
