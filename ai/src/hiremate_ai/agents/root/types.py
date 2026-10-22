@@ -142,6 +142,12 @@ class ChatItem(ContractModel):
     status: str | None
 
 
+class ChatStatus(ContractModel):
+    """처리 단계 문구 (ai.application.ChatStatus). Root plan SSE의 status 이벤트 data다. 문구는 코드 상수다."""
+
+    text: str
+
+
 class ChatPlan(ContractModel):
     """Root Agent의 실행 계획 (ai.application.ChatPlan). 선택 지원자 변경은 명령(동작, 대상)으로만 담는다.
 
