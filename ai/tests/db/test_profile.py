@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hiremate_ai.db.profile import CandidateProfile, ItemAgent, ItemCategory, ProfileItem, ProfileStatus
+from hiremate_ai.db.profile import CandidateProfile, ItemAgent, ItemCategory, ProfileItem, ProfileStatus, Verification
 
 
 def jung_yumin_profile() -> CandidateProfile:
@@ -28,6 +28,7 @@ def jung_yumin_profile() -> CandidateProfile:
                 agent=ItemAgent.APPLICATION,
                 content="금융 (카드 결제 · 정산)",
                 evidence="한빛카드에서 카드 결제 승인 시스템을 개발했습니다.",
+                verification=Verification.EVIDENCED,
                 source="이력서",
             ),
             ProfileItem(
@@ -35,6 +36,7 @@ def jung_yumin_profile() -> CandidateProfile:
                 agent=ItemAgent.APPLICATION,
                 content="대용량 트래픽 처리 수치 확인 필요",
                 evidence=None,
+                verification=Verification.UNCONFIRMED,
                 source="이력서",
             ),
         ],
@@ -59,6 +61,7 @@ async def test_saves_profile_with_items(db_session: AsyncSession) -> None:
     assert set(items) == {ItemCategory.DOMAIN, ItemCategory.CHECK}
     assert items[ItemCategory.DOMAIN].evidence == "한빛카드에서 카드 결제 승인 시스템을 개발했습니다."
     assert items[ItemCategory.CHECK].evidence is None
+    assert items[ItemCategory.CHECK].verification == Verification.UNCONFIRMED
 
 
 async def test_one_profile_per_application(db_session: AsyncSession) -> None:

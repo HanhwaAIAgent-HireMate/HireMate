@@ -31,7 +31,7 @@ from langchain_core.tools import BaseTool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hiremate_ai.db.profile import CandidateProfile, ItemCategory, ProfileItem, ProfileStatus
+from hiremate_ai.db.profile import CandidateProfile, ItemCategory, ProfileItem, ProfileStatus, Verification
 from hiremate_ai.tools.scope import ToolScope
 
 type Sessions = Callable[[], AbstractAsyncContextManager[AsyncSession]]
@@ -55,6 +55,13 @@ _CATEGORY_LABELS = {
 }
 _CATEGORY_ORDER = list(_CATEGORY_LABELS)
 _STATUS_LABELS = {ProfileStatus.DONE: "분석 완료", ProfileStatus.CHECK: "확인 필요", ProfileStatus.FAILED: "분석 실패"}
+# 항목의 확인 상태. 모델이 확인된 사실과 해석 · 미확인을 구분해 답하게 한다 (NFR-03)
+_VERIFICATION_LABELS: dict[str, str] = {
+    Verification.CONFIRMED: "확인됨",
+    Verification.EVIDENCED: "근거 있음",
+    Verification.UNCONFIRMED: "미확인",
+    Verification.CONFLICT: "상충",
+}
 
 
 async def read_profile(session: AsyncSession, scope: ToolScope, application_id: UUID) -> CandidateProfile | None:
@@ -158,10 +165,12 @@ def _category_rank(item: ProfileItem) -> int:
 
 
 def _item_line(item: ProfileItem) -> str:
-    """항목 한 줄. 근거 문장이 있으면 따옴표로, 없으면 없다고 적는다."""
+    """항목 한 줄. 근거 문장이 있으면 따옴표로, 없으면 없다고 적고, 끝에 확인 상태를 붙인다."""
     try:
         label = _CATEGORY_LABELS[ItemCategory(item.category)]
     except ValueError:
         label = item.category
     evidence = f'근거: "{item.evidence}"' if item.evidence else "근거 문장 없음"
-    return f"[{label}] {item.content} — {evidence} ({item.source})"
+    # 모르는 값(나중에 더해진 상태)은 그대로 적는다
+    state = _VERIFICATION_LABELS.get(item.verification, item.verification)
+    return f"[{label}] {item.content} — {evidence} ({item.source}) · {state}"

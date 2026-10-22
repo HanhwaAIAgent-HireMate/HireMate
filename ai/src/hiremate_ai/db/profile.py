@@ -2,7 +2,7 @@
 
 분석 Agent(지원서 · 평가 · 면접)가 낸 결과를 지원자별로 쌓아 두고, Root Agent가 조건으로 지원자를 찾을 때 쓴다.
 - CandidateProfile: 지원자 한 명당 한 줄. 경력 연수, 서류 점수처럼 조건 검색에 쓰는 값
-- ProfileItem: 지원자 한 명당 여러 줄. 경험, 역량 같은 항목과 그 근거 문장, 출처
+- ProfileItem: 지원자 한 명당 여러 줄. 경험, 역량 같은 항목과 그 근거 문장, 출처, 확인 상태
 
 규칙
 - 분석 Agent가 낸 값을 그대로 저장한다. 이 모듈은 점수를 다시 매기거나 문장을 고치지 않는다.
@@ -39,6 +39,18 @@ class ItemCategory(StrEnum):
     COMPANY_FIT = "COMPANY_FIT"  # 회사 인재상 · 문화와 관련된 경험
     STRENGTH = "STRENGTH"  # 평가 · 면접에서 드러난 강점
     CHECK = "CHECK"  # 근거가 부족해 확인이 필요한 점
+
+
+class Verification(StrEnum):
+    """프로필 항목의 확인 상태. 분류(무슨 내용인가)와 따로 '얼마나 확실한가'를 적는다 (아키텍처 3장, NFR-03).
+
+    근거 문장이 없는 항목은 언제나 UNCONFIRMED다 ("근거가 없으면 '미확인'"). 값은 db.profile_store가 정한다.
+    """
+
+    CONFIRMED = "CONFIRMED"  # 평가 · 면접에서 확인됨
+    EVIDENCED = "EVIDENCED"  # 원문(제출 문서 · 평가 자료 · 면접 답변)에 근거 문장이 있음
+    UNCONFIRMED = "UNCONFIRMED"  # 근거가 없거나 아직 확인되지 않음 ('미확인')
+    CONFLICT = "CONFLICT"  # 자료끼리 어긋남 ('상충'. 예: 서류와 면접 답변이 다름)
 
 
 class ItemAgent(StrEnum):
@@ -78,7 +90,7 @@ class CandidateProfile(Base):
 
 
 class ProfileItem(Base):
-    """프로필 항목 한 줄. 내용과 근거 문장, 출처를 함께 둔다 (아키텍처 규칙 7)."""
+    """프로필 항목 한 줄. 내용과 근거 문장, 출처, 확인 상태를 함께 둔다 (아키텍처 규칙 7)."""
 
     __tablename__ = "profile_items"
     __table_args__ = (Index("ix_profile_items_profile_id", "profile_id"),)
@@ -89,6 +101,7 @@ class ProfileItem(Base):
     agent: Mapped[str] = mapped_column(String(20))  # ItemAgent 값
     content: Mapped[str] = mapped_column(Text)  # 정리한 내용 (예: "금융 (카드 결제 · 정산)")
     evidence: Mapped[str | None] = mapped_column(Text)  # 원문에서 찾은 근거 문장. 없으면 None
+    verification: Mapped[str] = mapped_column(String(12))  # Verification 값 (확인 상태)
     source: Mapped[str] = mapped_column(String(50))  # 출처 (예: 이력서, 자기소개서, 평가 결과, 면접 답변)
     stage_id: Mapped[UUID | None]  # 평가 · 면접 항목이면 그 전형 ID. 지원서 항목은 None
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
