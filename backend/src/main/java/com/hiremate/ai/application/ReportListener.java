@@ -69,7 +69,7 @@ class ReportListener {
                 .filter(stage -> counts.containsKey(stage.id()))
                 .map(stage -> screening.results(companyId, stage.id()).undecidedAtConfirm())
                 .toList();
-        agent.write(companyId, recruitment.id(), new ReportInput(recruitment.title(),
+        agent.write(companyId, recruitment.id(), new ReportInput(companyId, recruitment.id(), recruitment.title(),
                 applications.count(companyId, recruitment.id()), stages, finalists, undecided))
                 .ifPresent(content -> reports.save(companyId, recruitment.id(), content,
                         settings.isStub(AiAgent.REPORT) ? "Report Agent · 개발용" : ReportResults.AGENT));
@@ -83,6 +83,6 @@ class ReportListener {
                 .map(StageCandidateView::memo)
                 .filter(memo -> !memo.isBlank())
                 .toList();
-        return new ReportInput.FinalistInput(applicant.name(), analysis.notable(), memos);
+        return new ReportInput.FinalistInput(applicant.applicationId(), applicant.name(), analysis.notable(), memos);
     }
 }

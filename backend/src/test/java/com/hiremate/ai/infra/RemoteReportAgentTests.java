@@ -34,14 +34,15 @@ class RemoteReportAgentTests {
                 return false;
             }
         }, JsonMapper.builder().build());
-        ReportInput input = new ReportInput("결제 플랫폼 백엔드 개발자", 8,
+        UUID companyId = UUID.randomUUID();
+        UUID recruitmentId = UUID.randomUUID();
+        UUID applicationId = UUID.randomUUID();
+        ReportInput input = new ReportInput(companyId, recruitmentId, "결제 플랫폼 백엔드 개발자", 8,
                 List.of(new ReportContent.ReportStage("서류 전형", 8, 4, 4)),
-                List.of(new ReportInput.FinalistInput("정유민",
+                List.of(new ReportInput.FinalistInput(applicationId, "정유민",
                         List.of(new CandidateAnalysis.Finding("결제 승인 서버 응답 시간을 줄였다", "이력서 > 경력")),
                         List.of("장애 대응 경험을 설명함"))),
                 List.of(1L));
-        UUID companyId = UUID.randomUUID();
-        UUID recruitmentId = UUID.randomUUID();
 
         Optional<ReportContent> report = new RemoteReportAgent(jobs).write(companyId, recruitmentId, input);
 
@@ -52,6 +53,10 @@ class RemoteReportAgentTests {
         assertThat(job.payload().size()).isEqualTo(1);
         JsonNode sent = job.payload().get("input");
         assertThat(sent.get("applicantCount").asLong()).isEqualTo(8);
+        // ai 서버가 범위 안에서 합격자의 지원자 프로필을 찾도록 기업 · 채용 · 지원서 ID를 보낸다
+        assertThat(sent.get("companyId").asString()).isEqualTo(companyId.toString());
+        assertThat(sent.get("recruitmentId").asString()).isEqualTo(recruitmentId.toString());
+        assertThat(sent.get("finalists").get(0).get("applicationId").asString()).isEqualTo(applicationId.toString());
         assertThat(sent.get("stages").get(0).get("pass").asLong()).isEqualTo(4);
         assertThat(sent.get("finalists").get(0).get("notable").get(0).get("source").asString())
                 .isEqualTo("이력서 > 경력");
