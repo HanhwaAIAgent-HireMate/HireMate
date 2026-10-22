@@ -5,6 +5,7 @@ import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatPlan;
+import com.hiremate.ai.application.ChatProgress;
 import com.hiremate.ai.application.RootAgent;
 import java.util.List;
 import java.util.Map;
@@ -13,7 +14,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 
 /**
- * ai 서버의 Root Agent (POST /agents/root/plan). {@code HIREMATE_AI_AGENTS_ROOT=remote}로 켠다.
+ * ai 서버의 Root Agent (POST /agents/root/plan, SSE). {@code HIREMATE_AI_AGENTS_ROOT=remote}로 켠다.
  * 계획 가운데 선택 지원자 변경은 ChatService가 screening 모듈로 검증해 실행한다.
  */
 @Component
@@ -27,8 +28,8 @@ class RemoteRootAgent implements RootAgent {
     }
 
     @Override
-    public ChatPlan plan(ChatContext context) {
-        return client.post(AiAgent.ROOT, "plan", Map.of("context", context), ChatPlan.class);
+    public ChatPlan plan(ChatContext context, ChatProgress progress) {
+        return client.stream(AiAgent.ROOT, "plan", Map.of("context", context), ChatPlan.class, progress);
     }
 
     @Override

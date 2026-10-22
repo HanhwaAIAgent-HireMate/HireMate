@@ -1,5 +1,6 @@
 package com.hiremate.ai;
 
+import static com.hiremate.TestApi.done;
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,18 +58,18 @@ class RootFocusChatTests extends IntegrationTest {
         applications.recordAnalysis(id, new ApplicationAnalysis(3, "OO카드", 90, true, false, List.of()));
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         String document = "/api/stages/" + closed.path("stages").get(0).path("id").asString();
-        when(root.plan(any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.ANSWER, "답", List.of(), List.of(),
+        when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.ANSWER, "답", List.of(), List.of(),
                 List.of()));
         String interview = passAndFinish(hr, document, id.toString());
         // 전형 종료 이벤트가 다른 스레드에서 root.forgetStage를 부르므로, 끝난 뒤에 계획을 바꿔 둔다
         verify(root, timeout(10_000)).forgetStage(any());
 
         ChatItem reason = new ChatItem(id, "확인할 점", "자기소개서의 협업 사례를 실제 역할로 확인", "OK");
-        when(root.plan(any())).thenReturn(new ChatPlan(ChatPlan.Intent.ANSWER, null, null, List.of(),
+        when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.ANSWER, null, null, List.of(),
                 "1명의 맞춤 질문을 만들어 카드에 넣었어요.", List.of(reason), List.of("자기소개서"),
                 List.of("Interview Agent"), List.of(id), Map.of(id, "협업 위주로 확인")));
 
-        JsonNode chat = json(expect(hr.post(interview + "/chat",
+        JsonNode chat = done(expect(hr.post(interview + "/chat",
                 Map.of("message", "면접 질문 만들어줘", "mentionIds", List.of(id), "checkedIds", List.of())), 200));
 
         assertThat(chat.path("items").size()).isEqualTo(1);
@@ -76,7 +77,7 @@ class RootFocusChatTests extends IntegrationTest {
         JsonNode card = json(expect(hr.get(interview + "/candidates/" + id + "/interview"), 200));
         assertThat(card.path("questions").toString()).contains("동료와 의견이 달랐을 때");
         ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
-        verify(root, atLeastOnce()).plan(sent.capture());
+        verify(root, atLeastOnce()).plan(sent.capture(), any());
         assertThat(sent.getValue().interviews()).containsKey(id);
     }
 

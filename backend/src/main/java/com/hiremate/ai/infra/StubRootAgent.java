@@ -10,6 +10,7 @@ import com.hiremate.ai.application.ChatItem;
 import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.ChatPlan.EditAction;
 import com.hiremate.ai.application.ChatPlan.Intent;
+import com.hiremate.ai.application.ChatProgress;
 import com.hiremate.ai.application.RootAgent;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicantDocument;
@@ -86,7 +87,12 @@ class StubRootAgent implements RootAgent {
     }
 
     @Override
-    public ChatPlan plan(ChatContext context) {
+    public ChatPlan plan(ChatContext context, ChatProgress progress) {
+        progress.status("요청을 확인하고 있어요");
+        return answer(context);
+    }
+
+    private ChatPlan answer(ChatContext context) {
         String message = context.message().trim();
         if (BLOCKED.matcher(message).find()) {
             return ChatPlan.answer(Intent.BLOCKED, "나이, 성별, 출신 지역, 혼인 여부, 신체 조건으로는 지원자를 찾거나 거르지 않아요. "
