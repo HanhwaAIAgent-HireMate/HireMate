@@ -7,17 +7,22 @@ from uuid import UUID, uuid4
 import pytest
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
-from root_context import make_context, save_sample_profiles, sessions_of
+from root_context import Recorder, make_context, save_sample_profiles, sessions_of
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.root import answer
 from hiremate_ai.agents.root.answer import (
     BULK,
+    COMPARE_STATUS,
+    FOCUS_STATUS,
     FOCUSED,
     MULTI_FALLBACK,
+    MULTI_STATUS,
     NO_QUESTION_TARGET,
     NOT_CHECKED,
     NOT_FINISHED,
+    ONE_STATUS,
+    STAGE_STATUS,
     AnswerEvidence,
     AnswerItem,
     CandidateNotes,
@@ -907,3 +912,85 @@ async def test_cancelled_request_cancels_notes(
 
     assert request.cancelled()
     assert fake.calls == []
+
+
+async def test_single_answer_reports_name(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(sample_applicants, sample_company, sample_posting)
+    progress = Recorder()
+
+    await plan_answer(FakeLlm(answered()), ASK, context, resolve(context), default_toolkit(), progress=progress)
+
+    assert progress.statuses == [ONE_STATUS.format(name="정유민")]
+    assert progress.items == []
+
+
+async def test_stage_answer_reports_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="미결정이 몇 명 남았어?")
+    progress = Recorder()
+
+    await plan_answer(FakeLlm(answered()), ASK, context, resolve(context), default_toolkit(), progress=progress)
+
+    assert progress.statuses == [STAGE_STATUS]
+
+
+async def test_multi_streams_items_as_candidates_finish(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = pair_context(sample_applicants, sample_company, sample_posting)
+    respond = by_candidate(PAIR)
+    llm = FakeLlm(respond, respond, MultiSummary(message="비교했어요."))
+    progress = Recorder()
+
+    plan = await plan_answer(llm, ASK, context, resolve(context), default_toolkit(), progress=progress)
+
+    assert progress.statuses == [MULTI_STATUS.format(count=2), COMPARE_STATUS.format(count=2)]
+    # 스트림 항목은 최종 답과 같은 검증을 거친 것이다. 순서는 정리가 끝난 순서다
+    assert sorted(progress.items, key=str) == sorted(plan.items, key=str)
+
+
+async def test_multi_streams_only_finished_candidates(
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(answer, "NOTES_SECONDS", 0.05)
+    respond = with_summary(PAIR, "김하늘만 확인했어요.")
+    llm = SlowLlm(FakeLlm(respond, respond, respond), lambda user, output: "정리할 지원자: C3 박서준" in user)
+    context = pair_context(sample_applicants, sample_company, sample_posting)
+    progress = Recorder()
+
+    plan = await plan_answer(llm, ASK, context, resolve(context), default_toolkit(), progress=progress)
+
+    assert progress.items == [plan.items[0]]
+    assert (plan.items[1].status, plan.items[1].text) == ("CHECK", NOT_CHECKED)
+
+
+async def test_multi_streams_verified_status(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    respond = by_candidate({**PAIR, "C3 박서준": note("은행 경력", "은행에서 10년 일했습니다.")})
+    llm = FakeLlm(respond, respond, MultiSummary(message="비교했어요."))
+    context = pair_context(sample_applicants, sample_company, sample_posting)
+    progress = Recorder()
+
+    await plan_answer(llm, ASK, context, resolve(context), default_toolkit(), progress=progress)
+
+    # 원문에 없는 근거는 모델이 OK라고 했어도 스트림에서부터 확인 필요다
+    park = sample_applicants["박서준"].info.application_id
+    assert [item.status for item in progress.items if item.application_id == park] == ["CHECK"]
+
+
+async def test_focus_reports_status(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting, mentions=["정유민"])
+    progress = Recorder()
+
+    await plan_questions(FakeLlm(focused()), QUESTIONS, context, resolve(context), default_toolkit(), progress=progress)
+
+    assert progress.statuses == [FOCUS_STATUS]

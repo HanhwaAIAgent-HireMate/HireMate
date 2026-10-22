@@ -2,7 +2,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import UUID
 
-from root_context import extra_row, make_context
+from root_context import Recorder, extra_row, make_context
 
 from hiremate_ai.agents.root.find import (
     LIMIT_NOTE,
@@ -10,6 +10,7 @@ from hiremate_ai.agents.root.find import (
     NONE_ALL,
     NOT_FOUND,
     RECHECK_LIMIT,
+    RECHECK_STATUS,
     CriteriaItem,
     CriteriaResult,
     CriterionEvidence,
@@ -677,3 +678,29 @@ async def test_posting_route_without_word_uses_concepts(
     await plan_find(FakeLlm(), preferred("all", concepts=["금융 도메인 경험"]), context, RootToolkit(search=search))
 
     assert search.calls[0][0] == ["금융 도메인 경험"]
+
+
+async def test_find_reports_recheck_count(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+    met = {"정유민": [1], "김하늘": [1], "한예린": [1], "박서준": None, "이도윤": None}
+    progress = Recorder()
+
+    await plan_find(FakeLlm(rechecked(FINANCE_ORDER, met)), FINANCE, context, default_toolkit(), progress=progress)
+
+    assert progress.statuses == [RECHECK_STATUS.format(count=len(FINANCE_ORDER))]
+
+
+async def test_posting_find_reports_recheck_count(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = posting_context(sample_applicants, sample_company, sample_posting)
+    search = posting_search(sample_applicants, ORDER, POSTING_SENTENCES)
+    progress = Recorder()
+
+    await plan_find(
+        FakeLlm(criteria(ORDER, BOTH_TWO)), preferred("all"), context, RootToolkit(search=search), progress=progress
+    )
+
+    assert progress.statuses == [RECHECK_STATUS.format(count=len(ORDER))]
