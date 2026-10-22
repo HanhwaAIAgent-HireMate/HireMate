@@ -7,10 +7,12 @@ import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.ChatStatus;
+import com.hiremate.ai.application.InterviewAnalysis;
 import com.hiremate.ai.application.InterviewAnalysisInput;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.company.CompanyProfile;
+import com.hiremate.interview.InterviewView;
 import com.hiremate.job.Job;
 import com.hiremate.job.JobResult;
 import com.hiremate.posting.PostingContent;
@@ -51,6 +53,8 @@ class ContractSampleTests {
             Map.entry("ChatPlan", ChatPlan.class),
             Map.entry("ChatStatus", ChatStatus.class),
             Map.entry("CompanyProfile", CompanyProfile.class),
+            Map.entry("InterviewAnalysis", InterviewAnalysis.class),
+            Map.entry("InterviewView", InterviewView.class),
             Map.entry("InterviewAnalysisInput", InterviewAnalysisInput.class),
             Map.entry("Job", Job.class),
             Map.entry("JobResult", JobResult.class),

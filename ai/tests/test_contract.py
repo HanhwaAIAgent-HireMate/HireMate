@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 from hiremate_ai.agents.analysis.application.types import ApplicationAnalysis, ScreeningRubric
 from hiremate_ai.agents.analysis.interview import InterviewAnalysisInput
+from hiremate_ai.agents.analysis.interview.router import InterviewAnalysis
+from hiremate_ai.agents.generation.interview.router import InterviewView
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, PostingSuggestion
 from hiremate_ai.agents.root.types import ChatContext, ChatHistoryTurn, ChatPlan, ChatStatus
 from hiremate_ai.contract import ApplicantDetail, CandidateAnalysis, CompanyProfile, Job, JobResult, PostingContent
@@ -22,6 +24,8 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "ChatPlan": ChatPlan,
     "ChatStatus": ChatStatus,
     "CompanyProfile": CompanyProfile,
+    "InterviewAnalysis": InterviewAnalysis,
+    "InterviewView": InterviewView,
     "InterviewAnalysisInput": InterviewAnalysisInput,
     "Job": Job,
     "JobResult": JobResult,

@@ -1,0 +1,18 @@
+{
+  "answers": [
+    {
+      "questionId": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e01",
+      "status": "CONFIRMED",
+      "confirmed": [{"point": "배치 병렬화 설계를 본인이 주도", "quote": "배치 병렬화 설계를 본인이 주도"}],
+      "unconfirmed": []
+    },
+    {
+      "questionId": "2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f01",
+      "status": "NOT_CONFIRMED",
+      "confirmed": [],
+      "unconfirmed": ["의견이 달랐던 상대와 조율한 본인의 방법"]
+    }
+  ],
+  "agent": "Interview Agent",
+  "stub": false
+}
