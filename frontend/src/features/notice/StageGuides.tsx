@@ -13,28 +13,21 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import {
   useSaveStageGuide,
   useStageGuides,
   type StageGuide,
   type StageGuideView,
 } from '@/features/notice/api'
+import { emptyFields, type GuideField } from '@/features/notice/guide'
+import { GuideFields } from '@/features/notice/GuideFields'
 import { errorMessage } from '@/lib/api/client'
 
 /**
- * 안내 칸. 길이는 backend stages 테이블과 같다. 끝나는 시간은 일정에 함께 쓴다.
- * 기타 안내(note)만 선택이고, 나머지가 비어 있으면 게시 · 발송 전에 경고한다.
- * 기타 안내는 메일에 이름 없이 한 줄마다 ※로 붙는다
+ * 전형 안내 칸. 끝나는 시간은 일정에 함께 쓴다. 기타 안내(note)만 선택이고,
+ * 나머지가 비어 있으면 게시 · 발송 전에 경고한다
  */
-const FIELDS: {
-  key: keyof StageGuide
-  label: string
-  placeholder: string
-  maxLength: number
-  optional?: boolean
-}[] = [
+const FIELDS: GuideField<keyof StageGuide>[] = [
   { key: 'schedule', label: '일정', placeholder: '예: 11월 3일(화) 오후 2시~4시', maxLength: 200 },
   { key: 'method', label: '진행 방식', placeholder: '예: 대면, 화상, 온라인', maxLength: 100 },
   {
@@ -110,7 +103,7 @@ function GuideCard({
   const [confirming, setConfirming] = useState(false)
   const save = useSaveStageGuide(recruitmentId, view.stageId)
   const dirty = FIELDS.some((field) => draft[field.key] !== view.guide[field.key])
-  const empty = FIELDS.filter((field) => !field.optional && !draft[field.key].trim())
+  const empty = emptyFields(FIELDS, draft)
 
   const submit = () =>
     save.mutate(draft, {
@@ -133,30 +126,13 @@ function GuideCard({
           </span>
         )}
       </div>
-      {FIELDS.map((field) => {
-        const props = {
-          'aria-label': `${view.name} ${field.label}`,
-          value: draft[field.key],
-          placeholder: field.placeholder,
-          maxLength: field.maxLength,
-          disabled: !editable,
-          onChange: (event: { target: { value: string } }) =>
-            setDraft((current) => ({ ...current, [field.key]: event.target.value })),
-        }
-        return (
-          <label key={field.key} className="grid grid-cols-[96px_1fr] items-start gap-2">
-            <span className="pt-1.5 text-xs text-muted-foreground">
-              {field.label}
-              {field.optional && <span className="ml-1 text-[11px]">(선택)</span>}
-            </span>
-            {field.optional ? (
-              <Textarea {...props} rows={2} className="min-h-0" />
-            ) : (
-              <Input {...props} />
-            )}
-          </label>
-        )
-      })}
+      <GuideFields
+        name={view.name}
+        fields={FIELDS}
+        values={draft}
+        disabled={!editable}
+        onChange={(key, value) => setDraft((current) => ({ ...current, [key]: value }))}
+      />
       {editable && dirty && (
         <div className="flex justify-end">
           <Button

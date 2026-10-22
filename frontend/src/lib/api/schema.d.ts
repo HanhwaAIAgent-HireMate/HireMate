@@ -20,6 +20,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/notices/{group}/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["changeOnboarding"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/interview/questions/{questionId}/answer": {
         parameters: {
             query?: never;
@@ -958,6 +974,7 @@ export interface components {
             content: string;
             guide: string;
             guideMissing: string[];
+            onboarding: components["schemas"]["OnboardingGuide"];
             closing: string;
             requiredText: string;
             /** Format: int32 */
@@ -970,6 +987,20 @@ export interface components {
             failedCount: number;
             /** Format: date-time */
             sentAt: string | null;
+        };
+        OnboardingGuide: {
+            startDate: string;
+            place: string;
+            documents: string;
+            preparation: string;
+            note: string;
+        };
+        OnboardingRequest: {
+            startDate: string;
+            place: string;
+            documents: string;
+            preparation: string;
+            note: string;
         };
         AnswerRequest: {
             answer: string;
@@ -1598,6 +1629,33 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["NoticeEditRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NoticeView"];
+                };
+            };
+        };
+    };
+    changeOnboarding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                group: "PASS" | "FAIL";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingRequest"];
             };
         };
         responses: {
