@@ -136,7 +136,7 @@ async def test_report_write_returns_report_content(monkeypatch: pytest.MonkeyPat
     stage = {"name": "서류 전형", "target": 8, "pass": 4, "fail": 4}
     received: list[ReportInput] = []
 
-    async def write_report(data: ReportInput, llm: LlmClient) -> ReportContent:
+    async def write_report(data: ReportInput, llm: LlmClient, profiles: object = None) -> ReportContent:
         received.append(data)
         return ReportContent.model_validate(
             {"summary": "요약", "applicantCount": 8, "finalCount": 0, "stages": [stage], "finalists": [], "notes": []}
@@ -145,6 +145,8 @@ async def test_report_write_returns_report_content(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(worker_handlers, "write_report", write_report)
     handle = job_handlers(FakeLlm(), MemoryStore(), SESSIONS)["report/write"]
     report_input = {
+        "companyId": "3c1f5e2a-7b4d-4e8a-9f60-1a2b3c4d5e6f",
+        "recruitmentId": "7a1e2b3c-4d5e-4f60-8a9b-0c1d2e3f4a51",
         "title": "응용 소프트웨어 엔지니어",
         "applicantCount": 8,
         "stages": [stage],
