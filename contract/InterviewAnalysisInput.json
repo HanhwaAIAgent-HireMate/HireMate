@@ -1,0 +1,28 @@
+{
+  "companyId": "2b8e4c1d-6f3a-4e5b-9c7d-0a1b2c3d4e50",
+  "recruitmentId": "7a1e2b3c-4d5e-4f60-8a9b-0c1d2e3f4a51",
+  "stageId": "6e3d9a2f-4b5c-4d7e-9f01-2a3b4c5d6e7f",
+  "applicationId": "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60",
+  "stageName": "2차 면접",
+  "questions": [
+    {
+      "text": "1차 면접에서 충분히 확인하지 못한 장애 대응 경험을 구체적으로 이야기해 주세요.",
+      "answer": "정산 배치가 멈췄을 때 재처리 스크립트를 만들어 당일 복구했습니다."
+    },
+    {
+      "text": "3년 뒤 우리 팀에서 하고 싶은 일은 무엇인가요?",
+      "answer": ""
+    }
+  ],
+  "previous": [
+    {
+      "stageName": "1차 면접",
+      "questions": [
+        {
+          "text": "결제 승인 API 응답 시간을 줄인 일에서 본인이 맡은 역할을 말해 주세요.",
+          "answer": "DB 조회를 캐시로 바꾸는 작업을 직접 설계했습니다."
+        }
+      ]
+    }
+  ]
+}
