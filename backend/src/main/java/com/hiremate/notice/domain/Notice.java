@@ -3,6 +3,7 @@ package com.hiremate.notice.domain;
 import com.hiremate.company.NoticeTemplateType;
 import com.hiremate.notice.NoticeGroup;
 import com.hiremate.notice.NoticeStatus;
+import com.hiremate.notice.OnboardingGuide;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -76,6 +77,21 @@ public class Notice {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    @Column(nullable = false, length = 200)
+    private String onboardingStart = "";
+
+    @Column(nullable = false, length = 500)
+    private String onboardingPlace = "";
+
+    @Column(nullable = false, length = 1000)
+    private String onboardingDocuments = "";
+
+    @Column(nullable = false, length = 1000)
+    private String onboardingPreparation = "";
+
+    @Column(nullable = false, length = 1000)
+    private String onboardingNote = "";
+
     public Notice(UUID stageId, UUID recruitmentId, UUID companyId, NoticeGroup groupType,
             NoticeTemplateType templateType, String subject, String greeting, String closing, String requiredText,
             int recipientCount) {
@@ -104,6 +120,20 @@ public class Notice {
         this.greeting = greeting;
         this.content = content;
         this.closing = closing;
+        this.updatedAt = Instant.now();
+    }
+
+    public OnboardingGuide onboarding() {
+        return new OnboardingGuide(onboardingStart, onboardingPlace, onboardingDocuments, onboardingPreparation,
+                onboardingNote);
+    }
+
+    public void changeOnboarding(OnboardingGuide guide) {
+        this.onboardingStart = guide.startDate();
+        this.onboardingPlace = guide.place();
+        this.onboardingDocuments = guide.documents();
+        this.onboardingPreparation = guide.preparation();
+        this.onboardingNote = guide.note();
         this.updatedAt = Instant.now();
     }
 

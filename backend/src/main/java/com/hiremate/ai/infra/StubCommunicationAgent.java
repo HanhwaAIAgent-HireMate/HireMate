@@ -39,7 +39,7 @@ class StubCommunicationAgent implements CommunicationAgent {
                     + (notice.nextStageName() == null ? "다음 단계" : notice.nextStageName()) + "입니다.";
             case REJECT -> "검토 결과 아쉽게도 이번 채용에서는 함께하기 어렵게 되었습니다. "
                     + "앞으로의 여정을 진심으로 응원하겠습니다.";
-            case FINAL_PASS -> "최종 합격을 진심으로 축하드립니다. 입사 일정과 준비 서류는 담당자가 곧 연락드리겠습니다.";
+            case FINAL_PASS -> "최종 합격을 진심으로 축하드립니다. 함께하게 되어 기쁩니다.";
             case FINAL_REJECT -> "최종 전형 결과, 아쉽게도 이번에는 함께하지 못하게 되었습니다. "
                     + "긴 전형 동안 성실히 참여해 주셔서 감사합니다.";
         };
