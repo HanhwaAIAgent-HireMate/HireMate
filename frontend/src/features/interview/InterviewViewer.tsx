@@ -1,4 +1,4 @@
-import { CalendarClock, Plus, X } from 'lucide-react'
+import { CalendarClock, Loader2Icon, Plus, X } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   useInterview,
   useInterviewActions,
+  useInterviewPreparing,
   useStageHistory,
   type Interview,
 } from '@/features/interview/api'
@@ -96,6 +97,7 @@ function Questions({
   editable: boolean
 }) {
   const actions = useInterviewActions(stageId, applicationId)
+  const preparing = useInterviewPreparing(stageId, applicationId).data?.preparing === true
   const [draft, setDraft] = useState<string | null>(null)
   const fail = (error: unknown) => toast.error(errorMessage(error))
 
@@ -138,9 +140,19 @@ function Questions({
           />
         </div>
       </div>
-      {interview.questions.length === 0 && (
+      {preparing && (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-xl border border-dashed p-4 text-sm text-muted-foreground"
+        >
+          <Loader2Icon className="size-4 shrink-0 animate-spin" />
+          질문 생성 중이에요. 끝나면 자동으로 나타나요.
+        </div>
+      )}
+      {!preparing && interview.questions.length === 0 && (
         <p className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">
-          AI Chat에서 @지원자와 함께 면접 질문을 요청하면 여기에 들어와요.
+          아직 질문이 없어요. 면접 전형이 시작되면 AI가 미리 만들고, AI Chat에서 @지원자와 함께 더
+          요청할 수 있어요.
         </p>
       )}
       {interview.questions.map((question) => (

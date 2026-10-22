@@ -29,6 +29,42 @@ export function useInterview(stageId: string, applicationId: string) {
   })
 }
 
+/** 질문 생성 중일 때 다시 묻는 간격. 실제 모델은 한 명에 1~3분 걸린다 */
+const PREPARING_POLL_MS = 3_000
+
+/**
+ * 면접 전형이 시작되면 AI 워커가 맞춤 질문을 미리 만든다 (FR-27). 만드는 중이면 몇 초마다 다시 묻고,
+ * 끝나면(만드는 중 → 끝남) 카드 질문을 새로 불러와 새로고침 없이 질문이 나타나게 한다.
+ */
+export function useInterviewPreparing(stageId: string, applicationId: string) {
+  const queryClient = useQueryClient()
+  const preparingKey = [...key(stageId, applicationId), 'preparing']
+  return useQuery({
+    queryKey: preparingKey,
+    queryFn: async () => {
+      const before = queryClient.getQueryData<{ preparing: boolean }>(preparingKey)
+      const status = await unwrap(
+        api.GET(
+          '/api/stages/{stageId}/candidates/{applicationId}/interview/preparing',
+          path(stageId, applicationId),
+        ),
+      )
+      if (finishedPreparing(before, status))
+        await queryClient.invalidateQueries({ queryKey: key(stageId, applicationId), exact: true })
+      return status
+    },
+    refetchInterval: (query) => (query.state.data?.preparing ? PREPARING_POLL_MS : false),
+  })
+}
+
+/** 직전에는 만드는 중이었는데 지금은 끝났는가. 이때만 카드 질문을 다시 불러온다 */
+export function finishedPreparing(
+  before: { preparing: boolean } | undefined,
+  now: { preparing: boolean },
+) {
+  return before?.preparing === true && !now.preparing
+}
+
 export function useStageHistory(stageId: string, applicationId: string) {
   return useQuery({
     queryKey: [...stageKeys.all(stageId), 'history', applicationId],
