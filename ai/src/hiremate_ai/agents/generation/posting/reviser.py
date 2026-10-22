@@ -8,6 +8,7 @@
 모든 호출의 system과 앞부분(지금 공고, HR 요청)이 같아, 모델은 앞부분을 다시 읽지 않는다. 할 일은 끝에 붙인다.
 지금 공고에 합치고 바뀐 칸을 고르는 일은 코드가 한다. 모델이 바뀌었다고 말하는 칸을 믿지 않고 원래 공고와 비교한다.
 NCS 근거는 고른 능력단위의 정의를 보여 주고 쓰게 하며, 근거 코드는 실제로 있는 능력단위인지 확인한다 (규칙 7).
+고른 능력단위는 NCS 중요도 및 활용도 조사 점수가 높은 것을 앞에 놓고 앞쪽부터 쓰게 한다.
 자격 요건 · 우대 사항 중 무엇을 몇 개 쓸지는 코드가 요청과 지금 공고를 보고 정해 모델에게 알려 준다.
 """
 
@@ -29,7 +30,7 @@ from hiremate_ai.agents.generation.posting.types import (
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.contract import DocumentType, PostingContent, StageType
 from hiremate_ai.llm.client import LlmClient
-from hiremate_ai.tools.ncs import NcsUnit, ncs_data, subdivisions, unit_by_code, units_of
+from hiremate_ai.tools.ncs import NcsUnit, ncs_data, subdivisions, survey_score, unit_by_code, units_of
 
 AGENT = "posting"
 """호출 로그와 backend 연동 경로(/agents/posting/...)에 쓰는 Agent 키."""
@@ -70,7 +71,13 @@ ATTEMPTS = 2
 """처음 한 번과, 검사에 걸렸을 때 이유를 붙여 다시 쓰는 한 번."""
 
 MAX_NCS_UNITS = 8
-"""정의와 수행준거를 보여 줄 능력단위 수."""
+"""정의와 수행준거를 보여 줄 능력단위 수. 더 고르면 조사 점수가 낮은 것부터 뺀다."""
+
+NCS_ORDER_NOTE = (
+    "(우선순위 순서다. NCS 현장 조사에서 중요하게 본 능력단위를 앞에 놓았다. "
+    "앞쪽 능력단위로 먼저 쓰고 목록에서도 앞에 둔다. 자격 요건과 우대 사항은 이 순서가 아니라 규칙 3으로 나눈다.)"
+)
+"""조사가 있는 능력단위를 둘 이상 보여 줄 때 능력단위 목록 앞에 붙인다."""
 
 NCS_DETAIL_CHARS = 3000
 """두 번째 호출에 넣는 능력단위 정의와 수행준거의 글자 수 한도. 능력단위 하나에 평균 700자라 다 넣으면
@@ -389,9 +396,21 @@ def _number(word: str) -> int:
 
 
 def _chosen_units(codes: list[str]) -> list[NcsUnit]:
-    """모델이 고른 코드 중 실제로 있는 능력단위만, 정해 둔 수까지."""
+    """모델이 고른 코드 중 실제로 있는 능력단위만, 조사 점수 순서로(_by_survey) 정해 둔 수까지."""
     units = [unit for code in codes if (unit := unit_by_code(code.strip()))]
-    return list({unit.code: unit for unit in units}.values())[:MAX_NCS_UNITS]
+    return _by_survey(list({unit.code: unit for unit in units}.values()))[:MAX_NCS_UNITS]
+
+
+def _by_survey(units: list[NcsUnit]) -> list[NcsUnit]:
+    """조사 점수가 높은 능력단위를 앞에 놓는다. 조사가 있는 능력단위끼리만 자리를 바꾼다.
+
+    조사가 없는 능력단위(DB엔지니어링 등)는 모델이 고른 자리에 둔다. 조사가 없다는 이유로 뒤로 밀지 않는다.
+    """
+    surveys = ncs_data().surveys
+    ranked = iter(
+        sorted((unit for unit in units if unit.code in surveys), key=lambda unit: -survey_score(surveys[unit.code]))
+    )
+    return [next(ranked) if unit.code in surveys else unit for unit in units]
 
 
 def _apply_ncs(
@@ -587,6 +606,7 @@ def _ncs_prompt(
         f"공고 작성 스타일: {writing_style.strip() or '(없음)'}",
         "",
         f"NCS 능력단위 ({ncs_data().source}):",
+        *([NCS_ORDER_NOTE] if sum(unit.code in ncs_data().surveys for unit in units) >= 2 else []),
         *_unit_lines(units),
         "",
         f"HR 요청: {request}",

@@ -14,6 +14,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
     MAX_DRAFT_ITEMS,
     MAX_NCS_UNITS,
     NCS_DETAIL_CHARS,
+    NCS_ORDER_NOTE,
     NCS_SYSTEM,
     NOTHING_CHANGED_REPLY,
     RETRY_HINT,
@@ -33,7 +34,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, RecruitmentStatus, StageDraft
 from hiremate_ai.contract import DocumentType, PostingContent, StageType
 from hiremate_ai.llm.fake import FakeLlm
-from hiremate_ai.tools.ncs import ncs_data, unit_by_code
+from hiremate_ai.tools.ncs import ncs_data, survey_score, unit_by_code
 
 CONTENT = PostingContent(
     title="결제 플랫폼 백엔드 개발자",
@@ -50,7 +51,13 @@ CONTENT = PostingContent(
 SERVER = "2001020211_23v6"
 """응용SW엔지니어링 · 서버프로그램 구현"""
 SQL = "2001020414_19v4"
-"""DB엔지니어링 · SQL응용"""
+"""DB엔지니어링 · SQL응용 (중요도 및 활용도 조사 없음)"""
+DB_TUNING = "2001020408_19v4"
+"""DB엔지니어링 · 데이터베이스 성능확보 (조사 없음)"""
+TEST_RUN = "2001020227_23v6"
+"""응용SW엔지니어링 · 애플리케이션 테스트 수행 (조사 점수 1위)"""
+INTEGRATION = "2001020206_23v6"
+"""응용SW엔지니어링 · 통합 구현 (조사 점수가 서버프로그램 구현보다 낮다)"""
 DOCUMENT = StageDraft(name="서류 전형", type=StageType.DOCUMENT)
 CODING = StageDraft(name="코딩테스트", type=StageType.ASSESSMENT)
 INTERVIEW = StageDraft(name="1차 면접", type=StageType.INTERVIEW)
@@ -691,14 +698,36 @@ async def test_revise_skips_ncs_when_request_does_not_mention_requirements() -> 
     assert result.suggestion.changed_fields == ["intro"]
 
 
-async def test_revise_limits_units_shown_to_ncs_writer() -> None:
+async def test_revise_limits_units_shown_to_ncs_writer_keeping_higher_survey_scores() -> None:
+    surveys = ncs_data().surveys
     codes = [unit.code for unit in ncs_data().units][: MAX_NCS_UNITS + 3]
     llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=codes), ncs_draft([]))
 
     await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
 
-    shown = [code for code in codes if code in llm.calls[2].user]
-    assert shown == codes[:MAX_NCS_UNITS]
+    shown = {code for code in codes if code in llm.calls[2].user}
+    assert shown == set(sorted(codes, key=lambda code: -survey_score(surveys[code]))[:MAX_NCS_UNITS])
+
+
+async def test_revise_puts_units_with_higher_survey_scores_first() -> None:
+    """조사가 있는 능력단위끼리 점수 순서로 자리를 바꾸고, 조사가 없는 SQL응용은 고른 자리(두 번째)에 둔다."""
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[INTEGRATION, SQL, TEST_RUN, SERVER]), ncs_draft([]))
+
+    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
+
+    write = llm.calls[2].user
+    assert sorted([TEST_RUN, SQL, SERVER, INTEGRATION], key=write.index) == [TEST_RUN, SQL, SERVER, INTEGRATION]
+    assert f"):\n{NCS_ORDER_NOTE}\n- {TEST_RUN}" in write
+
+
+async def test_revise_keeps_picked_order_and_skips_the_note_without_survey() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SQL, DB_TUNING, SERVER]), ncs_draft([]))
+
+    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
+
+    write = llm.calls[2].user
+    assert sorted([SQL, DB_TUNING, SERVER], key=write.index) == [SQL, DB_TUNING, SERVER]
+    assert NCS_ORDER_NOTE not in write
 
 
 async def test_revise_combines_content_changes_with_ncs_lists() -> None:
