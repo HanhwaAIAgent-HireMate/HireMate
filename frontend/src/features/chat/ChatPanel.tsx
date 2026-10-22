@@ -8,6 +8,7 @@ import {
   useForgetChat,
   useMentionCandidates,
   type ChatAnswer,
+  type ChatItem,
 } from '@/features/chat/api'
 import { turnsToMessages, useChatStore, type ChatMessage } from '@/features/chat/store'
 import { careerLabel, type StageOverview } from '@/features/screening/api'
@@ -17,6 +18,11 @@ import { cn } from '@/lib/utils'
 
 const EMPTY: ChatMessage[] = []
 const RECENT = 6
+const WAITING = '지원자 자료를 살펴보고 있어요…'
+
+/** 답을 기다리는 동안 받은 단계 문구와 검증을 마친 항목 */
+type Progress = { status: string | null; items: ChatItem[] }
+const NO_PROGRESS: Progress = { status: null, items: [] }
 
 const EXAMPLES: Record<StageOverview['type'], string[]> = {
   DOCUMENT: [
@@ -40,7 +46,11 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
   const history = useChatHistory(stageId)
   const forget = useForgetChat(stageId)
   const { mentions, removeMention, addMention, checked } = useStageUi()
-  const chat = useChat(stageId)
+  const [progress, setProgress] = useState<Progress>(NO_PROGRESS)
+  const chat = useChat(stageId, {
+    onStatus: (status) => setProgress((current) => ({ ...current, status })),
+    onItem: (item) => setProgress((current) => ({ ...current, items: [...current.items, item] })),
+  })
   const [text, setText] = useState('')
   const [expanded, setExpanded] = useState(false)
   const bottom = useRef<HTMLDivElement>(null)
@@ -56,13 +66,14 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
-  }, [messages.length, chat.isPending])
+  }, [messages.length, chat.isPending, progress.items.length])
 
   const send = (raw: string) => {
     const message = raw.replace(/@\S*$/, '').trim()
     if (!message || chat.isPending || loading) return
     append(stageId, { role: 'user', text: message, mentions })
     setText('')
+    setProgress(NO_PROGRESS)
     chat.mutate(
       {
         message,
@@ -72,6 +83,8 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
       {
         onSuccess: (answer) => append(stageId, { role: 'ai', answer }),
         onError: (error) => append(stageId, { role: 'error', text: errorMessage(error) }),
+        // 진행 중 화면은 최종 답이나 오류로 바뀐다
+        onSettled: () => setProgress(NO_PROGRESS),
       },
     )
   }
@@ -130,9 +143,16 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
           <Fragment key={index}>{renderMessage(message)}</Fragment>
         ))}
         {chat.isPending && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Sparkles className="size-4 animate-pulse text-ai" />
-            지원자 자료를 살펴보고 있어요…
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Sparkles className="size-4 animate-pulse text-ai" />
+              {progress.status ?? WAITING}
+            </div>
+            {progress.items.length > 0 && (
+              <div className="pl-6">
+                <ItemList items={progress.items} />
+              </div>
+            )}
           </div>
         )}
         <div ref={bottom} />
@@ -246,25 +266,7 @@ function Answer({ answer }: { answer: ChatAnswer }) {
       <Sparkles className="mt-0.5 size-4 shrink-0 text-ai" />
       <div className="min-w-0 space-y-1.5">
         <p className="leading-6">{bold(answer.message)}</p>
-        {answer.items.length > 0 && (
-          <ul className="space-y-1">
-            {answer.items.map((item, index) => (
-              <li key={index} className="flex gap-1.5 text-[13px] leading-5">
-                {item.status === 'OK' ? (
-                  <Check className="mt-0.5 size-3.5 shrink-0 text-pass-foreground" />
-                ) : item.status === 'CHECK' ? (
-                  <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
-                ) : (
-                  <span className="text-muted-foreground">•</span>
-                )}
-                <span>
-                  <span className="font-semibold">{item.label}</span>
-                  <span className="text-muted-foreground"> — {item.text}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {answer.items.length > 0 && <ItemList items={answer.items} />}
         {answer.sources.length > 0 && (
           <p className="text-xs text-muted-foreground">출처 · {answer.sources.join(' · ')}</p>
         )}
@@ -277,6 +279,29 @@ function Answer({ answer }: { answer: ChatAnswer }) {
         )}
       </div>
     </div>
+  )
+}
+
+/** 답변의 항목 줄. 근거 충분은 체크, 확인 필요는 경고 표시다. 진행 중 화면과 최종 답이 같이 쓴다. */
+function ItemList({ items }: { items: ChatItem[] }) {
+  return (
+    <ul className="space-y-1">
+      {items.map((item, index) => (
+        <li key={index} className="flex gap-1.5 text-[13px] leading-5">
+          {item.status === 'OK' ? (
+            <Check className="mt-0.5 size-3.5 shrink-0 text-pass-foreground" />
+          ) : item.status === 'CHECK' ? (
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+          ) : (
+            <span className="text-muted-foreground">•</span>
+          )}
+          <span>
+            <span className="font-semibold">{item.label}</span>
+            <span className="text-muted-foreground"> — {item.text}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
   )
 }
 
