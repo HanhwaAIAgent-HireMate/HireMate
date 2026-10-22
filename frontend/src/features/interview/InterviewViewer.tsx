@@ -158,8 +158,8 @@ function Questions({
       )}
       {!preparing && interview.questions.length === 0 && (
         <p className="rounded-xl border border-dashed p-5 text-center text-sm text-muted-foreground">
-          아직 질문이 없어요. 면접 전형이 시작되면 AI가 미리 만들고, AI Chat에서 @지원자와 함께 더
-          요청할 수 있어요.
+          아직 질문이 없어요. 앞 전형 결과를 확정하면 AI가 미리 만들고, AI Chat에서 @지원자와 함께
+          더 요청할 수 있어요.
         </p>
       )}
       {interview.questions.map((question) => (
