@@ -34,7 +34,8 @@ async def main() -> None:
         claim_idle_seconds=settings.worker_claim_idle_seconds,
     )
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
-    worker = Worker(redis, job_handlers(get_llm(), DbReviewStore(session_factory())), options)
+    sessions = session_factory()
+    worker = Worker(redis, job_handlers(get_llm(), DbReviewStore(sessions), sessions), options)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
