@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from root_context import Recorder, make_context, save_sample_profiles, sessions_of
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hiremate_ai.agents.root import answer
 from hiremate_ai.agents.root.answer import (
     BULK,
     COMPARE_STATUS,
@@ -231,13 +230,9 @@ async def test_interview_evidence_checked_against_records(
     assert plan.sources == ["면접 기록"]
 
 
-async def test_timeout_clarifies(
-    sample_applicants: Applicants,
-    sample_company: CompanyProfile,
-    sample_posting: PostingContent,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_slow_tool_loop_still_answers(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
-    monkeypatch.setattr(answer, "ANSWER_TIMEOUT_SECONDS", 0.01)
 
     def slow(call: LlmCall) -> ToolCall:
         time.sleep(0.05)
@@ -247,7 +242,7 @@ async def test_timeout_clarifies(
 
     plan = await ask(FakeLlm(slow, answered()), context)
 
-    assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+    assert (plan.intent, plan.message) == (Intent.ANSWER, "정유민 님의 강점이에요.")
 
 
 async def test_call_limit_clarifies(
@@ -837,53 +832,39 @@ def with_summary(notes: Mapping[str, CandidateNotes | Exception], summary: str) 
     return respond
 
 
-async def test_multi_slow_candidate_marked_check(
-    sample_applicants: Applicants,
-    sample_company: CompanyProfile,
-    sample_posting: PostingContent,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_multi_waits_for_slow_candidate(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
-    monkeypatch.setattr(answer, "NOTES_SECONDS", 0.05)
-    respond = with_summary(PAIR, "김하늘만 확인했어요.")
-    llm = SlowLlm(FakeLlm(respond, respond, respond), lambda user, output: "정리할 지원자: C3 박서준" in user)
+    respond = with_summary(PAIR, "두 사람을 비교했어요.")
+    llm = SlowLlm(FakeLlm(respond, respond, respond), lambda user, output: "정리할 지원자: C3 박서준" in user, 0.2)
 
     plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
 
-    park = sample_applicants["박서준"].info.application_id
-    assert plan.message == "김하늘만 확인했어요."
-    assert [(item.status, item.text) for item in plan.items] == [("OK", "Oracle 원장 설계"), ("CHECK", NOT_CHECKED)]
-    assert plan.items[1].application_id == park
+    assert plan.message == "두 사람을 비교했어요."
+    assert [(item.status, item.text) for item in plan.items] == [("OK", "Oracle 원장 설계"), ("OK", "PostgreSQL 튜닝")]
 
 
-async def test_multi_all_slow_clarifies(
-    sample_applicants: Applicants,
-    sample_company: CompanyProfile,
-    sample_posting: PostingContent,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_multi_all_slow_still_compares(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
-    monkeypatch.setattr(answer, "NOTES_SECONDS", 0.05)
     respond = with_summary(PAIR, "비교했어요.")
-    llm = SlowLlm(FakeLlm(respond, respond), lambda user, output: output is CandidateNotes)
+    llm = SlowLlm(FakeLlm(respond, respond, respond), lambda user, output: output is CandidateNotes, 0.2)
 
     plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
 
-    assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
-
-
-async def test_multi_summary_timeout_falls_back(
-    sample_applicants: Applicants,
-    sample_company: CompanyProfile,
-    sample_posting: PostingContent,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(answer, "SUMMARY_SECONDS", 0.05)
-    respond = with_summary(PAIR, "비교했어요.")
-    llm = SlowLlm(FakeLlm(respond, respond, respond), lambda user, output: output is MultiSummary)
-
-    plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
-
-    assert plan.message == MULTI_FALLBACK.format(names="김하늘, 박서준")
+    assert (plan.intent, plan.message) == (Intent.ANSWER, "비교했어요.")
     assert [item.status for item in plan.items] == ["OK", "OK"]
+
+
+async def test_multi_slow_summary_still_used(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    respond = with_summary(PAIR, "비교했어요.")
+    llm = SlowLlm(FakeLlm(respond, respond, respond), lambda user, output: output is MultiSummary, 0.2)
+
+    plan = await ask(llm, pair_context(sample_applicants, sample_company, sample_posting))
+
+    assert plan.message == "비교했어요."
 
 
 async def test_summary_naming_other_applicant_falls_back(
@@ -952,22 +933,18 @@ async def test_multi_streams_items_as_candidates_finish(
     assert sorted(progress.items, key=str) == sorted(plan.items, key=str)
 
 
-async def test_multi_streams_only_finished_candidates(
-    sample_applicants: Applicants,
-    sample_company: CompanyProfile,
-    sample_posting: PostingContent,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_multi_streams_items_in_finish_order(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
-    monkeypatch.setattr(answer, "NOTES_SECONDS", 0.05)
-    respond = with_summary(PAIR, "김하늘만 확인했어요.")
-    llm = SlowLlm(FakeLlm(respond, respond, respond), lambda user, output: "정리할 지원자: C3 박서준" in user)
+    respond = with_summary(PAIR, "비교했어요.")
+    llm = SlowLlm(FakeLlm(respond, respond, respond), lambda user, output: "정리할 지원자: C3 박서준" in user, 0.2)
     context = pair_context(sample_applicants, sample_company, sample_posting)
     progress = Recorder()
 
     plan = await plan_answer(llm, ASK, context, resolve(context), default_toolkit(), progress=progress)
 
-    assert progress.items == [plan.items[0]]
-    assert (plan.items[1].status, plan.items[1].text) == ("CHECK", NOT_CHECKED)
+    # 늦은 지원자도 기다려 보낸다. 먼저 끝난 지원자가 먼저 간다
+    assert progress.items == plan.items
 
 
 async def test_multi_streams_verified_status(
