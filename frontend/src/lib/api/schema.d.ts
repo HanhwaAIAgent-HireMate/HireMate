@@ -740,6 +740,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/candidates/{applicationId}/interview/preparing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["preparing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates/{applicationId}/history": {
         parameters: {
             query?: never;
@@ -1473,6 +1489,9 @@ export interface components {
             documents: components["schemas"]["ApplicantDocument"][];
             memo: string;
         };
+        PreparingView: {
+            preparing: boolean;
+        };
         StageCandidateView: {
             /** Format: uuid */
             stageId: string;
@@ -1632,9 +1651,9 @@ export interface components {
             type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
         };
         CsrfToken: {
+            headerName: string;
             parameterName: string;
             token: string;
-            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -2980,6 +2999,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["InterviewView"];
+                };
+            };
+        };
+    };
+    preparing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PreparingView"];
                 };
             };
         };
