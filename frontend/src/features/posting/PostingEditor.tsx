@@ -13,10 +13,13 @@ import {
   useDiscardSuggestion,
   usePostingAiRequest,
   useSavePosting,
+  useSaveReceipt,
   type Posting,
   type PostingContent,
 } from '@/features/posting/api'
 import { BulletListField } from '@/features/posting/BulletListField'
+import type { Receipt } from '@/features/posting/receipt'
+import { ReceiptMailEditor } from '@/features/posting/ReceiptMail'
 import { StageFlow } from '@/features/posting/StageFlow'
 import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
@@ -58,7 +61,14 @@ export function PostingEditor({
   const id = posting.recruitmentId
   const [draft, setDraft] = useState<PostingContent>(posting.content)
   const [dirty, setDirty] = useState(false)
+  const [receipt, setReceipt] = useState<Receipt>({
+    subject: posting.receipt.subject,
+    body: posting.receipt.body,
+  })
   const save = useSavePosting(id)
+  const saveReceipt = useSaveReceipt(id)
+  const receiptDirty =
+    receipt.subject !== posting.receipt.subject || receipt.body !== posting.receipt.body
   const ai = usePostingAiRequest(id)
   const apply = useApplySuggestion(id)
   const discard = useDiscardSuggestion(id)
@@ -76,14 +86,22 @@ export function PostingEditor({
   }
 
   const saveDraft = async (silent = false) => {
-    if (!dirty) return true
-    if (!draft.title.trim()) {
+    if (!dirty && !receiptDirty) return true
+    if (dirty && !draft.title.trim()) {
       toast.error('채용명을 입력해 주세요.')
       return false
     }
+    if (receiptDirty && (!receipt.subject.trim() || !receipt.body.trim())) {
+      toast.error('접수 확인 메일의 제목과 본문을 입력해 주세요.')
+      return false
+    }
     try {
-      await save.mutateAsync({ ...draft, title: draft.title.trim() })
-      setDirty(false)
+      // 본문을 저장하면 편집 화면을 새로 열어, 접수 확인 메일을 먼저 저장한다
+      if (receiptDirty) await saveReceipt.mutateAsync(receipt)
+      if (dirty) {
+        await save.mutateAsync({ ...draft, title: draft.title.trim() })
+        setDirty(false)
+      }
       if (!silent) toast.success('저장했어요.')
       return true
     } catch (error) {
@@ -134,7 +152,7 @@ export function PostingEditor({
             <Button
               variant="outline"
               onClick={() => void saveDraft()}
-              disabled={!dirty || save.isPending}
+              disabled={!(dirty || receiptDirty) || save.isPending || saveReceipt.isPending}
             >
               {isDraft ? '임시 저장' : '저장'}
             </Button>
@@ -299,6 +317,23 @@ export function PostingEditor({
                 </ul>
               )}
             </FixedBox>
+            <section className="space-y-2">
+              <h2 className="flex flex-wrap items-center gap-2 text-sm font-bold">
+                접수 확인 메일
+                {!isDraft && <Lock className="size-3.5 text-muted-foreground" />}
+                <span className="text-xs font-normal text-muted-foreground">
+                  {isDraft
+                    ? '지원서를 내면 바로 이 메일이 가요. 게시한 뒤에는 바꿀 수 없어요'
+                    : '게시한 뒤에는 바꿀 수 없어요'}
+                </span>
+              </h2>
+              <ReceiptMailEditor
+                value={receipt}
+                requiredText={posting.receipt.requiredText}
+                locked={!isDraft}
+                onChange={setReceipt}
+              />
+            </section>
           </div>
         </div>
         <AiRequestPanel

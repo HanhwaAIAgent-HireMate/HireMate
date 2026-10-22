@@ -56,6 +56,18 @@ export function useSavePosting(recruitmentId: string) {
   )
 }
 
+/** 접수 확인 메일. 게시 전에만 고칠 수 있다 */
+export function useSaveReceipt(recruitmentId: string) {
+  return usePostingMutation(recruitmentId, (body: { subject: string; body: string }) =>
+    unwrap(
+      api.PUT('/api/recruitments/{recruitmentId}/posting/receipt', {
+        params: { path: { recruitmentId } },
+        body,
+      }),
+    ),
+  )
+}
+
 export function useApplySuggestion(recruitmentId: string) {
   return usePostingMutation(recruitmentId, () =>
     unwrap(
