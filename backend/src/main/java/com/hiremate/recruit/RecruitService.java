@@ -129,6 +129,7 @@ public class RecruitService {
             throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "The stage is not in progress.");
         }
         stage.confirm(memberId, memberName);
+        events.publishEvent(new StageConfirmed(stageId, companyId));
         return toInfo(stage);
     }
 

@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 면접 카드의 맞춤 질문 생성 상태 (STG-12). 면접 전형이 시작되면 AI 워커가 질문을 미리 만든다 (FR-27). */
+/** 면접 카드의 맞춤 질문 생성 상태 (STG-12). 앞 전형 결과를 확정하면 AI 워커가 질문을 미리 만든다 (FR-27). */
 @RestController
 public class InterviewAiController {
 

@@ -19,7 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/** 맞춤 면접 질문 생성. 면접 전형이 시작되면 미리 만들고, AI Chat이면 Root Agent를 거쳐 더 만든다. 질문은 지원자 카드에 들어간다. */
+/** 맞춤 면접 질문 생성. 앞 전형 결과를 확정하면 미리 만들고, AI Chat이면 Root Agent를 거쳐 더 만든다. 질문은 지원자 카드에 들어간다. */
 @Service
 public class InterviewAiService {
 
@@ -64,18 +64,24 @@ public class InterviewAiService {
 
     /** AI Chat 요청: 질문을 바로 만들어 카드에 넣는다. focus는 Root Agent가 정리한 확인할 점이다. */
     public InterviewView generate(UUID companyId, UUID stageId, UUID applicationId, String focus) {
-        Inputs in = inputs(companyId, stageId, applicationId);
+        Inputs in = inputs(companyId, stageId, applicationId, interviews.view(companyId, stageId, applicationId));
         return interviews.addQuestions(companyId, stageId, applicationId,
                 agent.questions(in.applicant(), in.posting(), in.analysis(), in.current(), in.company(), focus),
                 QuestionSource.AI);
     }
 
     /**
-     * 면접 전형이 시작될 때 질문을 미리 만든다 (FR-27). stub은 바로 카드에 넣고, remote는 AI 워커에 맡겨
+     * 앞 전형 결과를 확정하면 질문을 미리 만든다 (FR-27). stub은 바로 카드에 넣고, remote는 AI 워커에 맡겨
      * {@link InterviewQuestionResults}가 결과를 넣는다.
      */
     public void prepare(UUID companyId, UUID stageId, UUID applicationId) {
-        Inputs in = inputs(companyId, stageId, applicationId);
+        InterviewView current = interviews.preparationView(companyId, stageId, applicationId);
+        String target = InterviewAgent.jobTarget(companyId, stageId, applicationId);
+        if (!current.questions().isEmpty()
+                || !settings.isStub(AiAgent.INTERVIEW) && jobs.isOpen(InterviewAgent.QUESTIONS_JOB, target)) {
+            return;
+        }
+        Inputs in = inputs(companyId, stageId, applicationId, current);
         agent.prepare(InterviewAgent.jobTarget(companyId, stageId, applicationId), in.applicant(), in.posting(),
                 in.analysis(), in.current(), in.company())
                 .ifPresent(questions -> addPrepared(companyId, stageId, applicationId, questions));
@@ -101,12 +107,11 @@ public class InterviewAiService {
 
     /** 미리 만든 질문을 카드에 넣는다. 카드에 이미 있는 문장은 건너뛴다. */
     public void addPrepared(UUID companyId, UUID stageId, UUID applicationId, List<String> questions) {
-        interviews.addQuestions(companyId, stageId, applicationId, questions, QuestionSource.AI);
+        interviews.addPreparedQuestions(companyId, stageId, applicationId, questions);
     }
 
     /** 질문 생성 재료: 지원서 · 공고 · 서류 분석 · 지금 카드(이전 면접 기록 포함) · 회사 인재상과 조직 문화. */
-    private Inputs inputs(UUID companyId, UUID stageId, UUID applicationId) {
-        InterviewView current = interviews.view(companyId, stageId, applicationId);
+    private Inputs inputs(UUID companyId, UUID stageId, UUID applicationId, InterviewView current) {
         ApplicantDetail applicant = applications.detail(companyId, applicationId);
         UUID recruitmentId = screening.overview(companyId, stageId).recruitmentId();
         PostingContent posting = postings.draftContext(companyId, recruitmentId).content();

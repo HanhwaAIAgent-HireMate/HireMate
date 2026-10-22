@@ -4,6 +4,7 @@ import static com.hiremate.TestApi.done;
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
@@ -11,6 +12,9 @@ import com.hiremate.TestFixtures;
 import com.hiremate.TestMailConfiguration;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
+import com.hiremate.global.ApiException;
+import com.hiremate.interview.InterviewService;
+import com.hiremate.interview.InterviewView;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -26,6 +30,9 @@ class ScreeningTests extends IntegrationTest {
 
     @Autowired
     private ApplicationService applications;
+
+    @Autowired
+    private InterviewService interviews;
 
     @Autowired
     private TestMailConfiguration.RecordingMailClient mail;
@@ -326,23 +333,51 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("다음 전형이 면접이면 전형을 종료할 때 합격자마다 맞춤 질문을 미리 만들어 카드에 넣는다 (FR-27)")
+    @DisplayName("결과 확정 직후 합격자만 다음 면접 질문을 준비하고, 전형 시작 때 중복 생성하지 않는다 (FR-27)")
     void interviewStageStartsWithPreparedQuestions() throws Exception {
-        Stage stage = startDocumentStage(1, "전형은 서류, 1차 면접 순으로 해줘");
+        Stage stage = startDocumentStage(3, "전형은 서류, 1차 면접 순으로 해줘");
         TestApi hr = stage.hr();
         String id = stage.ids().getFirst();
-        String first = passAndFinish(hr, stage.path(), id);
+        UUID companyId = hr.companyId();
+        JsonNode steps = json(expect(hr.get(stage.path()), 200)).path("steps");
+        UUID nextId = UUID.fromString(steps.get(1).path("stageId").asString());
+        UUID applicationId = UUID.fromString(id);
+        assertThatThrownBy(() -> interviews.preparationView(companyId, nextId, applicationId))
+                .isInstanceOf(ApiException.class);
+        expect(hr.post(stage.path() + "/decisions",
+                Map.of("applicationIds", List.of(id), "decision", "PASS")), 204);
+        expect(hr.post(stage.path() + "/decisions",
+                Map.of("applicationIds", List.of(stage.ids().get(1)), "decision", "FAIL")), 204);
+        expect(hr.post(stage.path() + "/confirm", null), 200);
 
-        // 질문은 전형 종료가 끝난 뒤 따로 만든다 (기다리지 않는 작업). 카드에 들어올 때까지 잠깐 기다린다
-        String card = first + "/candidates/" + id + "/interview";
+        // 면접 대상자로 아직 등록하지 않아도 확정 합격자의 질문은 먼저 준비된다.
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
-        JsonNode prepared = json(expect(hr.get(card), 200));
-        while (prepared.path("questions").isEmpty() && Instant.now().isBefore(deadline)) {
+        InterviewView prepared = interviews.preparationView(companyId, nextId, applicationId);
+        while (prepared.questions().isEmpty() && Instant.now().isBefore(deadline)) {
             Thread.sleep(200);
-            prepared = json(expect(hr.get(card), 200));
+            prepared = interviews.preparationView(companyId, nextId, applicationId);
         }
-        assertThat(prepared.path("questions").size()).isPositive();
-        assertThat(prepared.path("questions").get(0).path("source").asString()).isEqualTo("AI");
+        assertThat(prepared.questions()).isNotEmpty();
+        JsonNode pending = json(expect(hr.get("/api/stages/" + nextId), 200));
+        assertThat(pending.path("status").asString()).isEqualTo("PENDING");
+        assertThat(pending.path("counts").path("total").asLong()).isZero();
+        for (String rejected : stage.ids().subList(1, 3)) {
+            assertThatThrownBy(() -> interviews.addPreparedQuestions(companyId, nextId,
+                    UUID.fromString(rejected), List.of("저장되면 안 되는 질문")))
+                    .isInstanceOf(ApiException.class);
+        }
+        assertThatThrownBy(() -> interviews.preparationView(UUID.randomUUID(), nextId, applicationId))
+                .isInstanceOf(ApiException.class);
+
+        expect(hr.post(stage.path() + "/notices/prepare", null), 200);
+        expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
+        expect(hr.post(stage.path() + "/notices/FAIL/send", null), 200);
+        expect(hr.post(stage.path() + "/finish", null), 200);
+        String card = "/api/stages/" + nextId + "/candidates/" + id + "/interview";
+        JsonNode opened = json(expect(hr.get(card), 200));
+        assertThat(opened.path("questions").size()).isEqualTo(prepared.questions().size());
+        assertThat(opened.path("questions").get(0).path("questionId").asString())
+                .isEqualTo(prepared.questions().getFirst().questionId().toString());
         // 개발용(stub)은 바로 만들어서 '질문 생성 중'이 아니다
         assertThat(json(expect(hr.get(card + "/preparing"), 200)).path("preparing").asBoolean()).isFalse();
     }
