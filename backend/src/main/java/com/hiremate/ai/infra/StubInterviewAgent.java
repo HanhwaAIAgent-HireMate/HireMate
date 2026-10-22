@@ -49,7 +49,8 @@ class StubInterviewAgent implements InterviewAgent {
             questions.add("3년 뒤 우리 팀에서 하고 싶은 일은 무엇인가요?");
         }
         if (!onlyUnchecked) {
-            analysis.notable().stream().limit(2).forEach(found -> questions.add(
+            analysis.notable().stream().filter(found -> !documentHeader(found.text(), applicant.info().name()))
+                    .limit(2).forEach(found -> questions.add(
                     "\"" + shorten(found.text()) + "\"에서 본인이 맡은 역할과 판단 근거를 말해 주세요."));
             analysis.conditions().stream().filter(condition -> !condition.met()).limit(1)
                     .forEach(condition -> questions.add(
@@ -75,5 +76,10 @@ class StubInterviewAgent implements InterviewAgent {
         // 질문 안에 다시 따옴표로 인용하므로 원문의 따옴표는 뺀다
         String trimmed = text.strip().replaceAll("[\"“”]", "").replaceAll("\\s+", " ");
         return trimmed.length() > 36 ? trimmed.substring(0, 35) + "…" : trimmed;
+    }
+
+    private static boolean documentHeader(String text, String name) {
+        return text.strip().matches("(?is)^" + java.util.regex.Pattern.quote(name) + "\\s*[|｜].*")
+                || text.strip().startsWith("SYNTHETIC SAMPLE");
     }
 }

@@ -1,5 +1,6 @@
 package com.hiremate.interview;
 
+import com.hiremate.apply.ApplicationService;
 import com.hiremate.global.ApiException;
 import com.hiremate.interview.domain.InterviewQuestion;
 import com.hiremate.interview.domain.InterviewQuestionRepository;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
@@ -31,19 +33,24 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class InterviewService {
 
+    public static final String INTRO = "1분 자기소개 부탁드립니다.";
+
     private final InterviewQuestionRepository questions;
     private final InterviewScheduleRepository schedules;
     private final RecruitService recruits;
     private final ScreeningService screening;
     private final ApplicationEventPublisher events;
+    private final ApplicationService applications;
 
     public InterviewService(InterviewQuestionRepository questions, InterviewScheduleRepository schedules,
-            RecruitService recruits, ScreeningService screening, ApplicationEventPublisher events) {
+            RecruitService recruits, ScreeningService screening, ApplicationEventPublisher events,
+            ApplicationService applications) {
         this.questions = questions;
         this.schedules = schedules;
         this.recruits = recruits;
         this.screening = screening;
         this.events = events;
+        this.applications = applications;
     }
 
     @Transactional(readOnly = true)
@@ -54,6 +61,7 @@ public class InterviewService {
 
     private InterviewView view(UUID companyId, StageInfo stage, UUID applicationId) {
         UUID stageId = stage.id();
+        String name = applications.applicants(companyId, List.of(applicationId)).getFirst().name();
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         Map<UUID, InterviewSchedule> scheduleByStage = schedules.findByApplicationIdAndCompanyId(applicationId,
                 companyId).stream().collect(Collectors.toMap(InterviewSchedule::getStageId, Function.identity()));
@@ -64,10 +72,10 @@ public class InterviewService {
                 .filter(other -> other.type() == StageType.INTERVIEW && other.seq() < stage.seq())
                 .filter(other -> byStage.containsKey(other.id()))
                 .map(other -> new InterviewView.PreviousInterview(other.id(), other.name(),
-                        toSchedule(scheduleByStage.get(other.id())), toQuestions(byStage.get(other.id()))))
+                        toSchedule(scheduleByStage.get(other.id())), toQuestions(byStage.get(other.id()), name)))
                 .toList();
         return new InterviewView(applicationId, toSchedule(scheduleByStage.get(stageId)),
-                toQuestions(byStage.getOrDefault(stageId, List.of())), previous);
+                toQuestions(byStage.getOrDefault(stageId, List.of()), name), previous);
     }
 
     /** 시작 전인 다음 면접의 자료. 바로 앞 전형에서 합격이 확정된 지원자만 준비할 수 있다. */
@@ -97,6 +105,9 @@ public class InterviewService {
         List<InterviewQuestion> existing = questions.findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(stageId,
                 applicationId, companyId);
         Set<String> seen = existing.stream().map(InterviewQuestion::getText).collect(Collectors.toSet());
+        if (source == QuestionSource.AI && seen.add(INTRO)) {
+            questions.save(new InterviewQuestion(stageId, applicationId, companyId, 0, INTRO, source));
+        }
         int seq = existing.stream().mapToInt(InterviewQuestion::getSeq).max().orElse(0);
         for (String text : texts) {
             String trimmed = text.strip();
@@ -176,9 +187,11 @@ public class InterviewService {
                 schedule.getInterviewers());
     }
 
-    private static List<InterviewView.Question> toQuestions(List<InterviewQuestion> found) {
+    private static List<InterviewView.Question> toQuestions(List<InterviewQuestion> found, String name) {
         return found.stream()
-                .map(question -> new InterviewView.Question(question.getId(), question.getText(), question.getSource(),
+                .map(question -> new InterviewView.Question(question.getId(),
+                        question.getText().replaceFirst("^([\"“]?)" + Pattern.quote(name) + "\\s*[|｜]\\s*", "$1"),
+                        question.getSource(),
                         question.getAnswer()))
                 .toList();
     }
