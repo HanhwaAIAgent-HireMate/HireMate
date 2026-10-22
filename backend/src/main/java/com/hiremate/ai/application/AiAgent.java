@@ -9,6 +9,7 @@ public enum AiAgent {
     CANDIDATE_ANALYST("candidate-analyst"),
     ASSESSMENT("assessment"),
     INTERVIEW("interview"),
+    INTERVIEW_ANALYST("interview-analyst"),
     POSTING("posting"),
     COMMUNICATION("communication"),
     REPORT("report");

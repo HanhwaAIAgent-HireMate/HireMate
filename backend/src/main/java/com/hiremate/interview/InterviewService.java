@@ -17,13 +17,14 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 면접 (FR-27, FR-28). 지원자별 맞춤 질문을 채택하거나 직접 추가하고, 면접관이 질문마다 답변을 기록한다.
- * 이전 면접의 질문과 답변은 다음 면접 화면에서 그대로 보여 준다.
+ * 이전 면접의 질문과 답변은 다음 면접 화면에서 그대로 보여 준다. 답변이 바뀌면 {@link InterviewAnswersChanged}를 낸다.
  */
 @Service
 public class InterviewService {
@@ -32,13 +33,15 @@ public class InterviewService {
     private final InterviewScheduleRepository schedules;
     private final RecruitService recruits;
     private final ScreeningService screening;
+    private final ApplicationEventPublisher events;
 
     public InterviewService(InterviewQuestionRepository questions, InterviewScheduleRepository schedules,
-            RecruitService recruits, ScreeningService screening) {
+            RecruitService recruits, ScreeningService screening, ApplicationEventPublisher events) {
         this.questions = questions;
         this.schedules = schedules;
         this.recruits = recruits;
         this.screening = screening;
+        this.events = events;
     }
 
     @Transactional(readOnly = true)
@@ -81,7 +84,10 @@ public class InterviewService {
     @Transactional
     public InterviewView answer(UUID companyId, UUID stageId, UUID questionId, String answer) {
         InterviewQuestion question = question(companyId, stageId, questionId);
-        question.answer(answer);
+        if (!question.getAnswer().equals(answer)) {
+            question.answer(answer);
+            events.publishEvent(new InterviewAnswersChanged(companyId, stageId, question.getApplicationId()));
+        }
         return view(companyId, stageId, question.getApplicationId());
     }
 
@@ -89,6 +95,9 @@ public class InterviewService {
     public InterviewView deleteQuestion(UUID companyId, UUID stageId, UUID questionId) {
         InterviewQuestion question = question(companyId, stageId, questionId);
         questions.delete(question);
+        if (!question.getAnswer().isBlank()) {
+            events.publishEvent(new InterviewAnswersChanged(companyId, stageId, question.getApplicationId()));
+        }
         return view(companyId, stageId, question.getApplicationId());
     }
 
