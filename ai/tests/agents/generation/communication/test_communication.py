@@ -59,6 +59,18 @@ def test_write_does_not_send_next_stage_for_rejection() -> None:
     assert "1차 면접" not in llm.calls[0].user
 
 
+def test_rejection_examples_start_with_the_result_not_thanks() -> None:
+    """양식의 인사말에 지원 감사가 있어, 예시 본문이 감사 인사로 시작하면 메일에 감사가 겹친다."""
+    for template in ("REJECT", "FINAL_REJECT"):
+        llm = FakeLlm(NoticeBody(content="결과를 알려드립니다."))
+
+        client(llm).post("/agents/communication/write", json={"notice": notice(templateType=template), "request": None})
+
+        example = llm.calls[0].user.split("예시 본문 (이 말투, 길이, 문단 나누기를 따른다):\n")[1]
+        assert example.startswith("아쉽게도 서류 전형 결과")
+        assert "지원해 주셔서" not in example
+
+
 def test_write_sends_current_content_and_request_when_revising() -> None:
     llm = FakeLlm(NoticeBody(content="고친 본문"))
 
