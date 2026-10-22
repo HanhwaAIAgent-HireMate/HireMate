@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { createElement, type ReactNode } from 'react'
 
-import { madeQuestions, readChat } from '@/features/chat/api'
-import { ApiError } from '@/lib/api/client'
+import { madeQuestions, readChat, useChat, useChatHistory } from '@/features/chat/api'
+import { ApiError, resetCsrf } from '@/lib/api/client'
 import { streamOf } from '@/test/stream'
 
 const ANSWER = {
@@ -62,4 +65,54 @@ describe('madeQuestions', () => {
     expect(madeQuestions({ agents: ['Application Agent'] })).toBe(false)
     expect(madeQuestions({ agents: [] })).toBe(false)
   })
+})
+
+it('선택 목록을 갱신해도 방금 보낸 대화를 빈 과거 기록으로 덮어쓰지 않는다', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  let historyReads = 0
+  resetCsrf()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: Request | string) => {
+      const requestUrl = typeof input === 'string' ? input : input.url
+      if (requestUrl.endsWith('/csrf'))
+        return Promise.resolve(Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' }))
+      if (typeof input !== 'string' && input.method === 'POST')
+        return Promise.resolve(
+          new Response(
+            streamOf(
+              `event:done\ndata:${JSON.stringify({ ...ANSWER, selectionChanged: true })}\n\n`,
+            ),
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          ),
+        )
+      historyReads++
+      return Promise.resolve(Response.json([]))
+    }),
+  )
+  try {
+    const { result } = renderHook(
+      () => ({
+        history: useChatHistory('s1'),
+        chat: useChat('s1', { onStatus: vi.fn(), onItem: vi.fn() }),
+      }),
+      {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(QueryClientProvider, { client }, children),
+      },
+    )
+    await waitFor(() => expect(result.current.history.isSuccess).toBe(true))
+    await act(() =>
+      result.current.chat.mutateAsync({
+        message: '프로젝트 기반 질문 1개 추가해줘',
+        mentionIds: ['a1'],
+        checkedIds: [],
+      }),
+    )
+    expect(historyReads).toBe(1)
+  } finally {
+    client.clear()
+    resetCsrf()
+    vi.unstubAllGlobals()
+  }
 })

@@ -210,6 +210,10 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
               aria-label="AI Chat 입력"
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {
+                if (event.key === 'Enter' && event.nativeEvent.isComposing) {
+                  event.preventDefault()
+                  return
+                }
                 if (event.key === 'Backspace' && text === '' && mentions.length > 0) {
                   removeMention(mentions[mentions.length - 1].applicationId)
                 }

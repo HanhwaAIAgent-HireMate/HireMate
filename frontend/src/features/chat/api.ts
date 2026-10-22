@@ -14,7 +14,8 @@ export type ChatProgress = {
   onItem: (item: ChatItem) => void
 }
 
-const historyKey = (stageId: string) => ['stage', stageId, 'chat'] as const
+// 선택 지원자 갱신으로 대화 기록을 다시 받아 방금 보낸 메시지를 덮어쓰지 않는다.
+const historyKey = (stageId: string) => ['chat', stageId] as const
 
 /**
  * Chat 응답 스트림(SSE)을 읽는다. status · item은 progress로 넘기고 done의 답을 돌려준다.
