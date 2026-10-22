@@ -409,6 +409,14 @@ class ScreeningTests extends IntegrationTest {
         String first = passAndFinish(hr, stage.path(), id);
 
         String card = first + "/candidates/" + id + "/interview";
+        JsonNode beforeChat = json(expect(hr.get(card), 200));
+        JsonNode addition = done(expect(hr.post(first + "/chat",
+                Map.of("message", "프로젝트 기반 질문 1개 추가해줘", "mentionIds", List.of(id),
+                        "checkedIds", List.of())), 200));
+        assertThat(addition.path("selectionChanged").asBoolean()).isFalse();
+        assertThat(addition.path("agents").toString()).contains("Interview Agent");
+        assertThat(json(expect(hr.get(card), 200)).path("questions").size())
+                .isEqualTo(beforeChat.path("questions").size() + 1);
         expect(hr.post(card + "/generate", Map.of()), 404);
         expect(hr.post(first + "/chat",
                 Map.of("message", "맞춤 질문 만들어줘", "mentionIds", List.of(id), "checkedIds", List.of())), 200);

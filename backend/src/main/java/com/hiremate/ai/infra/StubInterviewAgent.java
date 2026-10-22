@@ -31,6 +31,9 @@ class StubInterviewAgent implements InterviewAgent {
         Set<String> questions = new LinkedHashSet<>();
         String scope = focus == null ? "" : focus;
         boolean onlyUnchecked = scope.contains("확인 안") || scope.contains("아직");
+        if (scope.contains("프로젝트")) {
+            questions.add("지원서의 대표 프로젝트에서 본인이 직접 맡은 작업과 가장 어려웠던 판단을 설명해 주세요.");
+        }
         for (InterviewView.PreviousInterview previous : interview.previous()) {
             for (InterviewView.Question question : previous.questions()) {
                 if (question.answer().strip().length() < SHORT_ANSWER) {

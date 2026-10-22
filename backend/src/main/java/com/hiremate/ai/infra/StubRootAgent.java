@@ -102,6 +102,10 @@ class StubRootAgent implements RootAgent {
         if (unavailable.isPresent()) {
             return unavailable.get();
         }
+        List<CandidateRow> mentioned = mentioned(context, message);
+        if (context.stageType() == StageType.INTERVIEW && asksQuestions(message)) {
+            return interviewQuestions(context, mentioned);
+        }
         Optional<ChatPlan> edit = edit(context, message);
         if (edit.isPresent()) {
             return edit.get();
@@ -111,10 +115,6 @@ class StubRootAgent implements RootAgent {
         }
         if (message.contains("합격한") || message.contains("불합격한")) {
             return decided(context, message.contains("불합격한") ? Decision.FAIL : Decision.PASS);
-        }
-        List<CandidateRow> mentioned = mentioned(context, message);
-        if (context.stageType() == StageType.INTERVIEW && asksQuestions(message)) {
-            return interviewQuestions(context, mentioned);
         }
         if (!mentioned.isEmpty()) {
             return analyze(context, message, mentioned);
@@ -264,7 +264,7 @@ class StubRootAgent implements RootAgent {
 
     private static boolean asksQuestions(String message) {
         boolean question = message.contains("질문") && (message.contains("만들") || message.contains("추천")
-                || message.contains("생성") || message.contains("다시"));
+                || message.contains("생성") || message.contains("다시") || message.contains("추가"));
         return question || message.contains("면접") && message.contains("확인");
     }
 
