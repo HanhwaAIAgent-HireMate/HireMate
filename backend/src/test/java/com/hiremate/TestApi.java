@@ -8,6 +8,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import tools.jackson.databind.JsonNode;
@@ -93,6 +95,35 @@ public final class TestApi {
 
     public static JsonNode json(HttpResponse<String> response) {
         return MAPPER.readTree(response.body());
+    }
+
+    /** SSE 응답 본문의 이벤트. (이벤트 이름, data JSON)을 받은 순서대로 돌려준다. */
+    public static List<Map.Entry<String, JsonNode>> events(HttpResponse<String> response) {
+        List<Map.Entry<String, JsonNode>> events = new ArrayList<>();
+        for (String block : response.body().replace("\r\n", "\n").split("\n\n")) {
+            String name = null;
+            StringBuilder data = new StringBuilder();
+            for (String line : block.split("\n")) {
+                if (line.startsWith("event:")) {
+                    name = line.substring("event:".length()).trim();
+                } else if (line.startsWith("data:")) {
+                    data.append(line.substring("data:".length()));
+                }
+            }
+            if (name != null) {
+                events.add(Map.entry(name, MAPPER.readTree(data.toString())));
+            }
+        }
+        return events;
+    }
+
+    /** SSE 응답의 마지막 done 이벤트 data. done으로 끝나지 않으면 실패다. */
+    public static JsonNode done(HttpResponse<String> response) {
+        List<Map.Entry<String, JsonNode>> events = events(response);
+        if (events.isEmpty() || !events.getLast().getKey().equals("done")) {
+            throw new AssertionError("Expected a done event: " + response.body());
+        }
+        return events.getLast().getValue();
     }
 
     public static HttpResponse<String> expect(HttpResponse<String> response, int status) {

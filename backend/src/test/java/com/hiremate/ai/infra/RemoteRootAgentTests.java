@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
+import com.hiremate.ai.application.ChatItem;
 import com.hiremate.ai.application.ChatPlan;
+import com.hiremate.ai.application.ChatProgress;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
@@ -38,18 +40,28 @@ class RemoteRootAgentTests {
     @DisplayName("ChatContext를 context 키로 /agents/root/plan에 보내고 ChatPlan을 받는다")
     void sendsContextAndReadsPlan() throws IOException {
         AtomicReference<ClientRequest> sent = new AtomicReference<>();
-        String plan = Files.readString(CONTRACT_DIR.resolve("ChatPlan.json"));
+        String plan = MAPPER.readTree(Files.readString(CONTRACT_DIR.resolve("ChatPlan.json"))).toString();
         AiServerClient client = new AiServerClient(WebClient.builder().exchangeFunction(request -> {
             sent.set(request);
             return Mono.just(ClientResponse.create(HttpStatus.OK)
-                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                    .body(plan)
+                    .header(HttpHeaders.CONTENT_TYPE, MediaType.TEXT_EVENT_STREAM_VALUE)
+                    .body("event:status\ndata:{\"text\":\"요청을 확인하고 있어요\"}\n\nevent:done\ndata:" + plan + "\n\n")
                     .build());
-        }), "http://ai.test", Duration.ofSeconds(1));
+        }), "http://ai.test", Duration.ofSeconds(1), MAPPER);
+        List<String> statuses = new ArrayList<>();
         ChatContext context = MAPPER.readValue(Files.readString(CONTRACT_DIR.resolve("ChatContext.json")),
                 ChatContext.class);
 
-        ChatPlan result = new RemoteRootAgent(client).plan(context);
+        ChatPlan result = new RemoteRootAgent(client).plan(context, new ChatProgress() {
+            @Override
+            public void status(String text) {
+                statuses.add(text);
+            }
+
+            @Override
+            public void item(ChatItem item) {
+            }
+        });
 
         assertThat(sent.get().url()).hasToString("http://ai.test/agents/root/plan");
         JsonNode body = MAPPER.readTree(bodyOf(sent.get()));
@@ -58,6 +70,7 @@ class RemoteRootAgentTests {
         assertThat(body.path("context").path("recruitmentId").asString())
                 .isEqualTo(context.recruitmentId().toString());
         assertThat(result.edit()).isEqualTo(ChatPlan.EditAction.REMOVE);
+        assertThat(statuses).containsExactly("요청을 확인하고 있어요");
     }
 
     @Test
@@ -72,7 +85,7 @@ class RemoteRootAgentTests {
                     .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                     .body(body)
                     .build());
-        }), "http://ai.test", Duration.ofSeconds(1));
+        }), "http://ai.test", Duration.ofSeconds(1), MAPPER);
         RemoteRootAgent agent = new RemoteRootAgent(client);
         UUID stageId = UUID.randomUUID();
 

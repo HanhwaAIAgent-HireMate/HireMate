@@ -47,7 +47,8 @@ public class ChatService {
         this.settings = settings;
     }
 
-    public ChatAnswer chat(UUID companyId, UUID stageId, UUID memberId, String message, List<UUID> mentions,
+    /** 전형을 확인하고 Root에 넘길 자료를 모은다. 다른 기업의 전형이면 찾을 수 없다. 스트림을 열기 전에 부른다. */
+    public ChatInput prepare(UUID companyId, UUID stageId, UUID memberId, String message, List<UUID> mentions,
             List<UUID> checked) {
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         StageInfo stage = recruitment.stage(stageId).orElseThrow();
@@ -70,16 +71,28 @@ public class ChatService {
                 candidates, applications.documents(companyId, recruitment.id()), documentScores, interviewViews,
                 mentions, checked, companies.profile(companyId),
                 postings.draftContext(companyId, recruitment.id()).content(), message);
-        ChatPlan plan = root.plan(context);
+        return new ChatInput(companyId, stageId, stage.status(), candidates, context);
+    }
+
+    /**
+     * Root에 묻고 계획을 반영한다. Root의 진행 알림은 progress로 그대로 넘긴다. 화면 연결이 끊겨 Root 답을 받기 전에
+     * progress가 예외를 던지면 거기서 멈춘다. Root가 답한 뒤에는 Root가 대화를 이미 남겼으므로 연결이 끊겨도 반영까지 마친다.
+     */
+    public ChatAnswer run(ChatInput input, ChatProgress progress) {
+        UUID companyId = input.companyId();
+        UUID stageId = input.stageId();
+        List<CandidateRow> candidates = input.candidates();
+        ChatPlan plan = root.plan(input.context(), progress);
+        ChatProgress after = ChatProgress.quiet(progress);
 
         boolean changesSelection = plan.intent() == ChatPlan.Intent.FIND || plan.intent() == ChatPlan.Intent.EDIT;
-        if (changesSelection && stage.status() != StageStatus.ACTIVE) {
+        if (changesSelection && input.status() != StageStatus.ACTIVE) {
             return answer(ChatPlan.answer(ChatPlan.Intent.CLARIFY,
                     "결과를 확정한 전형이라 선택 지원자를 바꿀 수 없어요. 분석이나 요약은 계속 물어볼 수 있어요.",
                     List.of(), List.of(), List.of()), false, 0, candidates.size());
         }
         if (!plan.questionTargets().isEmpty()) {
-            plan = withQuestions(companyId, stageId, plan, candidates, message);
+            plan = withQuestions(companyId, stageId, plan, candidates, input.context().message(), after);
         }
         int applied = 0;
         if (plan.intent() == ChatPlan.Intent.FIND) {
@@ -97,14 +110,15 @@ public class ChatService {
      * Interview Agent에 넘긴다. Root가 생성 이유 항목을 주면 답에 그대로 두고, 없을 때만 새로 넣은 첫 질문을 보여 준다.
      */
     private ChatPlan withQuestions(UUID companyId, UUID stageId, ChatPlan plan, List<CandidateRow> candidates,
-            String message) {
+            String message, ChatProgress progress) {
         List<ChatItem> summaries = new ArrayList<>();
         for (UUID applicationId : plan.questionTargets()) {
+            String name = candidates.stream().filter(row -> row.applicationId().equals(applicationId))
+                    .map(CandidateRow::name).findFirst().orElse("지원자");
+            progress.status(name + " 면접 질문을 만들고 있어요");
             int before = interviews.count(companyId, stageId, applicationId);
             String focus = plan.questionFocus().getOrDefault(applicationId, message);
             InterviewView view = interviews.generate(companyId, stageId, applicationId, focus);
-            String name = candidates.stream().filter(row -> row.applicationId().equals(applicationId))
-                    .map(CandidateRow::name).findFirst().orElse("지원자");
             List<InterviewView.Question> added = view.questions().subList(Math.min(before, view.questions().size()),
                     view.questions().size());
             summaries.add(new ChatItem(applicationId, name, added.isEmpty() ? "새로 넣을 질문이 없어요"

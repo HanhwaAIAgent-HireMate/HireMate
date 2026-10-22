@@ -23,6 +23,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
+import tools.jackson.databind.json.JsonMapper;
 
 class RemoteApplicationAgentTests {
 
@@ -73,7 +74,7 @@ class RemoteApplicationAgentTests {
         private Map<Object, Object> body;
 
         RecordingClient(Object response) {
-            super(WebClient.builder(), "http://ai.test", Duration.ofSeconds(1));
+            super(WebClient.builder(), "http://ai.test", Duration.ofSeconds(1), JsonMapper.builder().build());
             this.response = response;
         }
 
