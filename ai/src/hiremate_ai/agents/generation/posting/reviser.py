@@ -79,6 +79,9 @@ NCS_ORDER_NOTE = (
 )
 """조사가 있는 능력단위를 둘 이상 보여 줄 때 능력단위 목록 앞에 붙인다."""
 
+ADVANCED_LABEL = "수준이 높은 능력단위"
+"""보여 준 능력단위 중 NCS 수준이 가장 높은 것을 능력단위 목록 뒤에 이 이름으로 적는다 (NCS_SYSTEM 규칙 3)."""
+
 NCS_DETAIL_CHARS = 3000
 """두 번째 호출에 넣는 능력단위 정의와 수행준거의 글자 수 한도. 능력단위 하나에 평균 700자라 다 넣으면
 노트북 모델이 한 번에 읽는 양(약 4천 토큰)을 넘는다. 지식 · 기술은 일반적인 말이라 공고 문장에는 넣지 않는다."""
@@ -239,11 +242,15 @@ NCS_SYSTEM = """너는 채용 공고의 자격 요건과 우대 사항을 NCS(�
 1. 주어진 능력단위의 정의와 수행준거에 있는 능력을 지원자가 읽기 쉬운 공고 문장으로 바꿔 쓴다.
    수행준거 문장을 그대로 옮기지 않는다. 정의와 수행준거에 없는 기술 이름(언어, 프레임워크, 자격증)은
    지금 공고나 HR 요청에 있을 때만 쓴다.
-2. 항목마다 근거로 쓴 능력단위 코드를 sources에 적는다. 근거가 없는 항목은 sources를 비운다.
-3. 자격 요건은 지원에 꼭 필요한 조건이고, 우대 사항은 있으면 좋은 조건이다. 수준이 높은 능력단위는 우대 사항에 어울린다.
-4. 지금 공고의 항목 중 요청과 관계없이 그대로 둘 항목도 함께 쓴다.
-5. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 넣지 않는다. 회사가 알려 주지 않은 사실은 지어내지 않는다.
-6. 항목은 "~ 경험", "~ 능력"처럼 한 줄로 짧게 쓰고, 목록마다 "지금 할 일"에 적힌 개수만큼 쓴다. 한국어로 쓴다."""
+2. 항목마다 근거로 쓴 능력단위 코드를 sources에 적는다. 그 능력단위의 정의와 수행준거에 없는 내용
+   (예: 주요 업무에서만 가져온 내용)이면 그 코드를 적지 않는다. 근거가 없는 항목은 sources를 비운다.
+3. 자격 요건은 지원에 꼭 필요한 조건이고, 우대 사항은 있으면 좋은 조건이다.
+   "수준이 높은 능력단위"에 적힌 능력은 주요 업무에 꼭 필요한 것이 아니면 우대 사항에 쓴다.
+4. 같은 능력을 자격 요건과 우대 사항에 함께 쓰지 않는다. 한 능력단위를 두 목록에 쓰면
+   서로 다른 세부 능력([ ] 안의 이름)을 쓰거나, 자격 요건은 기본, 우대 사항은 그보다 깊은 수준으로 차이가 드러나게 쓴다.
+5. 지금 공고의 항목 중 요청과 관계없이 그대로 둘 항목도 함께 쓴다.
+6. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 넣지 않는다. 회사가 알려 주지 않은 사실은 지어내지 않는다.
+7. 항목은 "~ 경험", "~ 능력"처럼 한 줄로 짧게 쓰고, 목록마다 "지금 할 일"에 적힌 개수만큼 쓴다. 한국어로 쓴다."""
 
 
 @dataclass(frozen=True)
@@ -608,6 +615,11 @@ def _ncs_prompt(
         f"NCS 능력단위 ({ncs_data().source}):",
         *([NCS_ORDER_NOTE] if sum(unit.code in ncs_data().surveys for unit in units) >= 2 else []),
         *_unit_lines(units),
+        *(
+            [f"{ADVANCED_LABEL}: {', '.join(unit.name for unit in advanced)}"]
+            if (advanced := _advanced_units(units))
+            else []
+        ),
         "",
         f"HR 요청: {request}",
         "",
@@ -625,18 +637,37 @@ def _ncs_task(counts: dict[str, int]) -> str:
 
 
 def _unit_lines(units: list[NcsUnit]) -> list[str]:
-    """능력단위마다 정의와 수행준거를 적는다. 글자 수 한도는 능력단위끼리 나눠 쓴다."""
+    """능력단위마다 정의와, 세부 능력([요소 이름]) 아래 수행준거를 적는다. 글자 수 한도는 능력단위끼리 나눠 쓴다.
+
+    요소 이름을 보여 줘야 모델이 한 능력단위를 두 목록에 쓸 때 서로 다른 세부 능력을 고를 수 있다.
+    """
     share = NCS_DETAIL_CHARS // max(len(units), 1)
     lines = []
     for unit in units:
         lines.append(f"- {unit.code} {unit.name} (수준 {unit.level}): {unit.definition}")
-        used = len(unit.definition)
-        for criterion in _spread_criteria(unit):
-            if used + len(criterion) > share:
-                break
-            lines.append(f"  · {criterion}")
-            used += len(criterion)
+        shown = _criteria_within(unit, share - len(unit.definition))
+        for element in unit.elements:
+            lines.append(f"  [{element.name}]")
+            lines += [f"  · {criterion}" for criterion in element.criteria if criterion in shown]
     return lines
+
+
+def _criteria_within(unit: NcsUnit, budget: int) -> set[str]:
+    """글자 수 한도 안에서 보여 줄 수행준거. 요소마다 고루 고른다 (_spread_criteria)."""
+    shown: set[str] = set()
+    used = 0
+    for criterion in _spread_criteria(unit):
+        if used + len(criterion) > budget:
+            break
+        shown.add(criterion)
+        used += len(criterion)
+    return shown
+
+
+def _advanced_units(units: list[NcsUnit]) -> list[NcsUnit]:
+    """보여 준 능력단위 중 NCS 수준이 가장 높은 것. 수준이 모두 같으면 없다."""
+    levels = {unit.level for unit in units}
+    return [unit for unit in units if unit.level == max(levels)] if len(levels) > 1 else []
 
 
 def _spread_criteria(unit: NcsUnit) -> list[str]:
