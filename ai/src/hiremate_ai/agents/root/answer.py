@@ -37,8 +37,6 @@ from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
-# backend는 ai 응답을 60초 기다리고 분류 호출이 앞에 있다
-ANSWER_TIMEOUT_SECONDS = 45.0
 TEXT_LENGTH = 120
 NOT_FINISHED = "자료를 다 확인하지 못했어요. 질문을 좁혀 다시 물어봐 주세요."
 # 면접 질문: 이 인원까지는 지원자마다 확인할 점을 정리하고, 넘으면 HR 문장으로 한꺼번에 만든다
@@ -57,10 +55,6 @@ COMPANY_SOURCE = "회사 소개"
 POSTING_SOURCE = "공고"
 # 대상이 이 인원까지면 도구 루프 대신 지원자별 정리와 종합으로 답한다 (기획 17절)
 MULTI_LIMIT = 5
-# 지원자별 정리와 종합에 쓰는 시간. 정리가 늦은 지원자는 확인하지 못한 것으로 두고 나머지로 답한다.
-# 합이 ANSWER_TIMEOUT_SECONDS 안에 들어야 한다 (backend는 60초 기다린다)
-NOTES_SECONDS = 33.0
-SUMMARY_SECONDS = 10.0
 NOT_CHECKED = "자료를 확인하지 못했어요"
 MULTI_FALLBACK = "{names}의 근거를 지원자별로 정리했어요."
 # 처리 중 화면에 보이는 단계 문구 (진행 알림)
@@ -188,9 +182,8 @@ async def plan_answer(
         RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
     )
     try:
-        async with asyncio.timeout(ANSWER_TIMEOUT_SECONDS):
-            answered = await agent.run(answer_prompt(context, Targets(rows=rows, ambiguous=[])), context=scope)
-    except (LlmOutputError, TimeoutError):
+        answered = await agent.run(answer_prompt(context, Targets(rows=rows, ambiguous=[])), context=scope)
+    except LlmOutputError:
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
     only = rows[0] if len(rows) == 1 else None
     recorded = await _recorded(toolkit, scope, context, answered.items, rows)
@@ -211,14 +204,13 @@ async def plan_multi(
     """대상이 여럿인 분석. 코드가 지원자마다 자료를 모아 지원자별로 정리하고(동시에), 확인된 항목만으로 답을 쓴다.
 
     도구 루프가 지원자 자료를 한 명씩 부르다 호출 상한에 걸리거나, 여러 지원자의 근거가 한 항목에 섞이지 않게 한다.
-    항목의 지원자는 코드가 붙이고 근거는 원문과 맞춰 본다 (규칙 7). 정리가 늦거나 실패한 지원자는 확인 필요로 둔다.
-    정리가 끝난 지원자는 바로 검증해 진행 알림으로 보낸다. 최종 항목은 지원자 순서다.
+    항목의 지원자는 코드가 붙이고 근거는 원문과 맞춰 본다 (규칙 7). 정리에 실패한 지원자는 확인 필요로 둔다.
+    전체 시간 제한 없이 모든 지원자의 정리를 기다린다. 끝난 지원자는 바로 검증해 진행 알림으로 보낸다.
+    최종 항목은 지원자 순서다.
     """
     scope = scope_of(context, turns)
     shared = f"공고:\n{posting_text(context)}\n\n회사:\n{company_text(context)}"
     progress.status(MULTI_STATUS.format(count=len(rows)))
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + NOTES_SECONDS
     tasks = [asyncio.create_task(_notes(llm, context, row, shared, toolkit, scope)) for row in rows]
     row_of = dict(zip(tasks, rows, strict=True))
     done: set[asyncio.Task[CandidateNotes]] = set()
@@ -227,8 +219,8 @@ async def plan_multi(
         # 정리 결과에 기대지 않는 조회라 정리가 도는 동안 받아 둔다
         recorded = await toolkit.evidence(scope, [row.application_id for row in rows])
         pending: set[asyncio.Task[CandidateNotes]] = set(tasks)
-        while pending and (left := deadline - loop.time()) > 0:
-            finished_now, pending = await asyncio.wait(pending, timeout=left, return_when=asyncio.FIRST_COMPLETED)
+        while pending:
+            finished_now, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             for task in finished_now:
                 done.add(task)
                 error = task.exception()
@@ -239,7 +231,7 @@ async def plan_multi(
                     for item in verified[task][0]:
                         progress.item(item)
     finally:
-        # 시간이 다 됐거나 요청이 취소되면 남은 정리 호출을 멈춘다. 모델 서버를 붙잡아 두지 않게 한다
+        # 요청이 취소되거나(화면 연결 끊김) 오류가 나면 남은 정리 호출을 멈춘다. 모델 서버를 붙잡아 두지 않게 한다
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -289,7 +281,7 @@ async def _notes(
 
 
 async def _summary(llm: LlmClient, context: ChatContext, rows: Sequence[CandidateRow], items: list[ChatItem]) -> str:
-    """지원자별로 확인된 항목만 보고 답을 쓴다. 실패하거나 늦으면 정리했다는 말로 답한다."""
+    """지원자별로 확인된 항목만 보고 답을 쓴다. 실패하면 정리했다는 말로 답한다."""
     blocks = []
     for row in rows:
         lines = [
@@ -301,11 +293,10 @@ async def _summary(llm: LlmClient, context: ChatContext, rows: Sequence[Candidat
     user = f"질문: {context.message}\n\n" + "\n\n".join(blocks)
     fallback = MULTI_FALLBACK.format(names=", ".join(row.name for row in rows))
     try:
-        async with asyncio.timeout(SUMMARY_SECONDS):
-            summary = await llm.structured(
-                MultiSummary, agent="root", system=f"{SUMMARY_SYSTEM}\n\n{UNTRUSTED_RULE}", user=user
-            )
-    except (LlmOutputError, TimeoutError):
+        summary = await llm.structured(
+            MultiSummary, agent="root", system=f"{SUMMARY_SYSTEM}\n\n{UNTRUSTED_RULE}", user=user
+        )
+    except LlmOutputError:
         return fallback
     message = readable(summary.message.strip(), context)
     # 대상이 아닌 지원자를 말하면 항목에 없는 내용을 지어낸 것이다
@@ -348,9 +339,8 @@ async def plan_questions(
     prompt = answer_prompt(context, Targets(rows=rows, ambiguous=[]))
     progress.status(FOCUS_STATUS)
     try:
-        async with asyncio.timeout(ANSWER_TIMEOUT_SECONDS):
-            result = await agent.run(prompt, context=scope)
-    except (LlmOutputError, TimeoutError):
+        result = await agent.run(prompt, context=scope)
+    except LlmOutputError:
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
     focus: dict[UUID, str] = {}
     reasons: list[AnswerItem] = []
