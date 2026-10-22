@@ -7,6 +7,7 @@ import com.hiremate.company.CompanyService;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.interview.QuestionSource;
+import com.hiremate.job.JobQueue;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.PostingService;
 import com.hiremate.screening.ScreeningService;
@@ -14,11 +15,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /** 맞춤 면접 질문 생성. 면접 전형이 시작되면 미리 만들고, AI Chat이면 Root Agent를 거쳐 더 만든다. 질문은 지원자 카드에 들어간다. */
 @Service
 public class InterviewAiService {
+
+    private static final Logger log = LoggerFactory.getLogger(InterviewAiService.class);
 
     private final InterviewService interviews;
     private final CompanyService companies;
@@ -27,9 +32,12 @@ public class InterviewAiService {
     private final ScreeningService screening;
     private final CandidateAnalyst analyst;
     private final InterviewAgent agent;
+    private final JobQueue jobs;
+    private final AiSettings settings;
 
     public InterviewAiService(InterviewService interviews, CompanyService companies, ApplicationService applications,
-            PostingService postings, ScreeningService screening, CandidateAnalyst analyst, InterviewAgent agent) {
+            PostingService postings, ScreeningService screening, CandidateAnalyst analyst, InterviewAgent agent,
+            JobQueue jobs, AiSettings settings) {
         this.interviews = interviews;
         this.companies = companies;
         this.applications = applications;
@@ -37,6 +45,8 @@ public class InterviewAiService {
         this.screening = screening;
         this.analyst = analyst;
         this.agent = agent;
+        this.jobs = jobs;
+        this.settings = settings;
     }
 
     /** 면접 전형 지원자들의 현재 · 이전 면접 질문과 답변. Root Agent가 Chat에서 읽는다. */
@@ -69,6 +79,24 @@ public class InterviewAiService {
         agent.prepare(InterviewAgent.jobTarget(companyId, stageId, applicationId), in.applicant(), in.posting(),
                 in.analysis(), in.current(), in.company())
                 .ifPresent(questions -> addPrepared(companyId, stageId, applicationId, questions));
+    }
+
+    /**
+     * 이 지원자의 질문을 AI 워커가 아직 만드는 중인가. 카드가 '질문 생성 중'을 보여 주고 끝나면 다시 불러오는 데 쓴다.
+     * stub은 바로 만들어 늘 false다. 대기열(Redis)을 읽지 못하면 만드는 중이 아니라고 본다.
+     */
+    public boolean preparing(UUID companyId, UUID stageId, UUID applicationId) {
+        interviews.view(companyId, stageId, applicationId);  // 이 기업 · 전형의 지원자인지 확인한다 (아니면 예외)
+        if (settings.isStub(AiAgent.INTERVIEW)) {
+            return false;
+        }
+        try {
+            return jobs.isOpen(InterviewAgent.QUESTIONS_JOB,
+                    InterviewAgent.jobTarget(companyId, stageId, applicationId));
+        } catch (RuntimeException exception) {
+            log.warn("Interview question job state could not be read for {}", applicationId, exception);
+            return false;
+        }
     }
 
     /** 미리 만든 질문을 카드에 넣는다. 카드에 이미 있는 문장은 건너뛴다. */

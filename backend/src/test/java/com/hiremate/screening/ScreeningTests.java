@@ -343,6 +343,8 @@ class ScreeningTests extends IntegrationTest {
         }
         assertThat(prepared.path("questions").size()).isPositive();
         assertThat(prepared.path("questions").get(0).path("source").asString()).isEqualTo("AI");
+        // 개발용(stub)은 바로 만들어서 '질문 생성 중'이 아니다
+        assertThat(json(expect(hr.get(card + "/preparing"), 200)).path("preparing").asBoolean()).isFalse();
     }
 
     @Test
