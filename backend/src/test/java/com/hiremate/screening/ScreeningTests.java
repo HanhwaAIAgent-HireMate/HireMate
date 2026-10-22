@@ -326,6 +326,26 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("다음 전형이 면접이면 전형을 종료할 때 합격자마다 맞춤 질문을 미리 만들어 카드에 넣는다 (FR-27)")
+    void interviewStageStartsWithPreparedQuestions() throws Exception {
+        Stage stage = startDocumentStage(1, "전형은 서류, 1차 면접 순으로 해줘");
+        TestApi hr = stage.hr();
+        String id = stage.ids().getFirst();
+        String first = passAndFinish(hr, stage.path(), id);
+
+        // 질문은 전형 종료가 끝난 뒤 따로 만든다 (기다리지 않는 작업). 카드에 들어올 때까지 잠깐 기다린다
+        String card = first + "/candidates/" + id + "/interview";
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
+        JsonNode prepared = json(expect(hr.get(card), 200));
+        while (prepared.path("questions").isEmpty() && Instant.now().isBefore(deadline)) {
+            Thread.sleep(200);
+            prepared = json(expect(hr.get(card), 200));
+        }
+        assertThat(prepared.path("questions").size()).isPositive();
+        assertThat(prepared.path("questions").get(0).path("source").asString()).isEqualTo("AI");
+    }
+
+    @Test
     @DisplayName("면접 전형은 AI Chat으로 맞춤 질문을 만들고 질문별 답변을 기록하며, 다음 면접에서 이전 기록을 보여 준다")
     void interviewQuestionsAndAnswers() throws Exception {
         Stage stage = startDocumentStage(1, "전형은 서류, 1차 면접, 최종 면접 순으로 해줘");

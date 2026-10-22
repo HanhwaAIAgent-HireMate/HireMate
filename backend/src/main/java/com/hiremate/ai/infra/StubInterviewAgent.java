@@ -5,11 +5,13 @@ import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.InterviewAgent;
 import com.hiremate.apply.ApplicantDetail;
+import com.hiremate.company.CompanyProfile;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.posting.PostingContent;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
@@ -25,7 +27,7 @@ class StubInterviewAgent implements InterviewAgent {
 
     @Override
     public List<String> questions(ApplicantDetail applicant, PostingContent posting, CandidateAnalysis analysis,
-            InterviewView interview, String focus) {
+            InterviewView interview, CompanyProfile company, String focus) {
         Set<String> questions = new LinkedHashSet<>();
         String scope = focus == null ? "" : focus;
         boolean onlyUnchecked = scope.contains("확인 안") || scope.contains("아직");
@@ -61,6 +63,12 @@ class StubInterviewAgent implements InterviewAgent {
         List<String> fresh = new ArrayList<>(questions);
         fresh.removeAll(existing);
         return fresh.stream().limit(3).toList();
+    }
+
+    @Override
+    public Optional<List<String>> prepare(String target, ApplicantDetail applicant, PostingContent posting,
+            CandidateAnalysis analysis, InterviewView interview, CompanyProfile company) {
+        return Optional.of(questions(applicant, posting, analysis, interview, company, null));
     }
 
     private static String shorten(String text) {
