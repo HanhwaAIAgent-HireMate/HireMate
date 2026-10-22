@@ -1,14 +1,17 @@
 """backend RootAgent 연동: POST /agents/root/{plan, history, forget, forgetStage}.
 
 요청 본문은 Java 메서드의 매개변수 이름을 키로 한 JSON이다. 대화방은 체크포인터에 둔다 (기획 15절).
+plan만 SSE로 응답한다. 진행(status, item)을 낸 뒤 마지막 done 이벤트에 ChatPlan을 담는다.
 """
 
+from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-from hiremate_ai.agents.root.graph import RootThread, run_plan
+from hiremate_ai.agents.root.graph import RootThread, stream_plan
 from hiremate_ai.agents.root.memory import SaverDep, forget_stage, forget_thread
 from hiremate_ai.agents.root.toolkit import ToolkitDep
 from hiremate_ai.agents.root.turns import Turn
@@ -35,14 +38,20 @@ class Deleted(ContractModel):
     deleted: int
 
 
-@router.post("/plan")
-async def plan(request: PlanRequest, llm: LlmDep, saver: SaverDep, toolkit: ToolkitDep) -> ChatPlan:
+@router.post("/plan", response_class=EventSourceResponse)
+async def plan(
+    request: PlanRequest, llm: LlmDep, saver: SaverDep, toolkit: ToolkitDep
+) -> AsyncIterator[ServerSentEvent]:
     context = request.context
     if not context.thread_id:
         # 끝난 전형: 대화방을 만들지 않는다 (대화는 전형 종료까지만 보관)
-        return await run_plan(llm, context, toolkit)
-    thread = RootThread(id=context.thread_id, company_id=context.company.company_id, stage_id=context.stage_id)
-    return await run_plan(llm, context, toolkit, saver=saver, thread=thread)
+        events = stream_plan(llm, context, toolkit)
+    else:
+        thread = RootThread(id=context.thread_id, company_id=context.company.company_id, stage_id=context.stage_id)
+        events = stream_plan(llm, context, toolkit, saver=saver, thread=thread)
+    async for name, data in events:
+        # 계약 JSON(camelCase)을 그대로 보낸다
+        yield ServerSentEvent(event=name, raw_data=data.model_dump_json(by_alias=True))
 
 
 @router.post("/history")

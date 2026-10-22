@@ -1,14 +1,25 @@
 from root_context import extra_row, make_context
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY
-from hiremate_ai.agents.root.answer import QuestionFocusItem, RootAnswer, RootQuestionFocus
+from hiremate_ai.agents.root.answer import (
+    COMPARE_STATUS,
+    MULTI_STATUS,
+    AnswerEvidence,
+    AnswerItem,
+    CandidateNotes,
+    MultiSummary,
+    QuestionFocusItem,
+    RootAnswer,
+    RootQuestionFocus,
+)
 from hiremate_ai.agents.root.edit import SAME_NAME
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
-from hiremate_ai.agents.root.graph import build_root_graph, run_plan
+from hiremate_ai.agents.root.graph import CHECKING, ROUTED, PlanEvent, build_root_graph, run_plan, stream_plan
 from hiremate_ai.agents.root.route import COMPARE_NEEDS_TWO, DECISION_REPLY, NOT_UNDERSTOOD, RootRoute
-from hiremate_ai.agents.root.types import ChatPlan, EditAction, Intent, SelectionMode
+from hiremate_ai.agents.root.types import ChatContext, ChatPlan, ChatStatus, EditAction, Intent, SelectionMode
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.chat import LlmOutputError
+from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
@@ -225,3 +236,65 @@ async def test_find_flagged_compare_is_not_refused(
     plan = await run_plan(llm, context)
 
     assert plan.intent is Intent.FIND
+
+
+async def events_of(llm: LlmClient, context: ChatContext) -> list[PlanEvent]:
+    return [event async for event in stream_plan(llm, context)]
+
+
+async def test_stream_plan_events_end_with_done(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="선택 지원자 비워줘")
+
+    events = await events_of(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR)), context)
+
+    assert [name for name, _ in events] == ["status", "status", "done"]
+    assert [data for _, data in events[:2]] == [ChatStatus(text=CHECKING), ChatStatus(text=ROUTED["EDIT"])]
+    assert events[-1][1] == await run_plan(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR)), context)
+
+
+async def test_stream_plan_blocked_has_one_status(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="30대 남자 찾아줘")
+
+    events = await events_of(FakeLlm(), context)
+
+    assert [name for name, _ in events] == ["status", "done"]
+    assert events[-1][1] == ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY)
+
+
+async def test_stream_plan_multi_streams_items(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="두 사람 비교해줘",
+        mentions=["김하늘", "박서준"],
+    )
+
+    def note(text: str, sentence: str) -> CandidateNotes:
+        evidence = AnswerEvidence(sentence=sentence, source="이력서")
+        return CandidateNotes(items=[AnswerItem(label="RDBMS", text=text, status="OK", evidence=[evidence])])
+
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER"),
+        note("Oracle 원장 설계", "Oracle 원장 테이블 설계와 쿼리 튜닝을 맡았습니다."),
+        note("PostgreSQL 튜닝", "PostgreSQL 쿼리를 튜닝해 주문 조회 p99를 1.2초에서 300ms로 줄였습니다."),
+        MultiSummary(message="비교했어요."),
+    )
+
+    events = await events_of(llm, context)
+
+    assert [name for name, _ in events] == ["status", "status", "status", "item", "item", "status", "done"]
+    assert [data for name, data in events if name == "status"] == [
+        ChatStatus(text=text)
+        for text in (CHECKING, ROUTED["ANSWER"], MULTI_STATUS.format(count=2), COMPARE_STATUS.format(count=2))
+    ]
+    plan = events[-1][1]
+    assert isinstance(plan, ChatPlan)
+    # 항목은 정리가 끝난 순서로 온다. 최종 답과 같은 항목이다
+    assert sorted((data for name, data in events if name == "item"), key=str) == sorted(plan.items, key=str)
