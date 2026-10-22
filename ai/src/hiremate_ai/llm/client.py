@@ -70,6 +70,7 @@ def build_llm(call_log: CallLog) -> LlmClient:
         max_retries=settings.llm_max_retries,
         max_tokens=settings.llm_max_tokens,
         temperature=settings.llm_temperature,
+        reasoning_effort=settings.llm_reasoning_effort,
     )
     return ChatLlm(
         model,

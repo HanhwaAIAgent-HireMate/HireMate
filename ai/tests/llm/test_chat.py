@@ -210,11 +210,13 @@ def test_get_llm_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
         client.get_llm()
 
 
-def test_get_llm_builds_chat_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("effort", [None, "none", "low"])
+def test_get_llm_builds_chat_llm(monkeypatch: pytest.MonkeyPatch, effort: str | None) -> None:
     monkeypatch.setattr(settings, "llm_model", "test-model")
     monkeypatch.setattr(settings, "llm_api_key", SecretStr("test"))
     monkeypatch.setattr(settings, "llm_max_tokens", 512)
     monkeypatch.setattr(settings, "llm_temperature", 0.3)
+    monkeypatch.setattr(settings, "llm_reasoning_effort", effort)
     client.get_llm.cache_clear()
 
     try:
@@ -224,5 +226,6 @@ def test_get_llm_builds_chat_llm(monkeypatch: pytest.MonkeyPatch) -> None:
         assert isinstance(model, ChatOpenAI)
         assert model.max_tokens == 512
         assert model.temperature == 0.3
+        assert model.reasoning_effort == effort
     finally:
         client.get_llm.cache_clear()
