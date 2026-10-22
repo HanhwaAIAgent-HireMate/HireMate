@@ -48,7 +48,9 @@ _TEMPLATE_GUIDES = {
     NoticeTemplateType.REJECT: (
         "이번 채용에서는 함께하기 어렵게 되었다는 결과를 정중하게 알리고, 지원에 감사하며 앞날을 응원한다."
     ),
-    NoticeTemplateType.FINAL_PASS: ("최종 합격을 축하하고, 입사 일정과 준비 사항은 담당자가 별도로 안내드린다고 쓴다."),
+    NoticeTemplateType.FINAL_PASS: (
+        "최종 합격을 축하하고 함께하게 되어 기쁘다는 마음을 전한다. 입사 일정과 준비 사항은 쓰지 않는다."
+    ),
     NoticeTemplateType.FINAL_REJECT: (
         "최종 전형 결과 함께하기 어렵게 되었다는 결과를 정중하게 알리고, 긴 전형에 참여해 준 데 감사한다."
     ),
@@ -56,7 +58,8 @@ _TEMPLATE_GUIDES = {
 
 # 첫 초안에 보여 주는 모범 본문. 작은 모델은 규칙보다 예시의 말투와 길이를 잘 따른다.
 # {stage}는 이번 전형, {next_stage}는 다음 전형 이름으로 바꿔 넣는다.
-# 다음 전형 안내의 일정 · 장소 · 준비 사항은 backend가 보낼 때 본문 아래에 붙여, 본문은 결과와 다음 전형만 쓴다
+# 다음 전형 안내의 일정 · 장소 · 준비 사항과 최종 합격 안내의 입사 안내는 backend가 보낼 때 본문 아래에 붙여,
+# 본문은 결과와 인사만 쓴다
 _TEMPLATE_EXAMPLES = {
     NoticeTemplateType.NEXT_STAGE: (
         "{stage}에 합격하셨음을 알려드리며, 진심으로 축하드립니다.\n\n다음 전형은 {next_stage}입니다."
@@ -67,9 +70,7 @@ _TEMPLATE_EXAMPLES = {
         "보내주신 관심에 다시 한번 감사드리며, 앞으로의 길을 응원하겠습니다."
     ),
     NoticeTemplateType.FINAL_PASS: (
-        "{stage} 결과, 최종 합격하셨음을 알려드립니다. 진심으로 축하드립니다.\n\n"
-        "입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.\n\n"
-        "함께하게 되어 기쁘게 생각합니다."
+        "{stage} 결과, 최종 합격하셨음을 알려드립니다. 진심으로 축하드립니다.\n\n함께하게 되어 기쁘게 생각합니다."
     ),
     NoticeTemplateType.FINAL_REJECT: (
         "긴 전형 과정에 끝까지 참여해 주셔서 진심으로 감사드립니다.\n\n"

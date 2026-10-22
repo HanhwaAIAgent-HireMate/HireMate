@@ -104,12 +104,24 @@ def test_problems_finds_invented_evaluation_or_reason() -> None:
 
 
 def test_problems_finds_later_notice_promise_not_in_source() -> None:
-    """다음 전형 안내는 backend가 안내를 붙여, 본문에 따로 안내한다고 쓰면 붙은 안내와 어긋난다."""
+    """다음 전형 안내와 입사 안내는 backend가 본문 아래에 붙여, 본문에 따로 안내한다고 쓰면 붙은 안내와 어긋난다."""
     found = problems("다음 전형은 1차 면접입니다. 일정은 별도로 안내드리겠습니다.", source="쓸 내용: 결과만 알린다")
 
     assert found == ["쓸 내용에 없는 나중 안내 약속을 썼다: 별도로 안내"]
-    final = "쓸 내용: 입사 일정과 준비 사항은 담당자가 별도로 안내드린다고 쓴다."
-    assert problems("입사 일정은 담당자가 따로 안내드릴 예정입니다.", source=final) == []
+    request = "HR 요청: 처우는 따로 안내드린다고 한 문장 넣어 줘"
+    assert problems("처우는 담당자가 따로 안내드릴 예정입니다.", source=request) == []
+
+
+def test_write_final_pass_leaves_onboarding_to_backend() -> None:
+    llm = FakeLlm(NoticeBody(content="최종 합격을 축하드립니다."))
+
+    client(llm).post(
+        "/agents/communication/write",
+        json={"notice": notice(templateType="FINAL_PASS", nextStageName=None), "request": None},
+    )
+
+    assert "입사 일정과 준비 사항은 쓰지 않는다" in llm.calls[0].user
+    assert "별도로" not in llm.calls[0].user
 
 
 def test_problems_passes_clean_content() -> None:
