@@ -138,6 +138,37 @@ async def test_required_gap_comes_first_and_free_pick_is_last(
     assert "한결대학교" not in call.user  # 학력 줄은 질문 소재로 넘기지 않는다
 
 
+async def test_document_headers_are_not_question_material(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    applicant = sample_applicants["이도윤"]
+    header = f"{applicant.info.name} | 금융권 백엔드 개발자 (Java/Spring) | 경력 7년"
+    marker = "SYNTHETIC SAMPLE - 채용 AI 시스템 테스트용 가상 문서"
+    job_label = "경력 지원직무 금융권 백엔드 개발자"
+    documents = [
+        document.model_copy(update={"text": header + "\n" + marker + "\n" + job_label + "\n" + document.text})
+        for document in applicant.documents
+    ]
+    analysis = newcomer_analysis.model_copy(
+        update={"notable": [Finding(text=header, source="이력서"), Finding(text=marker, source="자기소개서")]}
+    )
+    llm = FakeLlm(draft)
+
+    questions = await generate_questions(
+        llm,
+        applicant=applicant.model_copy(update={"documents": documents}),
+        posting=sample_posting,
+        analysis=analysis,
+        interview=view(),
+        focus=None,
+    )
+
+    assert questions[0] == INTRO
+    assert all(header not in call.user and marker not in call.user for call in llm.calls)
+    assert all(job_label not in call.user for call in llm.calls)
+    assert not any(applicant.info.name + " |" in question or "SYNTHETIC SAMPLE" in question for question in questions)
+
+
 async def test_discriminatory_question_is_rewritten_then_replaced_by_template(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
 ) -> None:

@@ -339,7 +339,11 @@ async def load_context(state: State) -> dict[str, Any]:
             continue
         for line in _SENTENCE.split(document.text):
             line = line.strip(" -·•\t")
-            if len(line) >= 8 and not _PERSONAL.search(line):
+            if (
+                len(line) >= 8
+                and not _PERSONAL.search(line)
+                and not _document_header(line, state["applicant"].info.name)
+            ):
                 sentences[f"S{len(sentences) + 1}"] = line
     return {
         "final": bool(interview.previous),
@@ -381,6 +385,8 @@ def find_gaps(state: State) -> dict[str, Any]:
     spare: list[Gap] = []
     seen: set[str] = set()
     for gap in candidates:
+        if gap.evidence and all(_document_header(text, state["applicant"].info.name) for text in gap.evidence):
+            continue
         key = _normalize(gap.topic)
         if key in seen:
             continue
@@ -391,6 +397,15 @@ def find_gaps(state: State) -> dict[str, Any]:
         gap.gap_id = f"G{len(gaps) + len(spare) + 1}"
         (gaps if len(gaps) < CODE_SLOTS else spare).append(gap)
     return {"gaps": gaps, "spare": spare}
+
+
+def _document_header(text: str, name: str) -> bool:
+    text = text.strip()
+    return (
+        bool(re.match(rf"^{re.escape(name)}\s*[|｜]", text))
+        or text.startswith("SYNTHETIC SAMPLE")
+        or bool(re.match(r"^(?:경력\s+)?지원\s*(?:직무|분야|구분)\s*[:：]?", text))
+    )
 
 
 def _asked_before(gap: Gap, question: str) -> bool:
