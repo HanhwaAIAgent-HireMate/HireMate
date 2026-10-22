@@ -123,6 +123,12 @@ function ConfirmDialog({
             ? `합격 ${pass}명은 ${next.name}로 넘어가요.`
             : `마지막 전형이라 합격 ${pass}명이 최종 합격이에요.`}
         </p>
+        {next?.type === 'INTERVIEW' && pass > 0 && (
+          <p className="text-sm text-muted-foreground">
+            확정하면 합격자 {pass}명의 {next.name} 질문을 백그라운드에서 미리 만들어요. 다음 전형은
+            안내 발송 후 별도로 시작해요.
+          </p>
+        )}
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>
           <Button
