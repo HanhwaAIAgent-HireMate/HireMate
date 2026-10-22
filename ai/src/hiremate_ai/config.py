@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 2048
     # 0이면 같은 질문에 같은 답을 낸다. Root의 지원자 찾기는 같은 질문에 같은 후보가 나와야 한다
     llm_temperature: float = 0
+    # 추론형 로컬 모델이 JSON을 쓰기 전에 출력 한도를 다 쓰면 none으로 끈다. 비우면 서버 기본값을 쓴다.
+    llm_reasoning_effort: Literal["none", "minimal", "low", "medium", "high"] | None = None
     # 참이면 tests/eval의 실제 모델 평가를 돌린다. CI와 커밋 전 검사에서는 끈다
     llm_eval: bool = False
     # Root Agent 대화방에 남기는 최근 턴 수
