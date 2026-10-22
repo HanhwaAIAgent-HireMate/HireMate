@@ -7,8 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePosting } from '@/features/posting/api'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
-import { useReport } from '@/features/report/api'
-import { ApiError } from '@/lib/api/client'
+import { reportNotReady, useReport } from '@/features/report/api'
 import { formatShortDateTime } from '@/lib/format'
 
 // RPT-01 최종 채용 리포트. 채용 종료 때 Report Agent가 쓰는 요약 문서이며 채용 상태를 바꾸지 않는다
@@ -25,7 +24,7 @@ export function ReportPage() {
   )
 
   if (!report.data) {
-    const notReady = report.error instanceof ApiError && report.error.code === 'REPORT_NOT_READY'
+    const notReady = reportNotReady(report.error)
     return (
       <div className="mx-auto max-w-[1040px] space-y-3 p-6">
         <h1 className="text-lg font-bold">채용 리포트</h1>
@@ -36,7 +35,7 @@ export function ReportPage() {
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
-              Report Agent가 최종 리포트를 쓰고 있어요…
+              Report Agent가 최종 리포트를 쓰고 있어요. 몇 분 걸릴 수 있어요…
             </p>
             <Skeleton className="h-60 w-full" />
           </>
