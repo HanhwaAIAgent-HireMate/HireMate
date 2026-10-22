@@ -143,12 +143,17 @@ class AiServerClientTests {
     }
 
     @Test
-    @DisplayName("시간 제한은 이벤트 간격이 아니라 스트림 전체에 건다")
-    void streamTimeoutIsWhole() {
-        Flux<String> endless = Flux.interval(Duration.ofMillis(20)).map(tick -> STATUS);
-        AiServerClient client = client(request -> Mono.just(sse(endless)), Duration.ofMillis(150));
+    @DisplayName("스트림은 시간 제한 없이 done까지 기다린다. 호출 시간 제한(timeout)은 동기 호출에만 쓴다")
+    void streamWaitsBeyondCallTimeout() {
+        Flux<String> slow = Flux.interval(Duration.ofMillis(20)).take(10).map(tick -> STATUS)
+                .concatWith(Flux.just(DONE));
+        AiServerClient client = client(request -> Mono.just(sse(slow)), Duration.ofMillis(50));
+        Recorded progress = new Recorded();
 
-        assertUnavailable(() -> client.stream(AiAgent.ROOT, "plan", Map.of(), Reply.class, new Recorded()));
+        Reply reply = client.stream(AiAgent.ROOT, "plan", Map.of(), Reply.class, progress);
+
+        assertThat(reply).isEqualTo(new Reply("ok"));
+        assertThat(progress.events).hasSize(10);
     }
 
     @Test

@@ -16,7 +16,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.io.UncheckedIOException;
-import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executor;
@@ -44,8 +43,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ChatController {
 
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
-    // ai 서버 응답(60초)과 면접 질문 생성을 기다릴 여유
-    private static final Duration STREAM_TIMEOUT = Duration.ofSeconds(120);
+    // 시간 제한 없음 (서블릿 규약에서 0 이하). 진행은 화면에 보이고, 화면이 떠나면 연결 끊김으로 멈춘다
+    private static final long NO_TIMEOUT = 0L;
 
     private final ChatService chat;
     private final Executor executor;
@@ -63,7 +62,7 @@ public class ChatController {
             @Valid @RequestBody ChatRequest request) {
         ChatInput input = chat.prepare(member.companyId(), stageId, member.memberId(), request.message(),
                 request.mentionIds(), request.checkedIds());
-        SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT.toMillis());
+        SseEmitter emitter = new SseEmitter(NO_TIMEOUT);
         executor.execute(() -> answer(emitter, input));
         return emitter;
     }

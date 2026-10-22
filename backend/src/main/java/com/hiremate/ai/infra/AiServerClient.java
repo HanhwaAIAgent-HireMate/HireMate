@@ -26,6 +26,7 @@ import tools.jackson.databind.json.JsonMapper;
  * 응답 본문은 메서드 반환 타입의 JSON이다. 연결 실패 · 시간 초과 · 오류 응답은 502 AI_UNAVAILABLE로 바꾼다.
  *
  * <p>Root plan은 SSE로 받는다({@link #stream}). status · item 이벤트는 진행 알림으로 넘기고 done 이벤트가 결과다.
+ * hiremate.ai.timeout은 응답을 한 번에 받는 호출({@link #post})에만 쓴다.
  *
  * <p>지원 접수 분석(Application Agent)은 이 클라이언트로 기다리지 않고 job 모듈의 대기열로 AI 워커에 맡긴다.
  */
@@ -74,7 +75,8 @@ class AiServerClient {
     }
 
     /**
-     * SSE로 받는다. 시간 제한은 이벤트 사이 간격이 아니라 스트림 전체에 건다. done 없이 끝나면 502다.
+     * SSE로 받는다. 시간 제한 없이 done이나 연결 종료까지 기다린다(진행이 화면에 보이고, 모델 호출 한 번의 대기는
+     * ai 서버가 정한다). done 없이 끝나면 502다.
      * progress가 {@link UncheckedIOException}을 던지면(화면 연결 끊김) 구독을 끊어 ai 서버 요청도 멈추고 그 예외를 올린다.
      */
     <T> T stream(AiAgent agent, String method, Object body, Class<T> type, ChatProgress progress) {
@@ -88,7 +90,7 @@ class AiServerClient {
                     .retrieve()
                     .bodyToFlux(EVENTS)
                     .doOnNext(event -> receive(event, type, progress, done))
-                    .blockLast(timeout);
+                    .blockLast();
         } catch (UncheckedIOException exception) {
             throw exception;
         } catch (RuntimeException exception) {
