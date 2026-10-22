@@ -71,6 +71,7 @@ def build_llm(call_log: CallLog) -> LlmClient:
         max_tokens=settings.llm_max_tokens,
         temperature=settings.llm_temperature,
         reasoning_effort=settings.llm_reasoning_effort,
+        extra_body=_provider_limit(settings.llm_providers),
     )
     return ChatLlm(
         model,
@@ -79,6 +80,12 @@ def build_llm(call_log: CallLog) -> LlmClient:
         method=settings.llm_structured_output,
         agent_max_calls=settings.llm_agent_max_calls,
     )
+
+
+def _provider_limit(providers: str) -> dict[str, Any] | None:
+    """OpenRouter 요청 본문의 업체 제한. 적은 업체가 없으면 보내지 않는다."""
+    only = [name.strip() for name in providers.split(",") if name.strip()]
+    return {"provider": {"only": only}} if only else None
 
 
 LlmDep = Annotated[LlmClient, Depends(get_llm)]
