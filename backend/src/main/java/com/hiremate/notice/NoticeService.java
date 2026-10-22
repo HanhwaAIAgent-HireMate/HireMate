@@ -38,6 +38,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class NoticeService {
 
     static final String GUIDE_LEAD = "일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.";
+    static final String ONBOARDING_LEAD = "입사 일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.";
+    static final String ONBOARDING_LATER = "입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.";
 
     private final NoticeRepository notices;
     private final NoticeDeliveryRepository deliveries;
@@ -174,6 +176,21 @@ public class NoticeService {
         return guideView(companyId, recruits.getByStage(companyId, stageId), stage);
     }
 
+    /** 최종 합격 안내의 입사 안내. 입사일은 최종 합격자를 정한 뒤에 정해져, 보내기 전 안내 화면에서 쓴다. */
+    @Transactional
+    public NoticeView changeOnboarding(UUID companyId, UUID stageId, NoticeGroup group, OnboardingGuide guide) {
+        Notice notice = notice(companyId, stageId, group);
+        if (notice.getTemplateType() != NoticeTemplateType.FINAL_PASS) {
+            throw new ApiException(HttpStatus.CONFLICT, "NOT_FINAL_PASS",
+                    "Only the final pass notice has an onboarding guide.");
+        }
+        if (!notice.isEditable()) {
+            throw new ApiException(HttpStatus.CONFLICT, "NOTICE_SENT", "The notice has already been sent.");
+        }
+        notice.changeOnboarding(guide);
+        return toView(notice, recruits.getByStage(companyId, stageId));
+    }
+
     /** 모든 그룹의 안내를 보냈는지. 전형 종료 전에 확인한다. */
     @Transactional
     public boolean allSent(UUID companyId, UUID stageId) {
@@ -221,11 +238,11 @@ public class NoticeService {
                         NoticeGroup.PASS))
                 .map(Notice::getSentCount)
                 .orElse(0);
-        return new StageGuideView(stage.id(), stage.seq(), stage.name(), stage.guide(), missing(stage.guide()),
-                notified);
+        return new StageGuideView(stage.id(), stage.seq(), stage.name(), stage.guide(),
+                missing(items(stage.guide())), notified);
     }
 
-    /** 안내 칸 이름과 값. 메일과 화면 경고에 같은 이름을 쓴다. 기타 안내(note)는 이름 없이 ※로 붙여 여기 없다. */
+    /** 전형 안내 칸 이름과 값. 메일과 화면 경고에 같은 이름을 쓴다. 기타 안내(note)는 이름 없이 ※로 붙여 여기 없다. */
     private static Map<String, String> items(StageGuide guide) {
         Map<String, String> items = new LinkedHashMap<>();
         items.put("일정", guide.schedule());
@@ -235,9 +252,19 @@ public class NoticeService {
         return items;
     }
 
-    /** 비어 있는 안내 칸 이름. 게시하거나 다음 전형 안내를 보내기 전에 화면이 경고한다 (막지는 않는다). */
-    static List<String> missing(StageGuide guide) {
-        return items(guide).entrySet().stream()
+    /** 입사 안내 칸 이름과 값. */
+    private static Map<String, String> items(OnboardingGuide guide) {
+        Map<String, String> items = new LinkedHashMap<>();
+        items.put("입사일", guide.startDate());
+        items.put("출근 장소", guide.place());
+        items.put("제출 서류", guide.documents());
+        items.put("준비 사항", guide.preparation());
+        return items;
+    }
+
+    /** 비어 있는 안내 칸 이름. 게시하거나 안내를 보내기 전에 화면이 경고한다 (막지는 않는다). */
+    private static List<String> missing(Map<String, String> items) {
+        return items.entrySet().stream()
                 .filter(item -> item.getValue().isEmpty())
                 .map(Map.Entry::getKey)
                 .toList();
@@ -253,36 +280,54 @@ public class NoticeService {
     }
 
     /**
-     * 다음 전형 안내에 붙일 다음 전형의 안내. 안내가 없으면 빈 문자열이다. AI 본문과 따로 두어,
-     * 초안을 쓴 뒤에 안내를 고쳐도 다시 쓰지 않고 보내는 때의 안내가 붙는다. 비어 있는 칸은 넣지 않고,
-     * 기타 안내는 이름 없이 한 줄마다 ※를 붙인다 ("기타 안내:"는 지원자에게 어색하다).
+     * 본문 아래에 붙일 안내. 다음 전형 안내에는 다음 전형의 안내, 최종 합격 안내에는 입사 안내를 붙인다.
+     * AI 본문과 따로 두어, 초안을 쓴 뒤에 안내를 고쳐도 다시 쓰지 않고 보내는 때의 안내가 붙는다.
+     * 다음 전형 안내가 없으면 아무것도 붙이지 않고, 입사 안내가 없으면 담당자가 따로 안내한다고 쓴다.
      */
     static String guideText(Notice notice, RecruitmentInfo recruitment) {
-        Optional<StageInfo> next = nextStage(notice, recruitment);
-        if (next.isEmpty() || !next.get().guide().hasContent()) {
-            return "";
-        }
-        StageGuide guide = next.get().guide();
-        List<String> lines = new ArrayList<>(List.of(GUIDE_LEAD, "", "■ " + next.get().name() + " 안내"));
-        items(guide).forEach((label, value) -> {
+        return switch (notice.getTemplateType()) {
+            case NEXT_STAGE -> nextStage(notice, recruitment)
+                    .filter(next -> next.guide().hasContent())
+                    .map(next -> block(GUIDE_LEAD, next.name() + " 안내", items(next.guide()), next.guide().note()))
+                    .orElse("");
+            case FINAL_PASS -> notice.onboarding().hasContent()
+                    ? block(ONBOARDING_LEAD, "입사 안내", items(notice.onboarding()), notice.onboarding().note())
+                    : ONBOARDING_LATER;
+            case REJECT, FINAL_REJECT -> "";
+        };
+    }
+
+    /** 안내 묶음. 비어 있는 칸은 넣지 않고, 기타 안내는 이름 없이 한 줄마다 ※를 붙인다 ("기타 안내:"는 지원자에게 어색하다). */
+    private static String block(String lead, String title, Map<String, String> items, String note) {
+        List<String> lines = new ArrayList<>(List.of(lead, "", "■ " + title));
+        items.forEach((label, value) -> {
             if (!value.isEmpty()) {
                 lines.add("- " + label + ": " + value);
             }
         });
-        List<String> notes = guide.note().lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
+        List<String> notes = note.lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
         if (!notes.isEmpty()) {
             lines.add("");
-            notes.forEach(note -> lines.add("※ " + note));
+            notes.forEach(line -> lines.add("※ " + line));
         }
         return String.join("\n", lines);
     }
 
+    /** 보내기 전에 화면이 경고할 비어 있는 안내 칸 이름. */
+    private static List<String> guideMissing(Notice notice, RecruitmentInfo recruitment) {
+        return switch (notice.getTemplateType()) {
+            case NEXT_STAGE -> nextStage(notice, recruitment).map(next -> missing(items(next.guide())))
+                    .orElse(List.of());
+            case FINAL_PASS -> missing(items(notice.onboarding()));
+            case REJECT, FINAL_REJECT -> List.of();
+        };
+    }
+
     private static NoticeView toView(Notice notice, RecruitmentInfo recruitment) {
-        List<String> guideMissing = nextStage(notice, recruitment).map(next -> missing(next.guide())).orElse(List.of());
         return new NoticeView(notice.getId(), notice.getStageId(), notice.getGroupType(), notice.getTemplateType(),
                 label(notice.getTemplateType()), notice.getSubject(), notice.getGreeting(), notice.getContent(),
-                guideText(notice, recruitment), guideMissing, notice.getClosing(), notice.getRequiredText(),
-                notice.getRecipientCount(), notice.getStatus(), notice.getSentCount(), notice.getFailedCount(),
-                notice.getSentAt());
+                guideText(notice, recruitment), guideMissing(notice, recruitment), notice.onboarding(),
+                notice.getClosing(), notice.getRequiredText(), notice.getRecipientCount(), notice.getStatus(),
+                notice.getSentCount(), notice.getFailedCount(), notice.getSentAt());
     }
 }

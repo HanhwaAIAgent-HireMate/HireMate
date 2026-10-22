@@ -5,6 +5,7 @@ import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.notice.NoticeGroup;
 import com.hiremate.notice.NoticeService;
 import com.hiremate.notice.NoticeView;
+import com.hiremate.notice.OnboardingGuide;
 import com.hiremate.screening.ScreeningService;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -47,6 +48,14 @@ public class NoticeController {
                 request.content(), request.closing());
     }
 
+    /** 최종 합격 안내의 입사 안내. 보내기 전까지 고칠 수 있다. */
+    @PutMapping("/notices/{group}/onboarding")
+    public NoticeView changeOnboarding(AuthenticatedMember member, @PathVariable UUID stageId,
+            @PathVariable NoticeGroup group, @Valid @RequestBody OnboardingRequest request) {
+        return notices.changeOnboarding(member.companyId(), stageId, group, new OnboardingGuide(request.startDate(),
+                request.place(), request.documents(), request.preparation(), request.note()));
+    }
+
     /** HR이 확인한 뒤 직접 발송한다. */
     @PostMapping("/notices/{group}/send")
     public NoticeView send(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable NoticeGroup group) {
@@ -65,6 +74,12 @@ public class NoticeController {
     public record NoticeEditRequest(@NotBlank @Size(max = 200) String subject,
             @NotNull @Size(max = 2000) String greeting, @NotNull @Size(max = 5000) String content,
             @NotNull @Size(max = 2000) String closing) {
+    }
+
+    /** 길이는 notices 테이블의 입사 안내 칸과 같다. note는 기타 안내다. */
+    public record OnboardingRequest(@NotNull @Size(max = 200) String startDate,
+            @NotNull @Size(max = 500) String place, @NotNull @Size(max = 1000) String documents,
+            @NotNull @Size(max = 1000) String preparation, @NotNull @Size(max = 1000) String note) {
     }
 
     public record FinishResponse(@Schema(nullable = true) UUID nextStageId) {

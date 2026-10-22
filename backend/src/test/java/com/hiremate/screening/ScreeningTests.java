@@ -263,8 +263,24 @@ class ScreeningTests extends IntegrationTest {
         expect(hr.post(next + "/confirm", null), 200);
         JsonNode last = json(expect(hr.post(next + "/notices/prepare", null), 200));
         assertThat(last.get(0).path("label").asString()).isEqualTo("최종 합격 안내");
+        assertThat(last.get(0).path("guide").asString()).isEqualTo("입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.");
+        assertThat(last.get(0).path("guideMissing").size()).isEqualTo(4);
         assertThat(last.get(1).path("status").asString()).isEqualTo("EMPTY");
+        expect(hr.put(stage.path() + "/notices/PASS/onboarding", onboarding("12월 1일(월) 오전 9시")), 409);
+        JsonNode onboarded = json(expect(hr.put(next + "/notices/PASS/onboarding",
+                onboarding("12월 1일(월) 오전 9시")), 200));
+        assertThat(onboarded.path("guideMissing").toString()).isEqualTo("[\"제출 서류\"]");
         expect(hr.post(next + "/notices/PASS/send", null), 200);
+        assertThat(mail.sent).anySatisfy(message -> assertThat(message).contains("""
+                입사 일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.
+
+                ■ 입사 안내
+                - 입사일: 12월 1일(월) 오전 9시
+                - 출근 장소: 서울 중구 본사 5층
+                - 준비 사항: 신분증
+
+                ※ 11월 25일까지 서류를 보내 주세요""").doesNotContain("별도로 안내"));
+        expect(hr.put(next + "/notices/PASS/onboarding", onboarding("12월 2일")), 409);
         assertThat(json(expect(hr.post(next + "/finish", null), 200)).path("nextStageId").isNull()).isTrue();
 
         String recruitment = json(expect(hr.get(stage.path()), 200)).path("recruitmentId").asString();
@@ -366,6 +382,12 @@ class ScreeningTests extends IntegrationTest {
             Thread.sleep(200);
         }
         throw new AssertionError("Report was not generated.");
+    }
+
+    /** 제출 서류를 비운 입사 안내. 기타 안내는 빈 줄을 섞어 쓴다. */
+    private static Map<String, Object> onboarding(String startDate) {
+        return Map.of("startDate", startDate, "place", "서울 중구 본사 5층", "documents", "", "preparation", "신분증",
+                "note", "\n 11월 25일까지 서류를 보내 주세요 \n");
     }
 
     private static Map<String, Object> chatBody(String message, List<String> mentions) {
