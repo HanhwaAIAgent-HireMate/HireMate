@@ -13,6 +13,8 @@ from hiremate_ai.agents.analysis.application.present import to_analysis
 from hiremate_ai.agents.analysis.application.service import RubricScopeError
 from hiremate_ai.agents.analysis.application.store import ReviewStore
 from hiremate_ai.agents.analysis.application.types import AnalyzeRequest
+from hiremate_ai.agents.generation.interview import generate_questions, load_review
+from hiremate_ai.agents.generation.interview.router import QuestionsRequest
 from hiremate_ai.agents.generation.report import write_report
 from hiremate_ai.api import assessment, interview, report
 from hiremate_ai.config import settings
@@ -29,7 +31,7 @@ class PermanentError(Exception):
 def job_handlers(
     llm: LlmClient, store: ReviewStore, sessions: async_sessionmaker[AsyncSession]
 ) -> Mapping[str, Handler]:
-    """워커가 처리하는 작업 유형. 자료가 들어올 때 미리 돌리는 분석만 둔다.
+    """워커가 처리하는 작업 유형. 자료가 들어오거나 전형이 시작될 때 미리 돌리는 분석 · 생성만 둔다.
 
     Chat과 화면에서 기다리는 요청은 워커를 거치지 않고 ai 서버 경로로 바로 받는다.
     """
@@ -71,8 +73,26 @@ def job_handlers(
         request = report.WriteRequest.model_validate(payload)
         return (await write_report(request.input, llm)).model_dump(mode="json")
 
+    async def interview_questions(payload: dict[str, Any]) -> dict[str, Any]:
+        # 면접 전형이 시작될 때 지원자마다 미리 만드는 맞춤 질문 (FR-27). Chat 요청은 ai 서버 경로로 바로 받는다
+        request = QuestionsRequest.model_validate(payload)
+        # 서류 전형 Agent가 저장한 상세 판정이 있으면 그것으로 빈틈을 고른다 (없으면 요청의 요약으로)
+        review = await load_review(store, request.applicant)
+        questions = await generate_questions(
+            llm,
+            applicant=request.applicant,
+            posting=request.posting,
+            analysis=request.analysis,
+            interview=request.interview,
+            focus=request.focus,
+            company=request.company,
+            review=review,
+        )
+        return {"questions": questions}
+
     return {
         "application/analyze": application_analyze,
+        "interview/questions": interview_questions,
         "assessment/analyze": assessment_analyze,
         "interview-analyst/analyze": interview_analyze,
         "report/write": report_write,

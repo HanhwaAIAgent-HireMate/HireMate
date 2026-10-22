@@ -158,6 +158,37 @@ async def test_report_write_returns_report_content(monkeypatch: pytest.MonkeyPat
     assert result["applicantCount"] == 8 and result["stages"] == [stage]
 
 
+async def test_interview_questions_returns_questions_made_by_the_agent(
+    monkeypatch: pytest.MonkeyPatch, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    """면접 전형이 시작될 때 backend가 넣는 작업: 요청 본문은 POST /agents/interview/questions와 같다."""
+    received: list[dict[str, Any]] = []
+
+    async def generate_questions(llm: LlmClient, **kwargs: Any) -> list[str]:
+        received.append(kwargs)
+        return ["1분 자기소개 부탁드립니다.", "결제 승인 API에서 맡은 역할을 말해 주세요."]
+
+    monkeypatch.setattr(worker_handlers, "generate_questions", generate_questions)
+    handle = job_handlers(FakeLlm(), MemoryStore(), SESSIONS)["interview/questions"]
+    analysis: dict[str, Any] = {"conditions": [], "notable": [], "checks": [], "holds": [], "fit": [], "highlights": []}
+    interview: dict[str, Any] = {"applicationId": str(uuid4()), "schedule": None, "questions": [], "previous": []}
+
+    result = await handle(
+        {
+            "applicant": sample_applicants["정유민"].model_dump(mode="json"),
+            "posting": sample_posting.model_dump(mode="json"),
+            "analysis": {**analysis, "agent": "Application Agent", "stub": False},
+            "interview": interview,
+            "company": None,
+            "focus": None,
+        }
+    )
+
+    assert result == {"questions": ["1분 자기소개 부탁드립니다.", "결제 승인 API에서 맡은 역할을 말해 주세요."]}
+    assert received[0]["applicant"].info.name == "정유민"
+    assert received[0]["focus"] is None and received[0]["company"] is None
+
+
 async def test_interview_analyze_saves_through_the_route_function(monkeypatch: pytest.MonkeyPatch) -> None:
     received: list[InterviewAnalysisInput] = []
 
