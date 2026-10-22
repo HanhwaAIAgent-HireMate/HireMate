@@ -1,5 +1,5 @@
 import { CalendarClock, Loader2Icon, Plus, X } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -75,6 +75,7 @@ export function InterviewViewer({
           <Skeleton className="h-40 w-full" />
         ) : (
           <Questions
+            key={applicationId}
             stageId={stageId}
             applicationId={applicationId}
             interview={interview.data}
@@ -100,6 +101,12 @@ function Questions({
   const preparing = useInterviewPreparing(stageId, applicationId).data?.preparing === true
   const [draft, setDraft] = useState<string | null>(null)
   const fail = (error: unknown) => toast.error(errorMessage(error))
+  // 카드를 연 뒤에 새로 들어온 질문(AI Chat · 자동 생성 · 직접 추가)을 잠깐 강조하고 그 위치로 내린다
+  //   처음 열었을 때 이미 있던 질문 번호를 한 번만 기억해 두고(lazy 초기값), 그 뒤에 생긴 질문만 '새 질문'으로 본다
+  const [initialIds] = useState(
+    () => new Set(interview.questions.map((question) => question.questionId)),
+  )
+  const scrolledTo = useRef<string | null>(null) // 같은 질문으로 여러 번 스크롤하지 않게
 
   return (
     <div className="space-y-3">
@@ -156,7 +163,25 @@ function Questions({
         </p>
       )}
       {interview.questions.map((question) => (
-        <div key={question.questionId} className="group space-y-2 rounded-xl border p-3">
+        <div
+          key={question.questionId}
+          ref={(element) => {
+            // 새 질문이 처음 그려질 때 한 번만 그 위치로 부드럽게 내린다
+            if (
+              element &&
+              !initialIds.has(question.questionId) &&
+              scrolledTo.current !== question.questionId
+            ) {
+              scrolledTo.current = question.questionId
+              element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }
+          }}
+          className={cn(
+            'group space-y-2 rounded-xl border p-3',
+            // 3초 동안 연한 노란 배경 · 테두리로 강조했다가 원래대로 (리스트의 보라 AI 선택 표시와 헷갈리지 않는 색)
+            !initialIds.has(question.questionId) && 'animate-[question-new_3s_ease-out]',
+          )}
+        >
           <div className="flex items-start gap-2">
             <p className="flex-1 text-sm font-semibold">{question.text}</p>
             {editable && (
