@@ -16,6 +16,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 
 /**
@@ -24,6 +26,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class ChatService {
+
+    private static final Pattern QUESTION_COUNT = Pattern.compile("(?<!\\d)(\\d{1,2})\\s*(?:개|문항)");
 
     private final ScreeningService screening;
     private final RecruitService recruits;
@@ -118,7 +122,9 @@ public class ChatService {
             progress.status(name + " 면접 질문을 만들고 있어요");
             int before = interviews.count(companyId, stageId, applicationId);
             String focus = plan.questionFocus().getOrDefault(applicationId, message);
-            InterviewView view = interviews.generate(companyId, stageId, applicationId, focus);
+            Matcher requested = QUESTION_COUNT.matcher(message);
+            int limit = requested.find() ? Integer.parseInt(requested.group(1)) : Integer.MAX_VALUE;
+            InterviewView view = interviews.generate(companyId, stageId, applicationId, focus, limit);
             List<InterviewView.Question> added = view.questions().subList(Math.min(before, view.questions().size()),
                     view.questions().size());
             summaries.add(new ChatItem(applicationId, name, added.isEmpty() ? "새로 넣을 질문이 없어요"
