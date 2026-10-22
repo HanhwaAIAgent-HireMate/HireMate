@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from hiremate_ai.agents.root.answer import (
     BULK,
     COMPARE_STATUS,
+    FOCUS_FALLBACK,
     FOCUS_STATUS,
     FOCUSED,
     MULTI_FALLBACK,
@@ -568,7 +569,7 @@ async def test_checked_targets_and_other_candidates_ignored(
     assert plan.question_focus == {kim: "은행 계정계 장애 대응 경험을 구체적으로"}
 
 
-async def test_focus_failure_clarifies(
+async def test_focus_failure_keeps_explicit_question_request_without_invented_reasons(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     def broken(call: LlmCall) -> RootQuestionFocus:
@@ -578,7 +579,13 @@ async def test_focus_failure_clarifies(
 
     plan = await make_questions(FakeLlm(broken), QUESTIONS, context)
 
-    assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+    assert plan.intent == Intent.ANSWER
+    assert plan.question_targets == [sample_applicants["정유민"].info.application_id]
+    assert plan.question_focus == {}
+    assert plan.items == []
+    assert plan.sources == []
+    assert plan.agents == ["Interview Agent"]
+    assert plan.message == FOCUS_FALLBACK
 
 
 async def test_single_target_item_gets_candidate(
