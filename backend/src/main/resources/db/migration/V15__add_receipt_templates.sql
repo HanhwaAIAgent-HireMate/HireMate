@@ -1,0 +1,3 @@
+ALTER TABLE job_postings
+    ADD COLUMN receipt_subject VARCHAR(200) NOT NULL DEFAULT '',
+    ADD COLUMN receipt_body VARCHAR(5000) NOT NULL DEFAULT '';

@@ -70,4 +70,11 @@ public class PostingController {
     public PostingView discardSuggestion(AuthenticatedMember member, @PathVariable UUID recruitmentId) {
         return postings.discardSuggestion(member.companyId(), recruitmentId);
     }
+
+    /** 접수 확인 메일. 게시 전에만 고칠 수 있다. */
+    @PutMapping("/api/recruitments/{recruitmentId}/posting/receipt")
+    public PostingView changeReceipt(AuthenticatedMember member, @PathVariable UUID recruitmentId,
+            @Valid @RequestBody ReceiptRequest request) {
+        return postings.changeReceipt(member.companyId(), recruitmentId, request.toTemplate());
+    }
 }

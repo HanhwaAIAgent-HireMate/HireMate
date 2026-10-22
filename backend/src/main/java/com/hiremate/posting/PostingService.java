@@ -130,6 +130,26 @@ public class PostingService {
         return view(companyId, recruitmentId);
     }
 
+    /** 접수 확인 메일은 게시 전에만 고칠 수 있다. 게시한 뒤에는 모든 지원자가 같은 메일을 받는다. */
+    @Transactional
+    public PostingView changeReceipt(UUID companyId, UUID recruitmentId, ReceiptTemplate receipt) {
+        JobPosting posting = posting(companyId, recruitmentId);
+        if (recruits.get(companyId, recruitmentId).status() != RecruitmentStatus.DRAFT) {
+            throw new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_LOCKED",
+                    "The receipt mail cannot change after publishing.");
+        }
+        posting.changeReceipt(receipt);
+        return view(companyId, recruitmentId);
+    }
+
+    /** 지원자에게 보낼 접수 확인 메일. 공고의 템플릿에 지원자 값을 채우고 필수 문구를 붙인다. */
+    @Transactional(readOnly = true)
+    public ReceiptTemplate receiptMail(UUID companyId, UUID recruitmentId, String applicantName, int applicationNo) {
+        JobPosting posting = posting(companyId, recruitmentId);
+        return posting.receipt().fill(companies.profile(companyId).name(), posting.getTitle(), applicantName,
+                applicationNo);
+    }
+
     /** HR이 접수 기간을 정해 게시한다. AI는 게시하지 않는다. */
     @Transactional
     public PostingView publish(UUID companyId, UUID recruitmentId, UUID memberId, Instant openAt, Instant closeAt) {
@@ -241,6 +261,7 @@ public class PostingService {
         return new PostingView(posting.getId(), recruitment.id(), companyName, recruitment.status(),
                 posting.content(), List.copyOf(posting.getNotices()), stages, documents(requiredExtras(posting)),
                 posting.getOpenAt(), posting.getCloseAt(), posting.getPublishedAt(), posting.getClosedAt(),
-                suggestionView);
+                suggestionView, new PostingView.ReceiptView(posting.receipt().subject(), posting.receipt().body(),
+                        ReceiptTemplate.REQUIRED_TEXT));
     }
 }
