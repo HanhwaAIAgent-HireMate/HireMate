@@ -79,7 +79,7 @@ src/main/java/com/hiremate/
 - AI Agent 구현은 `ai/infra`에 둔다. stub은 `@ConditionalOnAiMode(agent = ..., mode = AiMode.STUB)`,
   ai 서버를 부르는 구현은 `mode = AiMode.REMOTE`로 달고 `AiServerClient`로만 호출한다.
   연동 방식은 `hiremate.ai.agents.{key}`로 Agent마다 바꾼다(없으면 `hiremate.ai.mode`).
-- 화면이 기다리지 않는 Agent 작업(지원서 · 평가 결과 분석, 최종 리포트)은 `job.JobQueue`로 AI 워커에 맡긴다. 작업 유형은
+- 화면이 기다리지 않는 Agent 작업(지원서 · 평가 결과 · 면접 답변 분석, 최종 리포트)은 `job.JobQueue`로 AI 워커에 맡긴다. 작업 유형은
   ai 서버 경로와 같은 `{agent}/{method}`, 본문은 그 경로의 요청 본문이다. 결과는 `JobFinished` 이벤트로 받아 기록하고,
   실패는 분석 실패로 두어 담당자가 다시 요청할 수 있게 한다. 화면이 기다리는 요청은 지금처럼 `AiServerClient`로 부른다.
 
