@@ -1267,6 +1267,16 @@ export interface components {
             mentionIds: string[];
             checkedIds: string[];
         };
+        ChatStatus: {
+            text: string;
+        };
+        ChatItem: {
+            /** Format: uuid */
+            applicationId: string | null;
+            label: string;
+            text: string;
+            status: string | null;
+        };
         ChatAnswer: {
             /** @enum {string} */
             intent: "FIND" | "ANSWER" | "EDIT" | "CLARIFY" | "BLOCKED";
@@ -1279,12 +1289,10 @@ export interface components {
             selectionChanged: boolean;
             stub: boolean;
         };
-        ChatItem: {
-            /** Format: uuid */
-            applicationId: string | null;
-            label: string;
-            text: string;
-            status: string | null;
+        ChatError: {
+            /** Format: int32 */
+            status: number;
+            code: string;
         };
         QuestionRequest: {
             text: string;
@@ -2328,13 +2336,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
+            /** @description SSE. status · item · done · error 이벤트 */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ChatAnswer"];
+                    "text/event-stream": components["schemas"]["ChatStatus"] | components["schemas"]["ChatItem"] | components["schemas"]["ChatAnswer"] | components["schemas"]["ChatError"];
                 };
             };
         };
