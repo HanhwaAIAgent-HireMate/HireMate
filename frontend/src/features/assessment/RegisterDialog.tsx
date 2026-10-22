@@ -24,7 +24,7 @@ type Method = 'TABLE' | 'FILE' | 'MANUAL' | 'SUBMISSION'
 const METHODS: { key: Method | 'API'; label: string; hint: string }[] = [
   { key: 'TABLE', label: '결과표 업로드', hint: 'CSV · XLSX' },
   { key: 'FILE', label: '결과 파일 업로드', hint: '지원자별 리포트' },
-  { key: 'MANUAL', label: '지원자별 수동 입력', hint: '점수 · 등급' },
+  { key: 'MANUAL', label: '지원자별 수동 입력', hint: '점수 · 등급 · 메모' },
   { key: 'SUBMISSION', label: '제출 파일 · URL', hint: '과제형 전형' },
   { key: 'API', label: 'API · Webhook', hint: '외부 서비스 연동' },
 ]
@@ -405,7 +405,7 @@ function PerCandidate({
   const save = useSaveResult(stageId)
   const attach = useAttachResultFile(stageId)
   const [values, setValues] = useState<
-    Record<string, { total: string; grade: string; url: string }>
+    Record<string, { total: string; grade: string; url: string; note: string }>
   >({})
   const fail = (error: unknown) => toast.error(errorMessage(error))
 
@@ -416,6 +416,7 @@ function PerCandidate({
           total: row.score !== null ? String(row.score) : '',
           grade: '',
           url: '',
+          note: '',
         }
         const set = (patch: Partial<typeof value>) =>
           setValues((current) => ({ ...current, [row.applicationId]: { ...value, ...patch } }))
@@ -442,6 +443,14 @@ function PerCandidate({
                   onChange={(event) => set({ grade: event.target.value })}
                   className="h-8 w-16"
                 />
+                {/* 평가 메모는 Assessment Agent가 강점 · 약점을 뽑는 자료가 된다. 비워 두면 이전 메모를 그대로 둔다 */}
+                <Input
+                  aria-label={`${row.name} 평가 메모`}
+                  placeholder="평가 메모 (선택)"
+                  value={value.note}
+                  onChange={(event) => set({ note: event.target.value })}
+                  className="h-8 min-w-0 flex-1"
+                />
                 <Button
                   size="sm"
                   variant="outline"
@@ -455,7 +464,7 @@ function PerCandidate({
                         areas: {},
                         grade: value.grade || null,
                         url: null,
-                        note: null,
+                        note: value.note || null,
                       },
                       {
                         onSuccess: () => toast.success(`${row.name} 결과를 저장했어요.`),
