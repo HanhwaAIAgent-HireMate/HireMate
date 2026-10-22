@@ -217,6 +217,7 @@ def test_get_llm_builds_chat_llm(monkeypatch: pytest.MonkeyPatch, effort: str | 
     monkeypatch.setattr(settings, "llm_max_tokens", 512)
     monkeypatch.setattr(settings, "llm_temperature", 0.3)
     monkeypatch.setattr(settings, "llm_reasoning_effort", effort)
+    monkeypatch.setattr(settings, "llm_providers", "")
     client.get_llm.cache_clear()
 
     try:
@@ -227,5 +228,21 @@ def test_get_llm_builds_chat_llm(monkeypatch: pytest.MonkeyPatch, effort: str | 
         assert model.max_tokens == 512
         assert model.temperature == 0.3
         assert model.reasoning_effort == effort
+        assert model.extra_body is None
+    finally:
+        client.get_llm.cache_clear()
+
+
+def test_get_llm_limits_openrouter_providers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "llm_model", "test-model")
+    monkeypatch.setattr(settings, "llm_api_key", SecretStr("test"))
+    monkeypatch.setattr(settings, "llm_providers", "baidu, coreweave")
+    client.get_llm.cache_clear()
+
+    try:
+        llm = client.get_llm()
+        assert isinstance(llm, ChatLlm)
+        assert isinstance(llm._model, ChatOpenAI)
+        assert llm._model.extra_body == {"provider": {"only": ["baidu", "coreweave"]}}
     finally:
         client.get_llm.cache_clear()
