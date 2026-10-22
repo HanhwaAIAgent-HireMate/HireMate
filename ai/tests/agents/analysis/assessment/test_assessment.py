@@ -252,6 +252,21 @@ async def test_reanalysis_replaces_only_this_stage_assessment_items(db_session: 
     )
 
 
+async def test_failed_reanalysis_keeps_earlier_items(db_session: AsyncSession) -> None:
+    def fail(call: LlmCall) -> AssessmentDraft:
+        raise LlmOutputError("형식 오류")
+
+    await post_analyze(db_session, FakeLlm(AssessmentDraft(findings=[strength(), weakness()])), INPUT_JSON)
+
+    response = await post_analyze(db_session, FakeLlm(fail, fail, fail), INPUT_JSON)
+
+    assert response.status_code == 502
+    stage_id = UUID(INPUT_JSON["stageId"])
+    assert await profile_items(db_session, UUID(INPUT_JSON["applicationId"])) == sorted(
+        [(ItemAgent.ASSESSMENT, strength().content, stage_id), (ItemAgent.ASSESSMENT, weakness().content, stage_id)]
+    )
+
+
 async def test_router_refuses_profile_of_another_company(db_session: AsyncSession) -> None:
     await post_analyze(db_session, FakeLlm(AssessmentDraft(findings=[strength()])), INPUT_JSON)
 

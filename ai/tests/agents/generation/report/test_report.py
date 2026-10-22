@@ -196,6 +196,19 @@ async def test_model_failure_still_returns_report() -> None:
 
     assert report.final_count == 2
     assert report.finalists[1].reason == "은행 계정계 RDBMS 설계 · 운영 7년"
+    # 근거가 길어도 중간에서 자르지 않는다
+    assert report.finalists[0].reason == (
+        "승인 서버 응답 시간을 180ms에서 90ms로 줄였다, 카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했다"
+    )
+
+
+async def test_single_stage_has_no_lowest_pass_rate_note() -> None:
+    data = report_input().model_copy(update={"stages": report_input().stages[:1]})
+
+    report = await write_report(data, FakeLlm(good_draft()))
+
+    assert not any("가장 낮았어요" in note for note in report.notes)
+    assert report.notes[0] == "결정하지 않아 불합격으로 확정된 지원자가 전형 전체에서 1명 있었어요."
 
 
 def test_router_takes_backend_json_and_returns_report_content() -> None:
