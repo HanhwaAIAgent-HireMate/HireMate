@@ -17,6 +17,7 @@ import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationService;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -53,12 +54,25 @@ class InterviewAnalysisTests extends IntegrationTest {
         expect(hr.post(document + "/notices/PASS/send", null), 200);
         String stageId = json(expect(hr.post(document + "/finish", null), 200)).path("nextStageId").asString();
         String stage = "/api/stages/" + stageId;
-        JsonNode card = json(expect(hr.post(stage + "/candidates/" + applicationId + "/interview/questions",
-                Map.of("text", "가장 어려웠던 장애 대응은?")), 200));
-        String answer = stage + "/interview/questions/" + card.path("questions").get(0).path("questionId").asString()
-                + "/answer";
+        String cardPath = stage + "/candidates/" + applicationId + "/interview";
+        awaitPrepared(hr, cardPath);
+        String text = "가장 어려웠던 장애 대응은?";
+        String recorded = "정산 배치가 멈췄을 때 재처리 스크립트로 당일 복구했습니다.";
+        JsonNode card = json(expect(hr.post(cardPath + "/questions", Map.of("text", text)), 200));
+        String questionId = "";
+        List<InterviewAnalysisInput.AnsweredQuestion> expected = new ArrayList<>();
+        for (JsonNode question : card.path("questions")) {
+            boolean manual = question.path("text").asString().equals(text);
+            if (manual) {
+                questionId = question.path("questionId").asString();
+            }
+            expected.add(new InterviewAnalysisInput.AnsweredQuestion(question.path("text").asString(),
+                    manual ? recorded : question.path("answer").asString()));
+        }
+        assertThat(questionId).isNotEmpty();
+        String answer = stage + "/interview/questions/" + questionId + "/answer";
 
-        expect(hr.put(answer, Map.of("answer", "정산 배치가 멈췄을 때 재처리 스크립트로 당일 복구했습니다.")), 200);
+        expect(hr.put(answer, Map.of("answer", recorded)), 200);
 
         ArgumentCaptor<InterviewAnalysisInput> sent = ArgumentCaptor.forClass(InterviewAnalysisInput.class);
         verify(analyst, timeout(10_000)).analyze(sent.capture());
@@ -68,12 +82,22 @@ class InterviewAnalysisTests extends IntegrationTest {
         assertThat(input.stageId()).isEqualTo(UUID.fromString(stageId));
         assertThat(input.applicationId()).isEqualTo(applicationId);
         assertThat(input.stageName()).isEqualTo("1차 면접");
-        assertThat(input.questions()).containsExactly(new InterviewAnalysisInput.AnsweredQuestion(
-                "가장 어려웠던 장애 대응은?", "정산 배치가 멈췄을 때 재처리 스크립트로 당일 복구했습니다."));
+        assertThat(input.questions()).containsExactlyElementsOf(expected);
         assertThat(input.previous()).isEmpty();
 
-        expect(hr.put(answer, Map.of("answer", "정산 배치가 멈췄을 때 재처리 스크립트로 당일 복구했습니다.")), 200);
+        expect(hr.put(answer, Map.of("answer", recorded)), 200);
         verify(analyst, after(1_000)).analyze(any());
+    }
+
+    private void awaitPrepared(TestApi hr, String cardPath) throws Exception {
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
+        while (Instant.now().isBefore(deadline)) {
+            if (!json(expect(hr.get(cardPath), 200)).path("questions").isEmpty()) {
+                return;
+            }
+            Thread.sleep(200);
+        }
+        throw new AssertionError("Interview questions were not prepared.");
     }
 
     private UUID awaitAnalyzed(UUID companyId, UUID recruitmentId) throws InterruptedException {
