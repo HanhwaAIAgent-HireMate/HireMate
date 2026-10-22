@@ -6,7 +6,8 @@ import java.util.UUID;
 /** Root Agent (Recruitment Orchestrator). 요청을 해석해 실행 계획을 만든다. 지원자를 직접 고르거나 상태를 바꾸지 않는다. */
 public interface RootAgent {
 
-    ChatPlan plan(ChatContext context);
+    /** 계획을 낸다. 처리 중 단계와 검증된 항목은 progress로 먼저 보낸다. */
+    ChatPlan plan(ChatContext context, ChatProgress progress);
 
     /** 대화방의 지난 턴. 대화방이 없으면 빈 목록이다. */
     List<ChatHistoryTurn> history(String threadId);

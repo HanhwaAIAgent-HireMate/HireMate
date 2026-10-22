@@ -45,14 +45,14 @@ class RootMemoryChatTests extends IntegrationTest {
     void chatUsesMemberStageThread() throws Exception {
         Setup setup = documentStage();
         String threadId = setup.hr().companyId() + ":" + setup.stageId() + ":" + setup.hr().memberId();
-        when(root.plan(any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.CLARIFY, "답", List.of(), List.of(),
+        when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.CLARIFY, "답", List.of(), List.of(),
                 List.of()));
 
         expect(setup.hr().post(setup.path() + "/chat",
                 Map.of("message", "금융 경험 찾아줘", "mentionIds", List.of(), "checkedIds", List.of())), 200);
 
         ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
-        verify(root).plan(sent.capture());
+        verify(root).plan(sent.capture(), any());
         assertThat(sent.getValue().threadId()).isEqualTo(threadId);
         assertThat(sent.getValue().selectable()).isTrue();
 
@@ -93,7 +93,7 @@ class RootMemoryChatTests extends IntegrationTest {
     void closedStagesLimitChat() throws Exception {
         Setup setup = documentStage();
         TestApi hr = setup.hr();
-        when(root.plan(any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.CLARIFY, "답", List.of(), List.of(),
+        when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.CLARIFY, "답", List.of(), List.of(),
                 List.of()));
         Map<String, Object> ask = Map.of("message", "강점 요약해줘", "mentionIds", List.of(), "checkedIds", List.of());
         expect(hr.post(setup.path() + "/decisions",
@@ -107,7 +107,7 @@ class RootMemoryChatTests extends IntegrationTest {
         expect(hr.post(setup.path() + "/chat", ask), 200);
 
         ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
-        verify(root, times(2)).plan(sent.capture());
+        verify(root, times(2)).plan(sent.capture(), any());
         assertThat(sent.getAllValues()).extracting(ChatContext::selectable).containsExactly(false, false);
         assertThat(sent.getAllValues().get(0).threadId()).isNotEmpty();
         assertThat(sent.getAllValues().get(1).threadId()).isEmpty();

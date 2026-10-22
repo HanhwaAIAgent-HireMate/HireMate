@@ -1,5 +1,6 @@
 package com.hiremate.screening;
 
+import static com.hiremate.TestApi.done;
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -162,25 +163,25 @@ class ScreeningTests extends IntegrationTest {
         Stage stage = startDocumentStage(3);
         String chat = stage.path() + "/chat";
 
-        JsonNode found = json(expect(stage.hr().post(chat, chatBody("Java 경험이 있는 지원자 찾아줘", List.of())), 200));
+        JsonNode found = done(expect(stage.hr().post(chat, chatBody("Java 경험이 있는 지원자 찾아줘", List.of())), 200));
         assertThat(found.path("intent").asString()).isEqualTo("FIND");
         assertThat(found.path("message").asString()).contains("3명 중", "2명");
         JsonNode selection = json(expect(stage.hr().get(stage.path() + "/selection"), 200));
         assertThat(selection.path("total").asLong()).isEqualTo(2);
         assertThat(selection.path("items").get(0).path("aiSelected").asBoolean()).isTrue();
 
-        JsonNode removed = json(expect(stage.hr().post(chat,
+        JsonNode removed = done(expect(stage.hr().post(chat,
                 chatBody("이 지원자 빼줘", List.of(stage.ids().get(1)))), 200));
         assertThat(removed.path("intent").asString()).isEqualTo("EDIT");
         assertThat(json(expect(stage.hr().get(stage.path() + "/selection"), 200)).path("total").asLong()).isEqualTo(1);
 
-        JsonNode blocked = json(expect(stage.hr().post(chat, chatBody("30살 이하 남자 지원자 찾아줘", List.of())), 200));
+        JsonNode blocked = done(expect(stage.hr().post(chat, chatBody("30살 이하 남자 지원자 찾아줘", List.of())), 200));
         assertThat(blocked.path("intent").asString()).isEqualTo("BLOCKED");
-        JsonNode unavailable = json(expect(stage.hr().post(chat,
+        JsonNode unavailable = done(expect(stage.hr().post(chat,
                 chatBody("평가 결과는 좋은데 지원서와 차이가 큰 사람 있어?", List.of())), 200));
         assertThat(unavailable.path("message").asString()).contains("아직 평가 결과가 없어요");
 
-        JsonNode analysis = json(expect(stage.hr().post(chat,
+        JsonNode analysis = done(expect(stage.hr().post(chat,
                 chatBody("강점과 확인할 점은?", List.of(stage.ids().getFirst()))), 200));
         assertThat(analysis.path("intent").asString()).isEqualTo("ANSWER");
         assertThat(analysis.path("selectionChanged").asBoolean()).isFalse();
@@ -346,7 +347,7 @@ class ScreeningTests extends IntegrationTest {
                 Map.of("scheduledAt", "2026-10-31T05:00:00Z", "interviewers", "면접관 2명")), 200));
         assertThat(scheduled.path("schedule").path("interviewers").asString()).isEqualTo("면접관 2명");
 
-        JsonNode chat = json(expect(hr.post(first + "/chat",
+        JsonNode chat = done(expect(hr.post(first + "/chat",
                 Map.of("message", "지원자별 맞춤 질문 만들어줘", "mentionIds", List.of(), "checkedIds", List.of())), 200));
         assertThat(chat.path("agents").get(0).asString()).isEqualTo("Interview Agent");
         assertThat(chat.path("items").get(0).path("label").asString()).isEqualTo("지원자1");
