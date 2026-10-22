@@ -14,7 +14,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * 평가 결과가 등록되면 Assessment Agent로 분석해 둔다. Chat이 평가 자료를 물을 때 원문을 다시 읽지 않기 위해서다.
- * 실패하면 이벤트가 완료되지 않은 채 남아 다시 보낼 수 있다. 점수 · 결정은 바꾸지 않는다.
+ * remote면 분석 작업을 대기열에 넣고 AI 워커가 프로필에 저장한다. 작업을 넣지 못하면 이벤트가 완료되지 않은 채 남아 다시
+ * 보낼 수 있다. 점수 · 결정은 바꾸지 않는다.
  */
 @Component
 class AssessmentAnalysisListener {

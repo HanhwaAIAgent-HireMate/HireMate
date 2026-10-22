@@ -1,6 +1,7 @@
 package com.hiremate.job.infra;
 
 import com.hiremate.job.JobResult;
+import com.hiremate.job.JobStatus;
 import com.hiremate.job.application.JobResultPublisher;
 import java.util.List;
 import org.slf4j.Logger;
@@ -100,6 +101,9 @@ class RedisJobResultReader {
             log.error("Unreadable job result {} was dropped", record.getId(), exception);
             remove(record);
             return;
+        }
+        if (result.status() == JobStatus.FAILED) {
+            log.warn("Job {} {} for {} failed: {}", result.type(), result.jobId(), result.target(), result.error());
         }
         try {
             publisher.publish(result);

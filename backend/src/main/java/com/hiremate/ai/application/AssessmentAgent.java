@@ -1,12 +1,20 @@
 package com.hiremate.ai.application;
 
+import java.util.Optional;
+
 /**
  * Assessment Agent. 평가 자료에서 강점 · 약점과 근거를 뽑아 ai 서버의 지원자 프로필에 저장한다.
  * 점수 · 등급과 결정은 바꾸지 않는다. 결과는 화면에 따로 보여 주지 않는다 (프로필에만 저장).
+ *
+ * <p>stub은 결과를 바로 돌려준다. remote는 분석 작업을 대기열(job 모듈)에 넣고 빈 값을 돌려주며, AI 워커가 분석해
+ * 프로필에 저장한다.
  */
 public interface AssessmentAgent {
 
-    AnalyzeResult analyze(AssessmentInput input);
+    /** 대기열 작업 유형. ai 서버 경로(/agents/assessment/analyze)와 같다. 작업 대상은 지원서 ID다. */
+    String ANALYZE_JOB = "assessment/analyze";
+
+    Optional<AnalyzeResult> analyze(AssessmentInput input);
 
     /**
      * 분석 결과 요약.

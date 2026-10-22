@@ -8,6 +8,8 @@ import com.hiremate.ai.application.ReportInput;
 import com.hiremate.report.ReportContent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /** 개발용 Report Agent. 확정 결과의 숫자와 분석 근거를 그대로 옮겨 요약한다. 근거가 없으면 없다고 적는다. */
@@ -16,7 +18,7 @@ import org.springframework.stereotype.Component;
 class StubReportAgent implements ReportAgent {
 
     @Override
-    public ReportContent write(ReportInput input) {
+    public Optional<ReportContent> write(UUID companyId, UUID recruitmentId, ReportInput input) {
         long finalCount = input.finalists().size();
         String summary = "지원자 " + input.applicantCount() + "명 중 **" + finalCount
                 + "명**을 최종 합격으로 결정했어요. 전형 " + input.stages().size()
@@ -44,7 +46,8 @@ class StubReportAgent implements ReportAgent {
                         (double) right.pass() / right.target()))
                 .ifPresent(stage -> notes.add(stage.name() + "의 합격률이 "
                         + Math.round(100.0 * stage.pass() / stage.target()) + "%로 가장 낮았어요."));
-        return new ReportContent(summary, input.applicantCount(), finalCount, input.stages(), finalists, notes);
+        return Optional.of(new ReportContent(summary, input.applicantCount(), finalCount, input.stages(), finalists,
+                notes));
     }
 
     private static String shorten(String text) {
