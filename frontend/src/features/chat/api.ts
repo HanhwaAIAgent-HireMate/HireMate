@@ -1,18 +1,56 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { api, unwrap, type Schemas } from '@/lib/api/client'
+import { ApiError, api, unwrap, type Schemas } from '@/lib/api/client'
+import { readEvents } from '@/lib/api/sse'
 import { stageKeys } from '@/features/screening/api'
 
 export type ChatAnswer = Schemas['ChatAnswer']
 export type ChatTurn = Schemas['ChatTurn']
+export type ChatItem = Schemas['ChatItem']
+
+/** 답을 기다리는 동안 받는 진행 알림. 단계 문구와 검증을 마친 항목이다. */
+export type ChatProgress = {
+  onStatus: (text: string) => void
+  onItem: (item: ChatItem) => void
+}
 
 const historyKey = (stageId: string) => ['stage', stageId, 'chat'] as const
 
-export function useChat(stageId: string) {
+/**
+ * Chat 응답 스트림(SSE)을 읽는다. status · item은 progress로 넘기고 done의 답을 돌려준다.
+ * error 이벤트나 done 없이 끝난 스트림은 ApiError로 던진다.
+ */
+export async function readChat(
+  body: ReadableStream<Uint8Array>,
+  progress: ChatProgress,
+): Promise<ChatAnswer> {
+  for await (const { event, data } of readEvents(body)) {
+    if (event === 'status') progress.onStatus((JSON.parse(data) as Schemas['ChatStatus']).text)
+    else if (event === 'item') progress.onItem(JSON.parse(data) as ChatItem)
+    else if (event === 'done') return JSON.parse(data) as ChatAnswer
+    else if (event === 'error') {
+      const error = JSON.parse(data) as Schemas['ChatError']
+      throw new ApiError(error.status, error.code, '')
+    }
+  }
+  throw new ApiError(502, 'AI_UNAVAILABLE', '')
+}
+
+export function useChat(stageId: string, progress: ChatProgress) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { message: string; mentionIds: string[]; checkedIds: string[] }) =>
-      unwrap(api.POST('/api/stages/{stageId}/chat', { params: { path: { stageId } }, body })),
+    mutationFn: async (body: { message: string; mentionIds: string[]; checkedIds: string[] }) => {
+      // 권한 · 입력 오류는 스트림을 열기 전에 일반 오류 응답으로 온다
+      const stream = await unwrap(
+        api.POST('/api/stages/{stageId}/chat', {
+          params: { path: { stageId } },
+          body,
+          parseAs: 'stream',
+        }),
+      )
+      if (!stream) throw new ApiError(502, 'AI_UNAVAILABLE', '')
+      return readChat(stream, progress)
+    },
     onSuccess: (answer) => {
       // 찾기 · 편집이면 리스트의 AI 표시와 선택 지원자가 바뀐다
       if (answer.selectionChanged)
