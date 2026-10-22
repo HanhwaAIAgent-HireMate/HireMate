@@ -375,6 +375,7 @@ class ScreeningTests extends IntegrationTest {
             prepared = interviews.preparationView(companyId, nextId, applicationId);
         }
         assertThat(prepared.questions()).isNotEmpty();
+        assertThat(prepared.questions().getFirst().text()).isEqualTo("1분 자기소개 부탁드립니다.");
         JsonNode pending = json(expect(hr.get("/api/stages/" + nextId), 200));
         assertThat(pending.path("status").asString()).isEqualTo("PENDING");
         assertThat(pending.path("counts").path("total").asLong()).isZero();
@@ -428,6 +429,7 @@ class ScreeningTests extends IntegrationTest {
 
         String last = passAndFinish(hr, first, id);
         JsonNode next = json(expect(hr.get(last + "/candidates/" + id + "/interview"), 200));
+        assertThat(next.path("questions").get(0).path("text").asString()).isEqualTo("1분 자기소개 부탁드립니다.");
         assertThat(next.path("previous").get(0).path("stageName").asString()).isEqualTo("1차 면접");
         assertThat(next.path("previous").get(0).path("questions").size()).isPositive();
         expect(hr.post(last + "/chat", Map.of("message", "확인 안 된 부분 중심으로 질문 만들어줘",
