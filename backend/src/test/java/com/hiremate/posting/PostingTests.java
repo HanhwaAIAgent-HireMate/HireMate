@@ -6,15 +6,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
+import com.hiremate.TestFixtures;
+import com.hiremate.TestMailConfiguration;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.JsonNode;
 
 class PostingTests extends IntegrationTest {
+
+    @Autowired
+    private TestMailConfiguration.RecordingMailClient mail;
 
     @Test
     @DisplayName("새 채용은 설정의 회사 소개 · 복지 · 필수 안내 문구로 공고 초안을 연다")
@@ -105,6 +112,51 @@ class PostingTests extends IntegrationTest {
                 "preparation", "", "note", "")), 400);
         expect(newHr().put(guidePath, Map.of("schedule", "", "method", "", "place", "", "preparation", "",
                 "note", "")), 404);
+    }
+
+    @Test
+    @DisplayName("접수 확인 메일은 기본 문장으로 시작해 게시 전에만 고칠 수 있고, 지원하면 지원자 값을 채워 보낸다")
+    void receiptMailIsCheckedBeforePublishing() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String base = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
+        assertThat(draft.path("receipt").path("subject").asString()).isEqualTo("[{회사명}] {공고명} 지원이 접수되었습니다");
+        assertThat(draft.path("receipt").path("body").asString()).contains("{지원자명}님", "지원번호 {지원번호}번");
+        assertThat(draft.path("receipt").path("requiredText").asString()).startsWith("본 메일은 발신 전용입니다.");
+
+        expect(hr.put(base, Map.of("title", "결제 백엔드 개발자", "jobCategory", "", "employmentType", "", "career", "",
+                "location", "", "intro", "", "duties", List.of(), "qualifications", List.of(), "preferred", List.of(),
+                "benefits", List.of())), 200);
+        expect(hr.put(base + "/receipt", Map.of("subject", " ", "body", "본문")), 400);
+        JsonNode changed = json(expect(hr.put(base + "/receipt", Map.of("subject", "[{회사명}] 지원 확인",
+                "body", "{지원자명}님, {공고명} 지원번호는 {지원번호}번입니다.")), 200));
+        assertThat(changed.path("receipt").path("subject").asString()).isEqualTo("[{회사명}] 지원 확인");
+
+        Instant now = Instant.now();
+        expect(hr.post(base + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
+                "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
+        expect(hr.put(base + "/receipt", Map.of("subject", "바꾼 제목", "body", "바꾼 본문")), 409);
+
+        Map<String, Object> form = TestFixtures.form("receipt@example.com", false);
+        form.put("name", "김하늘");
+        expect(anonymous().multipart("/api/public/postings/" + draft.path("postingId").asString() + "/applications",
+                form), 201);
+        assertThat(awaitMail("receipt@example.com")).isEqualTo("receipt@example.com|[테스트 기업] 지원 확인|"
+                + "김하늘님, 결제 백엔드 개발자 지원번호는 1번입니다.\n\n본 메일은 발신 전용입니다. 지원자 정보는 채용 목적으로만 이용됩니다.");
+    }
+
+    /** 접수 확인 메일은 접수가 끝난 뒤 따로 보내져 잠깐 기다린다. */
+    private String awaitMail(String to) throws InterruptedException {
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(10));
+        while (Instant.now().isBefore(deadline)) {
+            for (String sent : mail.sent) {
+                if (sent.startsWith(to + "|")) {
+                    return sent;
+                }
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Receipt mail was not sent.");
     }
 
     @Test
