@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.guardrails import evidence_source
+from hiremate_ai.agents.root.progress import SILENT, Progress
 from hiremate_ai.agents.root.route import DEFAULT_CLARIFY, NOT_UNDERSTOOD, RootRoute, posting_section
 from hiremate_ai.agents.root.toolkit import RootToolkit, cited_agents, concept_terms, scope_of
 from hiremate_ai.agents.root.types import (
@@ -39,6 +40,7 @@ REPLACED = "지원자 {total}명 중 조건에 맞는 **{count}명**을 선택�
 ADDED = "조건에 맞는 **{count}명**을 선택 지원자에 더했어요."
 NARROWED = "{pool}명 중 **{{count}}명**으로 좁혔어요."
 NOT_FOUND = "조건에 맞는 지원자를 찾지 못했어요. 선택 지원자는 그대로예요."
+RECHECK_STATUS = "후보 {count}명을 다시 확인하고 있어요"
 # 공고 기준 찾기 (기획 18절)
 _SECTION_LABELS = {"qualifications": "자격 요건", "preferred": "우대 사항", "both": "자격 요건 · 우대 사항"}
 # 공고 항목을 가리키기만 하는 말. 공고 기준으로 찾을 때 이런 말만 든 조건은 따로 세지 않는다
@@ -132,12 +134,14 @@ def score_filter(
     return rows, notes
 
 
-async def plan_find(llm: LlmClient, route: RootRoute, context: ChatContext, toolkit: RootToolkit) -> ChatPlan:
+async def plan_find(
+    llm: LlmClient, route: RootRoute, context: ChatContext, toolkit: RootToolkit, *, progress: Progress = SILENT
+) -> ChatPlan:
     pool = candidate_pool(route, context)
     rows, notes = score_filter(route, context, pool)
     section = posting_section(route, context.message)
     if section is not None:
-        return await _plan_posting(llm, route, context, toolkit, section, pool, rows)
+        return await _plan_posting(llm, route, context, toolkit, section, pool, rows, progress)
     conditions = list(route.concepts)
     talents: list[str] = []
     if route.use_talents:
@@ -159,6 +163,7 @@ async def plan_find(llm: LlmClient, route: RootRoute, context: ChatContext, tool
     matches = matches[:RECHECK_LIMIT]
     if not matches:
         return ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
+    progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
         verified = await recheck(llm, context, matches, conditions=conditions, talents=talents)
     except LlmOutputError:
@@ -182,6 +187,7 @@ async def _plan_posting(
     section: Literal["qualifications", "preferred", "both"],
     pool: list[CandidateRow],
     rows: list[CandidateRow],
+    progress: Progress,
 ) -> ChatPlan:
     """공고의 자격 요건 · 우대 사항으로 찾는다. 항목은 공고에서 코드가 꺼내고, 충족한 항목 수로 고른다.
 
@@ -203,6 +209,7 @@ async def _plan_posting(
     matches = matches[:RECHECK_LIMIT]
     if not matches:
         return ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
+    progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
         judged = await recheck_criteria(llm, context, matches, items, required)
     except LlmOutputError:

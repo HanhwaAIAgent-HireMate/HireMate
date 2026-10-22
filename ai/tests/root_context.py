@@ -4,13 +4,14 @@
 """
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewView
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem, Decision, InterviewView
 from hiremate_ai.contract import AnalysisStatus, ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.db.profile import ItemAgent
 from hiremate_ai.db.profile_store import NewItem, ProfileFields, save_profile
@@ -129,3 +130,17 @@ def make_context(
         posting=posting,
         message=message,
     )
+
+
+@dataclass
+class Recorder:
+    """진행 알림을 모아 두는 Progress. 낸 순서대로 남는다."""
+
+    statuses: list[str] = field(default_factory=list)
+    items: list[ChatItem] = field(default_factory=list)
+
+    def status(self, text: str) -> None:
+        self.statuses.append(text)
+
+    def item(self, item: ChatItem) -> None:
+        self.items.append(item)
