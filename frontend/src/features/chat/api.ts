@@ -55,8 +55,16 @@ export function useChat(stageId: string, progress: ChatProgress) {
       // 찾기 · 편집이면 리스트의 AI 표시와 선택 지원자가 바뀐다
       if (answer.selectionChanged)
         void queryClient.invalidateQueries({ queryKey: stageKeys.all(stageId) })
+      // 맞춤 질문을 만들었으면 지원자 카드의 질문을 다시 불러온다 (새로고침 없이 카드에 나타나게)
+      else if (madeQuestions(answer))
+        void queryClient.invalidateQueries({ queryKey: [...stageKeys.all(stageId), 'interview'] })
     },
   })
+}
+
+/** Interview Agent가 질문을 만든 답인가. 이때 카드의 맞춤 질문이 바뀐다 */
+export function madeQuestions(answer: Pick<ChatAnswer, 'agents'>) {
+  return answer.agents.includes('Interview Agent')
 }
 
 /**

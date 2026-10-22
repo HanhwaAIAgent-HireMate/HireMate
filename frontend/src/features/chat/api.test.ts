@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { readChat } from '@/features/chat/api'
+import { madeQuestions, readChat } from '@/features/chat/api'
 import { ApiError } from '@/lib/api/client'
 import { streamOf } from '@/test/stream'
 
@@ -52,5 +52,14 @@ describe('readChat', () => {
     })
 
     await expect(reading).rejects.toMatchObject({ status: 502, code: 'AI_UNAVAILABLE' })
+  })
+})
+
+describe('madeQuestions', () => {
+  it('Interview Agent가 답했을 때만 카드 질문을 다시 불러온다', () => {
+    expect(madeQuestions({ agents: ['Interview Agent'] })).toBe(true)
+    expect(madeQuestions({ agents: ['Root Agent', 'Interview Agent'] })).toBe(true)
+    expect(madeQuestions({ agents: ['Application Agent'] })).toBe(false)
+    expect(madeQuestions({ agents: [] })).toBe(false)
   })
 })
