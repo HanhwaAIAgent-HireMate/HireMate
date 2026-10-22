@@ -18,7 +18,7 @@ from hiremate_ai.agents.root.toolkit import (
 from hiremate_ai.agents.root.turns import Turn, TurnItem
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
-from hiremate_ai.db.profile import ItemAgent, ItemCategory
+from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.profile_store import NewItem, save_profile
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
@@ -382,6 +382,7 @@ async def test_profile_evidence_reads_items_with_evidence_in_scope(
 ) -> None:
     jung = sample_applicants["정유민"].info
     note = "장애 원인을 로그로 좁혀 가는 과정을 팀원에게 차근차근 설명했어요."
+    conflict = "테스트 코드는 시간이 없어 작성하지 못했습니다."
     await save_profile(
         db_session,
         company_id=sample_company.company_id,
@@ -391,6 +392,13 @@ async def test_profile_evidence_reads_items_with_evidence_in_scope(
         items=[
             NewItem(category=ItemCategory.STRENGTH, content="원인 분석", evidence=note, source="평가 메모"),
             NewItem(category=ItemCategory.CHECK, content="문제해결 점수가 없어요", source="평가 결과"),
+            NewItem(
+                category=ItemCategory.CHECK,
+                content="설명과 제출물이 다르다",
+                evidence=conflict,
+                source="평가 제출물",
+                verification=Verification.CONFLICT,
+            ),
         ],
         stage_id=uuid4(),
     )
@@ -408,4 +416,9 @@ async def test_profile_evidence_reads_items_with_evidence_in_scope(
 
     found = await profile_toolkit(sessions_of(db_session)).evidence(scope, [jung.application_id, outside])
 
-    assert found == {jung.application_id: [AgentEvidence(sentence=note, source="평가 메모", agent="assessment")]}
+    assert found == {
+        jung.application_id: [
+            AgentEvidence(sentence=note, source="평가 메모", agent="assessment", verification="EVIDENCED"),
+            AgentEvidence(sentence=conflict, source="평가 제출물", agent="assessment", verification="CONFLICT"),
+        ]
+    }

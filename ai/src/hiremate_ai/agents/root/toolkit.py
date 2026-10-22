@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion
 from hiremate_ai.contract import ApplicantDocument, StageType
-from hiremate_ai.db.profile import ItemAgent
+from hiremate_ai.db.profile import ItemAgent, Verification
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block, documents_block
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
@@ -441,7 +441,11 @@ class AgentEvidence:
     sentence: str
     source: str
     agent: str  # ItemAgent 값
+    verification: str = Verification.EVIDENCED  # Verification 값
 
+
+# 분석 Agent가 아직 확인되지 않았거나 자료끼리 어긋난다고 적은 항목. 근거 문장이 원문에 있어도 사실로 쓰지 않는다
+DOUBTFUL: frozenset[str] = frozenset({Verification.UNCONFIRMED, Verification.CONFLICT})
 
 type ProfileEvidence = Callable[[RootToolContext, Sequence[UUID]], Awaitable[dict[UUID, list[AgentEvidence]]]]
 
@@ -461,7 +465,10 @@ async def no_profile_evidence(
 
 
 def profile_evidence(sessions: Sessions) -> ProfileEvidence:
-    """지원자들의 프로필 항목 가운데 근거 문장이 있는 것을 만든 Agent와 함께 읽는다. 범위 밖 지원자는 읽지 않는다."""
+    """지원자들의 프로필 항목 가운데 근거 문장이 있는 것을 만든 Agent, 확인 상태와 함께 읽는다.
+
+    범위 밖 지원자는 읽지 않는다.
+    """
 
     async def evidence(scope: RootToolContext, application_ids: Sequence[UUID]) -> dict[UUID, list[AgentEvidence]]:
         found: dict[UUID, list[AgentEvidence]] = {}
@@ -470,7 +477,9 @@ def profile_evidence(sessions: Sessions) -> ProfileEvidence:
                 profile = await read_profile(session, scope, application_id)
                 if profile is not None:
                     found[application_id] = [
-                        AgentEvidence(sentence=item.evidence, source=item.source, agent=item.agent)
+                        AgentEvidence(
+                            sentence=item.evidence, source=item.source, agent=item.agent, verification=item.verification
+                        )
                         for item in profile.items
                         if item.evidence
                     ]
@@ -479,17 +488,21 @@ def profile_evidence(sessions: Sessions) -> ProfileEvidence:
     return evidence
 
 
+def recorded_matches(
+    recorded: Mapping[UUID, Sequence[AgentEvidence]], application_id: UUID, sentence: str
+) -> list[AgentEvidence]:
+    """근거 문장이 든 이 지원자의 프로필 근거 전부. 공백 차이는 무시한다."""
+    needle = "".join(sentence.split())
+    if not needle:
+        return []
+    return [each for each in recorded.get(application_id, ()) if needle in "".join(each.sentence.split())]
+
+
 def recorded_evidence(
     recorded: Mapping[UUID, Sequence[AgentEvidence]], application_id: UUID, sentence: str
 ) -> AgentEvidence | None:
     """근거 문장이 든 이 지원자의 프로필 근거. 공백 차이는 무시한다."""
-    needle = "".join(sentence.split())
-    if not needle:
-        return None
-    for each in recorded.get(application_id, ()):
-        if needle in "".join(each.sentence.split()):
-            return each
-    return None
+    return next(iter(recorded_matches(recorded, application_id, sentence)), None)
 
 
 def cited_agents(recorded: Mapping[UUID, Sequence[AgentEvidence]], cited: Iterable[tuple[UUID, str]]) -> list[str]:

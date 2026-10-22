@@ -19,6 +19,7 @@ from hiremate_ai.agents.root.progress import SILENT, Progress
 from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.targets import Targets, checked
 from hiremate_ai.agents.root.toolkit import (
+    DOUBTFUL,
     AgentEvidence,
     RootToolContext,
     RootToolkit,
@@ -27,6 +28,7 @@ from hiremate_ai.agents.root.toolkit import (
     company_text,
     posting_text,
     recorded_evidence,
+    recorded_matches,
     resolve_ref,
     scope_of,
 )
@@ -81,7 +83,8 @@ ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확�
 - 근거 문장(evidence.sentence)은 도구 결과의 문장을 글자 그대로 옮기고, 출처(source)를 적는다.
   출처는 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, 평가 제출물, 평가 메모, 회사 소개, 공고
   가운데 하나다.
-  지원자 프로필 항목은 '근거:' 뒤 따옴표 안 문장을 근거 문장으로, 끝 괄호 안을 출처로 옮긴다.
+  지원자 프로필 항목은 '근거:' 뒤 따옴표 안 문장을 근거 문장으로, 그 뒤 괄호 안을 출처로 옮긴다.
+  항목 끝의 확인 상태가 미확인이나 상충이면 사실로 단정하지 않고 status=CHECK로 둔다.
 - 앞 대화나 이전에 만든 면접 질문의 이유를 물으면 get_previous_turns로 그때 정리한 확인할 점과 근거를 보고 답한다.
   이유를 새로 지어내지 않는다.
 - 채용 결정, 점수 변경, 상태 변경은 하지 않는다. 그런 요청은 담당자가 화면에서 한다고 안내한다.
@@ -117,7 +120,8 @@ NOTES_SYSTEM = """너는 채용 담당자의 질문에 답하려고 지원자 �
 - 질문에 필요한 항목만 1~3개 만든다. 항목마다 근거 문장 하나를 자료에서 글자 그대로 옮기고 출처를 적는다.
   출처는 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, 평가 제출물, 평가 메모, 회사 소개, 공고
   가운데 하나다.
-  지원자 프로필 항목은 '근거:' 뒤 따옴표 안 문장을 근거 문장으로, 끝 괄호 안을 출처로 옮긴다.
+  지원자 프로필 항목은 '근거:' 뒤 따옴표 안 문장을 근거 문장으로, 그 뒤 괄호 안을 출처로 옮긴다.
+  항목 끝의 확인 상태가 미확인이나 상충이면 사실로 단정하지 않고 status=CHECK로 둔다.
 - label은 "강점", "경력", "RDBMS 경험", "확인할 점"처럼 짧은 항목 이름이다. 공고 제목이나 문장을 쓰지 않는다.
 - text는 한 줄로 짧게 쓴다.
 - 자료가 없거나 확인하지 못한 점은 status=CHECK로 둔다.
@@ -146,7 +150,8 @@ FOCUS_SYSTEM = """너는 면접 질문을 만들기 전에 지원자마다 면�
 - 요청에 필요한 자료만 도구로 고른다. 서류만 보면 되는 요청이면 면접 기록이나 전형 결과를 읽지 않아도 된다.
 - focus는 "확인할 점 + 근거 요약 + 담당자가 준 방향"을 한두 문장으로 쓴다.
 - reasons에는 확인할 점마다 근거 문장(도구 결과의 문장 그대로)과 출처를 단다. 근거가 없으면 status=CHECK다.
-  지원자 프로필 항목은 '근거:' 뒤 따옴표 안 문장을 근거 문장으로, 끝 괄호 안을 출처로 옮긴다.
+  지원자 프로필 항목은 '근거:' 뒤 따옴표 안 문장을 근거 문장으로, 그 뒤 괄호 안을 출처로 옮긴다.
+  항목 끝의 확인 상태가 미확인이나 상충이면 사실로 단정하지 않고 status=CHECK로 둔다.
 - 지원자는 C1 같은 번호로만 가리킨다."""
 
 
@@ -411,6 +416,7 @@ def verify_items(
     근거를 단 항목이고 대상이 한 명이면 그 대상으로 본다(근거는 지원자 문서와 맞춰 봐야 한다).
     근거를 댔지만 하나도 확인되지 않았거나, 근거 없이 지원자를 OK라 한 항목은 CHECK다.
     recorded는 분석 Agent가 프로필에 남긴 근거다. 평가 자료 근거를 여기서 확인하고, 같은 문장을 낸 Agent를 알린다.
+    남은 근거가 모두 분석 Agent가 미확인 · 상충으로 적은 문장이면 원문에 있어도 CHECK다 (NFR-03).
     """
     recorded = recorded or {}
     verified: list[ChatItem] = []
@@ -426,7 +432,12 @@ def verify_items(
         checked = [(evidence, _verified_source(context, row, evidence, recorded)) for evidence in item.evidence]
         kept = [source for _, source in checked if source]
         unsupported = item.status == "OK" and not kept and (bool(item.evidence) or row is not None)
-        status = "CHECK" if unsupported else item.status
+        doubtful = (
+            row is not None
+            and bool(kept)
+            and all(_doubtful(recorded, row, evidence) for evidence, source in checked if source)
+        )
+        status = "CHECK" if unsupported or doubtful else item.status
         sources += [source for source in kept if source not in sources]
         if row is not None:
             cited += [(row.application_id, evidence.sentence) for evidence, source in checked if source]
@@ -460,6 +471,17 @@ def _mentioned_row(context: ChatContext, text: str, only: CandidateRow | None) -
     if len(refs) == 1:
         return next(iter(refs.values()))
     return only if not refs else None
+
+
+def _doubtful(recorded: Mapping[UUID, Sequence[AgentEvidence]], row: CandidateRow, evidence: AnswerEvidence) -> bool:
+    """근거 문장이 같은 출처의 프로필 항목에 미확인 · 상충으로만 적혀 있는가. 프로필에 없는 문장은 아니다."""
+    source = _canonical_source(evidence.source)
+    states = [
+        each.verification
+        for each in recorded_matches(recorded, row.application_id, evidence.sentence)
+        if _canonical_source(each.source) == source
+    ]
+    return bool(states) and all(state in DOUBTFUL for state in states)
 
 
 def _verified_source(

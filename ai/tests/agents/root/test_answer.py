@@ -230,6 +230,79 @@ async def test_interview_evidence_checked_against_records(
     assert plan.sources == ["면접 기록"]
 
 
+PARTITION_ANSWER = "파티셔닝 기준을 월 단위로 정했습니다."
+TEST_ANSWER = "테스트는 다른 팀원이 주로 맡아서 자세히는 모릅니다."
+INCIDENT_ANSWER = "장애가 나면 팀과 함께 대응했습니다."
+
+
+def interview_answers(application_id: UUID, *answers: str) -> InterviewView:
+    questions = [
+        InterviewQuestion(question_id=uuid4(), text="경험을 말해 주세요.", source=QuestionSource.AI, answer=answer)
+        for answer in answers
+    ]
+    return InterviewView(application_id=application_id, schedule=None, questions=questions, previous=[])
+
+
+def interview_item(sentence: str, verification: str) -> AgentEvidence:
+    return AgentEvidence(sentence=sentence, source="1차 면접 답변", agent="interview", verification=verification)
+
+
+async def test_evidence_the_agent_left_unconfirmed_or_conflicting_turns_check(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    jung = sample_applicants["정유민"].info.application_id
+    view = interview_answers(jung, PARTITION_ANSWER, TEST_ANSWER, INCIDENT_ANSWER)
+    context = context_for(
+        sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW, interviews={jung: view}
+    )
+    toolkit = with_evidence(
+        {
+            jung: [
+                interview_item(PARTITION_ANSWER, "CONFIRMED"),
+                interview_item(TEST_ANSWER, "CONFLICT"),
+                interview_item(INCIDENT_ANSWER, "UNCONFIRMED"),
+            ]
+        }
+    )
+    llm = FakeLlm(
+        answered(
+            *(
+                AnswerItem(
+                    candidate="C1",
+                    label="답변",
+                    text=text,
+                    status="OK",
+                    evidence=[AnswerEvidence(sentence=sentence, source="면접 기록")],
+                )
+                for text, sentence in [
+                    ("파티셔닝", PARTITION_ANSWER),
+                    ("테스트", TEST_ANSWER),
+                    ("장애 대응", INCIDENT_ANSWER),
+                ]
+            )
+        )
+    )
+
+    plan = await ask(llm, context, toolkit)
+
+    assert [item.status for item in plan.items] == ["OK", "CHECK", "CHECK"]
+    assert (plan.sources, plan.agents) == (["면접 기록"], ["Interview Agent"])
+
+
+async def test_doubt_from_another_source_keeps_document_evidence(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    jung = sample_applicants["정유민"].info.application_id
+    context = context_for(sample_applicants, sample_company, sample_posting)
+    toolkit = with_evidence({jung: [interview_item(BATCH, "CONFLICT")]})
+    evidence = AnswerEvidence(sentence=BATCH, source="이력서")
+    llm = FakeLlm(answered(AnswerItem(candidate="C1", label="강점", text="배치", status="OK", evidence=[evidence])))
+
+    plan = await ask(llm, context, toolkit)
+
+    assert plan.items[0].status == "OK"
+
+
 async def test_slow_tool_loop_still_answers(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
