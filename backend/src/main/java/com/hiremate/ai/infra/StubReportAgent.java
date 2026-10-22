@@ -29,7 +29,7 @@ class StubReportAgent implements ReportAgent {
             String reason = finalist.notable().isEmpty()
                     ? "제출 문서에서 뚜렷한 근거를 찾지 못했어요. 전형 기록을 확인해 주세요."
                     : String.join(", ", finalist.notable().stream().limit(2)
-                            .map(found -> shorten(found.text()))
+                            .map(CandidateAnalysis.Finding::text)
                             .toList());
             if (!finalist.memos().isEmpty()) {
                 sources.add("전형 메모");
@@ -41,16 +41,18 @@ class StubReportAgent implements ReportAgent {
         if (undecided > 0) {
             notes.add("결정하지 않아 불합격으로 확정된 지원자가 전형 전체에서 " + undecided + "명 있었어요.");
         }
-        input.stages().stream().filter(stage -> stage.target() > 0)
-                .min((left, right) -> Double.compare((double) left.pass() / left.target(),
-                        (double) right.pass() / right.target()))
-                .ifPresent(stage -> notes.add(stage.name() + "의 합격률이 "
-                        + Math.round(100.0 * stage.pass() / stage.target()) + "%로 가장 낮았어요."));
+        List<ReportContent.ReportStage> counted = input.stages().stream()
+                .filter(stage -> stage.target() > 0)
+                .toList();
+        // 전형이 하나면 견줄 전형이 없어 '가장 낮았다'고 쓰지 않는다
+        if (counted.size() >= 2) {
+            counted.stream()
+                    .min((left, right) -> Double.compare((double) left.pass() / left.target(),
+                            (double) right.pass() / right.target()))
+                    .ifPresent(stage -> notes.add(stage.name() + "의 합격률이 "
+                            + Math.round(100.0 * stage.pass() / stage.target()) + "%로 가장 낮았어요."));
+        }
         return Optional.of(new ReportContent(summary, input.applicantCount(), finalCount, input.stages(), finalists,
                 notes));
-    }
-
-    private static String shorten(String text) {
-        return text.length() > 40 ? text.substring(0, 39) + "…" : text;
     }
 }

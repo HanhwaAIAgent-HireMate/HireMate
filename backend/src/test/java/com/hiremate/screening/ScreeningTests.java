@@ -18,6 +18,7 @@ import com.hiremate.interview.InterviewView;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -330,6 +331,22 @@ class ScreeningTests extends IntegrationTest {
         assertThat(list.path("items").get(0).path("score").asInt()).isEqualTo(91);
         JsonNode result = json(expect(hr.get(assessment + "/assessment/results/" + stage.ids().getFirst()), 200));
         assertThat(result.path("areas").path("의사소통능력").asInt()).isEqualTo(70);
+
+        // 수동 입력과 제출 URL은 화면이 일부 칸만 보낸다. 보내지 않은 칸(빈 영역 점수, null)은 그대로 둔다
+        String manual = assessment + "/assessment/results/" + stage.ids().getFirst();
+        Map<String, Object> scoreOnly = new HashMap<>(Map.of("total", 75, "areas", Map.of(), "grade", "B",
+                "note", "코드 구조 설명이 명확했음"));
+        scoreOnly.put("url", null);
+        expect(hr.put(manual, scoreOnly), 200);
+        Map<String, Object> urlOnly = new HashMap<>(Map.of("total", 75, "areas", Map.of(),
+                "url", "https://github.com/example/assignment"));
+        urlOnly.put("grade", null);
+        urlOnly.put("note", null);
+        JsonNode kept = json(expect(hr.put(manual, urlOnly), 200));
+        assertThat(kept.path("areas").path("의사소통능력").asInt()).isEqualTo(70);
+        assertThat(kept.path("grade").asString()).isEqualTo("B");
+        assertThat(kept.path("note").asString()).isEqualTo("코드 구조 설명이 명확했음");
+        assertThat(kept.path("url").asString()).isEqualTo("https://github.com/example/assignment");
     }
 
     @Test

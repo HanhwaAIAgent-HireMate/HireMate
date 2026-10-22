@@ -88,15 +88,19 @@ public class AssessmentService {
         return new ImportResult(matches.size(), entries.size(), matches, unmatched, !dryRun);
     }
 
-    /** 지원자별 결과 수동 입력 (점수 · 등급 · 과제 URL). */
+    /**
+     * 지원자별 결과 수동 입력 (점수 · 등급 · 과제 URL · 메모). 화면은 입력 방식마다 일부 칸만 보내므로, 영역 점수가 비어 있거나
+     * 등급 · URL · 메모가 null이면 이미 등록한 값을 그대로 둔다. 빈 문자열은 그 칸을 지운다.
+     */
     @Transactional
     public AssessmentResultView saveManual(UUID companyId, UUID stageId, UUID applicationId, BigDecimal total,
             Map<String, BigDecimal> areas, String grade, String url, String note) {
         Stage stage = assessmentStage(companyId, stageId, true);
         screening.detail(companyId, stageId, applicationId);
         AssessmentResult result = result(companyId, stageId, applicationId);
-        result.record(total, JsonText.write(areas), blankToNull(grade), "MANUAL");
-        result.submission(blankToNull(url), blankToNull(note));
+        result.record(total, areas == null || areas.isEmpty() ? result.getAreas() : JsonText.write(areas),
+                keepIfNull(grade, result.getGrade()), "MANUAL");
+        result.submission(keepIfNull(url, result.getUrl()), keepIfNull(note, result.getNote()));
         screening.recordScore(companyId, stageId, applicationId, total);
         recorded(companyId, stage, applicationId);
         return toView(result);
@@ -168,6 +172,10 @@ public class AssessmentService {
     private static String normalize(IdentifierType type, String identifier) {
         String trimmed = identifier == null ? "" : identifier.trim();
         return type == IdentifierType.EMAIL ? trimmed.toLowerCase(Locale.ROOT) : trimmed.replaceFirst("\\.0+$", "");
+    }
+
+    private static String keepIfNull(String value, String current) {
+        return value == null ? current : blankToNull(value);
     }
 
     private static String blankToNull(String value) {
