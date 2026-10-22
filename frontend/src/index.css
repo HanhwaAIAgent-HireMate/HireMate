@@ -143,3 +143,14 @@
     @apply font-sans;
   }
 }
+
+/* 면접 카드에 새로 들어온 질문 강조 (InterviewViewer) */
+@keyframes question-new {
+  from {
+    background-color: oklch(0.97 0.06 95);
+    border-color: oklch(0.8 0.14 85);
+  }
+  to {
+    background-color: transparent;
+  }
+}
