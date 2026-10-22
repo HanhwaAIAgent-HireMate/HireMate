@@ -125,7 +125,8 @@ def _count_notes(data: ReportInput) -> list[str]:
     if undecided > 0:
         notes.append(f"결정하지 않아 불합격으로 확정된 지원자가 전형 전체에서 {undecided}명 있었어요.")
     stages = [stage for stage in data.stages if stage.target > 0]
-    if stages:
+    # 전형이 하나면 견줄 전형이 없어 '가장 낮았다'고 쓰지 않는다
+    if len(stages) >= 2:
         lowest = min(stages, key=lambda stage: stage.passed / stage.target)
         rate = round(100 * lowest.passed / lowest.target)
         notes.append(f"{lowest.name}의 합격률이 {rate}%로 가장 낮았어요.")
@@ -151,11 +152,11 @@ def _allowed_sources(finalist: FinalistInput) -> set[str]:
 
 
 def _fallback_finalist(finalist: FinalistInput) -> Finalist:
-    """모델 문장을 쓸 수 없을 때. 분석 근거를 그대로 옮긴다 (StubReportAgent와 같다)."""
+    """모델 문장을 쓸 수 없을 때. 분석 근거 두 개까지를 자르지 않고 그대로 옮긴다 (StubReportAgent와 같다)."""
     sources = _dedupe(finding.source for finding in finalist.notable)
     if finalist.memos:
         sources.append(MEMO_SOURCE)
-    reason = ", ".join(_shorten(finding.text) for finding in finalist.notable[:2]) or NO_EVIDENCE
+    reason = ", ".join(finding.text for finding in finalist.notable[:2]) or NO_EVIDENCE
     return Finalist(name=finalist.name, reason=reason, sources=sources)
 
 
@@ -178,7 +179,3 @@ def _numbers_in(data: ReportInput) -> set[str]:
 
 def _dedupe(items: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(items))
-
-
-def _shorten(text: str) -> str:
-    return text if len(text) <= 40 else text[:39] + "…"
