@@ -15,3 +15,6 @@ backend와 ai 서버가 주고받는 JSON의 샘플이다. 파일 하나가 타�
 
 `Job` · `JobResult`는 Redis 작업 대기열로 오가는 메시지다. `type`은 ai 서버 경로(`{agent}/{method}`)와 같고,
 `payload` · `result`는 그 경로의 요청 · 응답 본문과 같다.
+
+`ChatStatus`는 Root `plan` SSE의 `status` 이벤트 data다. `item` 이벤트 data는 `ChatPlan.items`의 한 항목,
+`done` 이벤트 data는 `ChatPlan`이다.
