@@ -18,6 +18,7 @@ import { useStageGuides } from '@/features/notice/api'
 import { STAGE_GUIDES_ID } from '@/features/notice/StageGuides'
 import { usePosting, usePublishPosting, type Posting } from '@/features/posting/api'
 import { CareersHeader, CareersPosting } from '@/features/posting/CareersPosting'
+import { ReceiptMailPreview } from '@/features/posting/ReceiptMail'
 import { careersPath } from '@/features/recruit/labels'
 import { errorMessage } from '@/lib/api/client'
 import { formatDateTime, toLocalInput } from '@/lib/format'
@@ -197,6 +198,20 @@ function PublishForm({ posting }: { posting: Posting }) {
               />
               <p className="text-xs text-muted-foreground">
                 채용 페이지의 접수 기간이자 자동 마감 기준이에요.
+              </p>
+            </div>
+          </Field>
+          <Field label="접수 확인 메일">
+            <div className="space-y-2">
+              <ReceiptMailPreview
+                receipt={posting.receipt}
+                requiredText={posting.receipt.requiredText}
+                companyName={posting.companyName}
+                title={posting.content.title}
+              />
+              <p className="text-xs text-muted-foreground">
+                지원서를 내면 바로 이 메일이 가요. 게시하면 바꿀 수 없어요. 지원자 이름과 지원번호는
+                예시예요.
               </p>
             </div>
           </Field>

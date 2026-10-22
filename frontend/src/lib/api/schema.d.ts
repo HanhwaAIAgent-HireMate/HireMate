@@ -132,6 +132,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["changeReceipt"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/profile": {
         parameters: {
             query?: never;
@@ -1149,6 +1165,12 @@ export interface components {
             /** Format: date-time */
             closedAt: string | null;
             suggestion: components["schemas"]["PostingSuggestionView"] | null;
+            receipt: components["schemas"]["ReceiptView"];
+        };
+        ReceiptView: {
+            subject: string;
+            body: string;
+            requiredText: string;
         };
         RequiredDocument: {
             /** @enum {string} */
@@ -1156,6 +1178,10 @@ export interface components {
             label: string;
             format: string;
             required: boolean;
+        };
+        ReceiptRequest: {
+            subject: string;
+            body: string;
         };
         ProfileRequest: {
             intro: string;
@@ -1859,6 +1885,32 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PostingContentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PostingView"];
+                };
+            };
+        };
+    };
+    changeReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptRequest"];
             };
         };
         responses: {
