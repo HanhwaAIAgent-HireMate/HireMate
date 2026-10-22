@@ -40,6 +40,17 @@ class BasicCompetency(NcsModel):
     subs: list[str]
 
 
+class NcsSurvey(NcsModel):
+    """NCS 사이트의 "중요도 및 활용도" 현장 조사. 항목마다 상 · 중 · 하로 답한 응답자 비율(%)이다.
+
+    2019년 이후 개발 · 개선된 능력단위만 조사해서 없는 능력단위가 있다 (예: DB엔지니어링).
+    """
+
+    importance: list[int] = Field(description="중요도 상 · 중 · 하 비율")
+    frequency: list[int] = Field(description="활용빈도 상 · 중 · 하 비율")
+    difficulty: list[int] = Field(description="난이도 상 · 중 · 하 비율")
+
+
 class NcsUnit(NcsModel):
     """NCS 능력단위 하나. level은 능력단위 수준(1~8)이다."""
 
@@ -79,12 +90,18 @@ class NcsDuty(NcsModel):
 
 
 class NcsData(NcsModel):
-    """ncs_units.json. retrieved_at은 API에서 받은 날짜다."""
+    """ncs_units.json. retrieved_at은 API에서 받은 날짜다.
+
+    중요도 및 활용도 조사(surveys)는 API가 아니라 NCS 사이트에서 받은 자료라 능력단위와 따로 두고
+    출처(survey_source)도 따로 적는다.
+    """
 
     source: str
+    survey_source: str = ""
     retrieved_at: str
     duties: list[NcsDuty]
     units: list[NcsUnit]
+    surveys: dict[str, NcsSurvey] = Field(default={}, description="능력단위코드 → 조사. 조사한 능력단위만 있다")
 
 
 @cache
@@ -99,6 +116,23 @@ def subdivisions() -> list[str]:
 
 def units_of(subdivision: str) -> list[NcsUnit]:
     return [unit for unit in ncs_data().units if unit.subdivision == subdivision]
+
+
+IMPORTANCE_WEIGHT = 0.7
+"""조사 점수에서 중요도의 비중. 나머지는 활용빈도다 (중요도 중심, 활용빈도 보조)."""
+
+
+def survey_score(survey: NcsSurvey) -> float:
+    """중요도와 활용빈도를 각각 상 3 · 중 2 · 하 1로 평균 내 7:3으로 합친 점수 (1~3).
+
+    높을수록 현장에서 중요하고 자주 쓴다고 본 능력단위다. 자격 요건 · 우대 사항을 쓸 때 능력단위의 우선순위가 된다.
+    """
+    return IMPORTANCE_WEIGHT * _average(survey.importance) + (1 - IMPORTANCE_WEIGHT) * _average(survey.frequency)
+
+
+def _average(rates: list[int]) -> float:
+    high, middle, low = rates
+    return (3 * high + 2 * middle + 1 * low) / (high + middle + low)
 
 
 def unit_by_code(code: str) -> NcsUnit | None:
