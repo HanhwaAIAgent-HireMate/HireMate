@@ -36,8 +36,8 @@ cd frontend && npm install && npm run dev
 # 모델 연결은 ai/.env.example을 ai/.env로 복사해 채운다
 cd ai && uv sync && uv run alembic upgrade head && uv run uvicorn hiremate_ai.main:app --reload --port 8001
 
-# ai 워커: 지원서 · 평가 결과 분석과 최종 리포트 작업을 Redis 대기열에서 꺼내 처리한다
-# backend에서 Application · Assessment · Report Agent를 remote로 켤 때(예: HIREMATE_AI_AGENTS_REPORT=remote) 같이 띄운다
+# ai 워커: 지원서 · 평가 결과 · 면접 답변 분석과 최종 리포트 작업을 Redis 대기열에서 꺼내 처리한다
+# backend에서 이 Agent들을 remote로 켤 때(예: HIREMATE_AI_AGENTS_INTERVIEW_ANALYST=remote) 같이 띄운다
 cd ai && uv run python -m hiremate_ai.worker
 ```
 
