@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
@@ -25,9 +26,31 @@ def test_plan_endpoint_round_trip() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    body = response.json()
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = sse_events(response.text)
+    assert [name for name, _ in events] == ["status", "status", "done"]
+    assert events[0][1] == {"text": "요청을 확인하고 있어요"}
+    body = events[-1][1]
     assert (body["intent"], body["edit"]) == ("EDIT", "CLEAR")
     assert body["questionTargets"] == []
+
+
+def sse_events(text: str) -> list[tuple[str, Any]]:
+    """SSE 본문을 (이벤트 이름, data JSON)으로 읽는다. 주석(: ...)과 이름 없는 이벤트는 건너뛴다."""
+    events: list[tuple[str, Any]] = []
+    for block in text.replace("\r\n", "\n").split("\n\n"):
+        fields = [line.split(":", 1) for line in block.split("\n") if line and not line.startswith(":")]
+        named = {key: value.strip() for key, value in fields}
+        if "event" in named:
+            events.append((named["event"], json.loads(named["data"])))
+    return events
+
+
+def done_of(response: Any) -> Any:
+    """/plan 응답의 마지막 done 이벤트 data (ChatPlan JSON)."""
+    name, data = sse_events(response.text)[-1]
+    assert name == "done"
+    return data
 
 
 def plan_request(context: dict[str, object], message: str) -> dict[str, object]:
@@ -88,5 +111,5 @@ def test_plan_without_thread_does_not_remember() -> None:
     finally:
         app.dependency_overrides.clear()
 
-    assert response.json()["message"] == "요약이에요."
+    assert done_of(response)["message"] == "요약이에요."
     assert saver.storage == {}
