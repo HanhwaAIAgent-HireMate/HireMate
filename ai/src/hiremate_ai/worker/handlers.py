@@ -15,7 +15,7 @@ from hiremate_ai.agents.analysis.application.store import ReviewStore
 from hiremate_ai.agents.analysis.application.types import AnalyzeRequest
 from hiremate_ai.agents.generation.interview import generate_questions, load_review
 from hiremate_ai.agents.generation.interview.router import QuestionsRequest
-from hiremate_ai.agents.generation.report import write_report
+from hiremate_ai.agents.generation.report import load_profiles, write_report
 from hiremate_ai.api import assessment, interview, report
 from hiremate_ai.config import settings
 from hiremate_ai.db.profile_store import ProfileScopeError
@@ -71,7 +71,10 @@ def job_handlers(
 
     async def report_write(payload: dict[str, Any]) -> dict[str, Any]:
         request = report.WriteRequest.model_validate(payload)
-        return (await write_report(request.input, llm)).model_dump(mode="json")
+        # 합격자의 평가 · 면접 분석은 프로필에서 읽어 함께 쓴다
+        async with sessions() as session:
+            profiles = await load_profiles(session, request.input)
+        return (await write_report(request.input, llm, profiles)).model_dump(mode="json")
 
     async def interview_questions(payload: dict[str, Any]) -> dict[str, Any]:
         # 면접 전형이 시작될 때 지원자마다 미리 만드는 맞춤 질문 (FR-27). Chat 요청은 ai 서버 경로로 바로 받는다

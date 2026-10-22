@@ -3,9 +3,12 @@
 이 Agent만 쓰는 타입이지만 Agent 함수와 라우터가 같이 쓰므로 types.py에 둔다.
 """
 
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 from hiremate_ai.contract import ContractModel, Finding
+from hiremate_ai.db.profile import ItemAgent, ItemCategory
 
 
 class ReportStage(ContractModel):
@@ -19,8 +22,9 @@ class ReportStage(ContractModel):
 
 
 class FinalistInput(ContractModel):
-    """최종 합격자 이름과 분석 근거, 전형 메모 (ReportInput.FinalistInput)."""
+    """최종 합격자 이름과 분석 근거, 전형 메모 (ReportInput.FinalistInput). application_id로 지원자 프로필을 찾는다."""
 
+    application_id: UUID
     name: str
     notable: list[Finding]
     memos: list[str]
@@ -30,13 +34,26 @@ class ReportInput(ContractModel):
     """리포트를 쓰는 데 필요한 확정 결과 (ai.application.ReportInput).
 
     undecided는 전형마다 결정하지 않아 불합격으로 확정된 인원이다.
+    지원자 프로필은 company_id · recruitment_id 범위에서만 읽는다.
     """
 
+    company_id: UUID
+    recruitment_id: UUID
     title: str
     applicant_count: int
     stages: list[ReportStage]
     finalists: list[FinalistInput]
     undecided: list[int]
+
+
+class ProfileNote(BaseModel):
+    """합격자 프로필에서 리포트에 쓰는 평가 · 면접 분석 항목 한 줄. 분석 Agent가 원문과 대조해 남긴 값이다."""
+
+    agent: ItemAgent
+    category: ItemCategory
+    content: str
+    evidence: str | None
+    source: str
 
 
 class Finalist(ContractModel):
