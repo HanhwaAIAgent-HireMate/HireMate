@@ -3,7 +3,6 @@ package com.hiremate.ai.api;
 import com.hiremate.ai.application.ChatAnswer;
 import com.hiremate.ai.application.ChatInput;
 import com.hiremate.ai.application.ChatItem;
-import com.hiremate.ai.application.ChatProgress;
 import com.hiremate.ai.application.ChatService;
 import com.hiremate.ai.application.ChatStatus;
 import com.hiremate.ai.application.ChatTurn;
@@ -16,7 +15,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.List;
@@ -71,47 +69,19 @@ public class ChatController {
     }
 
     private void answer(SseEmitter emitter, ChatInput input) {
-        ChatProgress progress = new ChatProgress() {
-            @Override
-            public void status(String text) {
-                send(emitter, "status", new ChatStatus(text));
-            }
-
-            @Override
-            public void item(ChatItem item) {
-                send(emitter, "item", item);
-            }
-        };
+        EmitterProgress progress = new EmitterProgress(emitter);
         try {
             ChatAnswer answer = chat.run(input, progress);
-            sendQuietly(emitter, "done", answer);
+            progress.sendQuietly("done", answer);
         } catch (UncheckedIOException gone) {
             log.info("Chat client disconnected before the answer: stage {}", input.stageId());
         } catch (ApiException exception) {
-            sendQuietly(emitter, "error", new ChatError(exception.status().value(), exception.code()));
+            progress.sendQuietly("error", new ChatError(exception.status().value(), exception.code()));
         } catch (RuntimeException exception) {
             log.error("Chat failed: stage {}", input.stageId(), exception);
-            sendQuietly(emitter, "error", new ChatError(HttpStatus.INTERNAL_SERVER_ERROR.value(), "INTERNAL_ERROR"));
+            progress.sendQuietly("error", new ChatError(HttpStatus.INTERNAL_SERVER_ERROR.value(), "INTERNAL_ERROR"));
         }
         emitter.complete();
-    }
-
-    /** 보내지 못하면(화면 연결 끊김) UncheckedIOException을 던져 하던 AI 호출을 멈추게 한다. */
-    private static void send(SseEmitter emitter, String name, Object data) {
-        try {
-            emitter.send(SseEmitter.event().name(name).data(data, MediaType.APPLICATION_JSON));
-        } catch (IOException exception) {
-            throw new UncheckedIOException(exception);
-        }
-    }
-
-    private static void sendQuietly(SseEmitter emitter, String name, Object data) {
-        try {
-            send(emitter, name, data);
-        } catch (UncheckedIOException gone) {
-            // 받을 화면이 없다. 반영은 이미 마쳤다
-            log.debug("Chat client gone before {}", name, gone);
-        }
     }
 
     /** 담당자의 이 전형 대화 기록. 전형이 끝나면 지워진다. */
