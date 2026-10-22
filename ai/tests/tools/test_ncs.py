@@ -1,4 +1,6 @@
-from hiremate_ai.tools.ncs import UNIT_CODE, ncs_data, subdivisions, unit_by_code, units_of
+import pytest
+
+from hiremate_ai.tools.ncs import UNIT_CODE, NcsSurvey, ncs_data, subdivisions, survey_score, unit_by_code, units_of
 
 
 def test_data_records_its_source_and_date() -> None:
@@ -6,7 +8,8 @@ def test_data_records_its_source_and_date() -> None:
 
     assert "국가직무능력표준 정보_GW" in data.source
     assert "15157547" in data.source
-    assert data.retrieved_at == "2026-10-21"
+    assert "NCS 중요도 및 활용도" in data.survey_source
+    assert data.retrieved_at == "2026-10-22"
 
 
 def test_data_has_demo_duties_with_definitions() -> None:
@@ -102,3 +105,42 @@ def test_unit_by_code_returns_none_for_unknown_code() -> None:
 
 def test_units_of_unknown_subdivision_is_empty() -> None:
     assert units_of("없는 세분류") == []
+
+
+def test_survey_covers_software_units_but_not_db_units() -> None:
+    """DB엔지니어링은 2019년 이후 개선되지 않아 중요도 및 활용도 조사가 없다."""
+    surveys = ncs_data().surveys
+
+    assert set(surveys) == {unit.code for unit in units_of("응용SW엔지니어링")}
+    assert not any(unit.code in surveys for unit in units_of("DB엔지니어링"))
+
+
+def test_survey_rates_are_high_middle_low_percentages() -> None:
+    for code, survey in ncs_data().surveys.items():
+        for rates in (survey.importance, survey.frequency, survey.difficulty):
+            assert len(rates) == 3, code
+            assert 95 <= sum(rates) <= 101, code
+
+
+def test_server_program_unit_has_its_survey() -> None:
+    survey = ncs_data().surveys["2001020211_23v6"]  # 서버프로그램 구현
+
+    assert survey == NcsSurvey(importance=[40, 40, 19], frequency=[32, 47, 20], difficulty=[18, 58, 23])
+
+
+def test_survey_score_weights_importance_seven_to_frequency_three() -> None:
+    """상 3 · 중 2 · 하 1로 평균 내고 중요도 0.7, 활용빈도 0.3으로 합친다."""
+    survey = NcsSurvey(importance=[100, 0, 0], frequency=[0, 0, 100], difficulty=[0, 100, 0])
+
+    assert survey_score(survey) == 0.7 * 3 + 0.3 * 1
+    assert survey_score(NcsSurvey(importance=[50, 50, 0], frequency=[50, 50, 0], difficulty=[0, 0, 0])) == 2.5
+
+
+def test_survey_score_orders_software_units() -> None:
+    """조사 점수가 가장 높은 것은 애플리케이션 테스트 수행, 가장 낮은 것은 제품소프트웨어 패키징이다."""
+    surveys = ncs_data().surveys
+    ranked = sorted(surveys, key=lambda code: -survey_score(surveys[code]))
+
+    assert ranked[0] == "2001020227_23v6"
+    assert ranked[-1] == "2001020209_23v6"
+    assert survey_score(surveys["2001020211_23v6"]) == pytest.approx(2.1848, abs=1e-4)  # 서버프로그램 구현
