@@ -29,6 +29,7 @@ from hiremate_ai.agents.generation.interview.agent import (
     generate_questions,
     load_review,
     review_gaps,
+    summary_gaps,
 )
 from hiremate_ai.agents.generation.interview.router import (
     InterviewQuestion,
@@ -887,6 +888,81 @@ def test_review_gaps_follow_the_demo_like_priority(sample_applicants: dict[str, 
     assert all("금융" not in gap.topic for gap in gaps)  # 평가 기준(UNRATED)이 없는 우대사항은 빈틈이 아니다
     assert gaps[3].evidence == [SDK] and "불분명" in gaps[3].note  # 역할이 불분명한 경험은 '주장만'
     assert gaps[4].evidence == [API]  # 본인 역할 확인은 요약 문장이 아니라 서류 원문을 인용한다
+
+
+@pytest.mark.parametrize("use_review", [True, False])
+def test_configuration_notices_are_excluded_but_applicant_checks_remain(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    use_review: bool,
+) -> None:
+    """평가 미설정 안내만 제외하고 기술 요건과 '평가 기준'을 언급한 실제 확인 사항은 유지한다."""
+    notices = [
+        Note(
+            text=f"우대사항 P{number} '{topic}'은 평가 기준(가중치 · NCS)이 없어 점수에 넣지 않았어요.",
+            source="공고 · 우대사항",
+        )
+        for number, topic in enumerate(["Java/Spring 기반 백엔드 개발 경험", "RDBMS 관리·최적화 경험"], 1)
+    ]
+    # 저장된 안내의 줄바꿈 · 공백 차이도 같은 운영 안내로 처리한다.
+    notices[1] = notices[1].model_copy(update={"text": notices[1].text.replace("이 없어 ", "이 없어\n  ")})
+    real_check = Note(text="프로젝트 성능 평가 기준을 정할 때 본인이 맡은 역할 확인 필요", source="자기소개서")
+    checks = [*notices, real_check]
+    if use_review:
+        review = newcomer_review(sample_applicants["이도윤"]).model_copy(update={"checks": checks})
+        gaps = review_gaps(review)
+    else:
+        analysis = newcomer_analysis.model_copy(
+            update={"checks": [Finding(text=check.text, source=check.source) for check in checks]}
+        )
+        gaps = summary_gaps(sample_posting, analysis)
+
+    assert [gap.evidence for gap in gaps if gap.kind == CHECK] == [[real_check.text]]
+    assert any(gap.kind == REQUIRED and "Spring" in gap.topic for gap in gaps)
+    assert any(gap.kind == NOTABLE for gap in gaps)
+
+
+@pytest.mark.parametrize("use_review", [True, False])
+async def test_configuration_notices_do_not_reach_question_writing_or_fallback(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, use_review: bool
+) -> None:
+    """안내를 제외한 뒤 원문 경험을 질문 소재로 쓰고, 모델 재작성 실패 시에도 안내 템플릿을 만들지 않는다."""
+    applicant = sample_applicants["이도윤"]
+    notice = Note(
+        text="우대사항 P1 'Java/Spring 경험'은 평가 기준(가중치 · NCS)이 없어 점수에 넣지 않았어요.",
+        source="공고 · 우대사항",
+    )
+    review = newcomer_review(applicant).model_copy(update={"qualifications": [], "preferences": [], "checks": [notice]})
+    analysis = CandidateAnalysis(
+        conditions=[],
+        notable=[Finding(text=API, source="이력서")],
+        checks=[Finding(text=notice.text, source=notice.source)],
+        holds=[],
+        fit=[],
+        highlights=[],
+        agent="Application Agent",
+        stub=False,
+    )
+    llm = FakeLlm(lambda call: draft(call, bad=True), lambda call: draft(call, bad=True))
+
+    questions = await generate_questions(
+        llm,
+        applicant=applicant,
+        posting=sample_posting,
+        analysis=analysis,
+        interview=view(),
+        focus=None,
+        review=review if use_review else None,
+    )
+
+    assert llm.calls
+    assert all(notice.text not in call.user for call in llm.calls)
+    assert API in llm.calls[0].user
+    assert questions[0] == INTRO
+    assert len(questions) > 1
+    assert all("평가 기준" not in question and "점수에 넣지" not in question for question in questions)
+    assert any("결제" in question for question in questions[1:])
 
 
 async def test_detailed_review_is_used_instead_of_the_summary(

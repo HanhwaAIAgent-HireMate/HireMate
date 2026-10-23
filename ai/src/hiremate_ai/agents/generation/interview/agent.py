@@ -419,6 +419,19 @@ def _asked_before(gap: Gap, question: str) -> bool:
     return _same_topic(basis, question)
 
 
+def _is_unrated_preference_notice(text: str, source: str) -> bool:
+    """저장된 분석에도 남아 있는 우대사항 평가 설정 안내. 지원자에게 확인할 경험이 아니다."""
+    if re.sub(r"\s+", "", source) != "공고·우대사항":
+        return False
+    return (
+        re.fullmatch(
+            r"우대사항 P\d+ '.+'은 평가 기준\(가중치 · NCS\)이 없어 점수에 넣지 않았어요\.",
+            " ".join(text.split()),
+        )
+        is not None
+    )
+
+
 def summary_gaps(posting: PostingContent, analysis: CandidateAnalysis) -> list[Gap]:
     """요약(CandidateAnalysis)으로 빈틈 후보를 만든다. 상세 판정이 없을 때 (stub · 분석 전 · 저장소를 못 읽음)."""
     required = {_normalize(text) for text in posting.qualifications}
@@ -434,6 +447,8 @@ def summary_gaps(posting: PostingContent, analysis: CandidateAnalysis) -> list[G
         note = f"공고 조건 [{condition.label}] 근거가 지원 자료에 없음"
         candidates.append(Gap("", kind, condition.requirement, note))
     for finding in analysis.checks:
+        if _is_unrated_preference_notice(finding.text, finding.source):
+            continue
         if any(_normalize(text) in _normalize(finding.text) for text in unmet):
             continue  # 충족 못 한 조건을 다시 말하는 확인 필요는 건너뛴다
         candidates.append(Gap("", CHECK, _short(finding.text), f"확인 필요 ({finding.source})", [finding.text]))
@@ -466,6 +481,8 @@ def review_gaps(review: ApplicationReview) -> list[Gap]:
         note = f"자격 요건 근거 부족 — {result.shortfall or result.reason}"
         candidates.append(Gap("", REQUIRED, result.text, _short(note, 120)))
     for check in review.checks:
+        if _is_unrated_preference_notice(check.text, check.source):
+            continue
         candidates.append(Gap("", CHECK, _short(check.text), f"확인 필요 ({check.source})", [check.text]))
     # (줄여 쓰면) sorted(review.preferences, key=lambda p: -(p.weight or 0))
     ranked = sorted(review.preferences, key=lambda preference: -(preference.weight or 0))
