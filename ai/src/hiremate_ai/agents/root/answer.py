@@ -185,9 +185,12 @@ async def plan_answer(
         return ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names=", ".join(targets.ambiguous)))
     # 멘션 · 이름이 없으면 체크한 지원자를 대상으로 본다
     rows = targets.rows or checked(context)
-    if 1 <= len(rows) <= MULTI_LIMIT:
+    # 문장이 가리키지 않았는데 앞 대화에서 이어받은 한 사람은 전형 질문("몇 명 남았어?")의 대상일 수 있어
+    # 그 사람 자료만 정리하지 않고 도구 루프로 답한다. 도구 루프는 전형 요약도 읽는다
+    if 1 <= len(rows) <= MULTI_LIMIT and not (targets.implied and len(rows) == 1):
         return await plan_multi(llm, context, rows, toolkit, turns, progress=progress)
-    progress.status(STAGE_STATUS)
+    only = rows[0] if len(rows) == 1 else None
+    progress.status(ONE_STATUS.format(name=only.name) if only else STAGE_STATUS)
     scope = scope_of(context, turns)
     agent = llm.tool_agent(
         RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
@@ -197,7 +200,7 @@ async def plan_answer(
     except LlmOutputError:
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
     recorded = await _recorded(toolkit, scope, context, answered.items, rows)
-    items, sources, agents = verify_items(answered.items, context, recorded=recorded)
+    items, sources, agents = verify_items(answered.items, context, only, recorded)
     message = readable(answered.message, context)
     return ChatPlan.answer(Intent.ANSWER, message, items, sources, agents)
 

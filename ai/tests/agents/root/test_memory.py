@@ -244,6 +244,37 @@ async def test_missing_previous_result_clarifies(
     assert plan == ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)
 
 
+async def test_implied_subject_answers_through_tools(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 대상 없는 질문에도 앞 대화의 지원자를 표시한다. 문장이 그 사람을 가리키지 않으면 전형 질문일 수 있어
+    # 그 사람 자료만 정리하지 않고 도구 루프로 답한다 (전형 요약을 읽을 수 있게)
+    saver = InMemorySaver()
+    asked = make_context(
+        sample_applicants, sample_company, sample_posting, message="@김하늘 강점이 뭐야?", mentions=["김하늘"]
+    )
+    thread = thread_of(asked)
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER"),
+        CandidateNotes(),
+        MultiSummary(message="은행 경력이에요."),
+        RootRoute(kind="ANSWER", previous_ref="subject"),
+        ToolCall("get_stage_summary"),
+        RootAnswer(message="미결정은 8명이에요."),
+    )
+
+    await run_plan(llm, asked, saver=saver, thread=thread)
+    plan = await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "미결정이 몇 명 남았어?"),
+        saver=saver,
+        thread=thread,
+    )
+
+    assert (plan.intent, plan.message) == (Intent.ANSWER, "미결정은 8명이에요.")
+    assert "대상 지원자: C2 김하늘" in llm.calls[4].user
+
+
 async def test_remembered_candidate_must_be_in_stage(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
