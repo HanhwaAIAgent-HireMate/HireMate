@@ -10,6 +10,7 @@ from hiremate_ai.agents.root.toolkit import (
     cited_agents,
     context_brief,
     default_toolkit,
+    get_toolkit,
     keyword_search,
     merged_search,
     profile_toolkit,
@@ -438,3 +439,12 @@ async def test_profile_evidence_reads_items_with_evidence_in_scope(
             AgentEvidence(sentence=conflict, source="평가 제출물", agent="assessment", verification="CONFLICT"),
         ]
     }
+
+
+def test_app_toolkit_is_shared() -> None:
+    # 찾기 재확인 판정 기억을 요청끼리 같이 쓴다
+    assert get_toolkit() is get_toolkit()
+
+
+def test_default_toolkits_do_not_share_judgments() -> None:
+    assert default_toolkit().judged is not default_toolkit().judged
