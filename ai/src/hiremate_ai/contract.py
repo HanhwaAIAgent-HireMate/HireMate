@@ -238,12 +238,23 @@ class CriterionLine(ContractModel):
     certificate_status: CertificateStatus | None
 
 
+class SummarySection(ContractModel):
+    """제출 문서의 문항별 요약 (CandidateAnalysis.SummarySection). 지금은 자기소개서 문항마다 하나다."""
+
+    document: DocumentType
+    title: str
+    summary: str
+    points: list[str]
+    evidence: list[Evidence]
+
+
 class CandidateAnalysis(ContractModel):
     """지원자 카드의 AI 분석 요약 (ai.application.CandidateAnalysis). 근거가 없으면 확인 필요로 둔다.
 
     holds는 총점을 보류한 이유다. 보류가 아니면 비어 있다.
     document_score는 총점(자격요건 + 우대사항, 0~100)이고 보류면 None이다. 영역 점수는 확인 필요가 있으면 None이다.
     criteria는 항목별 판정이다. 분석 전이거나 서류를 읽지 못했으면 비어 있다.
+    summaries는 자기소개서 문항별 요약이다. 판단 없이 무엇을 썼는지만 담는다.
     """
 
     conditions: list[Condition]
@@ -260,6 +271,7 @@ class CandidateAnalysis(ContractModel):
     preference_score: float | None
     preference_max: int
     criteria: list[CriterionLine]
+    summaries: list[SummarySection]
     highlights: list[Evidence]
     agent: str
     stub: bool

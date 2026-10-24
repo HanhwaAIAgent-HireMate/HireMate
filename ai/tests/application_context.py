@@ -13,7 +13,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, ExtractedPeriod
+from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, ExtractedPeriod, LetterSummary
 from hiremate_ai.agents.analysis.application.judge import CriteriaJudgement, CriterionVerdict
 from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
 from hiremate_ai.agents.analysis.application.types import Criterion, EvaluationRules, ScreeningRubric
@@ -122,7 +122,7 @@ class Script:
 
     extract: 문서 본문 일부 → 추출 결과. verdicts: 항목 id → 첫 판정 (없으면 NOT_MET).
     rechecks: (항목 id, 재확인 차수) → 재확인 판정 (없으면 첫 판정을 다시 쓴다).
-    reviews: 주장 id → 검토 결과 (없으면 SUPPORTED). omit: 답에서 빠뜨릴 항목 id.
+    reviews: 주장 id → 검토 결과 (없으면 SUPPORTED). omit: 답에서 빠뜨릴 항목 id. summary: 자기소개서 요약.
     """
 
     extract: dict[str, ExtractedFacts] = field(default_factory=dict)
@@ -130,10 +130,13 @@ class Script:
     rechecks: dict[tuple[str, int], CriterionVerdict] = field(default_factory=dict)
     reviews: dict[str, ReviewVerdict] = field(default_factory=dict)
     omit: set[str] = field(default_factory=set)
+    summary: LetterSummary = field(default_factory=LetterSummary)
 
     def __call__(self, call: LlmCall) -> BaseModel:
         if call.output is ExtractedFacts:
             return next((value for key, value in self.extract.items() if key in call.user), ExtractedFacts())
+        if call.output is LetterSummary:
+            return self.summary
         if call.output is CriteriaJudgement:
             ids = re.findall(r"^\[([QP]-\d+)\]", call.user, re.MULTILINE)
             found = re.search(r"([12])차 재확인", call.user)

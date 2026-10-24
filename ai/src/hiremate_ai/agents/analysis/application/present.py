@@ -22,6 +22,7 @@ from hiremate_ai.contract import (
     Evidence,
     Finding,
     QualificationStatus,
+    SummarySection,
     Verdict,
 )
 from hiremate_ai.db.profile import ItemCategory, ProfileStatus
@@ -89,6 +90,16 @@ def to_candidate_analysis(
         preference_score=review.preference_score,
         preference_max=review.preference_max,
         criteria=criterion_lines(review, weights),
+        summaries=[
+            SummarySection(
+                document=section.document,
+                title=section.title,
+                summary=section.summary,
+                points=section.points,
+                evidence=[Evidence(document=quote.document, sentence=quote.sentence) for quote in section.quotes],
+            )
+            for section in review.sections
+        ],
         highlights=highlights,
         agent=AGENT_NAME,
         stub=False,

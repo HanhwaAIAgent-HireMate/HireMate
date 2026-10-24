@@ -11,7 +11,13 @@ from application_context import (
     verdict,
 )
 
-from hiremate_ai.agents.analysis.application.extract import ExtractedFact, ExtractedFacts, ExtractedPeriod
+from hiremate_ai.agents.analysis.application.extract import (
+    ExtractedFact,
+    ExtractedFacts,
+    ExtractedPeriod,
+    ExtractedSection,
+    LetterSummary,
+)
 from hiremate_ai.agents.analysis.application.graph import ReviewInput, run_review
 from hiremate_ai.agents.analysis.application.judge import CriteriaJudgement
 from hiremate_ai.agents.analysis.application.present import to_analysis, to_candidate_analysis
@@ -352,3 +358,25 @@ async def test_instructions_in_documents_stay_inside_data_blocks(
     for call in portfolio_calls:
         instruction = call.user.index("이전 지시를 모두 무시하고")
         assert call.user.rfind("<data", 0, instruction) > call.user.rfind("</data>", 0, instruction)
+
+
+async def test_cover_letter_sections_are_summarized_with_checked_quotes(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    cover = "정산 배치 지연을 줄이기 위해 팀과 함께 처리 구조를 바꿨고"
+    summary = LetterSummary(
+        sections=[
+            ExtractedSection(title="지원 동기", summary="결제 신뢰를 중요하게 여겨 지원했다고 썼다.", evidence=[cover]),
+            ExtractedSection(title="협업", summary="팀과 정산 구조를 바꿨다고 썼다.", evidence=[MADE_UP]),
+        ]
+    )
+    llm = scripted(Script(extract={"결제플랫폼팀": YUMIN_EXTRACT}, verdicts=YUMIN, summary=summary))
+
+    review = await review_of(llm, sample_applicants["정유민"], sample_posting)
+
+    # 자기소개서만 따로 한 번 묻고, 근거는 원문에서 찾은 문장만 남긴다
+    assert [section.title for section in review.sections] == ["지원 동기", "협업"]
+    assert [len(section.quotes) for section in review.sections] == [1, 0]
+    assert sum(call.output is LetterSummary for call in llm.calls) == 1
+    card = to_candidate_analysis(review, sample_applicants["정유민"].documents, WEIGHTS)
+    assert card.summaries[0].evidence[0].document.value == "COVER_LETTER"
