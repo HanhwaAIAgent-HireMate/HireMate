@@ -23,7 +23,7 @@ export function StageStepper({ overview }: { overview: StageOverview }) {
             ? ('done' as const)
             : step.status === 'PENDING'
               ? ('pending' as const)
-              : ('done' as const),
+              : ('ongoing' as const),
       to: `${base}/stages/${step.stageId}`,
     })),
   ]

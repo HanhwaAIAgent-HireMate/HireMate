@@ -7,11 +7,15 @@ export type StepItem = {
   key: string
   label: string
   count?: number | null
-  state: 'done' | 'active' | 'pending'
+  /** done: 끝난 단계, active: 보고 있는 단계, ongoing: 진행 중이지만 보고 있지 않은 단계, pending: 아직 시작 전 */
+  state: 'done' | 'active' | 'ongoing' | 'pending'
   to?: string
 }
 
-/** 공고에서 정한 전형 순서와 대상 인원. 끝난 단계는 회색 체크, 현재 단계는 검은 칩이다. */
+/**
+ * 공고에서 정한 전형 순서와 대상 인원. 끝난 단계는 회색 체크, 보고 있는 단계는 검은 칩, 진행 중인 단계는 진한 글자다.
+ * 시작한 단계는 모두 눌러 볼 수 있다. 끝난 단계는 화면만 보고 고치지 못한다 (전형 화면이 막는다).
+ */
 export function WorkflowStepper({ items }: { items: StepItem[] }) {
   return (
     <nav
@@ -25,6 +29,7 @@ export function WorkflowStepper({ items }: { items: StepItem[] }) {
               'inline-flex h-7 items-center gap-1 rounded-full px-3 text-xs whitespace-nowrap',
               item.state === 'active' && 'bg-foreground font-semibold text-background',
               item.state === 'done' && 'text-muted-foreground',
+              item.state === 'ongoing' && 'font-semibold text-foreground',
               item.state === 'pending' && 'text-muted-foreground',
               item.to && item.state !== 'active' && 'hover:bg-muted',
             )}
