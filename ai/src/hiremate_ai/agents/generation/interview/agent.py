@@ -17,14 +17,14 @@
 
 빈틈 재료 (1차)
   서류 전형 Agent의 상세 판정(ApplicationReview, ai DB에 저장됨)이 있으면 그것을, 없으면 요약(CandidateAnalysis)을 쓴다.
-  상세 판정에는 NCS 수행준거별 근거 · 본인(SELF)/팀(TEAM) 구분이 있어 데모처럼 빈틈을 구체적으로 잡는다.
+  상세 판정에는 우대사항별 충족도 · 근거 · 본인(SELF)/팀(TEAM) 구분이 있어 데모처럼 빈틈을 구체적으로 잡는다.
 
 빈틈 우선순위 (같은 공고의 지원자 모두에게 같은 순서를 적용한다)
                             상세 판정이 있을 때                         요약만 있을 때
   1 이전 면접에서 확인 안 됨  이전 면접 답변 분석(FR-28)에서 확인되지 않은 질문 (최종면접)
   2 필수 조건 근거 없음       qualifications 중 met=false               conditions 중 met=false 이고 자격 요건
   3 확인 필요               checks                                   checks
-  4 우대 조건 근거 없음       우대사항의 NCS 수행준거 중 근거 없음(NONE)   conditions 중 met=false 이고 우대 사항
+  4 우대 조건 근거 없음       우대사항 중 충족이 아닌 것                  criteria의 우대사항 중 충족이 아닌 것
   5 주장만 있음              팀 성과로 적었거나(TEAM) 본인 역할이 불분명,  (없음)
                             근거가 주장을 받치지 못한 경험
   6 본인 역할 확인           본인이 한 성과 · 프로젝트 (원문 근거 문장)    notable
@@ -47,10 +47,18 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from hiremate_ai.agents.analysis.application.present import notable_facts
-from hiremate_ai.agents.analysis.application.types import Actor, ApplicationReview, Level, PreferenceStatus
+from hiremate_ai.agents.analysis.application.types import VERDICT_LABEL, Actor, ApplicationReview
 from hiremate_ai.agents.analysis.interview.agent import CONFIRMED, NO_ANSWER, analyze_answers
 from hiremate_ai.agents.guardrails import blocked_attribute, evidence_source
-from hiremate_ai.contract import ApplicantDetail, CandidateAnalysis, CompanyProfile, DocumentType, PostingContent
+from hiremate_ai.contract import (
+    ApplicantDetail,
+    CandidateAnalysis,
+    CompanyProfile,
+    CriterionCategory,
+    DocumentType,
+    PostingContent,
+    Verdict,
+)
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 if TYPE_CHECKING:
@@ -127,7 +135,6 @@ QUOTED_KINDS = (CHECK, CLAIM, NOTABLE)
 # 상세 판정에서 '주장만'으로 볼 경험 종류 (자격증 · 학력처럼 역할을 물을 수 없는 것은 뺀다)
 CLAIM_FACT_KINDS = ("ACHIEVEMENT", "PROJECT", "EXPERIENCE")
 CLAIM_LIMIT = 2  # 주장만 빈틈은 2개까지 (코드 자리 2개를 모두 차지하지 않게 우선순위가 뒤다)
-NCS_PER_PREFERENCE = 2  # 우대사항 하나에서 근거 없는 NCS 수행준거를 몇 개까지 메모로 넘길지
 
 TEMPLATES = {
     FOLLOW_UP: "지난 면접에서 '{topic}' 질문에 답해 주셨는데, {detail}에 대해 조금 더 구체적으로 말해 주세요.",
@@ -446,6 +453,13 @@ def summary_gaps(posting: PostingContent, analysis: CandidateAnalysis) -> list[G
         unmet.append(condition.requirement)
         note = f"공고 조건 [{condition.label}] 근거가 지원 자료에 없음"
         candidates.append(Gap("", kind, condition.requirement, note))
+    lines = [line for line in analysis.criteria if line.category == CriterionCategory.PREFERENCE]
+    for line in sorted(lines, key=lambda line: not line.important):
+        if line.verdict == Verdict.MET:
+            continue
+        unmet.append(line.text)
+        note = f"우대사항 {VERDICT_LABEL[line.verdict]} — {_short(line.reason, 100)}"
+        candidates.append(Gap("", PREFERRED, line.text, note))
     for finding in analysis.checks:
         if _is_unrated_preference_notice(finding.text, finding.source):
             continue
@@ -468,15 +482,15 @@ def summary_gaps(posting: PostingContent, analysis: CandidateAnalysis) -> list[G
 def review_gaps(review: ApplicationReview) -> list[Gap]:
     """서류 전형 Agent의 상세 판정(ApplicationReview)으로 빈틈 후보를 만든다 (데모의 15개 기준 판정과 같은 역할).
 
-    - 필수 조건: 자격요건 판정이 met=false (차별 조건처럼 평가하지 않은 요건은 뺀다)
+    - 필수 조건: 자격요건 판정이 충족이 아닌 것 (차별 조건처럼 평가하지 않은 요건은 판정에 없다)
     - 확인 필요: 서류 전형 Agent가 남긴 확인 필요 메모
-    - 우대 조건: 우대사항의 NCS 수행준거 중 근거 없음(NONE). 가중치가 큰 우대사항부터
+    - 우대 조건: 충족하지 못한 우대사항(부분 충족 · 미충족 · 확인 필요). 중요 표시 우대사항부터
     - 주장만 있음: 팀 성과로 적었거나(TEAM) 본인 역할이 불분명하거나(UNCLEAR) 근거가 주장을 받치지 못한 경험
     - 본인 역할 확인: 본인이 한 성과 · 프로젝트 · 경험. 인용은 요약 문장이 아니라 서류 원문 그대로
     """
     candidates: list[Gap] = []
     for result in review.qualifications:
-        if result.met or not result.evaluated:
+        if result.verdict == Verdict.MET:
             continue
         note = f"자격 요건 근거 부족 — {result.shortfall or result.reason}"
         candidates.append(Gap("", REQUIRED, result.text, _short(note, 120)))
@@ -484,21 +498,10 @@ def review_gaps(review: ApplicationReview) -> list[Gap]:
         if _is_unrated_preference_notice(check.text, check.source):
             continue
         candidates.append(Gap("", CHECK, _short(check.text), f"확인 필요 ({check.source})", [check.text]))
-    # (줄여 쓰면) sorted(review.preferences, key=lambda p: -(p.weight or 0))
-    ranked = sorted(review.preferences, key=lambda preference: -(preference.weight or 0))
-    for preference in ranked:
-        if preference.status != PreferenceStatus.SCORED:
-            continue  # 평가 기준(가중치 · NCS)이 없는 우대사항은 판정이 없다
-        missing = []
-        for criterion in preference.criteria:
-            if criterion.level == Level.NONE:
-                missing.append(criterion.content)
-        if not missing:
+    for preference in sorted(review.preferences, key=lambda preference: not preference.important):
+        if preference.verdict == Verdict.MET:
             continue
-        unit = preference.unit_name or "NCS"
-        note = f"NCS '{unit}' 수행준거 근거 없음: " + " / ".join(
-            _short(content, 60) for content in missing[:NCS_PER_PREFERENCE]
-        )
+        note = f"우대사항 {VERDICT_LABEL[preference.verdict]} — {_short(preference.reason, 100)}"
         candidates.append(Gap("", PREFERRED, preference.text, note))
     claims = 0
     for fact in review.facts:

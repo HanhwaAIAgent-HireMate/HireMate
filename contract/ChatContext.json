@@ -24,7 +24,11 @@
       "analysisStatus": "DONE",
       "held": false,
       "shortfalls": [],
-      "documentScore": null
+      "documentScore": null,
+      "qualificationScore": null,
+      "qualificationMax": 0,
+      "preferenceScore": null,
+      "preferenceMax": 0
     },
     {
       "applicationId": "4a7c2d3f-9b5e-4a2f-8c8b-2e3d4f5a6b71",
@@ -39,7 +43,11 @@
       "analysisStatus": "PENDING",
       "held": false,
       "shortfalls": [],
-      "documentScore": null
+      "documentScore": null,
+      "qualificationScore": null,
+      "qualificationMax": 0,
+      "preferenceScore": null,
+      "preferenceMax": 0
     }
   ],
   "documents": {

@@ -150,7 +150,7 @@ def _front_values(profile: CandidateProfile) -> list[str]:
     values = [career]
     if profile.last_company:
         values.append(f"마지막 회사 {profile.last_company}")
-    values.append(f"서류 점수 {profile.document_score}" if profile.document_score is not None else "서류 점수 없음")
+    values.append(f"서류 점수 {profile.document_score:g}" if profile.document_score is not None else "서류 점수 없음")
     passed = {True: "AI 기준 통과", False: "AI 기준 미달", None: "AI 기준 판단 없음"}[profile.passed]
     values.append(passed)
     return values

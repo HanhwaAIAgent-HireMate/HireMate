@@ -1,13 +1,52 @@
 {
   "companyId": "2b8e4c1d-6f3a-4e5b-9c7d-0a1b2c3d4e50",
   "recruitmentId": "7a1e2b3c-4d5e-4f60-8a9b-0c1d2e3f4a51",
+  "criteriaVersion": "dummy-2026-10-22",
   "hireCount": 1,
-  "preferred": [
+  "criteria": [
     {
+      "criterionId": "Q-01",
+      "category": "QUALIFICATION",
+      "text": "Java 또는 Kotlin 기반 서버 개발 경력 3년 이상",
+      "important": true,
+      "criterionType": "CONDITION",
+      "evaluationRules": {
+        "met": "Java · Kotlin으로 서버를 개발한 재직 경력이 3년 이상이다 (기간은 경력표로 계산한다).",
+        "partial": null,
+        "unmet": "Java · Kotlin 서버 개발 재직 경력이 3년에 못 미치거나 서류에서 확인되지 않는다."
+      },
+      "certificates": [],
+      "ncsUnitCode": null
+    },
+    {
+      "criterionId": "P-01",
+      "category": "PREFERENCE",
       "text": "외부 시스템 연동 인터페이스를 설계한 경험",
-      "weight": 5,
-      "ncsUnitCode": "2001020218_23v6",
-      "certificates": ["정보처리기사"]
+      "important": true,
+      "criterionType": "COMPOSITE",
+      "evaluationRules": {
+        "met": "연동 대상 · 송수신 데이터 · 오류 시 처리 방안까지 본인이 설계했다.",
+        "partial": "인터페이스 설계의 일부만 본인이 했다.",
+        "unmet": "설계한 기록이 서류에서 확인되지 않는다."
+      },
+      "certificates": [],
+      "ncsUnitCode": "2001020218_23v6"
+    },
+    {
+      "criterionId": "P-02",
+      "category": "PREFERENCE",
+      "text": "SQLD 자격증 보유",
+      "important": false,
+      "criterionType": "CONDITION",
+      "evaluationRules": {
+        "met": "SQLD를 보유했다.",
+        "partial": null,
+        "unmet": "SQLD가 서류에서 확인되지 않는다."
+      },
+      "certificates": [
+        "SQLD"
+      ],
+      "ncsUnitCode": null
     }
   ]
 }

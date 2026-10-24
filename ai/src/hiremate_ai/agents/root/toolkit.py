@@ -251,7 +251,7 @@ def stage_result_text(chat: ChatContext, row: CandidateRow) -> str:
         case StageData.EARLIER:
             lines.append(f"평가 점수: {EARLIER_SCORE}")
     lines += [
-        f"서류 점수: {f'{document}점' if document is not None else '없음'}",
+        f"서류 점수: {f'{document:g}점' if document is not None else '없음'}",
         f"경력: {_career(row)}" + (f" · 마지막 회사 {row.last_company}" if row.last_company else ""),
         f"서류 기준선: {'위' if row.above_line else '아래'}",
     ]

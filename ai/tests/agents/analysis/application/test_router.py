@@ -1,20 +1,16 @@
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from uuid import UUID
 
 import pytest
-from application_context import PREFERRED, UNITS, Script, criterion, judged, make_posting, make_rubric, met, scripted
+from application_context import YUMIN_SUMMARY, make_posting, make_rubric, scripted, yumin_script
 from fastapi.testclient import TestClient
 
-from hiremate_ai.agents.analysis.application.judge import QualificationJudgement
 from hiremate_ai.agents.analysis.application.router import get_store
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.contract import ApplicantDetail, PostingContent
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.main import app
-from hiremate_ai.tools.ncs import NcsUnit
-
-API = "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다."
 
 
 class MemoryStore:
@@ -23,9 +19,6 @@ class MemoryStore:
     def __init__(self) -> None:
         self.reviews: dict[tuple[UUID, str], ApplicationReview] = {}
         self.saved = 0
-
-    async def units(self, codes: Sequence[str]) -> dict[str, NcsUnit]:
-        return {code: UNITS[code] for code in codes if code in UNITS}
 
     async def find(self, application_id: UUID, input_hash: str) -> ApplicationReview | None:
         return self.reviews.get((application_id, input_hash))
@@ -56,12 +49,7 @@ def body(applicant: ApplicantDetail, posting: PostingContent, rubric: ScreeningR
 
 
 def yumin_llm() -> FakeLlm:
-    return scripted(
-        Script(
-            qualify=QualificationJudgement(verdicts=[met(1, API), met(2, API), met(3, API), met(4, API)]),
-            prefer={PREFERRED[0]: judged(criterion(1, "MET", API), criterion(2, "MET", API), criterion(3, "NONE"))},
-        )
-    )
+    return scripted(yumin_script())
 
 
 def test_analyze_returns_summary_and_reuses_saved_result(
@@ -77,14 +65,7 @@ def test_analyze_returns_summary_and_reuses_saved_result(
     second = client.post("/agents/application/analyze", json=request)
 
     assert first.status_code == 200
-    assert first.json() == {
-        "careerYears": 0,
-        "lastCompany": None,
-        "documentScore": 25,
-        "passed": True,
-        "held": False,
-        "shortfalls": ["신입"],
-    }
+    assert first.json() == YUMIN_SUMMARY
     assert second.json() == first.json()
     assert len(llm.calls) == calls
     assert store.saved == 1
