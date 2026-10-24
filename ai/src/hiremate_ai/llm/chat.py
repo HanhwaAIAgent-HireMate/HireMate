@@ -15,6 +15,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
+from openai import LengthFinishReasonError
 from pydantic import BaseModel, ValidationError
 
 from hiremate_ai.llm.call_log import CallLog, CallRecord
@@ -22,8 +23,13 @@ from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 type StructuredMethod = Literal["json_schema", "function_calling", "json_mode"]
 
-# 형식에 맞지 않는 답이 오면 한 번 더 묻는다
+# 형식에 맞지 않거나 출력 길이 상한에서 잘린 답이 오면 한 번 더 묻는다
 PARSE_ATTEMPTS = 2
+# 답이 출력 길이 상한(LLM_MAX_TOKENS)에서 잘렸을 때 다시 물으며 덧붙이는 지시. 같은 지시로는 또 잘린다
+SHORTER = "직전 답이 출력 길이 상한에서 잘렸다. 형식은 그대로 두고 더 짧게 쓴다. 같은 문장을 되풀이하지 않는다."
+CUT = "출력 길이 상한에서 잘렸다"
+# 도구 루프의 마지막 모델 호출에 덧붙이는 지시. 이때는 조회 도구 없이 최종 답만 낼 수 있다
+LAST_CALL = "자료를 더 읽을 수 없다. 지금까지 확인한 자료로 최종 답을 낸다. 확인하지 못한 점은 확인이 필요하다고 둔다."
 
 
 class LlmOutputError(RuntimeError):
@@ -61,6 +67,10 @@ class ChatLlm:
                 except (ValidationError, OutputParserException) as invalid:
                     # json_schema 방식은 형식 오류를 parsing_error 대신 예외로 알린다
                     failure: object = invalid
+                    continue
+                except LengthFinishReasonError:
+                    failure = CUT
+                    messages = [SystemMessage(system), HumanMessage(f"{user}\n\n{SHORTER}")]
                     continue
                 tokens.add(result["raw"])
                 parsed = result["parsed"]
@@ -156,6 +166,8 @@ def build_tool_agent[T: BaseModel](
         ),
         middleware=[
             _ToolResultBlock(),
+            _LastCallAnswers(max_calls),
+            _ShorterWhenCut(),
             _CallLogMiddleware(_Recorder(call_log, agent=agent, model=model_name)),
             ModelCallLimitMiddleware(run_limit=max_calls, exit_behavior="error"),
         ],
@@ -194,6 +206,55 @@ class _ToolResultBlock(AgentMiddleware[Any, Any, Any]):
             block = data_block("tool", result.text, name=request.tool_call["name"])
             return result.model_copy(update={"content": block})
         return result
+
+
+class _LastCallAnswers(AgentMiddleware[Any, Any, Any]):
+    """호출 상한의 마지막 모델 호출에서는 조회 도구를 빼 최종 답만 낼 수 있게 한다.
+
+    자료를 더 읽으려다 상한을 넘기면 그때까지 확인한 자료도 버리고 실패한다.
+    """
+
+    def __init__(self, max_calls: int) -> None:
+        super().__init__()
+        self._max_calls = max_calls
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
+    ) -> ModelResponse[Any]:
+        # 실행은 질문 하나로 시작하므로 앞선 AI 메시지 수가 이번 실행에서 부른 모델 호출 수다
+        called = sum(isinstance(message, AIMessage) for message in request.messages)
+        if called + 1 >= self._max_calls:
+            request = request.override(tools=[], messages=[*request.messages, HumanMessage(LAST_CALL)])
+        return await handler(request)
+
+
+class _ShorterWhenCut(AgentMiddleware[Any, Any, Any]):
+    """답이 출력 길이 상한에서 잘리면 짧게 쓰라고 덧붙여 한 번 더 묻는다. 또 잘리면 실패로 둔다.
+
+    잘린 도구 호출 인자도 JSON으로 읽힐 수 있어, 그대로 두면 되풀이하다 끊긴 글이 답이 된다.
+    """
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
+    ) -> ModelResponse[Any]:
+        response = await handler(request)
+        if not _cut(response):
+            return response
+        response = await handler(request.override(messages=[*request.messages, HumanMessage(SHORTER)]))
+        if _cut(response):
+            raise LlmOutputError(f"도구 루프의 답이 {CUT}")
+        return response
+
+
+def _cut(response: ModelResponse[Any]) -> bool:
+    return any(
+        isinstance(message, AIMessage) and message.response_metadata.get("finish_reason") == "length"
+        for message in response.result
+    )
 
 
 class _CallLogMiddleware(AgentMiddleware[Any, Any, Any]):
