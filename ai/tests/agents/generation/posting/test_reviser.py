@@ -11,6 +11,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
     CONTENT_STEP,
     DEFAULT_ITEMS,
     FIELD_LABELS,
+    JUNIOR_NOTE,
     LOCKED_REPLY,
     MAX_DRAFT_ITEMS,
     MAX_NCS_UNITS,
@@ -552,6 +553,25 @@ async def test_revise_names_the_highest_level_units() -> None:
 
     assert f"\n{ADVANCED_LABEL}: 인터페이스 설계\n" in llm.calls[2].user
     assert f'"{ADVANCED_LABEL}"' in NCS_SYSTEM
+
+
+async def test_revise_tells_junior_postings_to_put_advanced_units_in_preferred() -> None:
+    """신입이 지원하는 공고는 '꼭 필요하면 자격 요건'이라는 여지 없이 어려운 능력을 우대 사항에만 쓰게 한다."""
+    for career in ("신입", "신입 · 경력"):
+        junior = posting(content=CONTENT.model_copy(update={"career": career}))
+        llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER, INTERFACE_DESIGN]), ncs_draft([]))
+
+        await revise_posting(llm, junior, "", "자격 요건 새로 써 줘")
+
+        assert f"\n{ADVANCED_LABEL}: 인터페이스 설계 {JUNIOR_NOTE}\n" in llm.calls[2].user
+
+
+async def test_revise_does_not_add_the_junior_note_to_experienced_postings() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER, INTERFACE_DESIGN]), ncs_draft([]))
+
+    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
+
+    assert JUNIOR_NOTE not in llm.calls[2].user
 
 
 async def test_revise_names_no_advanced_unit_when_levels_are_equal() -> None:

@@ -82,6 +82,11 @@ NCS_ORDER_NOTE = (
 ADVANCED_LABEL = "수준이 높은 능력단위"
 """보여 준 능력단위 중 NCS 수준이 가장 높은 것을 능력단위 목록 뒤에 이 이름으로 적는다 (NCS_SYSTEM 규칙 3)."""
 
+JUNIOR_NOTE = "(신입이 지원하는 공고라서 이 능력단위의 능력은 우대 사항에만 쓴다)"
+"""규칙 3의 '주요 업무에 꼭 필요하면 자격 요건'을 두면 모델이 신입 공고에도 어려운 능력을 필수로 넣는다."""
+_JUNIOR = re.compile(r"신입")
+"""경력 칸에 이 말이 있으면 신입이 지원하는 공고다 (예: 신입, 신입 · 경력)."""
+
 NCS_DETAIL_CHARS = 3000
 """두 번째 호출에 넣는 능력단위 정의와 수행준거의 글자 수 한도. 능력단위 하나에 평균 700자라 다 넣으면
 노트북 모델이 한 번에 읽는 양(약 4천 토큰)을 넘는다. 지식 · 기술은 일반적인 말이라 공고 문장에는 넣지 않는다."""
@@ -248,9 +253,12 @@ NCS_SYSTEM = """너는 채용 공고의 자격 요건과 우대 사항을 NCS(�
    "수준이 높은 능력단위"에 적힌 능력은 주요 업무에 꼭 필요한 것이 아니면 우대 사항에 쓴다.
 4. 같은 능력을 자격 요건과 우대 사항에 함께 쓰지 않는다. 한 능력단위를 두 목록에 쓰면
    서로 다른 세부 능력([ ] 안의 이름)을 쓰거나, 자격 요건은 기본, 우대 사항은 그보다 깊은 수준으로 차이가 드러나게 쓴다.
+   다른 세부 능력도 주요 업무와 관련 있는 것만 쓴다. 관련 있는 세부 능력이 하나뿐이면 한 목록에만 쓴다.
 5. 지금 공고의 항목 중 요청과 관계없이 그대로 둘 항목도 함께 쓴다.
 6. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 넣지 않는다. 회사가 알려 주지 않은 사실은 지어내지 않는다.
-7. 항목은 "~ 경험", "~ 능력"처럼 한 줄로 짧게 쓰고, 목록마다 "지금 할 일"에 적힌 개수만큼 쓴다. 한국어로 쓴다."""
+7. 항목은 40자 안팎의 한 줄로, 공고에 쓰는 쉬운 말로 쓴다.
+   수행준거의 "~할 수 있는 능력" 말투나 전문 용어를 늘어놓지 않고 "~ 경험", "~ 능력"으로 끝낸다.
+   목록마다 "지금 할 일"에 적힌 개수만큼 쓴다. 한국어로 쓴다."""
 
 
 @dataclass(frozen=True)
@@ -615,11 +623,7 @@ def _ncs_prompt(
         f"NCS 능력단위 ({ncs_data().source}):",
         *([NCS_ORDER_NOTE] if sum(unit.code in ncs_data().surveys for unit in units) >= 2 else []),
         *_unit_lines(units),
-        *(
-            [f"{ADVANCED_LABEL}: {', '.join(unit.name for unit in advanced)}"]
-            if (advanced := _advanced_units(units))
-            else []
-        ),
+        *([_advanced_line(advanced, content.career)] if (advanced := _advanced_units(units)) else []),
         "",
         f"HR 요청: {request}",
         "",
@@ -662,6 +666,12 @@ def _criteria_within(unit: NcsUnit, budget: int) -> set[str]:
         shown.add(criterion)
         used += len(criterion)
     return shown
+
+
+def _advanced_line(units: list[NcsUnit], career: str) -> str:
+    """수준이 높은 능력단위 줄. 신입이 지원하는 공고면 그 능력은 우대 사항에만 쓰라고 덧붙인다."""
+    line = f"{ADVANCED_LABEL}: {', '.join(unit.name for unit in units)}"
+    return f"{line} {JUNIOR_NOTE}" if _JUNIOR.search(career) else line
 
 
 def _advanced_units(units: list[NcsUnit]) -> list[NcsUnit]:
