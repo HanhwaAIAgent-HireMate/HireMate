@@ -6,11 +6,12 @@
 - 주요 업무와 항목에 번호를 붙여 모델이 번호로 고르게 한다. 근거 문장은 코드가 공고에서 가져와서
   모델이 다른 문장을 옮기는 실수가 없다 (규칙 7).
 - NCS 조사 점수는 참고로 보여 준다. 판단 기준은 주요 업무에 바로 쓰이는지다.
-- 목록의 일부만 추천한다. 전부 '중요'면 표시하지 않은 것과 같다.
+- 목록의 3분의 1까지만 추천한다 (IMPORTANT_SHARE). 전부 '중요'면 표시하지 않은 것과 같다.
 
 추천은 참고값이다. '중요'는 HR이 정한다.
 """
 
+import math
 from collections.abc import Mapping
 
 from pydantic import BaseModel, Field
@@ -20,8 +21,11 @@ from hiremate_ai.contract import PostingContent
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.tools.ncs import NcsUnit, ncs_data, survey_score, unit_by_code
 
-MAX_IMPORTANT = 2
-"""목록마다 '중요'로 추천하는 최대 항목 수. 목록의 항목 수보다는 하나 적게 추천한다."""
+IMPORTANT_SHARE = 1 / 3
+"""목록마다 '중요'로 추천하는 최대 비율. 항목 수의 3분의 1을 반올림한다 (예: 5개 중 2개, 10개 중 3개).
+
+'중요'는 소수여야 서류 점수의 가중치가 의미 있다. 적게 추천하고 HR이 필요하면 더 표시한다.
+"""
 
 
 class Pick(BaseModel):
@@ -68,7 +72,7 @@ async def recommend_important(
     advice: dict[str, list[ImportantItem]] = {}
     for name, label in NCS_FIELDS:
         items = lists.get(name, [])
-        limit = min(MAX_IMPORTANT, len(items) - 1)
+        limit = important_limit(len(items))
         if limit < 1 or not content.duties:
             advice[name] = []
             continue
@@ -80,6 +84,11 @@ async def recommend_important(
         )
         advice[name] = _checked(picks.picks, len(items), content.duties, limit)
     return ImportantAdvice.model_validate(advice)
+
+
+def important_limit(size: int) -> int:
+    """항목 수에 맞춘 추천 최대 개수. 최소 1개이고 전부는 추천하지 않는다 (한 항목 목록은 0)."""
+    return min(max(1, math.floor(size * IMPORTANT_SHARE + 0.5)), size - 1)
 
 
 def _checked(picks: list[Pick], size: int, duties: list[str], limit: int) -> list[ImportantItem]:

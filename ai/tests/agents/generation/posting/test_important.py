@@ -4,6 +4,7 @@ from hiremate_ai.agents.generation.posting.important import (
     ImportantItem,
     ImportantPicks,
     Pick,
+    important_limit,
     recommend_important,
 )
 from hiremate_ai.agents.generation.posting.reviser import SourcedItem
@@ -32,11 +33,18 @@ QUALIFICATIONS = [
     SourcedItem(text="서버 프로그램 구현 능력", sources=[SERVER]),
     SourcedItem(text="DB 성능 분석 능력", sources=[DB_TUNING]),
     SourcedItem(text="협업 능력", sources=[]),
+    SourcedItem(text="Git 사용 능력", sources=[]),
+    SourcedItem(text="문서 작성 능력", sources=[]),
+    SourcedItem(text="Linux 사용 능력", sources=[]),
 ]
+"""6개라서 2개까지 추천한다."""
 PREFERRED = [
     SourcedItem(text="결제 도메인 경험", sources=[]),
     SourcedItem(text="대용량 트랜잭션 튜닝 경험", sources=[DB_TUNING]),
     SourcedItem(text="오픈소스 기여 경험", sources=[]),
+    SourcedItem(text="클라우드 운영 경험", sources=[]),
+    SourcedItem(text="모니터링 구축 경험", sources=[]),
+    SourcedItem(text="기술 블로그 운영 경험", sources=[]),
 ]
 LISTS = {"qualifications": QUALIFICATIONS, "preferred": PREFERRED}
 
@@ -58,7 +66,7 @@ async def test_recommends_items_with_the_duty_line_from_the_posting() -> None:
 
 async def test_drops_picks_with_wrong_numbers() -> None:
     """없는 항목이나 없는 주요 업무 번호는 근거가 없어 버린다 (규칙 7)."""
-    llm = FakeLlm(picks((4, 1), (1, 3), (0, 1), (3, 2)), picks())
+    llm = FakeLlm(picks((7, 1), (1, 3), (0, 1), (3, 2)), picks())
 
     advice = await recommend_important(llm, CONTENT, LISTS)
 
@@ -66,7 +74,7 @@ async def test_drops_picks_with_wrong_numbers() -> None:
     assert advice.preferred == []
 
 
-async def test_keeps_each_item_once_and_at_most_two() -> None:
+async def test_keeps_each_item_once_and_within_the_limit() -> None:
     items = [SourcedItem(text=f"항목 {number}", sources=[]) for number in range(5)]
     llm = FakeLlm(picks((1, 1), (1, 2), (2, 1), (3, 1)))
 
@@ -74,6 +82,20 @@ async def test_keeps_each_item_once_and_at_most_two() -> None:
 
     assert [item.index for item in advice.qualifications] == [0, 1]
     assert advice.qualifications[0].duty == API
+
+
+def test_limit_is_a_third_of_the_list_but_never_all() -> None:
+    """3분의 1을 반올림하고, 최소 1개이며 전부는 추천하지 않는다."""
+    assert [important_limit(size) for size in range(1, 11)] == [0, 1, 1, 1, 2, 2, 2, 3, 3, 3]
+
+
+async def test_prompt_asks_for_a_third_of_a_long_list() -> None:
+    items = [SourcedItem(text=f"항목 {number}", sources=[]) for number in range(10)]
+    llm = FakeLlm(picks())
+
+    await recommend_important(llm, CONTENT, {"preferred": items})
+
+    assert "최대 3개" in llm.calls[0].user
 
 
 async def test_recommends_fewer_items_than_the_list_has() -> None:
