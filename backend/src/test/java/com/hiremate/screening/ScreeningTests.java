@@ -158,12 +158,19 @@ class ScreeningTests extends IntegrationTest {
         assertThat(analysis.path("conditions").get(0).path("met").asBoolean()).isTrue();
         assertThat(analysis.path("highlights").size()).isPositive();
 
+        // 개발용(stub) 프로필 조회는 프로필이 없는 빈 결과다. 실제 항목은 ai 서버에서 온다
+        JsonNode profile = json(expect(stage.hr().get(stage.path() + "/candidates/" + id + "/profile"), 200));
+        assertThat(profile.path("applicationId").asString()).isEqualTo(id);
+        assertThat(profile.path("status").isNull()).isTrue();
+        assertThat(profile.path("items").isEmpty()).isTrue();
+
         expect(stage.hr().put(stage.path() + "/candidates/" + id + "/memo", Map.of("memo", "면접에서 확인")), 204);
         assertThat(json(expect(stage.hr().get(stage.path() + "/candidates/" + id), 200)).path("memo").asString())
                 .isEqualTo("면접에서 확인");
 
         TestApi other = newHr();
         expect(other.get(stage.path()), 404);
+        expect(other.get(stage.path() + "/candidates/" + id + "/profile"), 404);
         expect(other.post(stage.path() + "/decisions", Map.of("applicationIds", List.of(id), "decision", "PASS")),
                 404);
     }
