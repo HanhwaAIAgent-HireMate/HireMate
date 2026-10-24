@@ -19,6 +19,7 @@ import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.RootAgent;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -55,7 +56,8 @@ class RootFocusChatTests extends IntegrationTest {
             Thread.sleep(200);
         }
         UUID id = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
-        applications.recordAnalysis(id, new ApplicationAnalysis(3, "OO카드", 90, true, false, List.of()));
+        applications.recordAnalysis(id,
+                ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         String document = "/api/stages/" + closed.path("stages").get(0).path("id").asString();
         when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.ANSWER, "답", List.of(), List.of(),

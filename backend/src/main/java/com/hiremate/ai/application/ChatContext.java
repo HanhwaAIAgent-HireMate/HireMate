@@ -7,6 +7,7 @@ import com.hiremate.posting.PostingContent;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.CandidateRow;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -25,7 +26,7 @@ public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, Str
         StageType stageType,
         List<Stage> stages,
         List<CandidateRow> candidates, Map<UUID, List<ApplicantDocument>> documents,
-        Map<UUID, Integer> documentScores, Map<UUID, InterviewView> interviews, List<UUID> mentions,
+        Map<UUID, BigDecimal> documentScores, Map<UUID, InterviewView> interviews, List<UUID> mentions,
         List<UUID> checked, CompanyProfile company, PostingContent posting, String message) {
 
     /** 채용의 전형 하나. */

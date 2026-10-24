@@ -15,6 +15,7 @@ import com.hiremate.apply.ApplicationService;
 import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -63,11 +64,13 @@ class ScreeningTests extends IntegrationTest {
             int order = Integer.parseInt(applicant.name().replace("지원자", ""));
             ApplicationAnalysis analysis = switch (order) {
                 // 점수가 가장 높아도 자격요건을 75% 못 채우면 맨 아래다
-                case 1 -> new ApplicationAnalysis(0, null, 99, false, false, List.of("신입", "Spring 경험 없음"));
+                case 1 -> ApplicationAnalysis.of(0, null, BigDecimal.valueOf(99), false, false,
+                        List.of("신입", "Spring 경험 없음"));
                 // 자격요건을 하나 못 채웠지만 75%는 넘었다. 모두 채운 지원자 뒤에 선다
-                case 2 -> new ApplicationAnalysis(4, "OO카드", 98, true, false, List.of("Git 근거 없음"));
-                case 3 -> new ApplicationAnalysis(5, "OO은행", null, true, true, List.of());
-                default -> new ApplicationAnalysis(3, "OO페이", 90 - order, true, false, List.of());
+                case 2 -> ApplicationAnalysis.of(4, "OO카드", BigDecimal.valueOf(98), true, false, List.of("Git 근거 없음"));
+                case 3 -> ApplicationAnalysis.of(5, "OO은행", null, true, true, List.of());
+                default -> ApplicationAnalysis.of(3, "OO페이", new BigDecimal(90 - order + ".5"), true, false,
+                        List.of());
             };
             applications.recordAnalysis(applicant.applicationId(), analysis);
         }
@@ -79,7 +82,7 @@ class ScreeningTests extends IntegrationTest {
         // 선발 인원 1명(더미) × 10 = 추천 10명: 모두 채운 지원자4~13, 그다음 선 아래로 보류 → 추천 밖 → 자격요건 미달
         assertThat(names).containsExactly("지원자4", "지원자5", "지원자6", "지원자7", "지원자8", "지원자9", "지원자10",
                 "지원자11", "지원자12", "지원자13", "지원자3", "지원자14", "지원자2", "지원자1");
-        assertThat(items.get(0).path("documentScore").asInt()).isEqualTo(86);
+        assertThat(items.get(0).path("documentScore").decimalValue()).isEqualByComparingTo("86.5");
         assertThat(items.get(9).path("aboveLine").asBoolean()).isTrue();
         assertThat(items.get(10).path("aboveLine").asBoolean()).isFalse();
         assertThat(items.get(10).path("held").asBoolean()).isTrue();
@@ -498,8 +501,8 @@ class ScreeningTests extends IntegrationTest {
         for (var applicant : applications.applicants(hr.companyId(), recruitmentId)) {
             int order = Integer.parseInt(applicant.name().replace("지원자", ""));
             boolean last = order == applicants && applicants > 1;
-            applications.recordAnalysis(applicant.applicationId(), new ApplicationAnalysis(order, "OO카드",
-                    100 - order * 10 - (last ? 40 : 0), !last, false, last ? List.of("신입") : List.of()));
+            applications.recordAnalysis(applicant.applicationId(), ApplicationAnalysis.of(order, "OO카드",
+                    BigDecimal.valueOf(100 - order * 10 - (last ? 40 : 0)), !last, false, last ? List.of("신입") : List.of()));
         }
         applications.applicants(hr.companyId(), recruitmentId).stream()
                 .sorted(java.util.Comparator.comparing(applicant -> applicant.name()))

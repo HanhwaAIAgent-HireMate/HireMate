@@ -445,7 +445,11 @@ public class ScreeningService {
         if (info.held()) {
             return DocumentGroup.HELD;
         }
-        return info.passed() ? DocumentGroup.QUALIFIED : DocumentGroup.UNQUALIFIED;
+        return switch (info.qualificationStatus()) {
+            case PASSED -> DocumentGroup.QUALIFIED;
+            case UNDETERMINED -> DocumentGroup.UNDETERMINED;
+            case FAILED -> DocumentGroup.UNQUALIFIED;
+        };
     }
 
     private static boolean aboveLine(StageType type, StageCandidate candidate, Set<UUID> recommended) {
@@ -467,7 +471,9 @@ public class ScreeningService {
                 candidate.getFinalResult() != null ? candidate.getFinalResult() : candidate.getDecision(),
                 candidate.isSelected(), candidate.isAiMarked(), aboveLine(type, candidate, recommended),
                 candidate.getScore(), info.analysisStatus(), document && info.held(),
-                document ? info.shortfalls() : List.of(), document ? info.documentScore() : null);
+                document ? info.shortfalls() : List.of(), document ? info.documentScore() : null,
+                document ? info.qualificationScore() : null, document ? info.qualificationMax() : 0,
+                document ? info.preferenceScore() : null, document ? info.preferenceMax() : 0);
     }
 
     private static StageOverview.DecisionCounts counts(List<StageCandidate> all) {
@@ -492,6 +498,8 @@ public class ScreeningService {
         RECOMMENDED,
         HELD,
         QUALIFIED,
+        /** 확인 필요 항목에 따라 75% 통과가 갈리는 지원자. 통과 확정 뒤, 미달 앞에 선다. */
+        UNDETERMINED,
         UNQUALIFIED,
         NOT_ANALYZED
     }

@@ -11,6 +11,7 @@ import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.CandidateRow;
 import com.hiremate.screening.ScreeningService;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -60,7 +61,7 @@ public class ChatService {
         List<ChatContext.Stage> stages = recruitment.stages().stream()
                 .map(other -> new ChatContext.Stage(other.id(), other.name(), other.type(), other.status()))
                 .toList();
-        Map<UUID, Integer> documentScores = new HashMap<>();
+        Map<UUID, BigDecimal> documentScores = new HashMap<>();
         applications.applicants(companyId, recruitment.id()).stream()
                 .filter(applicant -> applicant.documentScore() != null)
                 .forEach(applicant -> documentScores.put(applicant.applicationId(), applicant.documentScore()));

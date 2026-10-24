@@ -12,6 +12,7 @@ import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.job.JobResult;
 import com.hiremate.job.JobStatus;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -51,9 +52,10 @@ class ApplicationAnalysisResultTests extends IntegrationTest {
         UUID applicationId = await(hr.companyId(), recruitmentId,
                 info -> info.analysisStatus() == AnalysisStatus.DONE).applicationId();
 
-        send(applicationId, JobStatus.DONE, new ApplicationAnalysis(7, "한빛카드", 88, true, false, List.of("Git 근거 없음")));
+        send(applicationId, JobStatus.DONE,
+                ApplicationAnalysis.of(7, "한빛카드", new BigDecimal("73.3"), true, false, List.of("Git 근거 없음")));
         ApplicantInfo recorded = await(hr.companyId(), recruitmentId,
-                info -> Integer.valueOf(88).equals(info.documentScore()));
+                info -> new BigDecimal("73.3").equals(info.documentScore()));
         assertThat(recorded.careerYears()).isEqualTo(7);
         assertThat(recorded.lastCompany()).isEqualTo("한빛카드");
         assertThat(recorded.shortfalls()).containsExactly("Git 근거 없음");
