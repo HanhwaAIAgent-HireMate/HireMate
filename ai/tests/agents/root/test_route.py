@@ -20,7 +20,7 @@ from hiremate_ai.agents.root.route import (
     required_data,
 )
 from hiremate_ai.agents.root.targets import resolve
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, EditAction, Intent
+from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, EditAction, Intent, SelectionMode
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.fake import FakeLlm
 
@@ -416,6 +416,23 @@ async def test_comparison_words_mark_compare(
     assert answered.compare is True
     posting = await settled("@김하늘 공고 자격 요건과 비교해줘", RootRoute(kind="ANSWER"))
     assert posting.compare is False
+
+
+async def test_stage_ranking_question_is_answer(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 "경력이 가장 많은 사람은?"을 찾기로 표시한다. 찾기는 거르는 경로라 순위를 매기지 못한다
+    async def kind_of(message: str, route: RootRoute) -> str:
+        context = context_for(sample_applicants, sample_company, sample_posting, message=message)
+        return (await classify(FakeLlm(route), context, resolve(context))).kind
+
+    career = RootRoute(kind="FIND", mode=SelectionMode.REPLACE, concepts=["경력"])
+    assert await kind_of("경력이 가장 많은 사람은?", career) == "ANSWER"
+    assert await kind_of("누가 연차가 제일 높아?", career) == "ANSWER"
+    assert await kind_of("경력이 가장 많은 사람 찾아줘", career) == "FIND"
+    assert await kind_of("금융 경험이 가장 많은 사람은?", career) == "FIND"
+    preferred = RootRoute(kind="FIND", posting_criteria="preferred", criteria_match="most")
+    assert await kind_of("우대 사항을 가장 많이 충족한 사람은?", preferred) == "FIND"
 
 
 async def test_among_them_refers_to_result(

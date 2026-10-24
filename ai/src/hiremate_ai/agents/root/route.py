@@ -66,6 +66,10 @@ _BETWEEN_APPLICANTS = re.compile(
 )
 # 비교해 달라는 말. 여러 지원자를 가리키는 말과 같이 있으면 모델이 compare를 빠뜨려도 지원자끼리 비교다
 _COMPARE_WORDS = re.compile(r"비교|견주|견줘")
+# 전형 요약(get_stage_summary)에 있는 값의 순위를 묻는 말. 찾기 동사가 있으면 HR이 찾아 달라고 한 것이다
+_SUPERLATIVE = re.compile(r"가장|제일|최고|최다")
+_SUMMARY_FIELD = re.compile(r"경력|연차|년차|평가\s*점수|과제\s*점수")
+_FIND_REQUEST = re.compile(r"찾|보여|골라|고르|뽑|추려|선택|남겨|추가|좁혀")
 # 이미 정한 결정을 가리키는 말. 이 말이 있어야 그 결정의 지원자 안에서 찾는다 ("합격 가능성"은 아니다)
 _DECIDED_WORDS = {
     Decision.PASS: re.compile(r"(?<!불)합격\s*(?:처리\s*)?(?:한|된|시킨|했던|자|인)"),
@@ -235,6 +239,11 @@ def asks_comparison(route: RootRoute, message: str) -> bool:
     return route.compare and bool(_BETWEEN_APPLICANTS.search(message))
 
 
+def asks_stage_ranking(message: str) -> bool:
+    """전형 요약에 있는 값(경력, 평가 점수)이 가장 높은 사람을 묻는 질문인가. "경력이 가장 많은 사람은?" 같은 것."""
+    return bool(_SUPERLATIVE.search(message) and _SUMMARY_FIELD.search(message) and not _FIND_REQUEST.search(message))
+
+
 def decided_filter(route: RootRoute, message: str) -> Decision | None:
     """그 결정의 지원자 안에서 찾는 찾기. 모델이 표시하고 문장에도 그 결정을 가리키는 말이 있어야 한다."""
     if route.kind != "FIND" or route.decision == "none":
@@ -259,6 +268,8 @@ def _settled(route: RootRoute, message: str) -> RootRoute:
     지원자끼리 비교하는 요청을 되묻기로 표시하면 분석으로 돌린다. 대상이 모자라면 정해 둔 문구로 되묻고,
     체크한 지원자가 있으면 그 사람들을 비교한다. 비교하는 말과 여러 지원자를 가리키는 말이 있으면 모델 표시와 상관없이
     지원자끼리 비교로 본다. 실제 모델은 대상 없는 "둘 비교해줘"에 compare 없이 자기 되물음을 쓰기도 한다.
+    전형 요약에 있는 값의 순위를 묻는 질문("경력이 가장 많은 사람은?")을 찾기 조건 없이 찾기로 표시하면 분석으로 돌린다.
+    찾기는 조건으로 거르는 경로라 순위를 매기지 못하고 아무도 못 찾았다고 답한다.
     만든 질문의 이유만 묻는 문장("방금 만든 질문은 왜 만든 거야?")은 면접 질문 만들기가 아니라 분석이다.
     표시를 남기면 질문을 다시 만든다.
     """
@@ -273,7 +284,21 @@ def _settled(route: RootRoute, message: str) -> RootRoute:
         update |= {"kind": "ANSWER", "compare": True}
     elif route.kind == "CLARIFY" and asks_comparison(route, message):
         update["kind"] = "ANSWER"
+    if route.kind == "FIND" and asks_stage_ranking(message) and _plain_find(route):
+        update["kind"] = "ANSWER"
     return route.model_copy(update=update) if update else route
+
+
+def _plain_find(route: RootRoute) -> bool:
+    """공고 · 인재상 · 결정 · 점수 같은 찾기 기준 없이 낱말 조건만 있는 찾기."""
+    return (
+        route.posting_criteria == "none"
+        and not route.use_talents
+        and route.decision == "none"
+        and route.min_score is None
+        and not route.without_score
+        and not route.score_gap
+    )
 
 
 def required_data(route: RootRoute, message: str) -> set[StageType]:

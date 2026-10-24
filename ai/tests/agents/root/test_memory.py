@@ -628,3 +628,32 @@ async def test_clear_with_checked_keeps_subject(
     )
 
     assert plan.targets == [sample_applicants["김하늘"].info.application_id]
+
+
+async def test_stage_ranking_after_mention_answers_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 앞 턴의 지원자를 이어받아도 전형 전체 순위 질문이라 그 사람 항목을 요구하지 않는다
+    saver = InMemorySaver()
+    asked = make_context(
+        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
+    )
+    thread = thread_of(asked)
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER"),
+        checked_notes(),
+        MultiSummary(message="은행 경력이에요."),
+        RootRoute(kind="FIND", concepts=["경력"], previous_ref="subject"),
+        ToolCall("get_stage_summary"),
+        RootAnswer(message="김하늘이 가장 많아요.", items=[]),
+    )
+
+    await run_plan(llm, asked, saver=saver, thread=thread)
+    plan = await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "경력이 가장 많은 사람은?"),
+        saver=saver,
+        thread=thread,
+    )
+
+    assert (plan.intent, plan.message) == (Intent.ANSWER, "김하늘이 가장 많아요.")

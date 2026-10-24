@@ -872,6 +872,24 @@ async def test_multi_prompts_hold_one_candidate(
     assert "다온마켓" in park_call and "새솔은행" not in park_call
 
 
+async def test_stage_ranking_with_checked_stays_with_checked(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="경력이 가장 많은 사람은?",
+        checked=["김하늘", "박서준"],
+    )
+    respond = by_candidate(PAIR)
+    llm = FakeLlm(respond, respond, MultiSummary(message="김하늘이 더 길어요."))
+
+    await ask(llm, context)
+
+    assert [call.output for call in llm.calls] == [CandidateNotes, CandidateNotes, MultiSummary]
+
+
 async def test_multi_unverified_evidence_turns_check(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
