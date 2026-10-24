@@ -872,6 +872,41 @@ async def test_multi_prompts_hold_one_candidate(
     assert "다온마켓" in park_call and "새솔은행" not in park_call
 
 
+TALENT_QUESTION = "@정유민 우리 회사 인재상과 잘 맞는 것 같아?"
+
+
+def talent_notes() -> CandidateNotes:
+    evidence = [AnswerEvidence(sentence=RETRO, source="자기소개서")]
+    item = AnswerItem(label="함께 성장", text="장애 회고를 문서로 남겨요.", status="OK", evidence=evidence)
+    return CandidateNotes(items=[item])
+
+
+async def test_talent_question_cites_company(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 인재상과 견준 답에도 지원자 문장만 근거로 단다. 견준 기준인 회사 인재상은 코드가 출처로 둔다
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message=TALENT_QUESTION, mentions=["정유민"]
+    )
+    llm = FakeLlm(talent_notes(), MultiSummary(message="함께 성장 인재상과 맞아요."))
+
+    plan = await ask(llm, context)
+
+    assert plan.sources == ["자기소개서", "회사 소개"]
+
+
+async def test_talent_question_without_talents_has_no_company_source(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    company = sample_company.model_copy(update={"talents": []})
+    context = make_context(sample_applicants, company, sample_posting, message=TALENT_QUESTION, mentions=["정유민"])
+    llm = FakeLlm(talent_notes(), MultiSummary(message="자기소개서에 회고 경험이 있어요."))
+
+    plan = await ask(llm, context)
+
+    assert plan.sources == ["자기소개서"]
+
+
 async def test_stage_ranking_with_checked_stays_with_checked(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
