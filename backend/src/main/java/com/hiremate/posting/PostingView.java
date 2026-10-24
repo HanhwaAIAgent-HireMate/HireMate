@@ -1,6 +1,7 @@
 package com.hiremate.posting;
 
 import com.hiremate.recruit.RecruitmentStatus;
+import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
@@ -14,7 +15,8 @@ public record PostingView(UUID postingId, UUID recruitmentId, String companyName
         @Schema(nullable = true) Instant publishedAt, @Schema(nullable = true) Instant closedAt,
         @Schema(nullable = true) PostingSuggestionView suggestion, ReceiptView receipt) {
 
-    public record PostingStage(UUID id, String name, StageType type) {
+    /** status는 전형 진행 상태다. 수정안의 단계는 아직 전형이 없어 null이다. */
+    public record PostingStage(UUID id, String name, StageType type, @Schema(nullable = true) StageStatus status) {
     }
 
     /** 접수 확인 메일. 필수 문구는 본문 끝에 붙고 고칠 수 없다. 게시하면 제목 · 본문도 바꿀 수 없다. */
