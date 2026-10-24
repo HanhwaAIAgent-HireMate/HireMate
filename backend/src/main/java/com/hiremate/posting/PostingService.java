@@ -246,7 +246,7 @@ public class PostingService {
 
     private PostingView toView(JobPosting posting, RecruitmentInfo recruitment, String companyName) {
         List<PostingView.PostingStage> stages = recruitment.stages().stream()
-                .map(stage -> new PostingView.PostingStage(stage.id(), stage.name(), stage.type()))
+                .map(stage -> new PostingView.PostingStage(stage.id(), stage.name(), stage.type(), stage.status()))
                 .toList();
         PostingSuggestion suggestion = JsonText.read(posting.getPendingSuggestion(), PostingSuggestion.class);
         PostingView.PostingSuggestionView suggestionView = suggestion == null
@@ -254,7 +254,7 @@ public class PostingService {
                 : new PostingView.PostingSuggestionView(
                 suggestion.content(),
                 suggestion.stages() == null ? null : suggestion.stages().stream()
-                        .map(stage -> new PostingView.PostingStage(null, stage.name(), stage.type()))
+                        .map(stage -> new PostingView.PostingStage(null, stage.name(), stage.type(), null))
                         .toList(),
                 suggestion.requiredExtras() == null ? null : documents(suggestion.requiredExtras()),
                 suggestion.changedFields());

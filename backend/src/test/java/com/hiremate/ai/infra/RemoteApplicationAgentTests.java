@@ -59,7 +59,7 @@ class RemoteApplicationAgentTests {
     void analyzesCandidateThroughAiServer() {
         CandidateAnalysis answer = new CandidateAnalysis(List.of(), List.of(), List.of(),
                 List.of(new CandidateAnalysis.Finding("보류 이유", "이력서")), "test-1", CandidateAnalysis.ScoreStatus.HELD,
-                null, QualificationStatus.UNDETERMINED, null, null, 50, null, 50, List.of(), List.of(),
+                null, QualificationStatus.UNDETERMINED, null, null, 50, null, 50, List.of(), List.of(), List.of(),
                 "Application Agent", false);
         RecordingClient client = new RecordingClient(answer);
 
