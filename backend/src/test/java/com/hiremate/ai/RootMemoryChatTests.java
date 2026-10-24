@@ -21,6 +21,7 @@ import com.hiremate.apply.ApplicationService;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.SelectionMode;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -148,7 +149,8 @@ class RootMemoryChatTests extends IntegrationTest {
             Thread.sleep(200);
         }
         UUID applicant = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
-        applications.recordAnalysis(applicant, new ApplicationAnalysis(3, "OO카드", 90, true, false, List.of()));
+        applications.recordAnalysis(applicant,
+                ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         UUID stageId = UUID.fromString(closed.path("stages").get(0).path("id").asString());
         return new Setup(hr, stageId, applicant);

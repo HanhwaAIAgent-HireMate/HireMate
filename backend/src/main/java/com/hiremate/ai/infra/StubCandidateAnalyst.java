@@ -6,6 +6,7 @@ import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.CandidateAnalyst;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicantDocument;
+import com.hiremate.apply.QualificationStatus;
 import com.hiremate.posting.DocumentType;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.ScreeningRubric;
@@ -68,7 +69,8 @@ class StubCandidateAnalyst implements CandidateAnalyst {
         if (sentences.isEmpty()) {
             checks.add(new CandidateAnalysis.Finding("제출 문서에서 글자를 읽지 못했어요. 원본 PDF를 확인해 주세요.", "제출 문서"));
         }
-        return new CandidateAnalysis(conditions, notable, checks, List.of(), List.of(),
+        return new CandidateAnalysis(conditions, notable, checks, List.of(), null, CandidateAnalysis.ScoreStatus.HELD,
+                null, QualificationStatus.UNDETERMINED, null, null, 0, null, 0, List.of(),
                 highlights.entrySet().stream()
                         .map(entry -> new CandidateAnalysis.Evidence(entry.getValue(), entry.getKey()))
                         .toList(),
