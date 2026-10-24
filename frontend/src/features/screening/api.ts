@@ -6,6 +6,8 @@ export type StageOverview = Schemas['StageOverview']
 export type CandidateRow = Schemas['CandidateRow']
 export type CandidateDetail = Schemas['CandidateDetail']
 export type CandidateAnalysis = Schemas['CandidateAnalysis']
+export type CandidateProfileView = Schemas['CandidateProfileView']
+export type ProfileItemView = Schemas['ProfileItemView']
 export type CriterionLine = Schemas['CriterionLine']
 export type SummarySection = Schemas['SummarySection']
 export type Decision = CandidateRow['decision']
@@ -28,6 +30,8 @@ export const stageKeys = {
     ['stage', stageId, 'detail', applicationId] as const,
   analysis: (stageId: string, applicationId: string) =>
     ['stage', stageId, 'analysis', applicationId] as const,
+  profile: (stageId: string, applicationId: string) =>
+    ['stage', stageId, 'profile', applicationId] as const,
 }
 
 const path = (stageId: string) => ({ params: { path: { stageId } } })
@@ -105,6 +109,20 @@ export function useCandidateAnalysis(
         }),
       ),
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+/** 카드의 프로필 탭. 분석 Agent들이 쌓은 항목과 확인 상태(확인됨 · 근거 있음 · 미확인 · 상충) */
+export function useCandidateProfile(stageId: string, applicationId: string) {
+  return useQuery({
+    queryKey: stageKeys.profile(stageId, applicationId),
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/stages/{stageId}/candidates/{applicationId}/profile', {
+          params: { path: { stageId, applicationId } },
+        }),
+      ),
+    staleTime: 60 * 1000,
   })
 }
 

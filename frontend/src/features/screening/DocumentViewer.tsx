@@ -11,22 +11,28 @@ import {
   type CriterionLine,
   type SummarySection,
 } from '@/features/screening/api'
+import { ProfilePanel } from '@/features/screening/ProfilePanel'
 import { cn } from '@/lib/utils'
 
-type Tab = 'RESUME' | 'COVER_LETTER' | 'PORTFOLIO' | 'CERTIFICATE'
+type Tab = 'RESUME' | 'COVER_LETTER' | 'PORTFOLIO' | 'CERTIFICATE' | 'PROFILE'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'RESUME', label: '이력서' },
   { key: 'COVER_LETTER', label: '자기소개서' },
   { key: 'PORTFOLIO', label: '포트폴리오' },
   { key: 'CERTIFICATE', label: '자격증' },
+  // 제출 문서가 아니라 분석 Agent들이 쌓은 지원자 프로필 (확인 상태 포함)
+  { key: 'PROFILE', label: '프로필' },
 ]
 const DOCUMENT_LABELS = Object.fromEntries(TABS.map((item) => [item.key, item.label])) as Record<
   Tab,
   string
 >
 
-/** 서류 전형의 문서 Viewer (STG-06). 제출 문서를 탭으로 보고, AI 분석의 근거 문장에 밑줄을 친다. */
+/**
+ * 서류 전형의 문서 Viewer (STG-06). 제출 문서를 탭으로 보고, AI 분석의 근거 문장에 밑줄을 친다.
+ * 프로필 탭은 분석 Agent들이 쌓은 항목을 확인 상태와 함께 보여 준다.
+ */
 export function DocumentViewer({
   stageId,
   recruitmentId,
@@ -75,7 +81,9 @@ export function DocumentViewer({
         ))}
       </div>
       <div className="max-h-[360px] overflow-auto rounded-xl border p-4 text-sm leading-6">
-        {tab === 'CERTIFICATE' ? (
+        {tab === 'PROFILE' ? (
+          <ProfilePanel stageId={stageId} applicationId={detail.row.applicationId} />
+        ) : tab === 'CERTIFICATE' ? (
           <p className={cn(!detail.certificates && 'text-muted-foreground')}>
             {detail.certificates ?? '자격증 정보가 없어요.'}
           </p>
