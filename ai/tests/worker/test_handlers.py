@@ -1,14 +1,12 @@
 import json
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from application_context import PREFERRED, UNITS, Script, criterion, judged, make_posting, make_rubric, met, scripted
+from application_context import YUMIN_SUMMARY, make_posting, make_rubric, scripted, yumin_script
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hiremate_ai.agents.analysis.application.judge import QualificationJudgement
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.agents.analysis.assessment import AssessmentInput
 from hiremate_ai.agents.analysis.interview import InterviewAnalysisInput
@@ -20,12 +18,10 @@ from hiremate_ai.db.profile import ProfileStatus
 from hiremate_ai.db.profile_store import ProfileScopeError
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.fake import FakeLlm
-from hiremate_ai.tools.ncs import NcsUnit
 from hiremate_ai.worker import handlers as worker_handlers
 from hiremate_ai.worker.handlers import PermanentError, job_handlers
 
 CONTRACT_DIR = Path(__file__).resolve().parents[3] / "contract"
-API = "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다."
 # DB에 붙지 않는 세션. Assessment 처리 함수는 저장 함수를 바꿔 끼워 세션을 쓰지 않는다
 SESSIONS: async_sessionmaker[AsyncSession] = async_sessionmaker()
 
@@ -33,9 +29,6 @@ SESSIONS: async_sessionmaker[AsyncSession] = async_sessionmaker()
 class MemoryStore:
     def __init__(self) -> None:
         self.reviews: dict[tuple[UUID, str], ApplicationReview] = {}
-
-    async def units(self, codes: Sequence[str]) -> dict[str, NcsUnit]:
-        return {code: UNITS[code] for code in codes if code in UNITS}
 
     async def find(self, application_id: UUID, input_hash: str) -> ApplicationReview | None:
         return self.reviews.get((application_id, input_hash))
@@ -59,24 +52,11 @@ def payload(applicant: ApplicantDetail, posting: PostingContent, rubric: Screeni
 async def test_application_analyze_returns_backend_summary(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
-    llm = scripted(
-        Script(
-            qualify=QualificationJudgement(verdicts=[met(1, API), met(2, API), met(3, API), met(4, API)]),
-            prefer={PREFERRED[0]: judged(criterion(1, "MET", API), criterion(2, "MET", API), criterion(3, "NONE"))},
-        )
-    )
-    handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/analyze"]
+    handle = job_handlers(scripted(yumin_script()), MemoryStore(), SESSIONS)["application/analyze"]
 
     result = await handle(payload(sample_applicants["정유민"], sample_posting, make_rubric()))
 
-    assert result == {
-        "careerYears": 0,
-        "lastCompany": None,
-        "documentScore": 25,
-        "passed": True,
-        "held": False,
-        "shortfalls": ["신입"],
-    }
+    assert result == YUMIN_SUMMARY
 
 
 async def test_rubric_of_another_recruitment_is_permanent(
@@ -172,7 +152,23 @@ async def test_interview_questions_returns_questions_made_by_the_agent(
 
     monkeypatch.setattr(worker_handlers, "generate_questions", generate_questions)
     handle = job_handlers(FakeLlm(), MemoryStore(), SESSIONS)["interview/questions"]
-    analysis: dict[str, Any] = {"conditions": [], "notable": [], "checks": [], "holds": [], "fit": [], "highlights": []}
+    analysis: dict[str, Any] = {
+        "conditions": [],
+        "notable": [],
+        "checks": [],
+        "holds": [],
+        "criteriaVersion": None,
+        "scoreStatus": "HELD",
+        "documentScore": None,
+        "qualificationStatus": "UNDETERMINED",
+        "qualificationRate": None,
+        "qualificationScore": None,
+        "qualificationMax": 0,
+        "preferenceScore": None,
+        "preferenceMax": 0,
+        "criteria": [],
+        "highlights": [],
+    }
     interview: dict[str, Any] = {"applicationId": str(uuid4()), "schedule": None, "questions": [], "previous": []}
 
     result = await handle(

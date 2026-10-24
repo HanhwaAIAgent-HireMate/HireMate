@@ -3,6 +3,7 @@
 처리 함수는 payload(요청 본문)를 받아 결과(응답 본문)를 돌려준다. 다시 해도 같은 결과일 실패는 PermanentError로 알린다.
 """
 
+import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
@@ -36,19 +37,27 @@ def job_handlers(
     Chat과 화면에서 기다리는 요청은 워커를 거치지 않고 ai 서버 경로로 바로 받는다.
     """
 
+    # 지원서 하나의 분석 시간 한도는 기술 오류로 다시 시도한 시간까지 합친다 (시도마다 새로 주지 않는다)
+    started: dict[str, float] = {}
+
     async def application_analyze(payload: dict[str, Any]) -> dict[str, Any]:
         request = AnalyzeRequest.model_validate(payload)
+        key = str(request.applicant.info.application_id)
+        now = asyncio.get_running_loop().time()
+        remaining = settings.application_timeout_seconds - (now - started.setdefault(key, now))
         try:
+            if remaining <= 0:
+                raise PermanentError("지원서 분석 시간 한도를 다 썼다")
             review = await analyze_application(
-                llm,
-                store,
-                request.applicant,
-                request.posting,
-                request.rubric,
-                budget_seconds=settings.application_timeout_seconds,
+                llm, store, request.applicant, request.posting, request.rubric, budget_seconds=remaining
             )
         except RubricScopeError as error:
+            started.pop(key, None)
             raise PermanentError(str(error)) from error
+        except PermanentError:
+            started.pop(key, None)
+            raise
+        started.pop(key, None)
         return to_analysis(review).model_dump(mode="json")
 
     async def assessment_analyze(payload: dict[str, Any]) -> dict[str, Any]:

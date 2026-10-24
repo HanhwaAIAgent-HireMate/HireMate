@@ -71,7 +71,11 @@ class CandidateRow(ContractModel):
     analysis_status: AnalysisStatus
     held: bool = False  # 서류 점수 보류
     shortfalls: list[str] = []  # 채우지 못한 자격요건의 짧은 표시
-    document_score: int | None = None  # 서류 전형의 AI 적합도 점수. 다른 전형이면 null
+    document_score: float | None = None  # 서류 전형의 총점. 다른 전형이면 null
+    qualification_score: float | None = None  # 서류 전형의 자격요건 점수
+    qualification_max: int = 0
+    preference_score: float | None = None  # 서류 전형의 우대사항 점수
+    preference_max: int = 0
 
 
 class QuestionSource(StrEnum):
@@ -145,7 +149,7 @@ class ChatContext(ContractModel):
     stages: list[ChatStage]  # 채용의 전형 전체, 전형 순서대로. 현재 전형도 들어 있다
     candidates: list[CandidateRow]
     documents: dict[UUID, list[ApplicantDocument]]
-    document_scores: dict[UUID, int]
+    document_scores: dict[UUID, float]
     interviews: dict[UUID, InterviewView]  # 면접 전형일 때만 채워진다
     mentions: list[UUID]
     checked: list[UUID]

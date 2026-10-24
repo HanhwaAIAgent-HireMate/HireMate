@@ -9,11 +9,7 @@ from hiremate_ai.agents.analysis.application.types import (
     ApplicationReview,
     CriterionResult,
     Fact,
-    Level,
     Note,
-    PreferenceResult,
-    PreferenceStatus,
-    QualificationResult,
     Quote,
 )
 from hiremate_ai.agents.analysis.interview.agent import AnswerReading
@@ -42,9 +38,14 @@ from hiremate_ai.contract import (
     CandidateAnalysis,
     CompanyProfile,
     Condition,
+    CriterionCategory,
+    CriterionType,
     DocumentType,
     Finding,
     PostingContent,
+    QualificationStatus,
+    ScoreStatus,
+    Verdict,
 )
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm, LlmCall
@@ -68,7 +69,16 @@ def newcomer_analysis(sample_posting: PostingContent) -> CandidateAnalysis:
         ],
         checks=[Finding(text=f'"{required}"의 근거가 제출 문서에 없어요.', source="공고 · 자격 요건")],
         holds=[],
-        fit=[],
+        criteria_version=None,
+        score_status=ScoreStatus.HELD,
+        document_score=None,
+        qualification_status=QualificationStatus.UNDETERMINED,
+        qualification_rate=None,
+        qualification_score=None,
+        qualification_max=0,
+        preference_score=None,
+        preference_max=0,
+        criteria=[],
         highlights=[],
         agent="Application Agent",
         stub=False,
@@ -808,10 +818,31 @@ class ReviewOnly:
         return self.review
 
 
+def _result(
+    criterion_id: str,
+    category: CriterionCategory,
+    text: str,
+    verdict: Verdict,
+    reason: str,
+    *,
+    shortfall: str | None = None,
+) -> CriterionResult:
+    return CriterionResult(
+        criterion_id=criterion_id,
+        category=category,
+        text=text,
+        important=False,
+        criterion_type=CriterionType.COMPOSITE,
+        verdict=verdict,
+        reason=reason,
+        shortfall=shortfall,
+    )
+
+
 def newcomer_review(applicant: ApplicantDetail, *, readable: bool = True) -> ApplicationReview:
     """이도윤(신입)의 상세 판정.
 
-    경력 요건 미충족, 우대 '대용량 트래픽'의 NCS 수행준거 하나 근거 없음,
+    경력 요건 미충족, 우대 '대용량 트래픽' 부분 충족,
     오픈소스 기여는 본인 역할이 불분명(UNCLEAR), 모의 결제 API는 본인이 한 일(SELF).
     """
     resume = DocumentType.RESUME
@@ -824,67 +855,40 @@ def newcomer_review(applicant: ApplicantDetail, *, readable: bool = True) -> App
     api = Fact(
         kind="PROJECT", statement="모의 결제 API 개발", actor=Actor.SELF, quotes=[Quote(document=resume, sentence=API)]
     )
-    traffic = PreferenceResult(
-        number=1,
-        text="대용량 트래픽 처리 경험",
-        weight=5,
-        unit_code="2001020212_23v6",
-        unit_name="인터페이스 구현",
-        criteria=[
-            CriterionResult(
-                number=1,
-                content_no="1-1",
-                content="대용량 요청을 처리하기 위한 인터페이스 성능 기준을 정할 수 있다.",
-                level=Level.NONE,
-                reason="근거 없음",
-            ),
-            CriterionResult(
-                number=2,
-                content_no="1-2",
-                content="인터페이스 오류를 처리할 수 있다.",
-                level=Level.MET,
-                reason="취소 API",
-            ),
-        ],
-        status=PreferenceStatus.SCORED,
-        score=0.5,
-    )
-    finance = PreferenceResult(
-        number=2,
-        text="금융 도메인 경험",
-        weight=None,
-        unit_code=None,
-        unit_name=None,
-        status=PreferenceStatus.UNRATED,
-        score=None,
-    )
     return ApplicationReview(
         version="test",
         input_hash="h",
         application_id=applicant.info.application_id,
         readable=readable,
         facts=[sdk, api],
-        qualifications=[
-            QualificationResult(
-                number=1,
-                text="Java · Spring Boot 기반 서버 개발 경력 3년 이상",
-                met=False,
+        criteria=[
+            _result(
+                "Q-01",
+                CriterionCategory.QUALIFICATION,
+                "Java · Spring Boot 기반 서버 개발 경력 3년 이상",
+                Verdict.NOT_MET,
+                "경력 없음",
                 shortfall="신입",
-                reason="경력 없음",
             ),
-            QualificationResult(number=2, text="RDBMS 설계와 운영 경험", met=True, reason="MySQL 사용"),
+            _result("Q-02", CriterionCategory.QUALIFICATION, "RDBMS 설계와 운영 경험", Verdict.MET, "MySQL 사용"),
+            _result(
+                "P-01",
+                CriterionCategory.PREFERENCE,
+                "대용량 트래픽 처리 경험",
+                Verdict.PARTIAL,
+                "취소 API의 오류 처리는 했지만 대용량 요청 처리 성능 기준은 드러나지 않는다.",
+            ),
         ],
-        preferences=[traffic, finance],
         checks=[Note(text="실무 경력 없이 모의 프로젝트만 있음", source="자격 요건")],
     )
 
 
 def test_review_gaps_follow_the_demo_like_priority(sample_applicants: dict[str, ApplicantDetail]) -> None:
-    """상세 판정으로 고른 빈틈: 필수 → 확인 필요 → 우대(NCS) → 주장만 → 본인 역할. 평가 기준 없는 우대사항은 뺀다."""
+    """상세 판정으로 고른 빈틈: 필수 → 확인 필요 → 우대 → 주장만 → 본인 역할. 평가 기준 없는 우대사항은 뺀다."""
     gaps = review_gaps(newcomer_review(sample_applicants["이도윤"]))
 
     assert [gap.kind for gap in gaps] == [REQUIRED, CHECK, PREFERRED, CLAIM, NOTABLE]
-    assert "인터페이스 구현" in gaps[2].note and "성능 기준" in gaps[2].note  # NCS 수행준거가 메모로 간다
+    assert "부분 충족" in gaps[2].note and "성능 기준" in gaps[2].note  # 충족도와 이유가 메모로 간다
     assert all("금융" not in gap.topic for gap in gaps)  # 평가 기준(UNRATED)이 없는 우대사항은 빈틈이 아니다
     assert gaps[3].evidence == [SDK] and "불분명" in gaps[3].note  # 역할이 불분명한 경험은 '주장만'
     assert gaps[4].evidence == [API]  # 본인 역할 확인은 요약 문장이 아니라 서류 원문을 인용한다
@@ -933,13 +937,22 @@ async def test_configuration_notices_do_not_reach_question_writing_or_fallback(
         text="우대사항 P1 'Java/Spring 경험'은 평가 기준(가중치 · NCS)이 없어 점수에 넣지 않았어요.",
         source="공고 · 우대사항",
     )
-    review = newcomer_review(applicant).model_copy(update={"qualifications": [], "preferences": [], "checks": [notice]})
+    review = newcomer_review(applicant).model_copy(update={"criteria": [], "checks": [notice]})
     analysis = CandidateAnalysis(
         conditions=[],
         notable=[Finding(text=API, source="이력서")],
         checks=[Finding(text=notice.text, source=notice.source)],
         holds=[],
-        fit=[],
+        criteria_version=None,
+        score_status=ScoreStatus.HELD,
+        document_score=None,
+        qualification_status=QualificationStatus.UNDETERMINED,
+        qualification_rate=None,
+        qualification_score=None,
+        qualification_max=0,
+        preference_score=None,
+        preference_max=0,
+        criteria=[],
         highlights=[],
         agent="Application Agent",
         stub=False,
@@ -1028,7 +1041,16 @@ async def test_experience_already_asked_on_the_card_is_not_asked_again(
         notable=[Finding(text=API, source="이력서")],
         checks=[],
         holds=[],
-        fit=[],
+        criteria_version=None,
+        score_status=ScoreStatus.HELD,
+        document_score=None,
+        qualification_status=QualificationStatus.UNDETERMINED,
+        qualification_rate=None,
+        qualification_score=None,
+        qualification_max=0,
+        preference_score=None,
+        preference_max=0,
+        criteria=[],
         highlights=[],
         agent="Application Agent",
         stub=False,
