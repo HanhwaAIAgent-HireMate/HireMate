@@ -98,7 +98,16 @@ def one_context(applicants: Applicants, company: CompanyProfile, posting: Postin
 
 
 def answered(*items: AnswerItem, message: str = "정유민 님의 강점이에요.") -> RootAnswer:
-    return RootAnswer(message=message, items=list(items))
+    return RootAnswer(
+        message=message,
+        items=list(items)
+        or [AnswerItem(candidate="C1", label="확인할 점", text="본인 역할은 추가 확인이 필요해요.", status="CHECK")],
+    )
+
+
+def unrepaired(reply: RootAnswer) -> FakeLlm:
+    """검증 실패를 알려도 같은 답을 내는 모델. 안전한 결과로 마무리하는 동작을 검사한다."""
+    return FakeLlm(reply, reply)
 
 
 async def ask(llm: LlmClient, context: ChatContext, toolkit: RootToolkit | None = None) -> ChatPlan:
@@ -156,7 +165,9 @@ async def test_unverified_evidence_turns_check(
 ) -> None:
     context = context_for(sample_applicants, sample_company, sample_posting)
     made_up = AnswerEvidence(sentence="10년 동안 증권사 시스템을 설계했습니다.", source="이력서")
-    llm = FakeLlm(answered(AnswerItem(candidate="C1", label="강점", text="증권 경력", status="OK", evidence=[made_up])))
+    llm = unrepaired(
+        answered(AnswerItem(candidate="C1", label="강점", text="증권 경력", status="OK", evidence=[made_up]))
+    )
 
     plan = await ask(llm, context)
 
@@ -168,7 +179,7 @@ async def test_ok_without_evidence_about_a_candidate_turns_check(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = context_for(sample_applicants, sample_company, sample_posting)
-    llm = FakeLlm(
+    llm = unrepaired(
         answered(
             AnswerItem(candidate="C1", label="강점", text="리더십", status="OK"),
             AnswerItem(candidate=None, label="미결정", text="8명", status="OK"),
@@ -197,7 +208,7 @@ async def test_unknown_candidate_item_dropped(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = context_for(sample_applicants, sample_company, sample_posting)
-    llm = FakeLlm(
+    llm = unrepaired(
         answered(
             AnswerItem(candidate="C42", label="강점", text="?", status="OK"),
             AnswerItem(candidate=None, label="요약", text="공고 조건과 비교했어요", status="OK"),
@@ -226,7 +237,7 @@ async def test_interview_evidence_checked_against_records(
     )
     kept = AnswerEvidence(sentence="파티셔닝 기준을 월 단위로 정했습니다.", source="면접 기록")
     dropped = AnswerEvidence(sentence="샤딩을 도입했습니다.", source="면접 기록")
-    llm = FakeLlm(
+    llm = unrepaired(
         answered(
             AnswerItem(candidate="C1", label="답변", text="파티셔닝", status="OK", evidence=[kept]),
             AnswerItem(candidate="C1", label="답변", text="샤딩", status="OK", evidence=[dropped]),
@@ -273,7 +284,7 @@ async def test_evidence_the_agent_left_unconfirmed_or_conflicting_turns_check(
             ]
         }
     )
-    llm = FakeLlm(
+    llm = unrepaired(
         answered(
             *(
                 AnswerItem(
@@ -365,7 +376,7 @@ async def test_assessment_evidence_checked_against_profile(
 ) -> None:
     context = context_for(sample_applicants, sample_company, sample_posting)
     toolkit = with_evidence(assessment_note(sample_applicants["정유민"].info.application_id))
-    llm = FakeLlm(
+    llm = unrepaired(
         answered(
             AnswerItem(
                 candidate="C1",
@@ -396,7 +407,7 @@ async def test_assessment_evidence_without_profile_turns_check(
 ) -> None:
     context = context_for(sample_applicants, sample_company, sample_posting)
     evidence = AnswerEvidence(sentence=ASSESSMENT_NOTE, source="평가 메모")
-    llm = FakeLlm(answered(AnswerItem(candidate="C1", label="소통", text="설명", status="OK", evidence=[evidence])))
+    llm = unrepaired(answered(AnswerItem(candidate="C1", label="소통", text="설명", status="OK", evidence=[evidence])))
 
     plan = await ask(llm, context)
 
@@ -643,7 +654,12 @@ async def test_ref_in_text_assigns_candidate_and_reads_as_name(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="지원자 경력 요약해줘")
-    item = AnswerItem(label="경력", text="C2 김하늘은 은행 경력이 있다", status="OK")
+    item = AnswerItem(
+        label="경력",
+        text="C2 김하늘은 은행 경력이 있다",
+        status="OK",
+        evidence=[AnswerEvidence(sentence=KIM_ORACLE, source="이력서")],
+    )
     llm = FakeLlm(answered(item, message="C1 정유민과 C2를 비교했어요."))
 
     plan = await ask(llm, context)
@@ -658,7 +674,7 @@ async def test_unverifiable_evidence_without_candidate_turns_check(
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="지원자 경력 요약해줘")
     evidence = AnswerEvidence(sentence=BATCH, source="이력서")
-    llm = FakeLlm(answered(AnswerItem(label="공통점", text="둘 다 정산 경험", status="OK", evidence=[evidence])))
+    llm = unrepaired(answered(AnswerItem(label="공통점", text="둘 다 정산 경험", status="OK", evidence=[evidence])))
 
     plan = await ask(llm, context)
 
@@ -694,7 +710,7 @@ async def test_source_label_variants_are_checked(
             evidence=[AnswerEvidence(sentence=sentence, source=source)],
         )
 
-    llm = FakeLlm(
+    llm = unrepaired(
         answered(
             item("10년 동안 증권사 시스템을 설계했습니다.", "이력서 경력란"),
             item(RETRO, "자소서"),
@@ -1078,12 +1094,16 @@ async def test_single_answer_reports_name(
     # 한 명이면 "1명을 비교하고 있어요"는 내지 않는다
     context = one_context(sample_applicants, sample_company, sample_posting)
     progress = Recorder()
-    llm = FakeLlm(CandidateNotes(), MultiSummary(message="정리했어요."))
+    llm = FakeLlm(
+        CandidateNotes(items=[AnswerItem(label="확인할 점", text="본인 역할을 확인해야 해요.", status="CHECK")]),
+        MultiSummary(message="정리했어요."),
+    )
 
     await plan_answer(llm, ASK, context, resolve(context), default_toolkit(), progress=progress)
 
     assert progress.statuses == [ONE_STATUS.format(name="정유민")]
-    assert progress.items == []
+    assert len(progress.items) == 1
+    assert progress.items[0].status == "CHECK"
 
 
 async def test_stage_answer_reports_stage(

@@ -25,6 +25,12 @@ from hiremate_ai.llm.fake import FakeLlm, ToolCall
 type Applicants = dict[str, ApplicantDetail]
 
 
+def checked_notes() -> CandidateNotes:
+    return CandidateNotes(
+        items=[AnswerItem(label="확인할 점", text="세부 근거는 추가 확인이 필요해요.", status="CHECK")]
+    )
+
+
 def thread_of(context: ChatContext, member: UUID | None = None) -> RootThread:
     return RootThread(
         id=f"{context.company.company_id}:{context.stage_id}:{member or uuid4()}",
@@ -129,7 +135,7 @@ async def test_state_has_no_documents(
     thread = thread_of(context)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="강점이에요."),
     )
 
@@ -156,7 +162,7 @@ async def test_tool_loop_is_not_saved(
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
         ToolCall("get_candidate_documents", {"candidate": "C1"}),
-        RootAnswer(message="강점이에요."),
+        RootAnswer(message="강점이에요.", items=[]),
     )
 
     await run_plan(llm, context, saver=saver, thread=thread)
@@ -185,7 +191,7 @@ async def test_ordinal_from_previous_result(
         RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
         FINANCE_FOUND,
         RootRoute(kind="ANSWER", previous_ref="result", ordinal=2),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="강점이에요."),
     )
 
@@ -212,7 +218,7 @@ async def test_subject_from_previous_turn(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
     )
@@ -256,11 +262,11 @@ async def test_implied_subject_answers_through_tools(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="ANSWER", previous_ref="subject"),
         ToolCall("get_stage_summary"),
-        RootAnswer(message="미결정은 8명이에요."),
+        RootAnswer(message="미결정은 8명이에요.", items=[]),
     )
 
     await run_plan(llm, asked, saver=saver, thread=thread)
@@ -285,7 +291,7 @@ async def test_remembered_candidate_must_be_in_stage(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
     )
@@ -326,7 +332,7 @@ async def test_reason_question_reads_previous_turns(
         RootRoute(kind="ANSWER", interview_questions=True),
         RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus=FOCUS)]),
         RootRoute(kind="ANSWER", previous_ref="subject"),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="정산 배치 설계 판단을 확인하려고 만들었어요."),
     )
 
@@ -383,7 +389,7 @@ async def test_result_ref_falls_back_to_latest_turn_with_targets(
         RootRoute(kind="ANSWER", interview_questions=True),
         RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus=FOCUS)]),
         RootRoute(kind="ANSWER", previous_ref="result"),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="이유예요."),
     )
 
@@ -488,8 +494,8 @@ async def test_checked_beats_previous_without_words(
         RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
         FINANCE_FOUND,
         RootRoute(kind="ANSWER", previous_ref="result", compare=True),
-        CandidateNotes(items=[]),
-        CandidateNotes(items=[]),
+        checked_notes(),
+        checked_notes(),
         MultiSummary(message="비교했어요."),
     )
     compare = make_context(
@@ -514,7 +520,7 @@ async def test_previous_words_beat_checked(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
     )
@@ -539,7 +545,7 @@ async def test_empty_narrow_keeps_result(
         FINANCE_FOUND,
         RootRoute(kind="FIND", mode=SelectionMode.NARROW, concepts=["양자 컴퓨팅"]),
         RootRoute(kind="ANSWER", previous_ref="result", ordinal=2),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="강점이에요."),
     )
 
@@ -571,7 +577,7 @@ async def test_find_turn_records_only_found(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="FIND", concepts=["양자 컴퓨팅"], previous_ref="subject"),
         RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
@@ -605,7 +611,7 @@ async def test_clear_with_checked_keeps_subject(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="EDIT", edit=EditAction.CLEAR),
         RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
