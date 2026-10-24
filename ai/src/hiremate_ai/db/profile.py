@@ -15,7 +15,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from hiremate_ai.db.base import SCHEMA, Base
@@ -76,7 +76,7 @@ class CandidateProfile(Base):
     # 조건 검색에 쓰는 값. 분석 전이거나 찾지 못하면 None
     career_years: Mapped[int | None]
     last_company: Mapped[str | None] = mapped_column(String(200))
-    document_score: Mapped[int | None]
+    document_score: Mapped[float | None] = mapped_column(Numeric(4, 1, asdecimal=False))  # 우대사항 충족 점수
     passed: Mapped[bool | None]  # AI 기준 통과 여부. 미달자는 AI 탐색에서 뺀다 (FR-20)
     summary: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

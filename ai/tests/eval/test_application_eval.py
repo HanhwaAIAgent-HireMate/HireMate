@@ -1,8 +1,8 @@
 """Application Agent 실제 모델 평가. LLM_EVAL=true일 때만 돈다: `LLM_EVAL=true uv run pytest tests/eval -v -s`.
 
-지원자는 저장소 루트 scripts/demo/applicants.json의 가상 인물이고, NCS 평가 조건은 로컬 DB에서 읽는다
-(먼저 `uv run python scripts/ncs_load.py`). 자격요건 통과 · 점수 보류 · 못 채운 자격요건 표시가
-지원자마다 기대값과 맞는지 보고 정확도를 출력한다. 점수 숫자는 모델마다 달라 기대값으로 두지 않는다.
+지원자는 저장소 루트 scripts/demo/applicants.json의 가상 인물이고, 평가 기준은 backend application.yml의 더미와 같다.
+자격요건 75% 통과 판단 · 점수 보류 · 미충족 표시가 지원자마다 기대값과 맞는지 보고 정확도를 출력한다.
+점수 숫자는 모델마다 달라 순서만 확인한다.
 """
 
 import json
@@ -14,19 +14,25 @@ from uuid import UUID, uuid5
 import pytest
 
 from hiremate_ai.agents.analysis.application.graph import ReviewInput, run_review
-from hiremate_ai.agents.analysis.application.ncs import ncs_units
-from hiremate_ai.agents.analysis.application.service import preference_tasks
-from hiremate_ai.agents.analysis.application.types import RubricPreference, ScreeningRubric
+from hiremate_ai.agents.analysis.application.service import match_criteria, weights
+from hiremate_ai.agents.analysis.application.types import (
+    VERDICT_LABEL,
+    Criterion,
+    EvaluationRules,
+    ScreeningRubric,
+)
 from hiremate_ai.config import settings
 from hiremate_ai.contract import (
     AnalysisStatus,
     ApplicantDetail,
     ApplicantDocument,
     ApplicantInfo,
+    CriterionCategory,
+    CriterionType,
     DocumentType,
     PostingContent,
+    QualificationStatus,
 )
-from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.call_log import CallRecord
 from hiremate_ai.llm.client import build_llm
 
@@ -38,58 +44,133 @@ pytestmark = [
 DEMO = Path(__file__).resolve().parents[3] / "scripts" / "demo"
 RECRUITMENT = UUID("00000000-0000-4000-8000-0000000000aa")
 MIN_ACCURACY = 0.8
+C, S, X = CriterionType.CONDITION, CriterionType.SINGLE, CriterionType.COMPOSITE
 
-QUALIFICATIONS = [
-    "Java 또는 Kotlin 기반 서버 개발 경력 3년 이상",
-    "Spring Boot로 REST API를 개발 · 운영한 경험",
-    "MySQL · PostgreSQL 등 RDBMS 스키마 설계와 SQL 작성 경험",
-    "Git 기반 코드 리뷰와 협업 경험",
-    "JUnit 등으로 테스트 코드를 작성한 경험",
+# backend application.yml의 hiremate.dummy.screening-rubric과 같다: (id, 문장, 중요, 유형, 충족, 부분 충족, 미충족)
+ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
+    (
+        "Q-01",
+        "Java 또는 Kotlin 기반 서버 개발 경력 3년 이상",
+        True,
+        C,
+        "Java · Kotlin으로 서버를 개발한 재직 경력이 3년 이상이다 (기간은 경력표로 계산한다).",
+        None,
+        "Java · Kotlin 서버 개발 재직 경력이 3년에 못 미치거나 서류에서 확인되지 않는다.",
+    ),
+    (
+        "Q-02",
+        "Spring Boot로 REST API를 개발 · 운영한 경험",
+        True,
+        S,
+        "Spring Boot로 REST API를 본인이 개발하거나 운영했다.",
+        None,
+        "Spring Boot로 REST API를 개발 · 운영한 기록이 서류에서 확인되지 않는다.",
+    ),
+    (
+        "Q-03",
+        "MySQL · PostgreSQL 등 RDBMS 스키마 설계와 SQL 작성 경험",
+        False,
+        X,
+        "RDBMS 스키마(테이블 · 인덱스)를 본인이 설계하고 SQL을 작성했다.",
+        "SQL 작성이나 쿼리 튜닝은 했지만 스키마 설계는 드러나지 않는다 (또는 그 반대).",
+        "RDBMS를 다룬 기록이 서류에서 확인되지 않는다.",
+    ),
+    (
+        "Q-04",
+        "Git 기반 코드 리뷰와 협업 경험",
+        False,
+        X,
+        "Git으로 협업하며 코드 리뷰(PR 리뷰 등)를 주고받았다.",
+        "Git으로 협업한 기록은 있지만 코드 리뷰는 드러나지 않는다.",
+        "Git 협업 기록이 서류에서 확인되지 않는다.",
+    ),
+    (
+        "Q-05",
+        "JUnit 등으로 테스트 코드를 작성한 경험",
+        False,
+        S,
+        "JUnit 등 테스트 도구로 테스트 코드를 본인이 작성했다.",
+        None,
+        "테스트 코드를 작성한 기록이 서류에서 확인되지 않는다.",
+    ),
+    (
+        "P-01",
+        "외부 시스템 연동 인터페이스를 설계한 경험",
+        True,
+        X,
+        "외부 · 내부 시스템 간 연동 인터페이스를 본인이 설계했다. 연동 대상과 송수신 데이터를 정하고, "
+        "송수신 방식(API · 메시지 명세)과 오류 시 처리 방안까지 명세한 근거가 있다.",
+        "인터페이스 설계의 일부만 본인이 했다. 연동 대상 · 송수신 데이터를 정하거나 API 명세를 썼지만 "
+        "오류 시 처리 방안까지는 드러나지 않는다.",
+        "연동 기능을 쓰거나 구현만 했고 설계한 기록이 서류에서 확인되지 않는다.",
+    ),
+    (
+        "P-02",
+        "연동 API를 구현하고 오류 · 보안 처리를 적용한 경험",
+        True,
+        X,
+        "외부 · 내부 모듈과의 연동 기능을 본인이 구현했고, 실패 시 예외 처리(재시도 · 타임아웃 · 보상 처리 등)와 "
+        "보안 처리(인증 · 암호화 · 서명 검증 등)를 모두 적용했다.",
+        "연동 기능을 본인이 구현했고 예외 처리와 보안 처리 가운데 하나만 드러난다.",
+        "연동 기능을 구현한 기록이 없거나, 구현했어도 예외 · 보안 처리가 서류에서 확인되지 않는다.",
+    ),
+    (
+        "P-03",
+        "요구사항을 분석 · 확인해 개발 범위를 정한 경험",
+        False,
+        X,
+        "현행 시스템이나 업무 요구사항을 본인이 분석 · 검토해 개발 범위나 목표 시스템을 정했다 "
+        "(예: 요구사항 정의서 작성, 범위 협의를 이끎).",
+        "요구사항 분석 · 검토에 참여해 의견을 냈지만 개발 범위를 정한 데까지는 드러나지 않는다.",
+        "정해진 요구사항대로 구현한 기록만 있다.",
+    ),
+    (
+        "P-04",
+        "빌드 · 배포 자동화(CI/CD)를 구성한 경험",
+        False,
+        X,
+        "빌드 · 배포 파이프라인(도구 · 스크립트 · 환경 설정)을 본인이 구성해 운영 환경에 배포했고, "
+        "배포 후 확인이나 실패 시 이전 버전으로 되돌리는 절차까지 있다.",
+        "빌드 스크립트나 파이프라인 일부(테스트 · 빌드 단계 등)만 본인이 구성했고, "
+        "운영 배포나 복원 절차는 드러나지 않는다.",
+        "이미 구성된 파이프라인을 쓴 기록만 있거나 서류에서 확인되지 않는다.",
+    ),
+    (
+        "P-05",
+        "클래스 · 데이터 모델 등 정적 모델을 설계한 경험",
+        False,
+        X,
+        "클래스 · 엔티티 · 데이터 모델(ERD 등)을 본인이 상세 설계하고 설계서나 다이어그램으로 남겼다.",
+        "엔티티 · 테이블 설계를 본인이 했지만 설계서나 다이어그램 같은 결과물은 드러나지 않는다.",
+        "정적 모델을 설계한 기록이 서류에서 확인되지 않는다.",
+    ),
 ]
-# backend application.yml의 hiremate.dummy.screening-rubric과 같다
-PREFERRED = [
-    RubricPreference(
-        text="외부 시스템 연동 인터페이스를 설계한 경험",
-        weight=5,
-        ncs_unit_code="2001020218_23v6",
-        certificates=["정보처리기사"],
-    ),
-    RubricPreference(
-        text="연동 API를 구현하고 오류 · 보안 처리를 적용한 경험",
-        weight=4,
-        ncs_unit_code="2001020212_23v6",
-        certificates=["정보처리기사"],
-    ),
-    RubricPreference(
-        text="요구사항을 분석 · 확인해 개발 범위를 정한 경험",
-        weight=3,
-        ncs_unit_code="2001020201_23v5",
-        certificates=["정보처리기사"],
-    ),
-    RubricPreference(
-        text="빌드 · 배포 자동화(CI/CD)를 구성한 경험", weight=3, ncs_unit_code="2001020214_23v6", certificates=[]
-    ),
-    RubricPreference(
-        text="클래스 · 데이터 모델 등 정적 모델을 설계한 경험",
-        weight=2,
-        ncs_unit_code="2001020222_23v6",
-        certificates=["정보처리기사"],
-    ),
+CRITERIA = [
+    Criterion(
+        criterion_id=criterion_id,
+        category=CriterionCategory.QUALIFICATION if criterion_id.startswith("Q") else CriterionCategory.PREFERENCE,
+        text=text,
+        important=important,
+        criterion_type=kind,
+        evaluation_rules=EvaluationRules(met=met, partial=partial, unmet=unmet),
+    )
+    for criterion_id, text, important, kind, met, partial, unmet in ROWS
 ]
 
-# 이름 → (자격요건 통과, 점수 보류, 못 채운 자격요건이 있는가). 결과가 규칙으로 분명한 지원자만 둔다
-EXPECTED: dict[str, tuple[bool, bool, bool]] = {
-    "김도현": (True, False, False),
-    "이서윤": (True, False, False),
-    "안소율": (True, False, False),
-    "양시우": (True, False, True),  # 테스트 코드 근거 없음 → 4/5 통과, ✕
-    "이도윤": (False, False, True),  # 신입 · Git 협업 없음 → 60%
-    "서민재": (False, False, True),  # 프론트엔드
-    "최지우": (False, False, True),  # 데이터 분석
-    "윤태오": (False, True, False),  # 글자 없는 PDF → 보류
-    "한예린": (True, False, False),
+P, F, U = QualificationStatus.PASSED, QualificationStatus.FAILED, QualificationStatus.UNDETERMINED
+# 이름 → (75% 통과 판단, 미충족 · 확인 필요 표시가 있는가). 결과가 규칙으로 분명한 지원자만 둔다.
+# 양시우(테스트 코드 근거 없음 + RDBMS 쿼리 튜닝만)는 RDBMS가 충족 · 부분 충족 경계라 70 ~ 80%를 오가서 뺐다.
+# 점수 보류는 근거가 애매한 정도에 따라 생기는 결과라 기대값에 두지 않고, 이유를 출력해 사람이 본다.
+EXPECTED: dict[str, tuple[QualificationStatus, bool]] = {
+    "김도현": (P, False),
+    "이서윤": (P, False),
+    "이도윤": (F, True),  # 신입 · Git 협업 없음
+    "서민재": (F, True),  # 프론트엔드
+    "최지우": (F, True),  # 데이터 분석
+    "윤태오": (U, False),  # 글자 없는 PDF
+    "한예린": (P, False),
 }
-# AI 적합도 점수의 순서: (높아야 하는 지원자, 낮아야 하는 지원자)
+# 총점의 순서: (높아야 하는 지원자, 낮아야 하는 지원자)
 HIGHER = [("김도현", "안소율"), ("이서윤", "백승호"), ("김도현", "한예린")]
 
 
@@ -132,14 +213,19 @@ def applicant_of(index: int, raw: dict[str, Any]) -> ApplicantDetail:
 async def test_demo_applicants_match_expected_outcomes(sample_posting: PostingContent) -> None:
     raws = json.loads((DEMO / "applicants.json").read_text(encoding="utf-8"))
     applicants = {raw["name"]: applicant_of(index, raw) for index, raw in enumerate(raws, start=1)}
+    categories = {CriterionCategory.QUALIFICATION: "qualifications", CriterionCategory.PREFERENCE: "preferred"}
     posting = sample_posting.model_copy(
-        update={"qualifications": QUALIFICATIONS, "preferred": [preference.text for preference in PREFERRED]}
+        update={field: [c.text for c in CRITERIA if c.category == category] for category, field in categories.items()}
     )
-    rubric = ScreeningRubric(company_id=RECRUITMENT, recruitment_id=RECRUITMENT, hire_count=1, preferred=PREFERRED)
-    async with session_factory()() as session:
-        units = await ncs_units(session, [preference.ncs_unit_code for preference in PREFERRED])
-    if len(units) < len(PREFERRED):
-        pytest.skip("NCS 능력단위가 DB에 없다. scripts/ncs_load.py로 먼저 넣는다")
+    rubric = ScreeningRubric(
+        company_id=RECRUITMENT,
+        recruitment_id=RECRUITMENT,
+        criteria_version="dummy-2026-10-22",
+        hire_count=1,
+        criteria=CRITERIA,
+    )
+    criteria, notes = match_criteria(posting, rubric)
+    assert not notes  # 공고 문장과 평가 기준이 모두 짝지어진다
     llm = build_llm(MemoryCallLog())
 
     names = sorted({*EXPECTED, *(name for pair in HIGHER for name in pair)})
@@ -148,8 +234,10 @@ async def test_demo_applicants_match_expected_outcomes(sample_posting: PostingCo
         context = ReviewInput(
             applicant=applicants[name],
             posting=posting,
-            tasks=preference_tasks(posting, rubric, units),
-            related_certificates=("정보처리기사", "SQLD", "리눅스마스터", "AWS Solutions Architect"),
+            criteria=criteria,
+            criteria_version=rubric.criteria_version,
+            notes=notes,
+            weights=weights(),
             input_hash="eval",
             today=date(2026, 10, 21),
         )
@@ -158,17 +246,24 @@ async def test_demo_applicants_match_expected_outcomes(sample_posting: PostingCo
     hits = 0
     for name, expected in EXPECTED.items():
         review = reviews[name]
-        shortfalls = [result.shortfall for result in review.qualifications if not result.met]
-        actual = (review.passed, review.held, bool(shortfalls))
+        shortfalls = [result.shortfall for result in review.qualifications if result.shortfall]
+        actual = (review.qualification_status, bool(shortfalls))
         hits += actual == expected
         mark = "OK" if actual == expected else "NG"
-        fit = {line.key: line.points for line in review.fit}
-        print(f"{mark} {name}: 기대 {expected} 결과 {actual} 점수 {review.document_score}")
-        print(f"   우대 {round(review.preference_points)}/60 적합도 {fit} 못 채운 자격요건 {shortfalls}")
+        verdicts = " · ".join(f"{r.criterion_id} {VERDICT_LABEL[r.verdict]}" for r in review.criteria)
+        print(f"{mark} {name}: 기대 {expected} 결과 {actual}")
+        print(
+            f"   총점 {review.document_score} (자격 {review.qualification_score} · 우대 {review.preference_score})"
+            f" 충족률 {review.qualification_rate} 표시 {shortfalls}"
+        )
+        print(f"   {verdicts}")
+        for note in review.holds:
+            print(f"   보류: {note.text}")
     for high, low in HIGHER:
         print(f"순서 {high} {reviews[high].document_score} > {low} {reviews[low].document_score}")
         assert (reviews[high].document_score or 0) > (reviews[low].document_score or 0)
 
+    assert reviews["윤태오"].held  # 글자를 읽지 못한 서류는 반드시 보류다
     accuracy = hits / len(EXPECTED)
     print(f"정확도 {accuracy:.0%}")
     assert accuracy >= MIN_ACCURACY

@@ -1,9 +1,11 @@
-"""Application Agent 테스트가 같이 쓰는 공고 · 평가 기준 · NCS 평가 조건과 가짜 모델 대본.
+"""Application Agent 테스트가 같이 쓰는 공고 · 평가 기준과 가짜 모델 대본.
 
-모델 호출은 문서별 · 우대사항별로 동시에 나가므로 FakeLlm에는 호출 내용을 보고 답하는 대본(Script)을 넣는다.
+모델 호출은 문서별 추출 · 영역별 판정 · 재확인이 동시에 나가므로
+FakeLlm에는 호출 내용을 보고 답하는 대본(Script)을 넣는다.
 """
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
@@ -11,27 +13,20 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from hiremate_ai.agents.analysis.application.extract import ExtractedFacts
-from hiremate_ai.agents.analysis.application.fit import FitJudgement, FitScore
-from hiremate_ai.agents.analysis.application.judge import (
-    CriterionVerdict,
-    PreferenceJudgement,
-    QualificationJudgement,
-    QualificationVerdict,
-)
+from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, ExtractedPeriod
+from hiremate_ai.agents.analysis.application.judge import CriteriaJudgement, CriterionVerdict
 from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
-from hiremate_ai.agents.analysis.application.types import RubricPreference, ScreeningRubric
-from hiremate_ai.contract import PostingContent
+from hiremate_ai.agents.analysis.application.types import Criterion, EvaluationRules, ScreeningRubric
+from hiremate_ai.contract import CriterionCategory, CriterionType, PostingContent
 from hiremate_ai.llm.fake import FakeLlm, LlmCall
-from hiremate_ai.tools.ncs import NcsElement, NcsUnit
 
 type ReviewVerdict = Literal["SUPPORTED", "OVERSTATED", "UNSUPPORTED"]
+type Level = Literal["MET", "PARTIAL", "NOT_MET", "UNKNOWN"]
 
 TODAY = date(2026, 10, 21)
 COMPANY_ID = UUID("2b8e4c1d-6f3a-4e5b-9c7d-0a1b2c3d4e50")
 RECRUITMENT_ID = UUID("7a1e2b3c-4d5e-4f60-8a9b-0c1d2e3f4a51")
-DESIGN = "2001020218_23v6"
-DEPLOY = "2001020214_23v6"
+CRITERIA_VERSION = "test-1"
 
 QUALIFICATIONS = [
     "Java 또는 Kotlin 기반 서버 개발 경력 3년 이상",
@@ -39,94 +34,85 @@ QUALIFICATIONS = [
     "RDBMS 설계와 SQL 작성 경험",
     "Git 기반 협업 경험",
 ]
-PREFERRED = ["외부 시스템 연동 인터페이스를 설계한 경험", "빌드 · 배포 자동화를 구성한 경험"]
-
-
-def _element(number: int, name: str, criterion: str) -> NcsElement:
-    return NcsElement(number=number, name=name, criteria=[criterion], knowledge=[], skills=[], attitudes=[])
-
-
-def _unit(code: str, name: str, definition: str, elements: list[NcsElement]) -> NcsUnit:
-    return NcsUnit(
-        code=code,
-        name=name,
-        level=5,
-        definition=definition,
-        duty_code=code[:8],
-        major="정보통신",
-        middle="정보기술",
-        minor="정보기술개발",
-        subdivision="응용SW엔지니어링",
-        elements=elements,
-        scope={},
-        evaluation_points=[],
-        basic_competencies=[],
-    )
-
-
-UNITS = {
-    DESIGN: _unit(
-        DESIGN,
-        "인터페이스 설계",
-        "시스템 인터페이스 요구사항을 확인하고 인터페이스를 설계하는 능력이다.",
-        [
-            _element(1, "인터페이스 요구사항 확인하기", "인터페이스 기능 요구사항을 분석할 수 있다."),
-            _element(2, "인터페이스 대상 식별하기", "인터페이스에 필요한 송수신 데이터를 식별할 수 있다."),
-            _element(3, "인터페이스 상세 설계하기", "인터페이스 오류 시 처리 방안을 명세화할 수 있다."),
-        ],
-    ),
-    DEPLOY: _unit(
-        DEPLOY,
-        "애플리케이션 배포",
-        "애플리케이션을 빌드하여 운영 환경에 배포하는 능력이다.",
-        [
-            _element(3, "애플리케이션 빌드하기", "빌드 스크립트를 작성할 수 있다."),
-            _element(4, "애플리케이션 배포하기", "배포 절차에 따라 운영 환경에 적용할 수 있다."),
-        ],
-    ),
-}
+PREFERRED = [
+    "외부 시스템 연동 인터페이스를 설계한 경험",
+    "빌드 · 배포 자동화를 구성한 경험",
+    "정보처리기사 자격증 보유",
+]
 
 
 def make_posting(base: PostingContent) -> PostingContent:
-    """가상 공고에 이 테스트의 자격요건 4개 · 우대사항 2개를 넣는다."""
+    """가상 공고에 이 테스트의 자격요건 4개 · 우대사항 3개를 넣는다."""
     return base.model_copy(update={"qualifications": QUALIFICATIONS, "preferred": PREFERRED})
 
 
+def _criterion(
+    criterion_id: str,
+    text: str,
+    criterion_type: CriterionType,
+    *,
+    important: bool = False,
+    partial: str | None = None,
+    certificates: Sequence[str] = (),
+) -> Criterion:
+    category = CriterionCategory.QUALIFICATION if criterion_id.startswith("Q") else CriterionCategory.PREFERENCE
+    return Criterion(
+        criterion_id=criterion_id,
+        category=category,
+        text=text,
+        important=important,
+        criterion_type=criterion_type,
+        evaluation_rules=EvaluationRules(
+            met=f"{text}을 본인이 했다", partial=partial, unmet="서류에서 확인되지 않는다"
+        ),
+        certificates=list(certificates),
+    )
+
+
 def make_rubric() -> ScreeningRubric:
+    """자격요건 4개(Q-01 경력 · 중요), 우대사항 3개(P-01 복합 · 중요, P-02 복합, P-03 자격증)."""
     return ScreeningRubric(
         company_id=COMPANY_ID,
         recruitment_id=RECRUITMENT_ID,
+        criteria_version=CRITERIA_VERSION,
         hire_count=1,
-        preferred=[
-            RubricPreference(text=PREFERRED[0], weight=5, ncs_unit_code=DESIGN, certificates=["정보처리기사"]),
-            RubricPreference(text=PREFERRED[1], weight=3, ncs_unit_code=DEPLOY, certificates=[]),
+        criteria=[
+            _criterion("Q-01", QUALIFICATIONS[0], CriterionType.CONDITION, important=True),
+            _criterion("Q-02", QUALIFICATIONS[1], CriterionType.SINGLE),
+            _criterion("Q-03", QUALIFICATIONS[2], CriterionType.SINGLE),
+            _criterion("Q-04", QUALIFICATIONS[3], CriterionType.SINGLE),
+            _criterion(
+                "P-01", PREFERRED[0], CriterionType.COMPOSITE, important=True, partial="설계의 일부만 본인이 했다"
+            ),
+            _criterion("P-02", PREFERRED[1], CriterionType.COMPOSITE, partial="빌드 스크립트 등 일부만 구성했다"),
+            _criterion("P-03", PREFERRED[2], CriterionType.CONDITION, certificates=["정보처리기사"]),
         ],
     )
 
 
-def met(number: int, *evidence: str) -> QualificationVerdict:
-    return QualificationVerdict(number=number, verdict="MET", reason="근거가 있다", evidence=list(evidence))
-
-
-def not_met(number: int, shortfall: str) -> QualificationVerdict:
-    return QualificationVerdict(number=number, verdict="NOT_MET", reason="근거가 없다", shortfall=shortfall)
-
-
-def criterion(number: int, level: Literal["MET", "NONE"], *evidence: str) -> CriterionVerdict:
-    return CriterionVerdict(number=number, level=level, reason=f"C{number} 판정", evidence=list(evidence))
-
-
-def judged(*criteria: CriterionVerdict) -> PreferenceJudgement:
-    return PreferenceJudgement(criteria=list(criteria))
-
-
-def fitted(*scores: tuple[str, int, str]) -> FitJudgement:
-    """직무 적합도 대본. (항목 key, 점수, 근거 문장)."""
-    return FitJudgement(
-        scores=[
-            FitScore(key=key, points=points, reason=f"{key} 이유", evidence=[evidence] if evidence else [])
-            for key, points, evidence in scores
-        ]
+def verdict(
+    criterion_id: str,
+    level: Level,
+    *evidence: str,
+    role: Literal["SELF", "TEAM", "UNCLEAR"] = "SELF",
+    periods: Sequence[int] = (),
+    shortfall: str = "",
+) -> CriterionVerdict:
+    """판정 대본 한 줄. 부분 충족이면 충족 · 미충족 부분을 함께 채운다."""
+    partial = level == "PARTIAL"
+    return CriterionVerdict(
+        criterion_id=criterion_id,
+        relevance="관련 업무",
+        role=role,
+        scope="수행 범위",
+        verdict=level,
+        reason=f"{criterion_id} {level} 판정",
+        satisfied_parts=["설계서 작성"] if partial else [],
+        unsatisfied_parts=["오류 처리 명세"] if partial else [],
+        unknown_parts=["본인 역할"] if level == "UNKNOWN" else [],
+        evidence=list(evidence),
+        career_periods=list(periods),
+        shortfall=shortfall,
     )
 
 
@@ -134,30 +120,31 @@ def fitted(*scores: tuple[str, int, str]) -> FitJudgement:
 class Script:
     """호출 내용을 보고 답하는 가짜 모델의 대본.
 
-    extract: 문서 본문 일부 → 추출 결과. qualify: 자격요건 판정. prefer: 우대사항 글 → 판정.
-    fit: 직무 적합도 항목 점수. reviews: 주장 id → 검토 결과 (없으면 SUPPORTED).
+    extract: 문서 본문 일부 → 추출 결과. verdicts: 항목 id → 첫 판정 (없으면 NOT_MET).
+    rechecks: (항목 id, 재확인 차수) → 재확인 판정 (없으면 첫 판정을 다시 쓴다).
+    reviews: 주장 id → 검토 결과 (없으면 SUPPORTED). omit: 답에서 빠뜨릴 항목 id.
     """
 
     extract: dict[str, ExtractedFacts] = field(default_factory=dict)
-    qualify: QualificationJudgement = field(default_factory=lambda: QualificationJudgement(verdicts=[]))
-    prefer: dict[str, PreferenceJudgement] = field(default_factory=dict)
-    fit: FitJudgement = field(default_factory=lambda: FitJudgement(scores=[]))
+    verdicts: dict[str, CriterionVerdict] = field(default_factory=dict)
+    rechecks: dict[tuple[str, int], CriterionVerdict] = field(default_factory=dict)
     reviews: dict[str, ReviewVerdict] = field(default_factory=dict)
+    omit: set[str] = field(default_factory=set)
 
     def __call__(self, call: LlmCall) -> BaseModel:
         if call.output is ExtractedFacts:
             return next((value for key, value in self.extract.items() if key in call.user), ExtractedFacts())
-        if call.output is QualificationJudgement:
-            return self.qualify
-        if call.output is PreferenceJudgement:
-            return next(
-                (value for key, value in self.prefer.items() if f"우대사항: {key}" in call.user),
-                PreferenceJudgement(criteria=[]),
-            )
-        if call.output is FitJudgement:
-            return self.fit
+        if call.output is CriteriaJudgement:
+            ids = re.findall(r"^\[([QP]-\d+)\]", call.user, re.MULTILINE)
+            found = re.search(r"([12])차 재확인", call.user)
+            round_no = int(found.group(1)) if found else 0
+            answers = []
+            for criterion_id in [found for found in ids if found not in self.omit]:
+                first = self.verdicts.get(criterion_id, verdict(criterion_id, "NOT_MET"))
+                answers.append(self.rechecks.get((criterion_id, round_no), first) if round_no else first)
+            return CriteriaJudgement(verdicts=answers)
         if call.output is ReviewJudgement:
-            ids = re.findall(r"^(Q\d+|P\d+-C\d+|F\d+)\. 주장", call.user, re.MULTILINE)
+            ids = re.findall(r"^([QP]-\d+|F\d+)\. 주장", call.user, re.MULTILINE)
             return ReviewJudgement(
                 reviews=[
                     ClaimReview(id=id, verdict=self.reviews.get(id, "SUPPORTED"), reason="검토 이유") for id in ids
@@ -166,6 +153,43 @@ class Script:
         raise AssertionError(f"대본에 없는 호출이다: {call.output.__name__}")
 
 
-def scripted(script: Script, calls: int = 30) -> FakeLlm:
+def scripted(script: Script, calls: int = 40) -> FakeLlm:
     """대본으로 답하는 FakeLlm. 응답을 calls번까지 쓴다."""
     return FakeLlm(*[script] * calls)
+
+
+YUMIN_API = "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다."
+YUMIN_PERIOD = "한빛카드 결제플랫폼팀 2022.03 ~ 현재"
+# 정유민(가상 지원자)이 자격요건을 모두 채우고 우대사항 P-01만 충족한 대본.
+# 자격요건 50점, 우대사항 50 × 1.5 ÷ 3.5 = 21.4점, 총점 71.4점
+YUMIN_SUMMARY = {
+    "careerYears": 4,
+    "lastCompany": "한빛카드",
+    "criteriaVersion": CRITERIA_VERSION,
+    "qualificationStatus": "PASSED",
+    "qualificationRate": 100.0,
+    "qualificationScore": 50.0,
+    "qualificationMax": 50,
+    "preferenceScore": 21.4,
+    "preferenceMax": 50,
+    "documentScore": 71.4,
+    "passed": True,
+    "held": False,
+    "shortfalls": [],
+}
+
+
+def yumin_script() -> Script:
+    period = ExtractedPeriod(
+        company="한빛카드", role="결제플랫폼팀", kind="EMPLOYMENT", start="2022-03", evidence=[YUMIN_PERIOD]
+    )
+    return Script(
+        extract={"결제플랫폼팀": ExtractedFacts(periods=[period])},
+        verdicts={
+            "Q-01": verdict("Q-01", "MET", YUMIN_API, periods=[1]),
+            "Q-02": verdict("Q-02", "MET", YUMIN_API),
+            "Q-03": verdict("Q-03", "MET", YUMIN_API),
+            "Q-04": verdict("Q-04", "MET", YUMIN_API),
+            "P-01": verdict("P-01", "MET", YUMIN_API),
+        },
+    )

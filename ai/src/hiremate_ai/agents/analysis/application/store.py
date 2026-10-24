@@ -5,30 +5,28 @@
 
 import hashlib
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hiremate_ai.agents.analysis.application.ncs import criteria_of, ncs_units
 from hiremate_ai.agents.analysis.application.present import to_profile
+from hiremate_ai.agents.analysis.application.score import Weights
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.contract import ApplicantDetail, PostingContent
 from hiremate_ai.db.application_review import ApplicationReviewRecord
 from hiremate_ai.db.profile import ItemAgent
 from hiremate_ai.db.profile_store import save_profile
-from hiremate_ai.tools.ncs import NcsUnit
 
 type Sessions = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
 
 class ReviewStore(Protocol):
     """분석에 필요한 저장소. 라우터는 DbReviewStore를 쓰고, 테스트는 메모리 구현을 넣는다."""
-
-    async def units(self, codes: Sequence[str]) -> dict[str, NcsUnit]: ...
 
     async def find(self, application_id: UUID, input_hash: str) -> ApplicationReview | None: ...
 
@@ -43,10 +41,6 @@ class DbReviewStore:
     def __init__(self, sessions: Sessions) -> None:
         self._sessions = sessions
 
-    async def units(self, codes: Sequence[str]) -> dict[str, NcsUnit]:
-        async with self._sessions() as session:
-            return await ncs_units(session, codes)
-
     async def find(self, application_id: UUID, input_hash: str) -> ApplicationReview | None:
         async with self._sessions() as session:
             record = await session.scalar(
@@ -55,7 +49,7 @@ class DbReviewStore:
                     ApplicationReviewRecord.input_hash == input_hash,
                 )
             )
-            return ApplicationReview.model_validate(record.review) if record else None
+            return _parse(record)
 
     async def latest(self, application_id: UUID) -> ApplicationReview | None:
         async with self._sessions() as session:
@@ -65,7 +59,7 @@ class DbReviewStore:
                 .order_by(ApplicationReviewRecord.created_at.desc())
                 .limit(1)
             )
-            return ApplicationReview.model_validate(record.review) if record else None
+            return _parse(record)
 
     async def save(self, review: ApplicationReview, applicant: ApplicantDetail, rubric: ScreeningRubric) -> None:
         """원본을 넣고(같은 입력이면 바꿔 쓰고) 프로필을 갱신한다. 둘을 한 트랜잭션으로 커밋한다."""
@@ -105,23 +99,30 @@ class DbReviewStore:
 
 
 def input_hash(
-    applicant: ApplicantDetail,
-    posting: PostingContent,
-    rubric: ScreeningRubric,
-    units: dict[str, NcsUnit],
-    version: str,
+    applicant: ApplicantDetail, posting: PostingContent, rubric: ScreeningRubric, weights: Weights, version: str
 ) -> str:
-    """분석 결과를 바꿀 수 있는 입력만 묶어 해시한다. 공고 제목이나 복지가 바뀌어도 다시 분석하지 않는다."""
+    """분석 결과를 바꿀 수 있는 입력만 묶어 해시한다. 공고 제목이나 복지가 바뀌어도 다시 분석하지 않는다.
+
+    평가 기준(항목 · 유형 · 중요 표시 · 판정 기준 · 버전)이나 중요도 계수가 바뀌면 저장된 결과를 쓰지 않는다.
+    """
     payload = {
         "version": version,
         "documents": [[document.type.value, str(document.file_id), document.text] for document in applicant.documents],
         "certificates": applicant.certificates,
         "qualifications": posting.qualifications,
         "preferred": posting.preferred,
-        "rubric": [preference.model_dump(mode="json") for preference in rubric.preferred],
-        "units": {
-            code: [[criterion.no, criterion.text] for criterion in criteria_of(unit)]
-            for code, unit in sorted(units.items())
-        },
+        "criteria_version": rubric.criteria_version,
+        "criteria": [criterion.model_dump(mode="json") for criterion in rubric.criteria],
+        "weights": [weights.normal, weights.important],
     }
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def _parse(record: ApplicationReviewRecord | None) -> ApplicationReview | None:
+    """저장된 원본을 읽는다. 분석 결과 모양이 바뀌기 전의 원본은 읽지 않고 없는 것으로 본다 (다시 분석한다)."""
+    if record is None:
+        return None
+    try:
+        return ApplicationReview.model_validate(record.review)
+    except ValidationError:
+        return None

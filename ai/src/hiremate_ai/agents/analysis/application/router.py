@@ -11,7 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from hiremate_ai.agents.analysis.application.present import to_analysis, to_candidate_analysis
-from hiremate_ai.agents.analysis.application.service import RubricScopeError, analyze_application
+from hiremate_ai.agents.analysis.application.service import RubricScopeError, analyze_application, weights
 from hiremate_ai.agents.analysis.application.store import DbReviewStore, ReviewStore
 from hiremate_ai.agents.analysis.application.types import AnalyzeRequest, ApplicationAnalysis
 from hiremate_ai.config import settings
@@ -64,4 +64,4 @@ async def candidate(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> Ca
         if latest is None:
             raise HTTPException(status_code=503, detail="분석이 아직 끝나지 않았다") from error
         review = latest
-    return to_candidate_analysis(review, request.applicant.documents)
+    return to_candidate_analysis(review, request.applicant.documents, weights())

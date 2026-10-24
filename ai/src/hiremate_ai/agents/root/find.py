@@ -157,7 +157,7 @@ def score_filter(
         rows = [row for row, _, _ in gaps]
         for row, score, document in gaps:
             direction = "평가가 지원서보다 높음" if score > document else "지원서에 비해 평가가 낮음"
-            notes[row.application_id] = f"평가 {_points(score)}점 · 서류 {document}점, {direction}"
+            notes[row.application_id] = f"평가 {_points(score)}점 · 서류 {_points(document)}점, {direction}"
     return rows, notes
 
 

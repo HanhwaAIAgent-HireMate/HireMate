@@ -40,13 +40,20 @@ class Settings(BaseSettings):
     # 공공데이터포털 인증키. scripts/ncs_download.py로 NCS 자료를 받을 때만 쓰고, ai 서버는 실행 중에 쓰지 않는다
     ncs_api_key: SecretStr = SecretStr("")
     # Application Agent: 지원 접수 분석 한 번의 시간 한도. AI 워커가 대기열에서 꺼내 돌리므로 backend는 기다리지 않는다
-    application_timeout_seconds: float = 170
+    application_timeout_seconds: float = 150
     # 카드를 열 때 저장된 결과가 없어 새로 분석하면 backend 기본 60초 안에 끝내야 한다
     application_card_timeout_seconds: float = 50
     # 동시에 부르는 모델 호출 수 (문서별 추출, 우대사항별 판정)
     application_concurrency: int = 4
     # 제출 문서 본문이 이 글자 수 이하면 판정에 원문 전체를 넣고, 넘으면 조건과 맞닿은 문장만 넣는다
     application_full_text_chars: int = 8000
+    # 확인 필요 항목의 재확인 횟수 (1차: 주변 문맥 · 본인 역할, 2차: 다른 제출 문서)
+    application_rechecks: int = 2
+    # 분석 예산이 이만큼 남지 않으면 재확인을 더 하지 않는다 (저장 · 응답에 쓸 여유)
+    application_recheck_reserve_seconds: float = 20
+    # 서류 점수의 중요도 계수. 중요 표시 항목은 important, 나머지는 normal
+    criterion_weight_normal: float = 1.0
+    criterion_weight_important: float = 1.5
     # AI 워커: backend job 모듈이 작업을 넣는 Redis 스트림과 결과를 돌려주는 스트림 (hiremate.jobs.*와 같은 이름)
     worker_job_stream: str = "hiremate:jobs"
     worker_result_stream: str = "hiremate:job-results"

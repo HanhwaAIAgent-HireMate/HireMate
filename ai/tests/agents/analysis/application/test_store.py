@@ -1,18 +1,19 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from application_context import COMPANY_ID, DESIGN, UNITS, make_posting, make_rubric
+from application_context import COMPANY_ID, make_posting, make_rubric
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.analysis.application.graph import REVIEW_VERSION
-from hiremate_ai.agents.analysis.application.ncs import criteria_of
+from hiremate_ai.agents.analysis.application.score import Weights
 from hiremate_ai.agents.analysis.application.store import DbReviewStore, Sessions, input_hash
-from hiremate_ai.agents.analysis.application.types import ApplicationReview, Note
-from hiremate_ai.contract import ApplicantDetail, PostingContent
-from hiremate_ai.db.ncs_store import load_ncs
+from hiremate_ai.agents.analysis.application.types import ApplicationReview, Note, ScreeningRubric
+from hiremate_ai.contract import ApplicantDetail, PostingContent, QualificationStatus, ScoreStatus
+from hiremate_ai.db.application_review import ApplicationReviewRecord
 from hiremate_ai.db.profile import CandidateProfile, ProfileStatus
-from hiremate_ai.tools.ncs import NcsData, NcsDuty
+
+WEIGHTS = Weights(normal=1.0, important=1.5)
 
 
 def sessions_of(session: AsyncSession) -> Sessions:
@@ -35,17 +36,24 @@ def test_input_hash_changes_only_with_inputs_that_change_results(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
     applicant, posting, rubric = sample_applicants["정유민"], make_posting(sample_posting), make_rubric()
-    digest = input_hash(applicant, posting, rubric, UNITS, REVIEW_VERSION)
+    digest = input_hash(applicant, posting, rubric, WEIGHTS, REVIEW_VERSION)
 
-    assert (
-        input_hash(applicant, posting.model_copy(update={"title": "새 제목"}), rubric, UNITS, REVIEW_VERSION) == digest
-    )
-    assert (
-        input_hash(applicant, posting.model_copy(update={"qualifications": ["Git"]}), rubric, UNITS, REVIEW_VERSION)
-        != digest
-    )
-    assert input_hash(applicant, posting, rubric, {}, REVIEW_VERSION) != digest
-    assert input_hash(applicant, posting, rubric, UNITS, "다음 버전") != digest
+    def other(
+        posting: PostingContent = posting,
+        rubric: ScreeningRubric = rubric,
+        weights: Weights = WEIGHTS,
+        version: str = REVIEW_VERSION,
+    ) -> str:
+        return input_hash(applicant, posting, rubric, weights, version)
+
+    assert other(posting=posting.model_copy(update={"title": "새 제목"})) == digest
+    assert other(posting=posting.model_copy(update={"qualifications": ["Git"]})) != digest
+    # 평가 기준(버전 · 중요 표시)이나 계수가 바뀌면 저장된 결과를 다시 쓰지 않는다
+    assert other(rubric=rubric.model_copy(update={"criteria_version": "test-2"})) != digest
+    important = [criterion.model_copy(update={"important": True}) for criterion in rubric.criteria]
+    assert other(rubric=rubric.model_copy(update={"criteria": important})) != digest
+    assert other(weights=Weights(normal=1.0, important=2.0)) != digest
+    assert other(version="다음 버전") != digest
 
 
 async def test_saves_review_and_profile_then_finds_them(
@@ -53,11 +61,19 @@ async def test_saves_review_and_profile_then_finds_them(
 ) -> None:
     applicant = sample_applicants["정유민"]
     store = DbReviewStore(sessions_of(db_session))
-    review = review_of(applicant, "a" * 64, career_years=4, last_company="한빛카드", passed=True, document_score=31)
+    review = review_of(
+        applicant,
+        "a" * 64,
+        career_years=4,
+        last_company="한빛카드",
+        qualification_status=QualificationStatus.PASSED,
+        score_status=ScoreStatus.CONFIRMED,
+        document_score=73.3,
+    )
 
     await store.save(review, applicant, make_rubric())
     again = review.model_copy(
-        update={"held": True, "document_score": None, "holds": [Note(text="보류", source="이력서")]}
+        update={"score_status": ScoreStatus.HELD, "document_score": None, "holds": [Note(text="보류", source="이력서")]}
     )
     await store.save(again, applicant, make_rubric())
 
@@ -71,14 +87,17 @@ async def test_saves_review_and_profile_then_finds_them(
     assert (profile.company_id, profile.status, profile.document_score) == (COMPANY_ID, ProfileStatus.CHECK, None)
 
 
-async def test_reads_ncs_units_by_code(db_session: AsyncSession) -> None:
-    unit = UNITS[DESIGN]
-    duty = NcsDuty(code=unit.duty_code, name=unit.subdivision, definition="")
-    await load_ncs(db_session, NcsData(source="테스트", retrieved_at="2026-10-21", duties=[duty], units=[unit]))
+async def test_reviews_saved_in_an_older_shape_are_analyzed_again(
+    db_session: AsyncSession, sample_applicants: dict[str, ApplicantDetail]
+) -> None:
+    applicant = sample_applicants["정유민"]
     store = DbReviewStore(sessions_of(db_session))
+    await store.save(review_of(applicant, "a" * 64), applicant, make_rubric())
+    record = await db_session.scalar(select(ApplicationReviewRecord))
+    assert record is not None
+    # 우대사항을 NCS 수행준거별로 매기던 때의 원본 모양 (항목에 판정 칸이 없다)
+    record.review = {**record.review, "criteria": [{"number": 1, "content_no": "1-1", "level": "MET"}]}
+    await db_session.flush()
 
-    units = await store.units([DESIGN, "2001020218_23v9", "9999999999_23v1"])
-
-    assert set(units) == {DESIGN, "2001020218_23v9"}
-    assert [criterion.no for criterion in criteria_of(units[DESIGN])] == ["1-1", "2-1", "3-1"]
-    assert units["2001020218_23v9"].code == DESIGN
+    assert await store.find(applicant.info.application_id, "a" * 64) is None
+    assert await store.latest(applicant.info.application_id) is None

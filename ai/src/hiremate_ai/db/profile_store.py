@@ -54,7 +54,7 @@ class ProfileFields(_Input):
     status: ProfileStatus
     career_years: int | None
     last_company: str | None
-    document_score: int | None
+    document_score: float | None
     passed: bool | None  # AI 기준 통과 여부
     summary: str = ""
 

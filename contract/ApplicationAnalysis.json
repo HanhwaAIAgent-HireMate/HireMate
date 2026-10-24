@@ -1,8 +1,17 @@
 {
   "careerYears": 0,
   "lastCompany": null,
-  "documentScore": 52,
+  "criteriaVersion": "dummy-2026-10-22",
+  "qualificationStatus": "PASSED",
+  "qualificationRate": 75.0,
+  "qualificationScore": 33.3,
+  "qualificationMax": 50,
+  "preferenceScore": 40.0,
+  "preferenceMax": 50,
+  "documentScore": 73.3,
   "passed": true,
   "held": false,
-  "shortfalls": ["신입"]
+  "shortfalls": [
+    "신입"
+  ]
 }
