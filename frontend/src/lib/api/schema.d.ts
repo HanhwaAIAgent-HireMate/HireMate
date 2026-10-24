@@ -1462,8 +1462,13 @@ export interface components {
             analysisStatus: "PENDING" | "DONE" | "FAILED";
             held: boolean;
             shortfalls: string[];
-            /** Format: int32 */
             documentScore: number | null;
+            qualificationScore: number | null;
+            /** Format: int32 */
+            qualificationMax: number;
+            preferenceScore: number | null;
+            /** Format: int32 */
+            preferenceMax: number;
         };
         ChatTurn: {
             message: string;
@@ -1510,7 +1515,20 @@ export interface components {
             notable: components["schemas"]["Finding"][];
             checks: components["schemas"]["Finding"][];
             holds: components["schemas"]["Finding"][];
-            fit: components["schemas"]["FitLine"][];
+            criteriaVersion: string | null;
+            /** @enum {string} */
+            scoreStatus: "CONFIRMED" | "HELD";
+            documentScore: number | null;
+            /** @enum {string} */
+            qualificationStatus: "PASSED" | "FAILED" | "UNDETERMINED";
+            qualificationRate: number | null;
+            qualificationScore: number | null;
+            /** Format: int32 */
+            qualificationMax: number;
+            preferenceScore: number | null;
+            /** Format: int32 */
+            preferenceMax: number;
+            criteria: components["schemas"]["CriterionLine"][];
             highlights: components["schemas"]["Evidence"][];
             agent: string;
             stub: boolean;
@@ -1529,13 +1547,30 @@ export interface components {
             text: string;
             source: string;
         };
-        FitLine: {
-            label: string;
-            /** Format: int32 */
-            points: number;
-            /** Format: int32 */
-            max: number;
+        CriterionLine: {
+            criterionId: string;
+            /** @enum {string} */
+            category: "QUALIFICATION" | "PREFERENCE";
+            text: string;
+            important: boolean;
+            /** @enum {string} */
+            criterionType: "CONDITION" | "SINGLE" | "COMPOSITE";
+            /** @enum {string} */
+            verdict: "MET" | "PARTIAL" | "NOT_MET" | "UNKNOWN";
+            fulfillment: number | null;
+            allotted: number;
+            earned: number | null;
             reason: string;
+            satisfiedParts: string[];
+            unsatisfiedParts: string[];
+            unknownParts: string[];
+            evidence: components["schemas"]["Evidence"][];
+            /** Format: int32 */
+            recheckCount: number;
+            /** Format: int32 */
+            careerYears: number | null;
+            /** @enum {string|null} */
+            certificateStatus: "SELF_REPORTED" | "EVIDENCE_SUBMITTED" | "ISSUER_VERIFIED" | null;
         };
         DashboardStep: {
             /** Format: uuid */

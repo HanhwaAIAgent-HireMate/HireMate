@@ -2,13 +2,18 @@ import { ArrowUp, Minus, Plus } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { Checkbox } from '@/components/ui/checkbox'
-import { careerLabel, type CandidateRow } from '@/features/screening/api'
+import {
+  careerLabel,
+  formatScore,
+  scoreBreakdown,
+  type CandidateRow,
+} from '@/features/screening/api'
 import { cn } from '@/lib/utils'
 
 /**
  * 지원자 한 줄 (COM-02 표시 규칙). AI 선택은 보라 테두리, HR 결정은 배경색, 서류 기준은 굵기와 회색이다.
- * 서류 전형에서는 AI 추천(AI 적합도 점수 상위, 선발 인원 10배수)이 선 위에 굵게 서고, 오른쪽 끝에 AI 적합도 점수를
- * 붙인다. 점수를 보류한 지원자는 연한 회색 배경이고, 못 채운 자격요건은 이름 옆에 작게 ✕로 붙인다.
+ * 서류 전형에서는 AI 추천(서류 평가 총점 상위, 선발 인원 10배수)이 선 위에 굵게 서고, 오른쪽 끝에 총점을, 경력 아래에
+ * 영역 점수(자격요건 · 우대사항)를 소수 첫째 자리까지 붙인다. 점수가 높아도 미충족 표시는 숨기지 않는다. 점수를 보류한 지원자는 연한 회색 배경이고, 못 채운 자격요건은 이름 옆에 작게 ✕로 붙인다.
  * 행을 누르면 지원자 카드가 열리므로 넣기 · 빼기는 오른쪽 버튼으로 한다.
  */
 export function CandidateItem({
@@ -35,6 +40,7 @@ export function CandidateItem({
   const gray = documentStage && !row.aboveLine
   const held = documentStage && row.held
   const shortfalls = documentStage ? row.shortfalls : []
+  const breakdown = documentStage ? scoreBreakdown(row) : null
   return (
     // 행 어디를 눌러도 카드가 열린다. 키보드는 이름 버튼으로 연다
     <div
@@ -68,7 +74,7 @@ export function CandidateItem({
           {row.name}
           {shortfalls.length > 0 && (
             <span
-              title={`채우지 못한 자격요건: ${shortfalls.join(', ')}`}
+              title={`채우지 못했거나 확인이 필요한 자격요건 (불합격 표시가 아니에요): ${shortfalls.join(', ')}`}
               className="ml-1.5 text-[11px] font-normal text-muted-foreground"
             >
               ✕ {shortfalls.join(', ')}
@@ -78,16 +84,21 @@ export function CandidateItem({
         <div className={cn('truncate text-xs text-muted-foreground', gray && 'opacity-80')}>
           {careerLabel(row)}
         </div>
+        {breakdown && (
+          <div className={cn('truncate text-[11px] text-muted-foreground', gray && 'opacity-80')}>
+            {breakdown}
+          </div>
+        )}
       </div>
       {documentStage && row.documentScore !== null && (
         <span
-          title="AI 적합도 점수 (100점)"
+          title="서류 평가 점수 (자격요건 + 우대사항, 100점)"
           className={cn(
             'rounded-md bg-muted px-1.5 py-0.5 text-xs tabular-nums',
             gray ? 'text-muted-foreground' : 'font-bold',
           )}
         >
-          {row.documentScore}
+          {formatScore(row.documentScore)}
         </span>
       )}
       {scoreStage &&
