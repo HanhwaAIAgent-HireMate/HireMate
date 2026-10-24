@@ -8,6 +8,7 @@
 | 평가 항목(자격요건 5 · 우대사항 5)의 유형 · 중요 표시 · 충족 / 부분 충족 / 미충족 기준 · 선발 인원(1명) | `backend/src/main/resources/application.yml`의 `hiremate.dummy.screening-rubric` |
 | 공고 본문 | `seed.py`의 `POSTING`. 자격요건 · 우대사항 글은 위 설정과 같아야 짝이 맞는다 |
 | 지원자 | `applicants.json`. `note`는 어떤 경우를 보려는 지원자인지 적은 것이고 제출하지 않는다 |
+| 자기소개서 | 문항 3개(지원 동기 700자 · 직무 경험과 본인 역할 1,000자 · 협업 · 문제 해결 700자). 각 지원자의 이력서 · 포트폴리오에 있는 사실만으로 늘려 썼고, 일부러 비워 둔 경험(테스트 코드 등)은 넣지 않았다 |
 
 ## 순서
 
@@ -15,7 +16,7 @@
 # 1. DB · Redis (저장소 루트)
 docker compose up -d
 
-# 2. ai 스키마와 NCS 능력단위. 우대사항마다 능력단위의 수행준거 한 문장이 평가 조건 하나다
+# 2. ai 스키마. NCS 능력단위 적재(ncs_load.py)는 평가 기준 초안을 쓸 때 참고하는 자료라 서류 평가에는 없어도 된다
 cd ai
 uv run alembic upgrade head
 uv run python scripts/ncs_load.py
