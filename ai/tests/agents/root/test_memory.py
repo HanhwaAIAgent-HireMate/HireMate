@@ -5,6 +5,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context
 
 from hiremate_ai.agents.root.answer import (
+    FOCUS_WITH_REQUEST,
     AnswerItem,
     CandidateNotes,
     MultiSummary,
@@ -337,7 +338,8 @@ async def test_refine_uses_previous_subject(
 
     jung = sample_applicants["정유민"].info.application_id
     assert plan.question_targets == [jung]
-    assert plan.question_focus == {jung: "장애 대응을 더 기술적으로"}
+    focus = FOCUS_WITH_REQUEST.format(focus="장애 대응을 더 기술적으로", request="좀 더 기술적으로 다시 해줘")
+    assert plan.question_focus == {jung: focus}
 
 
 async def test_result_ref_falls_back_to_latest_turn_with_targets(

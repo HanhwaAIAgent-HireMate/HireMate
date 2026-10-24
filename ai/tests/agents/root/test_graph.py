@@ -3,6 +3,7 @@ from root_context import extra_row, make_context
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY
 from hiremate_ai.agents.root.answer import (
     COMPARE_STATUS,
+    FOCUS_WITH_REQUEST,
     MULTI_STATUS,
     AnswerEvidence,
     AnswerItem,
@@ -105,7 +106,8 @@ async def test_interview_questions_flow_in_interview_stage(
 
     jung = sample_applicants["정유민"].info.application_id
     assert plan.question_targets == [jung]
-    assert plan.question_focus == {jung: "정산 배치 설계 판단"}
+    request = "@정유민 면접 질문 만들어줘"
+    assert plan.question_focus == {jung: FOCUS_WITH_REQUEST.format(focus="정산 배치 설계 판단", request=request)}
 
 
 async def test_interview_questions_outside_interview_stage_answer(

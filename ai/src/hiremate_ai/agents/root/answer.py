@@ -47,6 +47,9 @@ BULK_LIMIT = 20
 NO_QUESTION_TARGET = "누구의 면접 질문을 만들까요? @로 고르거나 체크해 주세요."
 FOCUSED = "{count}명의 맞춤 질문을 만들어 카드에 넣었어요. 질문을 만든 이유는 아래와 같아요."
 FOCUS_FALLBACK = "확인할 점 정리를 마치지 못해, 요청하신 지원자의 제출 서류를 기준으로 질문을 만들었어요."
+# Interview Agent에 넘기는 확인할 점. 모델이 다시 쓴 방향과 함께 담당자 문장을 그대로 넘긴다.
+# Interview Agent는 "확인 안 된 점 위주로" 같은 담당자 말로 질문 범위를 좁히는데, 모델은 그 말을 바꿔 쓴다
+FOCUS_WITH_REQUEST = "{focus} (담당자 요청: {request})"
 BULK = (
     "{count}명은 한 번에 자세히 살펴보기 어려워 지원 서류를 기준으로 질문을 만들었어요. "
     "특정 지원자는 @로 골라 물어보면 이전 전형까지 확인해 만들어요."
@@ -356,7 +359,9 @@ async def plan_questions(
         if row is None or row.application_id not in ids:
             continue
         if item.focus.strip():
-            focus[row.application_id] = readable(item.focus.strip(), context)
+            focus[row.application_id] = FOCUS_WITH_REQUEST.format(
+                focus=readable(item.focus.strip(), context), request=context.message
+            )
         reasons += [reason.model_copy(update={"candidate": item.candidate}) for reason in item.reasons]
     recorded = await _recorded(toolkit, scope, context, reasons, rows)
     items, sources, used = verify_items(reasons, context, recorded=recorded)
