@@ -37,12 +37,14 @@ _POINTS = re.compile(r"\d+\s*점")
 # "서류 점수", "서류 평가"는 서류 전형의 값이라 평가 결과가 아니다. 이 말이 있으면 "N점"도 서류 점수로 본다
 _DOCUMENT_SCORE = re.compile(r"(?:서류|지원서|이력서|자기소개서|자소서)\s*(?:점수|평가)")
 _INTERVIEW_WORDS = re.compile(r"답변|면접\s*기록")
+# 찾기 결과를 가리키는 말. "그중", "그 중에서"만. "그 중요한", "그 중간"은 아니다
+_RESULT_WORDS = re.compile(r"찾은|고른|그\s*중(?:에서는|에서|에는|에|엔|의)?(?![가-힣])")
 # 체크한 지원자가 있으면 앞 대화는 순서를 말하거나 앞 대화를 가리키는 말이 있을 때만 쓴다
 _PREVIOUS_WORDS = re.compile(
-    r"방금|아까|앞에서|앞서|위에서|이전|지난번|찾은|고른|만든|그\s*(?:사람|지원자|분|둘|셋)"
-    # "그중", "그 중에서"만. "그 중요한", "그 중간"은 아니다
-    r"|그\s*중(?:에서는|에서|에는|에|엔|의)?(?![가-힣])"
+    rf"방금|아까|앞에서|앞서|위에서|이전|지난번|만든|그\s*(?:사람|지원자|분|둘|셋)|{_RESULT_WORDS.pattern}"
 )
+# 순서를 말하는 말. 실제 모델은 "몇 명이야?", "두 지원자를 비교해봐"에도 ordinal을 적는다
+_ORDINAL_WORDS = re.compile(r"(?:첫|두|둘|세|셋|네|넷|다섯|여섯|일곱|여덟|아홉|열|\d+)\s*(?:번째|째)|마지막")
 # 공고 항목을 가리키는 말. 이 말이 있어야 공고의 자격 요건 · 우대 사항으로 찾는다
 _POSTING_WORDS = re.compile(r"공고|우대|자격\s*요건|요건")
 # 지원자끼리 견주는 말. 모델은 "@김하늘 공고 요건과 비교해줘"처럼 한 사람을 기준과 견주는 요청에도 compare를 표시한다
@@ -209,9 +211,29 @@ def asks_comparison(route: RootRoute, message: str) -> bool:
 
 
 async def classify(llm: LlmClient, context: ChatContext, targets: Targets, turns: Sequence[Turn] = ()) -> RootRoute:
-    return await llm.structured(
+    decided = await llm.structured(
         RootRoute, agent="root", system=ROUTE_SYSTEM, user=route_prompt(context, targets, turns)
     )
+    return _settled(decided, context.message)
+
+
+def _settled(route: RootRoute, message: str) -> RootRoute:
+    """모델이 표시했지만 문장에 근거가 없는 값을 고친다.
+
+    순서 말이 없는 ordinal은 지운다. 남기면 첫 턴의 인원 질문도 앞 대화를 가리키는 것으로 보고 되묻는다.
+    "그중", "찾은"이 있으면 직전에 다룬 지원자가 아니라 찾기 결과다. 아무도 못 찾은 새 찾기 뒤의 "그중 첫 번째"가
+    그 전 찾기 결과를 가리키지 않게 한다.
+    지원자끼리 비교하는 요청을 되묻기로 표시하면 분석으로 돌린다. 대상이 모자라면 정해 둔 문구로 되묻고,
+    체크한 지원자가 있으면 그 사람들을 비교한다.
+    """
+    update: dict[str, object] = {}
+    if route.ordinal is not None and not _ORDINAL_WORDS.search(message):
+        update["ordinal"] = None
+    if route.previous_ref == "subject" and _RESULT_WORDS.search(message):
+        update["previous_ref"] = "result"
+    if route.kind == "CLARIFY" and asks_comparison(route, message):
+        update["kind"] = "ANSWER"
+    return route.model_copy(update=update) if update else route
 
 
 def required_data(route: RootRoute, message: str) -> set[StageType]:

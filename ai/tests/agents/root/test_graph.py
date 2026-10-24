@@ -166,6 +166,51 @@ async def test_compare_with_one_target_clarifies(
     assert len(llm.calls) == 1
 
 
+async def test_clarified_comparison_without_targets_asks_for_two(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="둘 비교해줘")
+    llm = FakeLlm(RootRoute(kind="CLARIFY", compare=True, clarify="비교할 두 지원자를 알려주세요."))
+
+    plan = await run_plan(llm, context)
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, COMPARE_NEEDS_TWO)
+
+
+async def test_clarified_comparison_with_checked_compares(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="둘 비교해줘", checked=["박서준", "이도윤"]
+    )
+    llm = FakeLlm(
+        RootRoute(kind="CLARIFY", compare=True, clarify="누구를 비교할까요?"),
+        CandidateNotes(),
+        CandidateNotes(),
+        MultiSummary(message="두 사람을 비교했어요."),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert (plan.intent, plan.message) == (Intent.ANSWER, "두 사람을 비교했어요.")
+
+
+async def test_first_turn_count_with_stray_ordinal_answers_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델이 첫 턴의 인원 질문에 앞 대화와 순서를 표시해도 되묻지 않고 전형 전체로 답한다
+    context = make_context(sample_applicants, sample_company, sample_posting, message="지금 미결정인 사람 몇 명이야?")
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER", previous_ref="subject", ordinal=1),
+        ToolCall("get_stage_summary"),
+        RootAnswer(message="미결정은 8명이에요."),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert (plan.intent, plan.message) == (Intent.ANSWER, "미결정은 8명이에요.")
+
+
 async def test_edit_uses_checked_without_target(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
