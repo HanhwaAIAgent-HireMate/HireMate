@@ -5,7 +5,7 @@ from root_context import make_context
 from hiremate_ai.agents.root.find import NOT_FOUND
 from hiremate_ai.agents.root.targets import Targets
 from hiremate_ai.agents.root.turns import next_result, recall, remembered, turn_of
-from hiremate_ai.agents.root.types import ChatPlan, EditAction, Intent, SelectionMode
+from hiremate_ai.agents.root.types import ChatItem, ChatPlan, EditAction, Intent, SelectionMode
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
 
 type Applicants = dict[str, ApplicantDetail]
@@ -111,3 +111,25 @@ def test_find_turn_targets_are_only_found(
     turn = turn_of(context, Targets(rows=[kim], ambiguous=[]), NOT_FOUND_PLAN, "FIND")
 
     assert turn["targets"] == []
+
+
+def found_among_decided(*ids: str) -> ChatPlan:
+    """합격 · 불합격한 지원자 안에서 찾은 답. 선택 지원자를 바꾸지 않아 찾은 사람은 항목에만 있다."""
+    items = [
+        ChatItem(application_id=UUID(application_id), label="이름", text="근거", status=None) for application_id in ids
+    ]
+    return ChatPlan.answer(Intent.ANSWER, "합격한 지원자 3명 중 조건에 맞는 사람은 **2명**이에요.", items)
+
+
+def test_find_among_decided_sets_result() -> None:
+    assert next_result([A], "FIND", SelectionMode.REPLACE, found_among_decided(B, C)) == [B, C]
+
+
+def test_find_among_decided_turn_keeps_found(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="합격자 중 금융 경험자 찾아줘")
+
+    turn = turn_of(context, Targets(rows=[], ambiguous=[]), found_among_decided(B, C), "FIND")
+
+    assert turn["targets"] == [B, C]

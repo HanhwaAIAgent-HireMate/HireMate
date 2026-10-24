@@ -15,6 +15,7 @@ from hiremate_ai.agents.root.route import (
     DEFAULT_CLARIFY,
     NOT_UNDERSTOOD,
     RootRoute,
+    decided_filter,
     names_document_score,
     posting_section,
 )
@@ -42,10 +43,17 @@ LIMIT_NOTE = " 조건에 가까운 30명 중에서 골랐어요."
 _DOCUMENT_LABELS = {document.label for document in DocumentType}
 # 인재상을 가리키기만 하는 말. 인재상으로 찾을 때 이런 말만 든 조건은 따로 세지 않는다
 _TALENT_WORDS = {"인재상", "인재", "가치", "가치관", "핵심가치", "요소"}
-REPLACED = "지원자 {total}명 중 조건에 맞는 **{count}명**을 선택했어요."
+REPLACED = "{scope} {pool}명 중 조건에 맞는 **{{count}}명**을 선택했어요."
 ADDED = "조건에 맞는 **{count}명**을 선택 지원자에 더했어요."
 NARROWED = "{pool}명 중 **{{count}}명**으로 좁혔어요."
 NOT_FOUND = "조건에 맞는 지원자를 찾지 못했어요. 선택 지원자는 그대로예요."
+# 합격 · 불합격한 지원자 안에서 찾기. 결정한 지원자는 선택 지원자에 넣을 수 없어 대화로만 답한다
+_DECIDED_LABELS = {Decision.PASS: "합격한", Decision.FAIL: "불합격한"}
+DECIDED_FOUND = (
+    "{label} 지원자 {pool}명 중 조건에 맞는 사람은 **{count}명**이에요. 결정한 지원자라 선택 지원자는 바꾸지 않았어요."
+)
+DECIDED_NOT_FOUND = "{label} 지원자 {pool}명 중 조건에 맞는 사람을 찾지 못했어요."
+NO_DECIDED = "아직 {label} 지원자가 없어요."
 RECHECK_STATUS = "후보 {count}명을 다시 확인하고 있어요"
 # 공고 기준 찾기 (기획 18절)
 _SECTION_LABELS = {"qualifications": "자격 요건", "preferred": "우대 사항", "both": "자격 요건 · 우대 사항"}
@@ -105,7 +113,13 @@ class CriteriaResult(BaseModel):
 
 
 def candidate_pool(route: RootRoute, context: ChatContext) -> list[CandidateRow]:
-    """미결정 지원자. 서류 전형은 기준선 위만, 좁히기는 지금 선택된 지원자 안에서만."""
+    """미결정 지원자. 서류 전형은 기준선 위만, 좁히기는 지금 선택된 지원자 안에서만.
+
+    합격 · 불합격한 지원자 안에서 찾으면 그 결정의 지원자 모두다. 기준선과 선택 지원자는 보지 않는다.
+    """
+    decided = _decided(route, context)
+    if decided is not None:
+        return [row for row in context.candidates if row.decision is decided]
     rows = [row for row in context.candidates if row.decision is Decision.PENDING]
     if context.stage_type is StageType.DOCUMENT:
         rows = [row for row in rows if row.above_line]
@@ -151,6 +165,9 @@ async def plan_find(
     llm: LlmClient, route: RootRoute, context: ChatContext, toolkit: RootToolkit, *, progress: Progress = SILENT
 ) -> ChatPlan:
     pool = candidate_pool(route, context)
+    decided = _decided(route, context)
+    if decided is not None and not pool:
+        return ChatPlan.answer(Intent.ANSWER, NO_DECIDED.format(label=_DECIDED_LABELS[decided]))
     rows, notes = score_filter(route, context, pool)
     section = posting_section(route, context.message)
     if section is not None:
@@ -167,7 +184,7 @@ async def plan_find(
         if not has_score:
             return ChatPlan.answer(Intent.CLARIFY, DEFAULT_CLARIFY)
         chosen = [(row, notes.get(row.application_id, row.name)) for row in rows]
-        return _plan(route, len(pool), chosen, score_sources)
+        return _plan(route, context, len(pool), chosen, score_sources)
 
     allowed = {row.application_id: row for row in rows}
     found = await toolkit.search(scope_of(context), concepts, list(allowed))
@@ -175,7 +192,7 @@ async def plan_find(
     limited = len(matches) > RECHECK_LIMIT
     matches = matches[:RECHECK_LIMIT]
     if not matches:
-        return ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
+        return _not_found(route, context, len(pool))
     progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
         verified = await recheck(llm, context, matches, conditions=conditions, talents=talents)
@@ -186,8 +203,8 @@ async def plan_find(
     agents = await _agents(
         toolkit, context, [(application_id, sourced) for application_id, evidence in verified for sourced in evidence]
     )
-    plan = _plan(route, len(pool), chosen, sources, agents)
-    if limited and plan.intent is Intent.FIND:
+    plan = _plan(route, context, len(pool), chosen, sources, agents)
+    if limited and chosen:
         plan = plan.model_copy(update={"message": plan.message + LIMIT_NOTE})
     return plan
 
@@ -221,7 +238,7 @@ async def _plan_posting(
     limited = len(matches) > RECHECK_LIMIT
     matches = matches[:RECHECK_LIMIT]
     if not matches:
-        return ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
+        return _not_found(route, context, len(pool))
     progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
         judged = await recheck_criteria(llm, context, matches, items, required)
@@ -238,8 +255,9 @@ async def _plan_posting(
     best = max((count for _, count, _ in scored), default=0)
     match_mode = route.criteria_match
     if match_mode == "all" and best < n:
-        message = NONE_ALL.format(label=label, n=n, k=best) if best else NOT_FOUND
-        return ChatPlan.answer(Intent.ANSWER, message)
+        if not best:
+            return _not_found(route, context, len(pool))
+        return ChatPlan.answer(Intent.ANSWER, NONE_ALL.format(label=label, n=n, k=best))
     keep = n if match_mode == "all" else best if match_mode == "most" else 1
     kept = sorted((entry for entry in scored if entry[1] >= keep), key=lambda entry: -entry[1])
     chosen = [
@@ -250,8 +268,8 @@ async def _plan_posting(
     agents = await _agents(
         toolkit, context, [(application_id, sourced) for application_id, _, met in kept for sourced in met.values()]
     )
-    plan = _plan(route, len(pool), chosen, sources, agents)
-    if plan.intent is not Intent.FIND:
+    plan = _plan(route, context, len(pool), chosen, sources, agents)
+    if not chosen:
         return plan
     note = {"all": CRITERIA_ALL, "most": CRITERIA_MOST, "any": CRITERIA_ANY}[match_mode]
     message = plan.message + note.format(label=label, n=n, k=best) + (LIMIT_NOTE if limited else "")
@@ -380,16 +398,27 @@ async def _agents(
 
 def _plan(
     route: RootRoute,
+    context: ChatContext,
     pool_size: int,
     chosen: list[tuple[CandidateRow, str]],
     sources: list[str],
     agents: Sequence[str] = (),
 ) -> ChatPlan:
+    """찾은 지원자로 선택 지원자 변경 명령을 낸다. 결정한 지원자 안에서 찾았으면 선택 지원자를 바꾸지 않고 답한다."""
     if not chosen:
-        return ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
+        return _not_found(route, context, pool_size)
+    decided = _decided(route, context)
+    if decided is not None:
+        # 선택 지원자처럼 따로 볼 곳이 없어 찾은 사람을 모두 항목으로 보여 준다
+        found = [
+            ChatItem(application_id=row.application_id, label=row.name, text=text, status=None) for row, text in chosen
+        ]
+        message = DECIDED_FOUND.format(label=_DECIDED_LABELS[decided], pool=pool_size, count=len(chosen))
+        return ChatPlan.answer(Intent.ANSWER, message, found, sources, agents)
     mode = route.mode or SelectionMode.REPLACE
+    scope = "기준선 위 미결정 지원자" if context.stage_type is StageType.DOCUMENT else "미결정 지원자"
     message = {
-        SelectionMode.REPLACE: REPLACED,
+        SelectionMode.REPLACE: REPLACED.format(scope=scope, pool=pool_size),
         SelectionMode.ADD: ADDED,
         SelectionMode.NARROW: NARROWED.format(pool=pool_size),
     }[mode]
@@ -409,6 +438,19 @@ def _plan(
         question_targets=[],
         question_focus={},
     )
+
+
+def _decided(route: RootRoute, context: ChatContext) -> Decision | None:
+    """합격 · 불합격한 지원자 안에서 찾을 때 그 결정. 미결정 안에서 찾기는 원래 찾기와 같아 None이다."""
+    decision = decided_filter(route, context.message)
+    return decision if decision in _DECIDED_LABELS else None
+
+
+def _not_found(route: RootRoute, context: ChatContext, pool_size: int) -> ChatPlan:
+    decided = _decided(route, context)
+    if decided is None:
+        return ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
+    return ChatPlan.answer(Intent.ANSWER, DECIDED_NOT_FOUND.format(label=_DECIDED_LABELS[decided], pool=pool_size))
 
 
 def _points(value: float) -> str:

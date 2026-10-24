@@ -11,13 +11,14 @@ from hiremate_ai.agents.root.route import (
     RootRoute,
     asks_comparison,
     classify,
+    decided_filter,
     posting_section,
     precheck,
     refers_previous,
     required_data,
 )
 from hiremate_ai.agents.root.targets import resolve
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent
+from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, EditAction, Intent
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.fake import FakeLlm
 
@@ -369,3 +370,36 @@ async def test_among_them_refers_to_result(
     assert await ref_of("그중 첫 번째 사람 강점은?") == "result"
     assert await ref_of("방금 찾은 사람들 비교해줘") == "result"
     assert await ref_of("아까 그 사람 강점은?") == "subject"
+
+
+def test_decided_filter_needs_flag_and_word() -> None:
+    passed = RootRoute(kind="FIND", decision="PASS")
+    failed = RootRoute(kind="FIND", decision="FAIL")
+    pending = RootRoute(kind="FIND", decision="PENDING")
+
+    assert decided_filter(passed, "지금 합격 처리된 지원자들 중 금융 경험 있는 사람 골라줘") is Decision.PASS
+    assert decided_filter(passed, "합격자 중에 Kafka 써 본 사람 있어?") is Decision.PASS
+    assert decided_filter(failed, "불합격한 사람 중 다시 볼 만한 사람 찾아줘") is Decision.FAIL
+    assert decided_filter(failed, "탈락한 지원자 중 금융 경험자") is Decision.FAIL
+    assert decided_filter(pending, "아직 결정 안 한 사람 중 금융 경험자 찾아줘") is Decision.PENDING
+    assert decided_filter(pending, "미결정 지원자 중 Spring 경험자") is Decision.PENDING
+
+
+def test_decided_filter_ignores_flag_without_decided_words() -> None:
+    passed = RootRoute(kind="FIND", decision="PASS")
+
+    assert decided_filter(passed, "합격 가능성이 높은 사람 찾아줘") is None
+    assert decided_filter(passed, "불합격한 사람 중 금융 경험자") is None
+    assert decided_filter(RootRoute(kind="FIND"), "합격한 사람 중 금융 경험자") is None
+    assert decided_filter(RootRoute(kind="ANSWER", decision="PASS"), "합격한 사람 중 누가 금융 경험 있어?") is None
+
+
+def test_locked_stage_allows_find_among_decided(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(
+        sample_applicants, sample_company, sample_posting, message="합격한 사람 중 금융 경험 있는 사람 찾아줘"
+    ).model_copy(update={"selectable": False})
+
+    assert precheck(RootRoute(kind="FIND", decision="PASS", concepts=["금융"]), context) is None
+    assert precheck(RootRoute(kind="FIND", concepts=["금융"]), context) == ChatPlan.answer(Intent.CLARIFY, LOCKED)
