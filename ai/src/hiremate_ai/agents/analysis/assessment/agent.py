@@ -56,18 +56,24 @@ async def analyze_assessment(data: AssessmentInput, llm: LlmClient) -> Assessmen
     prompt = user
     answered = False
     failed: list[tuple[FindingDraft, str]] = []
+    used: set[str] = set()
     for _ in range(1 + MAX_RETRIES):
         drafts = await _draft(llm, prompt)
         if drafts is None:  # 형식에 맞지 않은 답. 같은 요청으로 다시 묻는다
             continue
         answered = True
         failed = []
+        accepted = []
         for finding in drafts.findings:
             checked = checked_item(finding, materials)
             if isinstance(checked, str):
                 failed.append((finding, checked))
-            else:
-                items.append(checked)
+            elif _key(checked) not in used:
+                # 다시 쓸 때는 통과하지 못한 항목만 고친다. 이미 통과한 근거로 다시 쓴 항목은 버려
+                # 같은 근거의 강점과 약점이 서로 어긋나게 쌓이지 않게 한다
+                accepted.append(checked)
+        items += accepted
+        used |= {_key(item) for item in accepted}
         if not failed:
             break
         prompt = _retry_prompt(user, failed)
@@ -94,5 +100,11 @@ def _retry_prompt(user: str, failed: list[tuple[FindingDraft, str]]) -> str:
     )
 
 
+def _key(item: NewItem) -> str:
+    """같은 근거인지 견주는 열쇠. 띄어쓰기만 다른 근거는 같은 근거다."""
+    return "".join((item.evidence or "").split())
+
+
 def _dedupe(items: list[NewItem]) -> list[NewItem]:
-    return list({(item.category, item.content, item.evidence): item for item in items}.values())
+    """같은 분류에 같은 근거를 쓴 항목은 처음 것만 남긴다. 근거가 없는 항목(점수 누락)은 문장으로 견준다."""
+    return list({(item.category, _key(item) or item.content): item for item in items}.values())

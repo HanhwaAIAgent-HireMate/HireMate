@@ -18,7 +18,7 @@ from hiremate_ai.agents.generation.report.types import (
     ReportDraft,
     ReportInput,
 )
-from hiremate_ai.agents.guardrails import blocked_attribute
+from hiremate_ai.agents.guardrails import blocked_attribute, instruction_like
 from hiremate_ai.db.profile import ItemAgent, ItemCategory
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import LlmClient
@@ -30,6 +30,7 @@ type Profiles = Mapping[UUID, Sequence[ProfileNote]]
 AGENT = "report"
 MEMO_SOURCE = "전형 메모"
 NO_EVIDENCE = "제출 문서에서 뚜렷한 근거를 찾지 못했어요. 전형 기록을 확인해 주세요."
+DROPPED_MEMO = "전형 메모에 AI에게 내리는 지시로 보이는 문장이 있어 리포트 근거에서 뺐어요."
 CHECK_NOTES_PER_FINALIST = 2
 """합격자마다 특이사항으로 옮기는 확인할 점 수. 많으면 리포트가 확인할 점 목록이 된다."""
 REPEAT_OVERLAP = 0.5
@@ -67,7 +68,11 @@ async def write_report(data: ReportInput, llm: LlmClient, profiles: Profiles | N
     모델 문장이 검사를 통과하지 못하면 이유를 붙여 한 번만 다시 쓰게 한다. 그래도 남은 문제 문장은 버리고,
     모델이 형식에 맞는 답을 내지 못하면 숫자와 분석 근거만 옮긴 리포트를 돌려준다.
     """
-    profiles = profiles or {}
+    data, dropped_memos = _without_instructions(data)
+    profiles = {
+        key: [note for note in notes if instruction_like(f"{note.content} {note.evidence or ''}") is None]
+        for key, notes in (profiles or {}).items()
+    }
     allowed_numbers = _numbers_in(data, profiles)
     draft = None
     if data.finalists:
@@ -87,8 +92,23 @@ async def write_report(data: ReportInput, llm: LlmClient, profiles: Profiles | N
             _finalist(finalist, _notes_of(profiles, finalist), draft.finalists, allowed_numbers)
             for finalist in data.finalists
         ],
-        notes=_notes(data, profiles, draft.notes, allowed_numbers),
+        notes=_notes(data, profiles, draft.notes, allowed_numbers, dropped_memos),
     )
+
+
+def _without_instructions(data: ReportInput) -> tuple[ReportInput, list[str]]:
+    """AI에게 내리는 지시로 보이는 전형 메모를 모델에게 보이기 전에 뺀다 (규칙 5).
+
+    자료 블록으로 감싸도 따르는 모델이 있어, 코드가 먼저 거른다. 뺀 사실은 담당자가 알도록 특이사항으로 남긴다.
+    """
+    finalists = []
+    dropped = []
+    for finalist in data.finalists:
+        memos = [memo for memo in finalist.memos if instruction_like(memo) is None]
+        if len(memos) < len(finalist.memos):
+            dropped.append(f"{finalist.name}: {DROPPED_MEMO}")
+        finalists.append(finalist.model_copy(update={"memos": memos}))
+    return data.model_copy(update={"finalists": finalists}), dropped
 
 
 async def _draft(llm: LlmClient, user: str) -> ReportDraft | None:
@@ -113,7 +133,7 @@ def _problems(draft: ReportDraft, data: ReportInput, profiles: Profiles, allowed
         if not _usable([written.reason], allowed_numbers):
             found.append(f"{finalist.name}의 reason에 자료에 없는 숫자나 쓰면 안 되는 조건이 있다")
         allowed_sources = _allowed_sources(finalist, _notes_of(profiles, finalist))
-        if unknown := [source for source in written.sources if source not in allowed_sources]:
+        if unknown := [source for source in written.sources if _canonical_source(source, allowed_sources) is None]:
             found.append(f"{finalist.name}의 sources에 자료에 없는 출처가 있다: {', '.join(unknown)}")
     if unknown_names := sorted(set(drafts) - {finalist.name for finalist in data.finalists}):
         found.append(f"자료에 없는 이름이 finalists에 있다: {', '.join(unknown_names)}")
@@ -174,15 +194,17 @@ def _count_notes(data: ReportInput) -> list[str]:
     return notes
 
 
-def _notes(data: ReportInput, profiles: Profiles, drafted: list[str], allowed_numbers: set[str]) -> list[str]:
-    """집계 특이사항, 확인할 점, 모델이 쓴 특이사항 순이다. 모델 문장이 확인할 점을 되풀이하면 버린다."""
+def _notes(
+    data: ReportInput, profiles: Profiles, drafted: list[str], allowed_numbers: set[str], dropped_memos: list[str]
+) -> list[str]:
+    """집계 특이사항, 뺀 메모, 확인할 점, 모델이 쓴 특이사항 순이다. 모델 문장이 확인할 점을 되풀이하면 버린다."""
     checks = _check_notes(data, profiles)
     written = [
         note
         for note in _usable(drafted, allowed_numbers)
         if not any(_repeats(note, check) for check in checks) and not _copied_from_rules(note)
     ]
-    return _dedupe([*_count_notes(data), *checks, *written])
+    return _dedupe([*_count_notes(data), *dropped_memos, *checks, *written])
 
 
 def _copied_from_rules(note: str) -> bool:
@@ -221,7 +243,8 @@ def _finalist(
     allowed_sources = _allowed_sources(finalist, notes)
     draft = next((draft for draft in drafts if draft.name.strip() == finalist.name), None)
     if draft is not None and _usable([draft.reason], allowed_numbers):
-        sources = _dedupe(source for source in draft.sources if source in allowed_sources)
+        canonical = (_canonical_source(source, allowed_sources) for source in draft.sources)
+        sources = _dedupe(source for source in canonical if source is not None)
         if sources:
             return Finalist(name=finalist.name, reason=draft.reason.strip(), sources=sources)
     return _fallback_finalist(finalist, notes)
@@ -234,6 +257,22 @@ def _allowed_sources(finalist: FinalistInput, notes: Sequence[ProfileNote]) -> s
     if finalist.memos:
         sources.add(MEMO_SOURCE)
     return sources
+
+
+def _canonical_source(written: str, allowed: set[str]) -> str | None:
+    """모델이 적은 출처를 자료의 출처 이름으로 맞춘다. 맞출 수 없으면 None.
+
+    띄어쓰기만 다르면("1 차 면접 답변") 같은 출처다. 앞부분만 적었고("이력서") 그렇게 시작하는 출처가
+    하나뿐이면 그 출처로 본다. 여럿이면 어느 것인지 알 수 없어 받지 않는다.
+    """
+    compact = "".join(written.split())
+    if not compact:
+        return None
+    for source in allowed:
+        if "".join(source.split()) == compact:
+            return source
+    starting = [source for source in allowed if "".join(source.split()).startswith(compact)]
+    return starting[0] if len(starting) == 1 else None
 
 
 def _fallback_finalist(finalist: FinalistInput, notes: Sequence[ProfileNote]) -> Finalist:
@@ -257,11 +296,11 @@ def _notes_of(profiles: Profiles, finalist: FinalistInput) -> Sequence[ProfileNo
 
 
 def _usable(texts: Iterable[str], allowed_numbers: set[str]) -> list[str]:
-    """빈 문장, 입력에 없는 숫자가 든 문장, 차별 조건이 든 문장은 버린다."""
+    """빈 문장, 입력에 없는 숫자가 든 문장, 차별 조건이나 지시문이 든 문장은 버린다."""
     usable = []
     for text in texts:
         text = text.strip()
-        if not text or blocked_attribute(text) is not None:
+        if not text or blocked_attribute(text) is not None or instruction_like(text) is not None:
             continue
         if not set(_NUMBER.findall(text)) <= allowed_numbers:
             continue

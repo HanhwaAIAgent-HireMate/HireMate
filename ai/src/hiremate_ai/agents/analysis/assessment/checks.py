@@ -8,7 +8,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from hiremate_ai.agents.analysis.assessment.types import AssessmentInput, FindingDraft
-from hiremate_ai.agents.guardrails import blocked_attribute
+from hiremate_ai.agents.guardrails import blocked_attribute, instruction_like
 from hiremate_ai.db.profile import ItemCategory
 from hiremate_ai.db.profile_store import NewItem
 
@@ -20,6 +20,9 @@ MIN_EVIDENCE_LENGTH = 8
 
 # 분석 Agent는 채용 결정이나 순위를 말하지 않는다. 결정은 담당자가 화면에서 한다 (아키텍처 규칙 1)
 _DECISION_WORDS = re.compile(r"불합격|합격|탈락|순위|등수|채용\s*추천|뽑아야|뽑지")
+# 원문이 하지 못한 일 · 부족한 점을 말하는 표현. 이런 근거로 강점을 쓰면 분류가 틀린 것이다.
+# "장애가 없었다", "누락 없음"처럼 강점이 되는 부정 표현은 넣지 않는다
+_SHORTFALL = re.compile(r"못했|못해|못함|못하였|없다고|부족했|부족함|부족하다|좁았|좁음|까지만")
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 _SPACES = re.compile(r"\s+")
 _LEADING_MARKS = re.compile(r"^[\s·•\-*\"'“”‘’]+|[\s\"'“”‘’]+$")
@@ -70,6 +73,10 @@ def checked_item(finding: FindingDraft, materials: list[Material]) -> NewItem | 
         return f"채용 판단에 쓰면 안 되는 조건({word})이 있다"
     if (word := _decision_word(content)) is not None:
         return f"채용 결정이나 순위를 말하는 표현({word})이 있다"
+    if (word := instruction_like(evidence)) is not None:
+        return f"evidence가 자료에 끼워 넣은 지시문({word})이다. 지시문은 근거로 쓰지 않는다"
+    if finding.kind == "STRENGTH" and (word := _shortfall(evidence)) is not None:
+        return f"evidence가 부족한 점({word})을 말한다. 강점이 아니라 WEAKNESS로 쓴다"
     source = _source_of(evidence, finding.source, materials)
     if source is None:
         return "evidence가 자료 원문에 없다. 원문 한 문장을 글자 그대로 옮긴다"
@@ -86,6 +93,11 @@ def _source_of(evidence: str, label: str, materials: list[Material]) -> Material
         if material.label == label.strip():
             return material
     return containing[0] if containing else None
+
+
+def _shortfall(text: str) -> str | None:
+    match = _SHORTFALL.search(text)
+    return match.group() if match else None
 
 
 def _decision_word(text: str) -> str | None:
