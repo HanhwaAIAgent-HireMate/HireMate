@@ -53,6 +53,8 @@ POSTING = {
     "benefits": ["유연 근무", "자기계발비 지원"],
 }
 
+STAGE_PLAN = "전형은 서류, 직무역량 평가, 1차 면접 순으로 해줘"
+
 FONTS = [
     Path("C:/Windows/Fonts/malgun.ttf"),
     Path("/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
@@ -120,6 +122,11 @@ def publish(api: Api) -> tuple[str, str]:
     draft = api.post("/api/recruitments").json()
     recruitment_id, posting_id = draft["recruitmentId"], draft["postingId"]
     base = f"/api/recruitments/{recruitment_id}/posting"
+    api.put(base, POSTING)
+    # 서류 전형을 확정해도 채용이 끝나지 않고 다음 전형으로 넘어가게 전형을 셋으로 둔다 (Posting Agent 수정안).
+    # 수정안이 공고 문장을 바꾸면 평가 기준과 짝이 어긋나므로 적용한 뒤 공고 본문을 다시 넣는다
+    api.post(f"{base}/ai-requests", {"message": STAGE_PLAN})
+    api.post(f"{base}/suggestion/apply")
     api.put(base, POSTING)
     now = datetime.now(UTC)
     api.post(
