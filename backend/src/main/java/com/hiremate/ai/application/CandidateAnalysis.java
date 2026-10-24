@@ -20,6 +20,7 @@ import java.util.List;
  * @param qualificationScore 자격요건 점수. 확인 필요가 있으면 null
  * @param preferenceScore 우대사항 점수. 확인 필요가 있으면 null
  * @param criteria 항목별 판정. 분석 전이거나 서류를 읽지 못했으면 비어 있다
+ * @param summaries 자기소개서 문항별 요약. 판단 없이 무엇을 썼는지만 담는다
  * @param highlights 문서 Viewer에 표시할 근거 문장
  */
 public record CandidateAnalysis(List<Condition> conditions, List<Finding> notable, List<Finding> checks,
@@ -27,7 +28,8 @@ public record CandidateAnalysis(List<Condition> conditions, List<Finding> notabl
         @Schema(nullable = true) BigDecimal documentScore, QualificationStatus qualificationStatus,
         @Schema(nullable = true) BigDecimal qualificationRate, @Schema(nullable = true) BigDecimal qualificationScore,
         int qualificationMax, @Schema(nullable = true) BigDecimal preferenceScore, int preferenceMax,
-        List<CriterionLine> criteria, List<Evidence> highlights, String agent, boolean stub) {
+        List<CriterionLine> criteria, List<SummarySection> summaries, List<Evidence> highlights, String agent,
+        boolean stub) {
 
     /** 총점 확정 상태. 서류를 읽지 못했거나 확인 필요가 남으면 보류다. */
     public enum ScoreStatus {
@@ -60,6 +62,11 @@ public record CandidateAnalysis(List<Condition> conditions, List<Finding> notabl
             List<String> unsatisfiedParts, List<String> unknownParts, List<Evidence> evidence, int recheckCount,
             @Schema(nullable = true) Integer careerYears,
             @Schema(nullable = true) CertificateStatus certificateStatus) {
+    }
+
+    /** 제출 문서의 문항 하나 요약 (지금은 자기소개서 문항마다 하나). */
+    public record SummarySection(DocumentType document, String title, String summary, List<String> points,
+            List<Evidence> evidence) {
     }
 
     public record Condition(String label, boolean met, String requirement) {
