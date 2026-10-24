@@ -59,7 +59,8 @@ INTERVIEW_SOURCE = "면접 기록"
 RESULT_SOURCE = "전형 결과"
 COMPANY_SOURCE = "회사 소개"
 POSTING_SOURCE = "공고"
-# 대상이 이 인원까지면 도구 루프 대신 지원자별 정리와 종합으로 답한다 (기획 17절)
+# 대상이 한 명부터 이 인원까지면 도구 루프 대신 지원자별 정리와 종합으로 답한다 (기획 17절).
+# 한 명도 도구 루프로 답하면 실제 모델이 근거 항목(items) 없이 답 글만 쓰기 일쑤다
 MULTI_LIMIT = 5
 NOT_CHECKED = "자료를 확인하지 못했어요"
 MULTI_FALLBACK = "{names}의 근거를 지원자별로 정리했어요."
@@ -184,9 +185,9 @@ async def plan_answer(
         return ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names=", ".join(targets.ambiguous)))
     # 멘션 · 이름이 없으면 체크한 지원자를 대상으로 본다
     rows = targets.rows or checked(context)
-    if 2 <= len(rows) <= MULTI_LIMIT:
+    if 1 <= len(rows) <= MULTI_LIMIT:
         return await plan_multi(llm, context, rows, toolkit, turns, progress=progress)
-    progress.status(ONE_STATUS.format(name=rows[0].name) if len(rows) == 1 else STAGE_STATUS)
+    progress.status(STAGE_STATUS)
     scope = scope_of(context, turns)
     agent = llm.tool_agent(
         RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
@@ -195,9 +196,8 @@ async def plan_answer(
         answered = await agent.run(answer_prompt(context, Targets(rows=rows, ambiguous=[])), context=scope)
     except LlmOutputError:
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
-    only = rows[0] if len(rows) == 1 else None
     recorded = await _recorded(toolkit, scope, context, answered.items, rows)
-    items, sources, agents = verify_items(answered.items, context, only, recorded)
+    items, sources, agents = verify_items(answered.items, context, recorded=recorded)
     message = readable(answered.message, context)
     return ChatPlan.answer(Intent.ANSWER, message, items, sources, agents)
 
@@ -211,16 +211,18 @@ async def plan_multi(
     *,
     progress: Progress = SILENT,
 ) -> ChatPlan:
-    """대상이 여럿인 분석. 코드가 지원자마다 자료를 모아 지원자별로 정리하고(동시에), 확인된 항목만으로 답을 쓴다.
+    """대상이 1~5명인 분석. 코드가 지원자마다 자료를 모아 지원자별로 정리하고(동시에), 확인된 항목만으로 답을 쓴다.
 
     도구 루프가 지원자 자료를 한 명씩 부르다 호출 상한에 걸리거나, 여러 지원자의 근거가 한 항목에 섞이지 않게 한다.
+    한 명이어도 정리를 거쳐 근거 항목을 받는다.
     항목의 지원자는 코드가 붙이고 근거는 원문과 맞춰 본다 (규칙 7). 정리에 실패한 지원자는 확인 필요로 둔다.
     전체 시간 제한 없이 모든 지원자의 정리를 기다린다. 끝난 지원자는 바로 검증해 진행 알림으로 보낸다.
     최종 항목은 지원자 순서다.
     """
     scope = scope_of(context, turns)
     shared = f"공고:\n{posting_text(context)}\n\n회사:\n{company_text(context)}"
-    progress.status(MULTI_STATUS.format(count=len(rows)))
+    single = len(rows) == 1
+    progress.status(ONE_STATUS.format(name=rows[0].name) if single else MULTI_STATUS.format(count=len(rows)))
     tasks = [asyncio.create_task(_notes(llm, context, row, shared, toolkit, scope)) for row in rows]
     row_of = dict(zip(tasks, rows, strict=True))
     done: set[asyncio.Task[CandidateNotes]] = set()
@@ -263,7 +265,8 @@ async def plan_multi(
         agents += [agent for agent in used if agent not in agents]
     if not finished:
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
-    progress.status(COMPARE_STATUS.format(count=len(rows)))
+    if not single:
+        progress.status(COMPARE_STATUS.format(count=len(rows)))
     return ChatPlan.answer(Intent.ANSWER, await _summary(llm, context, rows, items), items, sources, agents)
 
 

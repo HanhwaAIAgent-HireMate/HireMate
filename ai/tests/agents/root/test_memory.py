@@ -105,10 +105,8 @@ async def test_turn_records_subject_and_answer(
     thread = thread_of(context)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        RootAnswer(
-            message="은행 경력이 강점이에요.",
-            items=[AnswerItem(candidate="C2", label="강점", text="은행 경력", status="CHECK")],
-        ),
+        CandidateNotes(items=[AnswerItem(label="강점", text="은행 경력", status="CHECK")]),
+        MultiSummary(message="은행 경력이 강점이에요."),
     )
 
     await run_plan(llm, context, saver=saver, thread=thread)
@@ -131,8 +129,8 @@ async def test_state_has_no_documents(
     thread = thread_of(context)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        ToolCall("get_candidate_documents", {"candidate": "C1"}),
-        RootAnswer(message="강점이에요."),
+        CandidateNotes(),
+        MultiSummary(message="강점이에요."),
     )
 
     await run_plan(llm, context, saver=saver, thread=thread)
@@ -150,12 +148,10 @@ async def test_tool_loop_is_not_saved(
 ) -> None:
     """도구 루프는 Root 그래프 안에서 돌지만 대화방에 자기 checkpoint를 남기지 않는다.
 
-    남기면 도구 결과로 읽은 문서 본문이 저장된다 (규칙 3).
+    남기면 도구 결과로 읽은 문서 본문이 저장된다 (규칙 3). 대상 없는 질문이 도구 루프로 간다.
     """
     saver = InMemorySaver()
-    context = make_context(
-        sample_applicants, sample_company, sample_posting, message="@정유민 강점은?", mentions=["정유민"]
-    )
+    context = make_context(sample_applicants, sample_company, sample_posting, message="강점이 가장 뚜렷한 사람은?")
     thread = thread_of(context)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
@@ -189,7 +185,8 @@ async def test_ordinal_from_previous_result(
         RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
         FINANCE_FOUND,
         RootRoute(kind="ANSWER", previous_ref="result", ordinal=2),
-        RootAnswer(message="강점이에요."),
+        CandidateNotes(),
+        MultiSummary(message="강점이에요."),
     )
 
     await run_plan(llm, found, saver=saver, thread=thread)
@@ -202,7 +199,7 @@ async def test_ordinal_from_previous_result(
 
     assert "앞 대화" in llm.calls[2].user
     assert "정유민, 김하늘, 한예린" in llm.calls[2].user
-    assert "대상 지원자: C2 김하늘" in llm.calls[3].user
+    assert "정리할 지원자: C2 김하늘" in llm.calls[3].user
 
 
 async def test_subject_from_previous_turn(
@@ -215,7 +212,8 @@ async def test_subject_from_previous_turn(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        RootAnswer(message="은행 경력이에요."),
+        CandidateNotes(),
+        MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
     )
 
@@ -256,7 +254,8 @@ async def test_remembered_candidate_must_be_in_stage(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        RootAnswer(message="은행 경력이에요."),
+        CandidateNotes(),
+        MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
     )
     await run_plan(llm, asked, saver=saver, thread=thread)
@@ -296,8 +295,8 @@ async def test_reason_question_reads_previous_turns(
         RootRoute(kind="ANSWER", interview_questions=True),
         RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus=FOCUS)]),
         RootRoute(kind="ANSWER", previous_ref="subject"),
-        ToolCall("get_previous_turns"),
-        RootAnswer(message="정산 배치 설계 판단을 확인하려고 만들었어요."),
+        CandidateNotes(),
+        MultiSummary(message="정산 배치 설계 판단을 확인하려고 만들었어요."),
     )
 
     await run_plan(llm, first, saver=saver, thread=thread)
@@ -309,10 +308,11 @@ async def test_reason_question_reads_previous_turns(
     )
 
     assert plan.message == "정산 배치 설계 판단을 확인하려고 만들었어요."
-    tool_result = llm.calls[-1].user
-    assert "[tool get_previous_turns]" in tool_result
-    assert FOCUS in tool_result
-    assert "@정유민 면접 질문 만들어줘" in tool_result
+    # 정리할 자료에 앞 대화에서 정리한 확인할 점이 들어간다
+    notes = llm.calls[-2].user
+    assert '<data kind="previous">' in notes
+    assert FOCUS in notes
+    assert "@정유민 면접 질문 만들어줘" in notes
 
 
 async def test_refine_uses_previous_subject(
@@ -352,7 +352,8 @@ async def test_result_ref_falls_back_to_latest_turn_with_targets(
         RootRoute(kind="ANSWER", interview_questions=True),
         RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus=FOCUS)]),
         RootRoute(kind="ANSWER", previous_ref="result"),
-        RootAnswer(message="이유예요."),
+        CandidateNotes(),
+        MultiSummary(message="이유예요."),
     )
 
     await run_plan(llm, first, saver=saver, thread=thread)
@@ -364,7 +365,7 @@ async def test_result_ref_falls_back_to_latest_turn_with_targets(
     )
 
     assert plan.intent is Intent.ANSWER
-    assert "대상 지원자: C1 정유민" in llm.calls[-1].user
+    assert "정리할 지원자: C1 정유민" in llm.calls[-2].user
 
 
 async def test_saved_state_keeps_only_json_values(
@@ -482,7 +483,8 @@ async def test_previous_words_beat_checked(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        RootAnswer(message="은행 경력이에요."),
+        CandidateNotes(),
+        MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
     )
     later = make_context(
@@ -506,7 +508,8 @@ async def test_empty_narrow_keeps_result(
         FINANCE_FOUND,
         RootRoute(kind="FIND", mode=SelectionMode.NARROW, concepts=["양자 컴퓨팅"]),
         RootRoute(kind="ANSWER", previous_ref="result", ordinal=2),
-        RootAnswer(message="강점이에요."),
+        CandidateNotes(),
+        MultiSummary(message="강점이에요."),
     )
 
     await run_plan(llm, found, saver=saver, thread=thread)
@@ -524,7 +527,7 @@ async def test_empty_narrow_keeps_result(
     )
 
     assert narrowed.intent is Intent.ANSWER
-    assert "대상 지원자: C2 김하늘" in llm.calls[-1].user
+    assert "정리할 지원자: C2 김하늘" in llm.calls[-2].user
 
 
 async def test_find_turn_records_only_found(
@@ -537,7 +540,8 @@ async def test_find_turn_records_only_found(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        RootAnswer(message="은행 경력이에요."),
+        CandidateNotes(),
+        MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="FIND", concepts=["양자 컴퓨팅"], previous_ref="subject"),
         RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
     )
@@ -570,7 +574,8 @@ async def test_clear_with_checked_keeps_subject(
     thread = thread_of(asked)
     llm = FakeLlm(
         RootRoute(kind="ANSWER"),
-        RootAnswer(message="은행 경력이에요."),
+        CandidateNotes(),
+        MultiSummary(message="은행 경력이에요."),
         RootRoute(kind="EDIT", edit=EditAction.CLEAR),
         RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
     )
