@@ -43,6 +43,9 @@ _RESULT_WORDS = re.compile(r"찾은|고른|그\s*중(?:에서는|에서|에는|�
 _PREVIOUS_WORDS = re.compile(
     rf"방금|아까|앞에서|앞서|위에서|이전|지난번|만든|그\s*(?:사람|지원자|분|둘|셋)|{_RESULT_WORDS.pattern}"
 )
+# 이유를 묻는 말과 질문을 만들거나 고쳐 달라는 말. 이유만 물으면 면접 질문 만들기가 아니다
+_ASKS_REASON = re.compile(r"왜|이유")
+_MAKE_REQUEST = re.compile(r"만들어|추가|고쳐|바꿔|다시|생성|뽑아|짜\s*줘")
 # 순서를 말하는 말. 실제 모델은 "몇 명이야?", "두 지원자를 비교해봐"에도 ordinal을 적는다
 _ORDINAL_WORDS = re.compile(r"(?:첫|두|둘|세|셋|네|넷|다섯|여섯|일곱|여덟|아홉|열|\d+)\s*(?:번째|째)|마지막")
 # 공고 항목을 가리키는 말. 이 말이 있어야 공고의 자격 요건 · 우대 사항으로 찾는다
@@ -243,8 +246,12 @@ def _settled(route: RootRoute, message: str) -> RootRoute:
     그 전 찾기 결과를 가리키지 않게 한다.
     지원자끼리 비교하는 요청을 되묻기로 표시하면 분석으로 돌린다. 대상이 모자라면 정해 둔 문구로 되묻고,
     체크한 지원자가 있으면 그 사람들을 비교한다.
+    만든 질문의 이유만 묻는 문장("방금 만든 질문은 왜 만든 거야?")은 면접 질문 만들기가 아니라 분석이다.
+    표시를 남기면 질문을 다시 만든다.
     """
     update: dict[str, object] = {}
+    if route.interview_questions and _ASKS_REASON.search(message) and not _MAKE_REQUEST.search(message):
+        update["interview_questions"] = False
     if route.ordinal is not None and not _ORDINAL_WORDS.search(message):
         update["ordinal"] = None
     if route.previous_ref == "subject" and _RESULT_WORDS.search(message):

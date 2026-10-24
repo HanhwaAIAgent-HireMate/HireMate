@@ -403,3 +403,20 @@ def test_locked_stage_allows_find_among_decided(
 
     assert precheck(RootRoute(kind="FIND", decision="PASS", concepts=["금융"]), context) is None
     assert precheck(RootRoute(kind="FIND", concepts=["금융"]), context) == ChatPlan.answer(Intent.CLARIFY, LOCKED)
+
+
+async def test_reason_for_made_questions_is_not_making_questions(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 "방금 만든 질문은 왜 만든 거야?"도 면접 질문 만들기로 표시해 질문을 다시 만들었다
+    async def makes_questions(message: str) -> bool:
+        context = context_for(sample_applicants, sample_company, sample_posting, StageType.INTERVIEW, message=message)
+        llm = FakeLlm(RootRoute(kind="ANSWER", interview_questions=True))
+        return (await classify(llm, context, resolve(context))).interview_questions
+
+    assert not await makes_questions("방금 만든 질문은 왜 만든 거야?")
+    assert not await makes_questions("아까 만든 질문 왜 그렇게 만들었어?")
+    assert not await makes_questions("그 질문을 넣은 이유가 뭐야?")
+    assert await makes_questions("@정유민 서류 기준으로 기술 심화 질문 만들어줘")
+    assert await makes_questions("이유를 묻는 질문 2개 추가해줘")
+    assert await makes_questions("좀 더 기술적으로 다시 해줘")
