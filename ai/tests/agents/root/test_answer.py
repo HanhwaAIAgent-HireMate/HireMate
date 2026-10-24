@@ -15,6 +15,7 @@ from hiremate_ai.agents.root.answer import (
     COMPARE_STATUS,
     FOCUS_FALLBACK,
     FOCUS_STATUS,
+    FOCUS_WITH_REQUEST,
     FOCUSED,
     MULTI_FALLBACK,
     MULTI_STATUS,
@@ -493,7 +494,7 @@ async def test_focus_for_mentioned(
     jung = sample_applicants["정유민"].info.application_id
     assert plan.intent is Intent.ANSWER
     assert plan.question_targets == [jung]
-    assert plan.question_focus == {jung: FOCUS}
+    assert plan.question_focus == {jung: FOCUS_WITH_REQUEST.format(focus=FOCUS, request="면접 질문 만들어줘")}
     assert plan.message == FOCUSED.format(count=1)
     assert (plan.items[0].application_id, plan.items[0].status) == (jung, "OK")
     assert plan.sources == ["이력서"]
@@ -550,6 +551,28 @@ async def test_bulk_skips_tool_loop(
     assert llm.calls == []
 
 
+async def test_focus_keeps_hr_request_words(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # Interview Agent는 "확인 안 된 점 위주로" 같은 담당자 말로 질문 범위를 좁힌다. 실제 모델은 그 말을 바꿔 쓴다
+    message = "1차 면접에서 확인 안 된 점 위주로 질문 만들어줘"
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message=message,
+        mentions=["정유민"],
+        stage_type=StageType.INTERVIEW,
+        previous_types=(StageType.DOCUMENT,),
+    )
+    llm = FakeLlm(focused(QuestionFocusItem(candidate="C1", focus="검증되지 않은 정산 경험을 확인")))
+
+    plan = await make_questions(llm, QUESTIONS, context)
+
+    jung = sample_applicants["정유민"].info.application_id
+    assert plan.question_focus == {jung: f"검증되지 않은 정산 경험을 확인 (담당자 요청: {message})"}
+
+
 async def test_checked_targets_and_other_candidates_ignored(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
@@ -566,7 +589,8 @@ async def test_checked_targets_and_other_candidates_ignored(
     kim = sample_applicants["김하늘"].info.application_id
     park = sample_applicants["박서준"].info.application_id
     assert plan.question_targets == [kim, park]
-    assert plan.question_focus == {kim: "은행 계정계 장애 대응 경험을 구체적으로"}
+    focus = FOCUS_WITH_REQUEST.format(focus="은행 계정계 장애 대응 경험을 구체적으로", request="면접 질문 만들어줘")
+    assert plan.question_focus == {kim: focus}
 
 
 async def test_focus_failure_keeps_explicit_question_request_without_invented_reasons(
