@@ -246,6 +246,11 @@ def required_data(route: RootRoute, message: str) -> set[StageType]:
     return required
 
 
+def names_document_score(message: str) -> bool:
+    """점수 조건이 평가 결과가 아니라 서류 점수인가. 모델은 "서류 점수 80점"도 min_score로 적는다."""
+    return bool(_DOCUMENT_SCORE.search(message))
+
+
 def _mentions_assessment(message: str) -> bool:
     rest = _DOCUMENT_SCORE.sub(" ", message)
     if _ASSESSMENT_WORDS.search(rest):

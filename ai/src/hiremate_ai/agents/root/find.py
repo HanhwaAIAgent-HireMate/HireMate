@@ -11,7 +11,13 @@ from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.progress import SILENT, Progress
-from hiremate_ai.agents.root.route import DEFAULT_CLARIFY, NOT_UNDERSTOOD, RootRoute, posting_section
+from hiremate_ai.agents.root.route import (
+    DEFAULT_CLARIFY,
+    NOT_UNDERSTOOD,
+    RootRoute,
+    names_document_score,
+    posting_section,
+)
 from hiremate_ai.agents.root.toolkit import RootToolkit, cited_agents, concept_terms, scope_of
 from hiremate_ai.agents.root.types import (
     CandidateRow,
@@ -111,14 +117,21 @@ def candidate_pool(route: RootRoute, context: ChatContext) -> list[CandidateRow]
 def score_filter(
     route: RootRoute, context: ChatContext, rows: list[CandidateRow]
 ) -> tuple[list[CandidateRow], dict[UUID, str]]:
-    """평가 점수 조건을 적용하고 지원자별 점수 설명을 붙인다. score는 평가 전형 점수, document_scores는 서류 점수다."""
+    """점수 조건을 적용하고 지원자별 점수 설명을 붙인다. score는 평가 전형 점수, document_scores는 서류 점수다.
+
+    점수 하한은 문장이 서류 점수를 가리키면 서류 점수에, 아니면 평가 점수에 건다.
+    """
     notes: dict[UUID, str] = {}
+    on_document = _on_document(route, context.message)
     if route.min_score is not None:
-        rows = [row for row in rows if row.score is not None and row.score >= route.min_score]
+        minimum = route.min_score
+        rows = [row for row in rows if (score := _score(context, row, on_document)) is not None and score >= minimum]
     if route.without_score:
         rows = [row for row in rows if row.score is None]
     for row in rows:
-        if row.score is not None:
+        if on_document:
+            notes[row.application_id] = f"서류 {context.document_scores[row.application_id]}점"
+        elif row.score is not None:
             notes[row.application_id] = f"평가 {_points(row.score)}점"
     if route.score_gap:
         gaps = []
@@ -149,7 +162,7 @@ async def plan_find(
         talents = [f"{talent.title} {talent.description}" for talent in context.company.talents]
     concepts = conditions + talents
     has_score = route.min_score is not None or route.without_score or route.score_gap
-    score_sources = (["평가 결과", "서류 점수"] if route.score_gap else ["평가 결과"]) if has_score else []
+    score_sources = _score_sources(route, context.message)
     if not concepts:
         if not has_score:
             return ChatPlan.answer(Intent.CLARIFY, DEFAULT_CLARIFY)
@@ -400,6 +413,24 @@ def _plan(
 
 def _points(value: float) -> str:
     return f"{value:g}"
+
+
+def _on_document(route: RootRoute, message: str) -> bool:
+    """점수 하한을 서류 점수에 거는가."""
+    return route.min_score is not None and names_document_score(message)
+
+
+def _score(context: ChatContext, row: CandidateRow, on_document: bool) -> float | None:
+    return context.document_scores.get(row.application_id) if on_document else row.score
+
+
+def _score_sources(route: RootRoute, message: str) -> list[str]:
+    """점수 조건이 쓴 자료의 출처."""
+    on_document = _on_document(route, message)
+    evaluated = route.score_gap or route.without_score or (route.min_score is not None and not on_document)
+    return [
+        source for source, used in (("평가 결과", evaluated), ("서류 점수", route.score_gap or on_document)) if used
+    ]
 
 
 def _shorten(text: str) -> str:
