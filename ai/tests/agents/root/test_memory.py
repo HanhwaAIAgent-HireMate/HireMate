@@ -144,6 +144,31 @@ async def test_state_has_no_documents(
     assert saved.metadata.get("stage_id") == str(context.stage_id)
 
 
+async def test_tool_loop_is_not_saved(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    """도구 루프는 Root 그래프 안에서 돌지만 대화방에 자기 checkpoint를 남기지 않는다.
+
+    남기면 도구 결과로 읽은 문서 본문이 저장된다 (규칙 3).
+    """
+    saver = InMemorySaver()
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="@정유민 강점은?", mentions=["정유민"]
+    )
+    thread = thread_of(context)
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER"),
+        ToolCall("get_candidate_documents", {"candidate": "C1"}),
+        RootAnswer(message="강점이에요."),
+    )
+
+    await run_plan(llm, context, saver=saver, thread=thread)
+
+    namespaces = {*saver.storage[thread.id], *(key[1] for key in saver.writes), *(key[1] for key in saver.blobs)}
+    assert namespaces == {""}
+    assert "Kafka" not in repr([saver.storage, saver.writes, saver.blobs])
+
+
 FINANCE_FOUND = RecheckResult(
     results=[
         RecheckItem(candidate_no=1, met=True, sentence_nos=[1]),

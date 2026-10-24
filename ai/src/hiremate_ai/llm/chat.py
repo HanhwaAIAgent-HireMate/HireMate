@@ -161,6 +161,8 @@ def build_tool_agent[T: BaseModel](
         ],
         response_format=ToolStrategy(output),
         context_schema=context,
+        # Root 그래프 노드 안에서 돌아도 대화방 체크포인터를 이어받지 않는다. 이어받으면 도구 결과(문서 본문)가 저장된다
+        checkpointer=False,
     )
     return ToolAgent(graph, output, agent=agent)
 
