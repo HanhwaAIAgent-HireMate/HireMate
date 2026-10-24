@@ -235,6 +235,22 @@ async def test_first_turn_count_with_stray_ordinal_answers_stage(
     assert (plan.intent, plan.message) == (Intent.ANSWER, "미결정은 8명이에요.")
 
 
+async def test_stage_ranking_answers_from_summary(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 찾기로 갔다면 재확인(RecheckResult) 자리에 도구 호출이 와서 FakeLlm이 실패한다
+    context = make_context(sample_applicants, sample_company, sample_posting, message="경력이 가장 많은 사람은?")
+    llm = FakeLlm(
+        RootRoute(kind="FIND", mode=SelectionMode.REPLACE, concepts=["경력"]),
+        ToolCall("get_stage_summary"),
+        RootAnswer(message="김하늘이 7년으로 경력이 가장 많아요.", items=[]),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert (plan.intent, plan.message) == (Intent.ANSWER, "김하늘이 7년으로 경력이 가장 많아요.")
+
+
 async def test_edit_uses_checked_without_target(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:

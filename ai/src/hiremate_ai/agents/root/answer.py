@@ -17,7 +17,7 @@ from hiremate_ai.agents.analysis.assessment.checks import RESULT_SOURCE as SCORE
 from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.edit import SAME_NAME
 from hiremate_ai.agents.root.progress import SILENT, Progress
-from hiremate_ai.agents.root.route import RootRoute, says_previous
+from hiremate_ai.agents.root.route import RootRoute, asks_stage_ranking, says_previous
 from hiremate_ai.agents.root.stages import blames_later_stage, reached, stage_plan, without_later_gaps
 from hiremate_ai.agents.root.targets import Targets, checked, resolve
 from hiremate_ai.agents.root.toolkit import (
@@ -97,6 +97,8 @@ ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확�
 - 근거가 있는 내용만 말한다. 자료가 없거나 확인하지 못한 점은 status=CHECK로 나눈다.
 - 전형 구성에서 아직 진행하지 않은 전형의 자료(평가 결과, 면접 기록)는 생기기 전이다.
   없는 자료나 확인하지 못한 점으로 쓰지 않는다. 더 확인할 점이 있으면 "면접에서 확인"처럼 뒤 전형에서 할 일로 적는다.
+- 대상 지원자 없이 전형 전체의 인원, 결정 현황, 경력이나 평가 점수가 가장 높은 사람을 물으면 get_stage_summary로 답한다.
+  지원자 문서를 한 명씩 읽지 않는다.
 - 서류와 평가 · 면접을 함께 묻는 질문이면 그 자료를 모두 확인한다.
 - 지원자는 C1 같은 번호로만 가리킨다. 도구 인자와 답의 candidate 모두 번호를 쓴다.
 - 지원자에 관한 항목은 candidate에 반드시 그 지원자 번호를 적는다. 여러 지원자를 비교하면 지원자마다 항목을 따로 만든다.
@@ -201,8 +203,9 @@ async def plan_answer(
         return ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names=", ".join(targets.ambiguous)))
     # 멘션 · 이름이 없으면 체크한 지원자를 대상으로 본다
     rows = targets.rows or checked(context)
+    # 순위 질문("경력이 가장 많은 사람은?")은 체크한 지원자가 있으면 그 사람들 안에서 답한다
     stage_overview = bool(
-        _STAGE_OVERVIEW.search(context.message)
+        (_STAGE_OVERVIEW.search(context.message) or (asks_stage_ranking(context.message) and not checked(context)))
         and not _SUBSET_REFERENCE.search(context.message)
         and not resolve(context).rows
         and not says_previous(route, context.message)
