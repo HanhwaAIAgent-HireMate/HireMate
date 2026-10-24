@@ -73,6 +73,10 @@ class ChatLlm:
                     messages = [SystemMessage(system), HumanMessage(f"{user}\n\n{SHORTER}")]
                     continue
                 tokens.add(result["raw"])
+                if _at_limit(result["raw"], _max_tokens(self._model)):
+                    failure = CUT
+                    messages = [SystemMessage(system), HumanMessage(f"{user}\n\n{SHORTER}")]
+                    continue
                 parsed = result["parsed"]
                 if result["parsing_error"] is None and isinstance(parsed, output):
                     break
@@ -167,7 +171,7 @@ def build_tool_agent[T: BaseModel](
         middleware=[
             _ToolResultBlock(),
             _LastCallAnswers(max_calls),
-            _ShorterWhenCut(),
+            _ShorterWhenCut(_max_tokens(model)),
             _CallLogMiddleware(_Recorder(call_log, agent=agent, model=model_name)),
             ModelCallLimitMiddleware(run_limit=max_calls, exit_behavior="error"),
         ],
@@ -234,7 +238,13 @@ class _ShorterWhenCut(AgentMiddleware[Any, Any, Any]):
     """답이 출력 길이 상한에서 잘리면 짧게 쓰라고 덧붙여 한 번 더 묻는다. 또 잘리면 실패로 둔다.
 
     잘린 도구 호출 인자도 JSON으로 읽힐 수 있어, 그대로 두면 되풀이하다 끊긴 글이 답이 된다.
+    max_tokens는 모델의 출력 상한이다. 잘린 JSON을 닫아 돌려주며 finish_reason을 바꾸지 않는 처리 업체가 있어
+    출력 토큰이 상한에 닿았는지도 본다.
     """
+
+    def __init__(self, max_tokens: int | None) -> None:
+        super().__init__()
+        self._max_tokens = max_tokens
 
     async def awrap_model_call(
         self,
@@ -242,19 +252,31 @@ class _ShorterWhenCut(AgentMiddleware[Any, Any, Any]):
         handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
     ) -> ModelResponse[Any]:
         response = await handler(request)
-        if not _cut(response):
+        if not self._cut(response):
             return response
         response = await handler(request.override(messages=[*request.messages, HumanMessage(SHORTER)]))
-        if _cut(response):
+        if self._cut(response):
             raise LlmOutputError(f"도구 루프의 답이 {CUT}")
         return response
 
+    def _cut(self, response: ModelResponse[Any]) -> bool:
+        return any(
+            isinstance(message, AIMessage)
+            and (message.response_metadata.get("finish_reason") == "length" or _at_limit(message, self._max_tokens))
+            for message in response.result
+        )
 
-def _cut(response: ModelResponse[Any]) -> bool:
-    return any(
-        isinstance(message, AIMessage) and message.response_metadata.get("finish_reason") == "length"
-        for message in response.result
-    )
+
+def _max_tokens(model: BaseChatModel) -> int | None:
+    """모델의 출력 상한(ChatOpenAI의 max_tokens). 없으면 None."""
+    limit = getattr(model, "max_tokens", None)
+    return limit if isinstance(limit, int) else None
+
+
+def _at_limit(message: object, max_tokens: int | None) -> bool:
+    """출력 토큰이 상한에 닿았는가. 어떤 처리 업체는 잘린 JSON을 닫아 돌려주고 finish_reason을 그대로 둔다."""
+    usage = getattr(message, "usage_metadata", None)
+    return max_tokens is not None and usage is not None and usage["output_tokens"] >= max_tokens
 
 
 class _CallLogMiddleware(AgentMiddleware[Any, Any, Any]):

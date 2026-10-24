@@ -66,6 +66,7 @@ def chat_llm(
     requests: list[dict[str, Any]],
     *,
     max_calls: int = 8,
+    max_tokens: int | None = None,
 ) -> ChatLlm:
     """contents의 글은 모델 답 본문, dict는 응답 전체(tool_completion)다."""
     answers = iter(contents)
@@ -80,6 +81,7 @@ def chat_llm(
         base_url="http://llm.test/v1",
         api_key=SecretStr("test"),
         max_retries=0,
+        max_tokens=max_tokens,
         http_async_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     return ChatLlm(model, call_log, model_name="test-model", method="json_schema", agent_max_calls=max_calls)
@@ -145,6 +147,27 @@ async def test_asks_shorter_when_output_is_cut() -> None:
     assert [record.status for record in call_log.records] == ["OK"]
 
 
+def at_limit(body: dict[str, Any], limit: int) -> dict[str, Any]:
+    """출력 토큰이 상한에 닿았는데 finish_reason은 그대로인 응답. 어떤 처리 업체는 잘린 JSON을 닫아 돌려준다."""
+    body["usage"]["completion_tokens"] = limit
+    return body
+
+
+async def test_output_at_token_limit_counts_as_cut() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [at_limit(completion('{"text": "되풀이하다 닫힌 글"}'), 50), '{"text": "짧은 답"}'],
+        RecordingCallLog(),
+        requests,
+        max_tokens=50,
+    )
+
+    result = await llm.structured(Summary, agent="root", system="", user="정리해")
+
+    assert result.text == "짧은 답"
+    assert SHORTER in requests[1]["messages"][1]["content"]
+
+
 async def test_fails_with_output_error_when_output_stays_cut() -> None:
     call_log = RecordingCallLog()
     llm = chat_llm([cut(completion('{"text": "끊')), cut(completion('{"text": "또 끊'))], call_log, [])
@@ -201,6 +224,24 @@ async def test_tool_agent_asks_shorter_when_answer_is_cut() -> None:
     assert result == Summary(text="짧게")
     assert requests[1]["messages"][-1] == {"role": "user", "content": SHORTER}
     assert len(call_log.records) == 2
+
+
+async def test_tool_agent_answer_at_token_limit_counts_as_cut() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [
+            at_limit(tool_completion(("Summary", {"text": "항목이 잘려 나간 답"})), 50),
+            tool_completion(("Summary", {"text": "짧게"})),
+        ],
+        RecordingCallLog(),
+        requests,
+        max_tokens=50,
+    )
+
+    result = await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력")
+
+    assert result == Summary(text="짧게")
+    assert requests[1]["messages"][-1] == {"role": "user", "content": SHORTER}
 
 
 async def test_tool_agent_fails_when_answer_stays_cut() -> None:
