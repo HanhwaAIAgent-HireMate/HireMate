@@ -90,6 +90,8 @@ _THINK = re.compile(r"<think>.*?</think>|</?think>", re.DOTALL)
 _STAGE_LABELS = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
 _STAGE_OVERVIEW = re.compile(r"몇\s*명|인원|현황")
 _SUBSET_REFERENCE = re.compile(r"체크|선택|그\s*중|이\s*중")
+# 회사 인재상과 맞는지 묻는 말
+_TALENT_QUESTION = re.compile(r"인재상|핵심\s*가치|조직\s*문화|컬처\s*핏|중요하게\s*보는")
 
 ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확인해 답한다.
 도구로 필요한 자료만 골라 읽고, 근거가 모이면 답한다.
@@ -337,6 +339,7 @@ async def plan_multi(
     항목의 지원자는 코드가 붙이고 근거는 원문과 맞춰 본다 (규칙 7). 정리에 실패한 지원자는 확인 필요로 둔다.
     전체 시간 제한 없이 모든 지원자의 정리를 기다린다. 끝난 지원자는 바로 검증해 진행 알림으로 보낸다.
     최종 항목은 지원자 순서다.
+    인재상과 맞는지 묻는 질문이면 정리에 넣은 회사 인재상도 출처(회사 소개)로 둔다.
     """
     scope = scope_of(context, turns)
     shared = f"공고:\n{posting_text(context)}\n\n회사:\n{company_text(context)}"
@@ -383,6 +386,10 @@ async def plan_multi(
         agents += [agent for agent in used if agent not in agents]
     if not finished:
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+    # 인재상과 맞는지 묻는 질문은 코드가 넣은 회사 인재상과 견준 답이다. 모델은 지원자 문장만 근거로 다는 일이 많다
+    talent_fit = _TALENT_QUESTION.search(context.message) and context.company.talents
+    if talent_fit and COMPANY_SOURCE not in sources:
+        sources.append(COMPANY_SOURCE)
     if not single:
         progress.status(COMPARE_STATUS.format(count=len(rows)))
     return ChatPlan.answer(Intent.ANSWER, await _summary(llm, context, rows, items), items, sources, agents)
