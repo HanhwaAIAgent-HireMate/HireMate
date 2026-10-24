@@ -725,6 +725,21 @@ async def test_company_evidence_as_tool_shows_it(
     assert plan.sources == ["회사 소개"]
 
 
+async def test_sources_listed_once(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(sample_applicants, sample_company, sample_posting)
+    evidence = [
+        AnswerEvidence(sentence=BATCH, source="이력서"),
+        AnswerEvidence(sentence="카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다.", source="이력서"),
+    ]
+    llm = FakeLlm(answered(AnswerItem(candidate="C1", label="경력", text="정산", status="OK", evidence=evidence)))
+
+    plan = await ask(llm, context)
+
+    assert plan.sources == ["이력서"]
+
+
 def test_readable_cleans_model_leftovers(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
