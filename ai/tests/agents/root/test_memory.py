@@ -413,6 +413,37 @@ async def test_empty_latest_result_clarifies(
     assert plan == ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)
 
 
+async def test_among_them_after_empty_find_clarifies(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 "그중 첫 번째"를 subject로도 표시한다. "그중"은 찾기 결과라 아무도 못 찾은 새 찾기 뒤에는 되묻는다
+    saver = InMemorySaver()
+    found = context_with(sample_applicants, sample_company, sample_posting, "금융 경험 있는 사람 찾아줘")
+    thread = thread_of(found)
+    llm = FakeLlm(
+        RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
+        FINANCE_FOUND,
+        RootRoute(kind="FIND", mode=SelectionMode.REPLACE, concepts=["양자 컴퓨팅"]),
+        RootRoute(kind="ANSWER", previous_ref="subject", ordinal=1),
+    )
+
+    await run_plan(llm, found, saver=saver, thread=thread)
+    await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "양자 컴퓨팅 경험자 찾아줘"),
+        saver=saver,
+        thread=thread,
+    )
+    plan = await run_plan(
+        llm,
+        context_with(sample_applicants, sample_company, sample_posting, "그중 첫 번째 사람 강점은?"),
+        saver=saver,
+        thread=thread,
+    )
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)
+
+
 async def test_checked_beats_previous_without_words(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:

@@ -327,3 +327,45 @@ def test_posting_section_only_for_find() -> None:
     route = RootRoute(kind="ANSWER", posting_criteria="qualifications")
 
     assert posting_section(route, "@김하늘 자격 요건 다 충족해?") is None
+
+
+async def test_ordinal_kept_only_with_ordinal_words(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 "몇 명이야?", "두 지원자를 비교해봐"에도 ordinal을 적는다
+    async def ordinal_of(message: str) -> int | None:
+        context = context_for(sample_applicants, sample_company, sample_posting, message=message)
+        llm = FakeLlm(RootRoute(kind="ANSWER", previous_ref="subject", ordinal=2))
+        return (await classify(llm, context, resolve(context))).ordinal
+
+    assert await ordinal_of("지금 미결정인 사람 몇 명이야?") is None
+    assert await ordinal_of("두 지원자를 비교해봐") is None
+    assert await ordinal_of("그중 두 번째 사람 강점은?") == 2
+    assert await ordinal_of("2번째 지원자 경력은?") == 2
+    assert await ordinal_of("마지막 사람 빼줘") == 2
+
+
+async def test_clarified_comparison_goes_to_answer(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 대상 없는 "둘 비교해줘"를 CLARIFY로 표시하고 되물을 말을 직접 쓴다. 대상 확인은 코드가 한다
+    context = context_for(sample_applicants, sample_company, sample_posting, message="둘 비교해줘")
+    llm = FakeLlm(RootRoute(kind="CLARIFY", compare=True, clarify="비교할 두 지원자를 알려주세요."))
+
+    decided = await classify(llm, context, resolve(context))
+
+    assert decided.kind == "ANSWER"
+    assert precheck(decided, context) is None
+
+
+async def test_among_them_refers_to_result(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    async def ref_of(message: str) -> str:
+        context = context_for(sample_applicants, sample_company, sample_posting, message=message)
+        llm = FakeLlm(RootRoute(kind="ANSWER", previous_ref="subject"))
+        return (await classify(llm, context, resolve(context))).previous_ref
+
+    assert await ref_of("그중 첫 번째 사람 강점은?") == "result"
+    assert await ref_of("방금 찾은 사람들 비교해줘") == "result"
+    assert await ref_of("아까 그 사람 강점은?") == "subject"
