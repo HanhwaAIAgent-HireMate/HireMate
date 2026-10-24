@@ -788,6 +788,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/candidates/{applicationId}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["candidateProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/stage-guides": {
         parameters: {
             query?: never;
@@ -1535,6 +1551,25 @@ export interface components {
             highlights: components["schemas"]["Evidence"][];
             agent: string;
             stub: boolean;
+        };
+        CandidateProfileView: {
+            /** Format: uuid */
+            applicationId: string;
+            /** @enum {string|null} */
+            status: "DONE" | "CHECK" | "FAILED" | null;
+            summary: string;
+            items: components["schemas"]["ProfileItemView"][];
+        };
+        ProfileItemView: {
+            category: string;
+            agent: string;
+            content: string;
+            evidence: string | null;
+            source: string;
+            /** @enum {string} */
+            verification: "CONFIRMED" | "EVIDENCED" | "UNCONFIRMED" | "CONFLICT";
+            /** Format: uuid */
+            stageId: string | null;
         };
         Condition: {
             label: string;
@@ -3114,6 +3149,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CandidateAnalysis"];
+                };
+            };
+        };
+    };
+    candidateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CandidateProfileView"];
                 };
             };
         };
