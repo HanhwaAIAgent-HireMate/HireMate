@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
 
 import { ApiError, api, unwrap, type Schemas } from '@/lib/api/client'
 import { readEvents } from '@/lib/api/sse'
@@ -39,18 +40,28 @@ export async function readChat(
 
 export function useChat(stageId: string, progress: ChatProgress) {
   const queryClient = useQueryClient()
+  // 답을 받기 전에 화면을 떠나거나 다른 전형으로 옮기면 요청을 끊는다.
+  // 서버는 끊긴 요청의 선택 변경과 대화 기록을 남기지 않는다
+  const waiting = useRef<AbortController | null>(null)
+  useEffect(() => () => waiting.current?.abort(), [stageId])
   return useMutation({
     mutationFn: async (body: { message: string; mentionIds: string[]; checkedIds: string[] }) => {
+      const controller = new AbortController()
+      waiting.current = controller
       // 권한 · 입력 오류는 스트림을 열기 전에 일반 오류 응답으로 온다
       const stream = await unwrap(
         api.POST('/api/stages/{stageId}/chat', {
           params: { path: { stageId } },
           body,
           parseAs: 'stream',
+          signal: controller.signal,
         }),
       )
       if (!stream) throw new ApiError(502, 'AI_UNAVAILABLE', '')
-      return readChat(stream, progress)
+      const answer = await readChat(stream, progress)
+      // 끊은 뒤에 도착한 답으로 선택 지원자나 카드를 다시 불러오지 않는다
+      controller.signal.throwIfAborted()
+      return answer
     },
     onSuccess: (answer) => {
       // 찾기 · 편집이면 리스트의 AI 표시와 선택 지원자가 바뀐다

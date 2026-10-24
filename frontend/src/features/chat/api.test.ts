@@ -116,3 +116,60 @@ it('선택 목록을 갱신해도 방금 보낸 대화를 빈 과거 기록으�
     vi.unstubAllGlobals()
   }
 })
+
+it('화면을 떠나면 요청을 끊고, 끊은 뒤에 온 답으로 화면을 갱신하지 않는다', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const invalidate = vi.spyOn(client, 'invalidateQueries')
+  let sent: Request | undefined
+  let finish: (() => void) | undefined
+  resetCsrf()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: Request | string) => {
+      const requestUrl = typeof input === 'string' ? input : input.url
+      if (requestUrl.endsWith('/csrf'))
+        return Promise.resolve(Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' }))
+      sent = input as Request
+      // 서버가 끊긴 요청을 모르고 나중에 done을 보내는 경우
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          finish = () => {
+            const done = JSON.stringify({ ...ANSWER, selectionChanged: true })
+            controller.enqueue(new TextEncoder().encode(`event:done\ndata:${done}\n\n`))
+            controller.close()
+          }
+        },
+      })
+      return Promise.resolve(
+        new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }),
+      )
+    }),
+  )
+  try {
+    const { result, unmount } = renderHook(
+      () => useChat('s1', { onStatus: vi.fn(), onItem: vi.fn() }),
+      {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(QueryClientProvider, { client }, children),
+      },
+    )
+    let sending: Promise<unknown> | undefined
+    act(() => {
+      sending = result.current
+        .mutateAsync({ message: '강점은?', mentionIds: ['a1'], checkedIds: [] })
+        .catch((error: unknown) => error)
+    })
+    await waitFor(() => expect(finish).toBeDefined())
+
+    unmount()
+    finish?.()
+
+    expect(await sending).toMatchObject({ name: 'AbortError' })
+    expect(sent?.signal.aborted).toBe(true)
+    expect(invalidate).not.toHaveBeenCalled()
+  } finally {
+    client.clear()
+    resetCsrf()
+    vi.unstubAllGlobals()
+  }
+})
