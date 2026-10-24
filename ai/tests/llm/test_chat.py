@@ -270,6 +270,64 @@ async def test_tool_agent_last_call_can_only_answer() -> None:
     assert requests[1]["messages"][-1] == {"role": "user", "content": LAST_CALL}
 
 
+async def test_repeated_read_batch_switches_to_final_answer_before_limit() -> None:
+    requests: list[dict[str, Any]] = []
+    call_log = RecordingCallLog()
+    llm = chat_llm(
+        [
+            tool_completion(("career", {"item": "경력"})),
+            tool_completion(("career", {"item": "경력"})),
+            tool_completion(("Summary", {"text": "이미 확인한 경력 4년"})),
+        ],
+        call_log,
+        requests,
+    )
+
+    result = await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력")
+
+    assert result.text == "이미 확인한 경력 4년"
+    assert [tool["function"]["name"] for tool in requests[-1]["tools"]] == ["Summary"]
+    assert "기존 조회 결과" in requests[-1]["messages"][-1]["content"]
+    assert len(call_log.records) == 3
+
+
+async def test_mixed_batch_keeps_unread_tools_available() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [
+            tool_completion(("career", {"item": "경력"})),
+            tool_completion(("career", {"item": "경력"}), ("career", {"item": "프로젝트"})),
+            tool_completion(("Summary", {"text": "경력과 프로젝트"})),
+        ],
+        RecordingCallLog(),
+        requests,
+    )
+
+    result = await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력과 프로젝트")
+
+    assert result.text == "경력과 프로젝트"
+    assert [tool["function"]["name"] for tool in requests[-1]["tools"]] == ["career", "Summary"]
+
+
+async def test_repeated_reads_stay_closed_during_format_repair() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [
+            tool_completion(("career", {"item": "경력"})),
+            tool_completion(("career", {"item": "경력"})),
+            tool_completion(("Summary", {"wrong": "잘못된 형식"})),
+            tool_completion(("Summary", {"text": "형식을 고친 답"})),
+        ],
+        RecordingCallLog(),
+        requests,
+    )
+
+    result = await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력")
+
+    assert result.text == "형식을 고친 답"
+    assert [tool["function"]["name"] for tool in requests[-1]["tools"]] == ["Summary"]
+
+
 async def test_db_call_log_saves_record(db_session: AsyncSession) -> None:
     sessions = async_sessionmaker(bind=db_session.bind, join_transaction_mode="create_savepoint")
     record = CallRecord(

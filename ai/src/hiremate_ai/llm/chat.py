@@ -1,11 +1,17 @@
 import json
 import time
-from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
-from typing import Any, Literal, cast
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
+from typing import Any, Literal, NotRequired, cast
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import AgentMiddleware, ModelCallLimitMiddleware, ModelRequest, ModelResponse
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    AgentState,
+    ModelCallLimitMiddleware,
+    ModelRequest,
+    ModelResponse,
+)
 from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
 from langchain.agents.structured_output import ToolStrategy
 from langchain.tools.tool_node import ToolCallRequest
@@ -30,10 +36,19 @@ SHORTER = "직전 답이 출력 길이 상한에서 잘렸다. 형식은 그대�
 CUT = "출력 길이 상한에서 잘렸다"
 # 도구 루프의 마지막 모델 호출에 덧붙이는 지시. 이때는 조회 도구 없이 최종 답만 낼 수 있다
 LAST_CALL = "자료를 더 읽을 수 없다. 지금까지 확인한 자료로 최종 답을 낸다. 확인하지 못한 점은 확인이 필요하다고 둔다."
+REUSED_READ = "동일한 조회 요청이 반복되어 기존 조회 결과를 재사용한다."
+REPEATED_BATCH = "모든 조회가 반복이다. 기존 조회 결과로 최종 답을 낸다. 확인하지 못한 점은 확인이 필요하다고 둔다."
+COALESCED_READ = "한 번에 요청한 동일한 조회는 한 번만 실행했다. 기존 조회 결과를 쓰고 필요한 다른 자료만 조회한다."
 
 
 class LlmOutputError(RuntimeError):
     """모델 답이 요청한 형식에 맞지 않을 때."""
+
+
+class _ToolState(AgentState[Any]):
+    # 기본 private 필드는 그래프 재진입 입력에서 제외된다. 검증 후에도 같은 호출 예산을 이어받게 한다.
+    thread_model_call_count: NotRequired[int]
+    run_model_call_count: NotRequired[int]
 
 
 class ChatLlm:
@@ -123,22 +138,42 @@ class ToolAgent[T: BaseModel]:
         self._output = output
         self._agent = agent
 
-    async def run(self, user: str, *, context: object = None) -> T:
+    async def run(
+        self,
+        user: str,
+        *,
+        context: object = None,
+        validate: Callable[[T], Awaitable[str | None]] | None = None,
+    ) -> T:
         """user 지시로 실행해 output 형식의 답을 받는다.
 
         context는 도구가 ToolRuntime의 runtime.context로 읽는 값이다. 조회 범위(기업 · 채용 · 전형)는
         도구 인자가 아니라 여기에 넣어 모델이 바꿀 수 없게 한다 (아키텍처 규칙 4).
+        validate가 오류를 돌려주면 같은 자료와 호출 예산 안에서 한 번만 고쳐 쓴다.
         """
-        try:
-            state = await self._graph.ainvoke({"messages": [HumanMessage(user)]}, context=context)
-        except ModelCallLimitExceededError as exceeded:
-            raise LlmOutputError(
-                f"{self._output.__name__} 답을 받기 전에 모델 호출 상한을 넘었다 ({self._agent})"
-            ) from exceeded
-        result = state.get("structured_response")
-        if not isinstance(result, self._output):
-            raise LlmOutputError(f"{self._output.__name__} 형식의 답을 받지 못했다 ({self._agent})")
-        return result
+        state: dict[str, Any] = {"messages": [HumanMessage(user)]}
+        for attempt in range(2):
+            try:
+                state = await self._graph.ainvoke(
+                    state,
+                    context=context,
+                    # 기본 출력은 private 호출 수를 숨긴다. 재작성에도 원래 실행의 호출 수를 넘긴다.
+                    output_keys=["messages", "structured_response", "thread_model_call_count", "run_model_call_count"],
+                )
+            except ModelCallLimitExceededError as exceeded:
+                raise LlmOutputError(
+                    f"{self._output.__name__} 답을 받기 전에 모델 호출 상한을 넘었다 ({self._agent})"
+                ) from exceeded
+            result = state.get("structured_response")
+            if not isinstance(result, self._output):
+                raise LlmOutputError(f"{self._output.__name__} 형식의 답을 받지 못했다 ({self._agent})")
+            problem = await validate(result) if validate is not None else None
+            if problem is None:
+                return result
+            if attempt:
+                raise LlmOutputError(f"{self._output.__name__} 답을 검증하지 못했다: {problem}")
+            state = {**state, "messages": [*state["messages"], HumanMessage(problem)], "structured_response": None}
+        raise AssertionError("도달할 수 없는 재작성 단계")
 
 
 def final_answer_rule(output_name: str) -> str:
@@ -169,6 +204,7 @@ def build_tool_agent[T: BaseModel](
             part for part in (system, UNTRUSTED_RULE, final_answer_rule(output.__name__)) if part
         ),
         middleware=[
+            _ReadOnce(frozenset(tool.name for tool in tools)),
             _ToolResultBlock(),
             _LastCallAnswers(max_calls),
             _ShorterWhenCut(_max_tokens(model)),
@@ -176,6 +212,7 @@ def build_tool_agent[T: BaseModel](
             ModelCallLimitMiddleware(run_limit=max_calls, exit_behavior="error"),
         ],
         response_format=ToolStrategy(output),
+        state_schema=_ToolState,
         context_schema=context,
         # Root 그래프 노드 안에서 돌아도 대화방 체크포인터를 이어받지 않는다. 이어받으면 도구 결과(문서 본문)가 저장된다
         checkpointer=False,
@@ -195,6 +232,109 @@ def transcript(messages: Sequence[BaseMessage]) -> str:
         else:
             lines.append(f"[{message.type}] {message.text}")
     return "\n".join(lines)
+
+
+type ReadKey = tuple[str, str]
+
+
+def _read_key(call: Mapping[str, Any]) -> ReadKey:
+    return call["name"], json.dumps(call["args"], ensure_ascii=False, sort_keys=True)
+
+
+def _completed_reads(messages: Sequence[BaseMessage], names: frozenset[str]) -> dict[ReadKey, ToolMessage]:
+    """이번 실행의 메시지에서 완료한 조회만 찾는다. 실패와 아직 실행 중인 호출은 재사용하지 않는다."""
+    pending: dict[str, ReadKey] = {}
+    completed: dict[ReadKey, ToolMessage] = {}
+    for message in messages:
+        if isinstance(message, AIMessage):
+            pending = {
+                call["id"]: _read_key(call)
+                for call in message.tool_calls
+                if call["name"] in names and call["id"] is not None
+            }
+        elif isinstance(message, ToolMessage) and message.status == "success":
+            key = pending.get(message.tool_call_id)
+            if key is not None:
+                completed.setdefault(key, message)
+    return completed
+
+
+class _ReadOnce(AgentMiddleware[Any, Any, Any]):
+    """동일 실행의 성공 조회를 재사용한다. 저장소나 공유 캐시 없이 도구 대화만 사용한다."""
+
+    def __init__(self, names: frozenset[str]) -> None:
+        super().__init__()
+        self._names = names
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    ) -> ToolMessage | Command[Any]:
+        saved = _completed_reads(request.state["messages"], self._names).get(_read_key(request.tool_call))
+        if saved is None:
+            return await handler(request)
+        return saved.model_copy(
+            update={
+                "id": None,
+                "tool_call_id": request.tool_call["id"],
+                "content": f"{REUSED_READ}\n{saved.text}",
+                "additional_kwargs": {**saved.additional_kwargs, "read_reused": True},
+            }
+        )
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
+    ) -> ModelResponse[Any]:
+        latest_read = next(
+            (
+                (index, message)
+                for index, message in reversed(list(enumerate(request.messages)))
+                if isinstance(message, AIMessage) and any(call["name"] in self._names for call in message.tool_calls)
+            ),
+            None,
+        )
+        if latest_read is not None:
+            index, latest = latest_read
+            results = {}
+            for tool_message in request.messages[index + 1 :]:
+                if isinstance(tool_message, AIMessage):
+                    break
+                if isinstance(tool_message, ToolMessage):
+                    results[tool_message.tool_call_id] = tool_message
+            if latest.tool_calls and all(
+                call["name"] in self._names
+                and call["id"] in results
+                and results[call["id"]].additional_kwargs.get("read_reused")
+                for call in latest.tool_calls
+            ):
+                request = request.override(tools=[], messages=[*request.messages, HumanMessage(REPEATED_BATCH)])
+            elif latest.additional_kwargs.get("read_coalesced"):
+                request = request.override(messages=[*request.messages, HumanMessage(COALESCED_READ)])
+        response = await handler(request)
+        messages = []
+        for message in response.result:
+            if isinstance(message, AIMessage):
+                seen: set[ReadKey] = set()
+                calls = []
+                for call in message.tool_calls:
+                    key = _read_key(call)
+                    if call["name"] in self._names:
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                    calls.append(call)
+                if len(calls) != len(message.tool_calls):
+                    message = message.model_copy(
+                        update={
+                            "tool_calls": calls,
+                            "additional_kwargs": {**message.additional_kwargs, "read_coalesced": True},
+                        }
+                    )
+            messages.append(message)
+        return replace(response, result=messages)
 
 
 class _ToolResultBlock(AgentMiddleware[Any, Any, Any]):
