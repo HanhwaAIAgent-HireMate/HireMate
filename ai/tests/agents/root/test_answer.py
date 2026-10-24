@@ -672,6 +672,50 @@ async def test_source_label_variants_are_checked(
     assert plan.sources == ["자기소개서", "회사 소개"]
 
 
+async def test_company_evidence_as_tool_shows_it(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 회사 도구가 보여 준 "제목: 설명" 줄을 그대로 옮기고, 출처를 "인재상"으로도 적는다
+    context = context_for(sample_applicants, sample_company, sample_posting)
+
+    def item(sentence: str, source: str) -> AnswerItem:
+        return AnswerItem(
+            candidate="C1",
+            label="인재상",
+            text="근거",
+            status="OK",
+            evidence=[AnswerEvidence(sentence=sentence, source=source)],
+        )
+
+    llm = FakeLlm(
+        answered(
+            item("고객 신뢰를 최우선으로: 고객의 돈과 정보를 다룬다는 책임감", "회사 소개"),
+            item("함께 성장: 지식을 나누고 동료의 성장을 돕는 태도", "인재상"),
+            item("작게 나눠 빠르게 배포하고, 장애는 숨기지 않고 함께 회고합니다.", "조직 문화"),
+        )
+    )
+
+    plan = await ask(llm, context)
+
+    assert [entry.status for entry in plan.items] == ["OK", "OK", "OK"]
+    assert plan.sources == ["회사 소개"]
+
+
+def test_readable_cleans_model_leftovers(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    from hiremate_ai.agents.root.answer import readable
+
+    context = make_context(sample_applicants, sample_company, sample_posting, message="확인")
+
+    # 실제 모델 답에 "responseC1"처럼 영문 낱말에 붙은 번호와 생각 태그가 남았다
+    assert readable("responseC1의 강점은 결제예요.", context) == "정유민의 강점은 결제예요."
+    assert readable("<think>번호로 부른다</think>C2 김하늘은 은행 경력이에요.", context) == "김하늘은 은행 경력이에요."
+    assert readable("</think>\n\n정리했어요.", context) == "정리했어요."
+    # 대문자 약어(EC2)는 지원자 번호가 아니다
+    assert readable("EC2 운영 경험이 있어요.", context) == "EC2 운영 경험이 있어요."
+
+
 async def test_checked_applicants_are_answer_targets(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
