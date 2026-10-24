@@ -445,7 +445,7 @@ def verify_items(
             and all(_doubtful(recorded, row, evidence) for evidence, source in checked if source)
         )
         status = "CHECK" if unsupported or doubtful else item.status
-        sources += [source for source in kept if source not in sources]
+        sources += [source for source in dict.fromkeys(kept) if source not in sources]
         if row is not None:
             cited += [(row.application_id, evidence.sentence) for evidence, source in checked if source]
         verified.append(
