@@ -9,6 +9,7 @@ import {
   type CandidateAnalysis,
   type CandidateDetail,
   type CriterionLine,
+  type SummarySection,
 } from '@/features/screening/api'
 import { cn } from '@/lib/utils'
 
@@ -36,12 +37,16 @@ export function DocumentViewer({
   detail: CandidateDetail
 }) {
   const [tab, setTab] = useState<Tab>('RESUME')
+  // 자기소개서는 문항별 요약을 먼저 보여 주고, 원문은 눌러서 본다
+  const [fullText, setFullText] = useState(false)
   const analysis = useCandidateAnalysis(
     stageId,
     detail.row.applicationId,
     detail.row.analysisStatus,
   )
   const document = detail.documents.find((item) => item.type === tab)
+  const sections = (analysis.data?.summaries ?? []).filter((item) => item.document === tab)
+  const showSummary = sections.length > 0 && !fullText
   const highlights = (analysis.data?.highlights ?? [])
     .filter((item) => item.document === tab)
     .map((item) => item.sentence)
@@ -54,7 +59,10 @@ export function DocumentViewer({
             key={item.key}
             role="tab"
             aria-selected={tab === item.key}
-            onClick={() => setTab(item.key)}
+            onClick={() => {
+              setTab(item.key)
+              setFullText(false)
+            }}
             className={cn(
               '-mb-px border-b-2 pb-2',
               tab === item.key
@@ -77,6 +85,15 @@ export function DocumentViewer({
           <>
             <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
               <span>{document.fileName}</span>
+              {sections.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFullText((value) => !value)}
+                  className="mr-3 ml-auto hover:text-foreground"
+                >
+                  {fullText ? '문항별 요약 보기' : '원문 보기'}
+                </button>
+              )}
               <a
                 href={`/api/recruitments/${recruitmentId}/applications/${detail.row.applicationId}/documents/${tab}`}
                 target="_blank"
@@ -87,7 +104,9 @@ export function DocumentViewer({
                 원본 PDF
               </a>
             </div>
-            {document.text ? (
+            {showSummary ? (
+              <SectionSummaries sections={sections} />
+            ) : document.text ? (
               <p className="whitespace-pre-wrap">{highlight(document.text, highlights)}</p>
             ) : (
               <p className="text-muted-foreground">
@@ -103,6 +122,37 @@ export function DocumentViewer({
         analysis={analysis.data}
       />
     </div>
+  )
+}
+
+/** 자기소개서 문항별 요약 분석: 문항 · 요약 · 핵심 · 원문 근거. 판단 없이 무엇을 썼는지만 보여 준다. */
+function SectionSummaries({ sections }: { sections: SummarySection[] }) {
+  return (
+    <ol className="space-y-4">
+      {sections.map((section, index) => (
+        <li key={section.title} className="space-y-1.5">
+          <div className="font-semibold">
+            {index + 1}. {section.title}
+          </div>
+          <p>{section.summary}</p>
+          {section.points.length > 0 && (
+            <ul className="list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+              {section.points.map((point) => (
+                <li key={point}>{point}</li>
+              ))}
+            </ul>
+          )}
+          {section.evidence.map((item) => (
+            <p
+              key={item.sentence}
+              className="border-l-2 border-ai/60 pl-2 text-xs text-muted-foreground"
+            >
+              “{item.sentence}”
+            </p>
+          ))}
+        </li>
+      ))}
+    </ol>
   )
 }
 

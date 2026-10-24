@@ -57,8 +57,11 @@ export function useLogout() {
       resetCsrf()
     },
     onSettled: () => {
-      queryClient.clear()
+      // 화면이 보고 있는 me 쿼리에 먼저 null을 넣어 바로 로그인 화면으로 보낸다.
+      // clear()로 먼저 지우면 화면이 지워진 쿼리를 계속 보고 있어 다른 일로 다시 그려질 때까지 그대로 남는다
       queryClient.setQueryData(meQueryKey, null)
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== meQueryKey[0] })
+      queryClient.getMutationCache().clear()
     },
   })
 }

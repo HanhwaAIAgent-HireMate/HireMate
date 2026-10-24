@@ -1,8 +1,19 @@
 import { Bell, ChevronRight, ExternalLink, LogOut, Settings } from 'lucide-react'
+import { useState } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router'
 
 import { useHeaderStore } from '@/app/header-store'
 import { LogoMark } from '@/app/LogoMark'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -50,6 +61,7 @@ function HrHeader({ member }: { member: Member }) {
   const company = useCompanyProfile()
   const crumb = useHeaderStore((state) => state.crumb)
   const logout = useLogout()
+  const [confirmLogout, setConfirmLogout] = useState(false)
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b px-5">
@@ -117,12 +129,24 @@ function HrHeader({ member }: { member: Member }) {
               <div className="text-xs text-muted-foreground">{member.email}</div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => logout.mutate()}>
+            <DropdownMenuItem onSelect={() => setConfirmLogout(true)}>
               <LogOut />
               로그아웃
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <AlertDialog open={confirmLogout} onOpenChange={setConfirmLogout}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>로그아웃 하시겠습니까?</AlertDialogTitle>
+              <AlertDialogDescription>{member.email} 계정에서 로그아웃해요.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>취소</AlertDialogCancel>
+              <AlertDialogAction onClick={() => logout.mutate()}>로그아웃</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </header>
   )

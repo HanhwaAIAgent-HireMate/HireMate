@@ -1153,6 +1153,8 @@ export interface components {
             name: string;
             /** @enum {string} */
             type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
+            /** @enum {string|null} */
+            status: "PENDING" | "ACTIVE" | "CONFIRMED" | "DONE" | null;
         };
         PostingSuggestionView: {
             content: components["schemas"]["PostingContent"];
@@ -1529,6 +1531,7 @@ export interface components {
             /** Format: int32 */
             preferenceMax: number;
             criteria: components["schemas"]["CriterionLine"][];
+            summaries: components["schemas"]["SummarySection"][];
             highlights: components["schemas"]["Evidence"][];
             agent: string;
             stub: boolean;
@@ -1546,6 +1549,14 @@ export interface components {
         Finding: {
             text: string;
             source: string;
+        };
+        SummarySection: {
+            /** @enum {string} */
+            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            title: string;
+            summary: string;
+            points: string[];
+            evidence: components["schemas"]["Evidence"][];
         };
         CriterionLine: {
             criterionId: string;
