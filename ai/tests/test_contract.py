@@ -10,6 +10,7 @@ from hiremate_ai.agents.analysis.interview.router import InterviewAnalysis
 from hiremate_ai.agents.generation.interview.router import InterviewView
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, PostingSuggestion
 from hiremate_ai.agents.root.types import ChatContext, ChatHistoryTurn, ChatPlan, ChatStatus
+from hiremate_ai.api.profile import CandidateProfileView
 from hiremate_ai.contract import ApplicantDetail, CandidateAnalysis, CompanyProfile, Job, JobResult, PostingContent
 
 CONTRACT_DIR = Path(__file__).resolve().parents[2] / "contract"
@@ -19,6 +20,7 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "ApplicantDetail": ApplicantDetail,
     "ApplicationAnalysis": ApplicationAnalysis,
     "CandidateAnalysis": CandidateAnalysis,
+    "CandidateProfileView": CandidateProfileView,
     "ChatContext": ChatContext,
     "ChatHistoryTurn": ChatHistoryTurn,
     "ChatPlan": ChatPlan,
