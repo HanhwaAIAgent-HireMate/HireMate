@@ -5,7 +5,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 
-from hiremate_ai.agents.root.answer import CandidateNotes, MultiSummary
+from hiremate_ai.agents.root.answer import AnswerItem, CandidateNotes, MultiSummary
 from hiremate_ai.agents.root.memory import get_saver
 from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.toolkit import default_toolkit, get_toolkit
@@ -106,7 +106,9 @@ def test_plan_without_thread_does_not_remember() -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
     saver = InMemorySaver()
     app.dependency_overrides[get_llm] = lambda: FakeLlm(
-        RootRoute(kind="ANSWER"), CandidateNotes(), MultiSummary(message="요약이에요.")
+        RootRoute(kind="ANSWER"),
+        CandidateNotes(items=[AnswerItem(label="확인할 점", text="세부 근거는 추가 확인이 필요해요.", status="CHECK")]),
+        MultiSummary(message="요약이에요."),
     )
     app.dependency_overrides[get_saver] = lambda: saver
     # 대상이 있는 분석은 지원자 자료를 모아 정리한다. DB 없이 문서로 모은다

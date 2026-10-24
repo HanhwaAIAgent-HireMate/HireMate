@@ -16,8 +16,8 @@ from hiremate_ai.agents.analysis.assessment.checks import RESULT_SOURCE as SCORE
 from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.edit import SAME_NAME
 from hiremate_ai.agents.root.progress import SILENT, Progress
-from hiremate_ai.agents.root.route import RootRoute
-from hiremate_ai.agents.root.targets import Targets, checked
+from hiremate_ai.agents.root.route import RootRoute, says_previous
+from hiremate_ai.agents.root.targets import Targets, checked, resolve
 from hiremate_ai.agents.root.toolkit import (
     DOUBTFUL,
     AgentEvidence,
@@ -81,6 +81,8 @@ _GLUED_REF = re.compile(r"(?<![A-Za-z0-9])[a-z]+C(\d+)(?![0-9])")
 # 생각을 끈 모델도 생각 태그를 흘리기도 한다
 _THINK = re.compile(r"<think>.*?</think>|</?think>", re.DOTALL)
 _STAGE_LABELS = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
+_STAGE_OVERVIEW = re.compile(r"몇\s*명|인원|현황")
+_SUBSET_REFERENCE = re.compile(r"체크|선택|그\s*중|이\s*중")
 
 ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확인해 답한다.
 도구로 필요한 자료만 골라 읽고, 근거가 모이면 답한다.
@@ -96,7 +98,10 @@ ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확�
 - 앞 대화나 이전에 만든 면접 질문의 이유를 물으면 get_previous_turns로 그때 정리한 확인할 점과 근거를 보고 답한다.
   이유를 새로 지어내지 않는다.
 - 채용 결정, 점수 변경, 상태 변경은 하지 않는다. 그런 요청은 담당자가 화면에서 한다고 안내한다.
-- message는 담당자에게 하는 짧은 답이고, items는 지원자별 · 항목별 근거다."""
+- 대상 지원자를 분석할 때 items에는 그 지원자의 항목을 하나 이상 넣는다. 자료가 부족하면 CHECK 항목으로 설명한다.
+- 이미 읽은 동일 자료를 반복 조회하지 않는다. 확보한 근거로 답하거나 확인이 필요한 점을 설명한다.
+- message에는 검토 결과를 짧게 쓰고, 상세 내용은 items에 넣는다. items 같은 내부 필드명을 담당자에게 말하지 않는다.
+- 분석만 요청했다면 점수나 상태를 바꾸지 않았다는 안내를 덧붙이지 않는다."""
 
 
 class AnswerEvidence(BaseModel):
@@ -119,7 +124,7 @@ class AnswerItem(BaseModel):
 
 class RootAnswer(BaseModel):
     message: str = Field(description="담당자에게 하는 답")
-    items: list[AnswerItem] = Field(default=[], description="지원자별 · 항목별 근거")
+    items: list[AnswerItem] = Field(description="지원자별 근거 항목. 현황 질문에는 빈 목록도 가능")
 
 
 NOTES_SYSTEM = """너는 채용 담당자의 질문에 답하려고 지원자 한 명의 자료를 정리한다.
@@ -185,6 +190,14 @@ async def plan_answer(
         return ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names=", ".join(targets.ambiguous)))
     # 멘션 · 이름이 없으면 체크한 지원자를 대상으로 본다
     rows = targets.rows or checked(context)
+    stage_overview = bool(
+        _STAGE_OVERVIEW.search(context.message)
+        and not _SUBSET_REFERENCE.search(context.message)
+        and not resolve(context).rows
+        and not says_previous(route, context.message)
+    )
+    if stage_overview and not targets.implied:
+        rows = []
     # 문장이 가리키지 않았는데 앞 대화에서 이어받은 한 사람은 전형 질문("몇 명 남았어?")의 대상일 수 있어
     # 그 사람 자료만 정리하지 않고 도구 루프로 답한다. 도구 루프는 전형 요약도 읽는다
     if 1 <= len(rows) <= MULTI_LIMIT and not (targets.implied and len(rows) == 1):
@@ -195,14 +208,98 @@ async def plan_answer(
     agent = llm.tool_agent(
         RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
     )
+    target_ids = {row.application_id for row in rows}
+    checked_plan: ChatPlan | None = None
+    fallback: ChatPlan | None = None
+
+    async def validate(answered: RootAnswer) -> str | None:
+        nonlocal checked_plan, fallback
+        recorded = await _recorded(toolkit, scope, context, answered.items, rows)
+        items: list[ChatItem] = []
+        sources: list[str] = []
+        agents: list[str] = []
+        problems: list[str] = []
+        for raw in answered.items:
+            own, found, used = verify_items([raw], context, only, recorded)
+            if not own:
+                problems.append("항목의 지원자 번호가 현재 전형에 없어요. 대상 지원자의 번호로 작성하세요.")
+                continue
+            if raw.status == "OK" and own[0].status == "CHECK":
+                problems.append("항목의 근거가 불충분해요. 원문 근거를 보완하거나 CHECK로 작성하세요.")
+                own = [own[0].model_copy(update={"text": "이 항목의 근거를 충분히 확인하지 못했어요."})]
+            items += own
+            sources += [source for source in found if source not in sources]
+            agents += [name for name in used if name not in agents]
+        if rows and not stage_overview and not any(item.application_id in target_ids for item in items):
+            problems.append(
+                "대상 지원자의 항목이 없어요. 근거가 있는 항목이나 자료 부족을 알리는 CHECK 항목을 작성하세요."
+            )
+        message = readable(answered.message, context)
+        if _invalid_message(message):
+            problems.append("본문에 내부 필드명이나 JSON 조각이 있어요. 담당자가 읽을 자연스러운 문장으로 작성하세요.")
+        checked_plan = ChatPlan.answer(Intent.ANSWER, message, items, sources, agents)
+        if fallback is None or _item_quality(checked_plan.items) > _item_quality(fallback.items):
+            fallback = checked_plan
+        if not problems:
+            return None
+        return (
+            "답변 검증을 통과하지 못했어요.\n"
+            + "\n".join(dict.fromkeys(problems))
+            + ("\n앞에서 읽은 자료와 대화 기록으로 보완하세요. 없는 근거나 이전 답변의 이유를 새로 지어내지 마세요.")
+        )
+
     try:
-        answered = await agent.run(answer_prompt(context, Targets(rows=rows, ambiguous=[])), context=scope)
+        await agent.run(answer_prompt(context, Targets(rows=rows, ambiguous=[])), context=scope, validate=validate)
     except LlmOutputError:
+        return _incomplete_answer(rows, fallback)
+    if checked_plan is None:
+        raise TypeError("답변 검증 없이 도구 루프가 끝났다")
+    return checked_plan
+
+
+_JSON_FRAGMENT = re.compile(r"[}\]]{2,}(?=\s*(?:[,`*]|$))")
+_INTERNAL_REFERENCE = re.compile(
+    r"(?<![\w.])(?:items|message|evidence)(?:\.[a-z_]+)?[`\"']?\s*"
+    r"(?:를|로|에서|에|은|는|이|가|의|필드|배열|목록|참고|:|=)",
+    re.IGNORECASE,
+)
+
+
+def _invalid_message(message: str) -> bool:
+    return not message.strip() or bool(_JSON_FRAGMENT.search(message) or _INTERNAL_REFERENCE.search(message))
+
+
+def _item_quality(items: Sequence[ChatItem]) -> tuple[int, int]:
+    return sum(item.status == "OK" for item in items), len(items)
+
+
+def _incomplete_answer(rows: Sequence[CandidateRow], verified: ChatPlan | None) -> ChatPlan:
+    """보완이 끝내 실패해도 검증한 항목은 보존한다. 검증되지 않은 모델 본문은 반환하지 않는다."""
+    if verified is None:
+        verified = ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
+    items = list(verified.items)
+    present = {item.application_id for item in items}
+    items += [
+        ChatItem(
+            application_id=row.application_id,
+            label="확인할 점",
+            text="질문에 답할 근거를 충분히 확인하지 못했어요.",
+            status="CHECK",
+        )
+        for row in rows
+        if row.application_id not in present
+    ]
+    if not items:
         return ChatPlan.answer(Intent.CLARIFY, NOT_FINISHED)
-    recorded = await _recorded(toolkit, scope, context, answered.items, rows)
-    items, sources, agents = verify_items(answered.items, context, only, recorded)
-    message = readable(answered.message, context)
-    return ChatPlan.answer(Intent.ANSWER, message, items, sources, agents)
+    if verified.intent is Intent.CLARIFY:
+        message = NOT_FINISHED
+    else:
+        message = (
+            "확인된 근거와 추가로 확인할 점을 정리했어요."
+            if verified.sources
+            else "답변의 근거를 충분히 확인하지 못했어요."
+        )
+    return ChatPlan.answer(verified.intent, message, items, verified.sources, verified.agents)
 
 
 async def plan_multi(
@@ -226,13 +323,12 @@ async def plan_multi(
     shared = f"공고:\n{posting_text(context)}\n\n회사:\n{company_text(context)}"
     single = len(rows) == 1
     progress.status(ONE_STATUS.format(name=rows[0].name) if single else MULTI_STATUS.format(count=len(rows)))
-    tasks = [asyncio.create_task(_notes(llm, context, row, shared, toolkit, scope)) for row in rows]
+    recorded = await toolkit.evidence(scope, [row.application_id for row in rows])
+    tasks = [asyncio.create_task(_notes(llm, context, row, shared, toolkit, scope, recorded, single)) for row in rows]
     row_of = dict(zip(tasks, rows, strict=True))
     done: set[asyncio.Task[CandidateNotes]] = set()
     verified: dict[asyncio.Task[CandidateNotes], tuple[list[ChatItem], list[str], list[str]]] = {}
     try:
-        # 정리 결과에 기대지 않는 조회라 정리가 도는 동안 받아 둔다
-        recorded = await toolkit.evidence(scope, [row.application_id for row in rows])
         pending: set[asyncio.Task[CandidateNotes]] = set(tasks)
         while pending:
             finished_now, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
@@ -282,18 +378,65 @@ def _verify_notes(
     """지원자 한 명의 정리를 그 지원자의 항목으로 바꾸고 근거를 원문과 맞춰 본다."""
     ref = candidate_ref(context, row.application_id)
     own = [item.model_copy(update={"candidate": ref}) for item in notes.items]
-    return verify_items(own, context, row, recorded)
+    items, sources, agents = verify_items(own, context, row, recorded)
+    items = [
+        item.model_copy(update={"text": "이 항목의 근거를 충분히 확인하지 못했어요."})
+        if raw.status == "OK" and item.status == "CHECK"
+        else item
+        for raw, item in zip(own, items, strict=True)
+    ]
+    if not items:
+        items = [
+            ChatItem(
+                application_id=row.application_id,
+                label="확인할 점",
+                text="질문에 답할 근거를 충분히 확인하지 못했어요.",
+                status="CHECK",
+            )
+        ]
+    return items, sources, agents
 
 
 async def _notes(
-    llm: LlmClient, context: ChatContext, row: CandidateRow, shared: str, toolkit: RootToolkit, scope: RootToolContext
+    llm: LlmClient,
+    context: ChatContext,
+    row: CandidateRow,
+    shared: str,
+    toolkit: RootToolkit,
+    scope: RootToolContext,
+    recorded: Mapping[UUID, Sequence[AgentEvidence]],
+    repair: bool,
 ) -> CandidateNotes:
     user = (
         f"질문: {context.message}\n"
         f"정리할 지원자: {candidate_ref(context, row.application_id)} {row.name}\n\n"
         f"{shared}\n\n지원자 자료:\n{await toolkit.brief(scope, row)}"
     )
-    return await llm.structured(CandidateNotes, agent="root", system=f"{NOTES_SYSTEM}\n\n{UNTRUSTED_RULE}", user=user)
+    system = f"{NOTES_SYSTEM}\n\n{UNTRUSTED_RULE}"
+    notes = await llm.structured(CandidateNotes, agent="root", system=system, user=user)
+    if not repair:
+        return notes
+    ref = candidate_ref(context, row.application_id)
+    own = [item.model_copy(update={"candidate": ref}) for item in notes.items]
+    verified, _, _ = verify_items(own, context, row, recorded)
+    if notes.items and all(raw.status != "OK" or item.status == "OK" for raw, item in zip(own, verified, strict=True)):
+        return notes
+    feedback = (
+        "지원자 근거 항목이 없거나 근거를 원문에서 확인하지 못했어요. "
+        "위 자료로 항목을 보완하고, 확인할 수 없는 점은 CHECK로 작성하세요. 없는 사실을 지어내지 마세요."
+    )
+    try:
+        revised = await llm.structured(
+            CandidateNotes,
+            agent="root",
+            system=system,
+            user=f"{user}\n\n{data_block('previous_answer', notes.model_dump_json())}\n\n{feedback}",
+        )
+    except LlmOutputError:
+        return notes
+    own = [item.model_copy(update={"candidate": ref}) for item in revised.items]
+    checked, _, _ = verify_items(own, context, row, recorded)
+    return notes if _item_quality(verified) > _item_quality(checked) else revised
 
 
 async def _summary(llm: LlmClient, context: ChatContext, rows: Sequence[CandidateRow], items: list[ChatItem]) -> str:
@@ -319,7 +462,7 @@ async def _summary(llm: LlmClient, context: ChatContext, rows: Sequence[Candidat
     targets = {row.application_id for row in rows}
     if any(row.name in message for row in context.candidates if row.application_id not in targets):
         return fallback
-    return message or fallback
+    return fallback if _invalid_message(message) else message
 
 
 async def plan_questions(

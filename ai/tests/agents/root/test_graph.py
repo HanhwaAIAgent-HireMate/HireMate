@@ -26,6 +26,12 @@ from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
 type Applicants = dict[str, ApplicantDetail]
 
 
+def checked_notes() -> CandidateNotes:
+    return CandidateNotes(
+        items=[AnswerItem(label="확인할 점", text="세부 근거는 추가 확인이 필요해요.", status="CHECK")]
+    )
+
+
 async def test_blocked_skips_model(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
@@ -80,7 +86,7 @@ async def test_answer_flows_to_plan(
     context = make_context(
         sample_applicants, sample_company, sample_posting, message="@정유민 강점이 뭐야?", mentions=["정유민"]
     )
-    llm = FakeLlm(RootRoute(kind="ANSWER"), CandidateNotes(), MultiSummary(message="강점은 정산 배치 개선이에요."))
+    llm = FakeLlm(RootRoute(kind="ANSWER"), checked_notes(), MultiSummary(message="강점은 정산 배치 개선이에요."))
 
     plan = await run_plan(llm, context)
 
@@ -122,7 +128,7 @@ async def test_interview_questions_outside_interview_stage_answer(
     )
     llm = FakeLlm(
         RootRoute(kind="ANSWER", interview_questions=True),
-        CandidateNotes(),
+        checked_notes(),
         MultiSummary(message="면접에서 확인할 점이에요."),
     )
 
@@ -191,8 +197,8 @@ async def test_clarified_comparison_with_checked_compares(
     )
     llm = FakeLlm(
         RootRoute(kind="CLARIFY", compare=True, clarify="누구를 비교할까요?"),
-        CandidateNotes(),
-        CandidateNotes(),
+        checked_notes(),
+        checked_notes(),
         MultiSummary(message="두 사람을 비교했어요."),
     )
 
@@ -209,7 +215,7 @@ async def test_first_turn_count_with_stray_ordinal_answers_stage(
     llm = FakeLlm(
         RootRoute(kind="ANSWER", previous_ref="subject", ordinal=1),
         ToolCall("get_stage_summary"),
-        RootAnswer(message="미결정은 8명이에요."),
+        RootAnswer(message="미결정은 8명이에요.", items=[]),
     )
 
     plan = await run_plan(llm, context)
@@ -266,7 +272,7 @@ async def test_unspoken_previous_without_memory_answers_stage(
     llm = FakeLlm(
         RootRoute(kind="ANSWER", previous_ref="subject"),
         ToolCall("get_stage_summary"),
-        RootAnswer(message="미결정은 8명이에요."),
+        RootAnswer(message="미결정은 8명이에요.", items=[]),
     )
 
     plan = await run_plan(llm, context)
