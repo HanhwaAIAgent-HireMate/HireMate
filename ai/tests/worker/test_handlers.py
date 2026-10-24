@@ -167,6 +167,7 @@ async def test_interview_questions_returns_questions_made_by_the_agent(
         "preferenceScore": None,
         "preferenceMax": 0,
         "criteria": [],
+        "summaries": [],
         "highlights": [],
     }
     interview: dict[str, Any] = {"applicationId": str(uuid4()), "schedule": None, "questions": [], "previous": []}

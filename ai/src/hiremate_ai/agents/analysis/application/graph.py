@@ -19,7 +19,7 @@ from langgraph.runtime import Runtime
 
 from hiremate_ai.agents.analysis.application.career import career_years, last_company
 from hiremate_ai.agents.analysis.application.context import readable
-from hiremate_ai.agents.analysis.application.extract import extract_documents, merge
+from hiremate_ai.agents.analysis.application.extract import extract_documents, merge, summarize
 from hiremate_ai.agents.analysis.application.judge import (
     Evidence,
     apply_verification,
@@ -35,6 +35,7 @@ from hiremate_ai.agents.analysis.application.types import (
     ApplicationReview,
     Criterion,
     CriterionResult,
+    DocumentSection,
     Fact,
     Note,
     Period,
@@ -43,7 +44,7 @@ from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CriterionCategory, PostingContent, ScoreStatus, Verdict
 from hiremate_ai.llm.client import LlmClient
 
-REVIEW_VERSION = "2026-10-22.2"
+REVIEW_VERSION = "2026-10-24.2"
 # 카드의 '눈여겨볼 점' 후보로 검토하는 사실 수
 NOTABLE_CANDIDATES = 6
 NOTABLE_KINDS = ("ACHIEVEMENT", "PROJECT", "EXPERIENCE")
@@ -73,6 +74,7 @@ class ReviewState(TypedDict, total=False):
     readable: bool
     facts: list[Fact]
     periods: list[Period]
+    sections: list[DocumentSection]
     results: list[CriterionResult]
     review: ApplicationReview
 
@@ -86,9 +88,11 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
     async def extract(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
         context = runtime.context
         documents = readable(context.applicant.documents)
-        extracted = await extract_documents(llm, documents, settings.application_concurrency)
+        extracted, sections = await asyncio.gather(
+            extract_documents(llm, documents, settings.application_concurrency), summarize(llm, documents)
+        )
         facts, periods = merge(documents, extracted, context.today)
-        return {"facts": facts, "periods": periods}
+        return {"facts": facts, "periods": periods, "sections": sections}
 
     async def judge(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
         evidence = _evidence(state, runtime.context)
@@ -233,6 +237,7 @@ def _finalize(state: ReviewState, context: ReviewInput) -> ApplicationReview:
         criteria_version=context.criteria_version,
         facts=state.get("facts") or [],
         periods=periods,
+        sections=state.get("sections") or [],
         career_years=career_years(periods, context.today) if periods else None,
         last_company=last_company(periods),
         criteria=results,

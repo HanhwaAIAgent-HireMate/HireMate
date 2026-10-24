@@ -103,6 +103,23 @@
       "certificateStatus": "SELF_REPORTED"
     }
   ],
+  "summaries": [
+    {
+      "document": "COVER_LETTER",
+      "title": "지원 동기와 입사 후 목표",
+      "summary": "결제 연동 오류가 이용자 경험을 해친다는 것을 겪고 안정적인 결제 서비스를 만들고 싶어 지원했다.",
+      "points": [
+        "결제 연동 오류 경험",
+        "결제 서비스 안정성 목표"
+      ],
+      "evidence": [
+        {
+          "document": "COVER_LETTER",
+          "sentence": "게임 결제 연동을 맡으며 연동 오류 하나가 이용자 경험을 크게 해친다는 것을 경험했습니다."
+        }
+      ]
+    }
+  ],
   "highlights": [
     {
       "document": "RESUME",

@@ -14,9 +14,9 @@ from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.analysis.application.ask import ask
 from hiremate_ai.agents.analysis.application.career import months_between
-from hiremate_ai.agents.analysis.application.types import Actor, Fact, Period, Quote
+from hiremate_ai.agents.analysis.application.types import Actor, DocumentSection, Fact, Period, Quote
 from hiremate_ai.agents.guardrails import evidence_source
-from hiremate_ai.contract import ApplicantDocument
+from hiremate_ai.contract import ApplicantDocument, DocumentType
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, document_block
 
@@ -53,6 +53,29 @@ class ExtractedPeriod(BaseModel):
     start: str = Field(description="YYYY-MM")
     end: str | None = Field(default=None, description="YYYY-MM. 재직 중이면 비운다")
     evidence: list[str] = Field(default=[], description="기간이 적힌 원문 문장. 글자 그대로")
+
+
+class ExtractedSection(BaseModel):
+    title: str = Field(description="문항 제목")
+    summary: str = Field(description="그 문항에 쓴 내용 요약 1~2문장. 부풀리지 않는다")
+    points: list[str] = Field(default=[], description="핵심 2~3개")
+    evidence: list[str] = Field(default=[], description="요약을 받치는 원문 문장. 글자 그대로")
+
+
+class LetterSummary(BaseModel):
+    sections: list[ExtractedSection] = []
+
+
+SUMMARY_SYSTEM = f"""너는 자기소개서 한 건을 문항마다 요약한다. 판단이나 점수는 매기지 않는다.
+
+- 문항마다 하나씩, 문항 순서대로 쓴다. title은 문항 제목(번호와 글자 수 제한은 뺀다)이다.
+- summary는 그 문항에 쓴 내용을 부풀리지 않은 1~2문장이다.
+- summary 문장은 '~한다.', '~했다.'처럼 평서문으로 끝낸다.
+- '~라고 썼다', '~라고 밝혔다'처럼 전하는 말투는 쓰지 않고 '지원자는'으로 시작하지 않는다.
+- points는 핵심 2~3개, evidence는 요약을 받치는 원문 문장 1~2개(글자 그대로)다.
+- 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 쓰지 않는다.
+
+{UNTRUSTED_RULE}"""
 
 
 class ExtractedFacts(BaseModel):
@@ -118,6 +141,35 @@ def merge(
                     )
                 )
     return facts, periods
+
+
+async def summarize(llm: LlmClient, documents: Sequence[ApplicantDocument]) -> list[DocumentSection]:
+    """자기소개서 문항별 요약. 사실 추출과 따로 묻는다 (한 번에 받으면 긴 자기소개서에서 출력 한도를 넘었다).
+
+    근거 문장은 원문에서 찾은 것만 남긴다.
+    """
+    sections = []
+    for document in documents:
+        if document.type != DocumentType.COVER_LETTER:
+            continue
+        result = await ask(
+            llm,
+            LetterSummary,
+            system=SUMMARY_SYSTEM,
+            user=f"{document_block(document)}\n\n위 자기소개서를 문항마다 요약해 줘.",
+        )
+        for section in result.sections:
+            if section.title.strip() and section.summary.strip():
+                sections.append(
+                    DocumentSection(
+                        document=document.type,
+                        title=section.title.strip(),
+                        summary=section.summary.strip(),
+                        points=[point.strip() for point in section.points if point.strip()][:3],
+                        quotes=quotes_in([document], section.evidence),
+                    )
+                )
+    return sections
 
 
 def quotes_in(documents: Sequence[ApplicantDocument], sentences: Sequence[str]) -> list[Quote]:
