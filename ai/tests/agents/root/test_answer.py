@@ -79,15 +79,22 @@ def context_for(
     stage_type: StageType = StageType.DOCUMENT,
     interviews: Mapping[UUID, InterviewView] | None = None,
 ) -> ChatContext:
+    """대상 없는 질문. 도구 루프로 답하므로 근거 확인(verify_items)을 항목 그대로 본다.
+
+    대상이 있으면 지원자별 정리로 간다 (one_context).
+    """
     return make_context(
         applicants,
         company,
         posting,
-        message="@정유민 강점이 뭐야?",
-        mentions=["정유민"],
+        message="강점이 뭐야?",
         stage_type=stage_type,
         interviews=interviews,
     )
+
+
+def one_context(applicants: Applicants, company: CompanyProfile, posting: PostingContent) -> ChatContext:
+    return make_context(applicants, company, posting, message="@정유민 강점이 뭐야?", mentions=["정유민"])
 
 
 def answered(*items: AnswerItem, message: str = "정유민 님의 강점이에요.") -> RootAnswer:
@@ -120,7 +127,7 @@ async def test_answer_flows_through_tools(
     assert plan.sources == ["이력서"]
     assert plan.agents == []
     assert plan.targets == [] and plan.question_targets == []
-    assert "C1 정유민" in llm.calls[0].user
+    assert "대상 지원자: 지정 없음" in llm.calls[0].user
     assert [call.agent for call in llm.calls] == ["root", "root"]
 
 
@@ -612,17 +619,24 @@ async def test_focus_failure_keeps_explicit_question_request_without_invented_re
     assert plan.message == FOCUS_FALLBACK
 
 
-async def test_single_target_item_gets_candidate(
+async def test_single_target_answers_through_notes(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
-    context = context_for(sample_applicants, sample_company, sample_posting)
+    # 한 명도 지원자별 정리로 답한다. 도구 루프로 답하면 실제 모델이 근거 항목 없이 답 글만 쓰기 일쑤다
+    context = one_context(sample_applicants, sample_company, sample_posting)
     evidence = AnswerEvidence(sentence=BATCH, source="이력서")
-    llm = FakeLlm(answered(AnswerItem(label="강점", text="정산 배치 개선", status="OK", evidence=[evidence])))
+    llm = FakeLlm(
+        CandidateNotes(items=[AnswerItem(label="강점", text="정산 배치 개선", status="OK", evidence=[evidence])]),
+        MultiSummary(message="정유민은 정산 배치를 줄였어요."),
+    )
 
     plan = await ask(llm, context)
 
+    assert (plan.intent, plan.message) == (Intent.ANSWER, "정유민은 정산 배치를 줄였어요.")
     assert plan.items[0].application_id == sample_applicants["정유민"].info.application_id
     assert (plan.items[0].status, plan.sources) == ("OK", ["이력서"])
+    assert "정리할 지원자: C1 정유민" in llm.calls[0].user
+    assert "회사:" in llm.calls[0].user
 
 
 async def test_ref_in_text_assigns_candidate_and_reads_as_name(
@@ -1061,10 +1075,12 @@ async def test_cancelled_request_cancels_notes(
 async def test_single_answer_reports_name(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
-    context = context_for(sample_applicants, sample_company, sample_posting)
+    # 한 명이면 "1명을 비교하고 있어요"는 내지 않는다
+    context = one_context(sample_applicants, sample_company, sample_posting)
     progress = Recorder()
+    llm = FakeLlm(CandidateNotes(), MultiSummary(message="정리했어요."))
 
-    await plan_answer(FakeLlm(answered()), ASK, context, resolve(context), default_toolkit(), progress=progress)
+    await plan_answer(llm, ASK, context, resolve(context), default_toolkit(), progress=progress)
 
     assert progress.statuses == [ONE_STATUS.format(name="정유민")]
     assert progress.items == []

@@ -5,7 +5,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 
-from hiremate_ai.agents.root.answer import RootAnswer
+from hiremate_ai.agents.root.answer import CandidateNotes, MultiSummary
 from hiremate_ai.agents.root.memory import get_saver
 from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.types import EditAction
@@ -104,7 +104,9 @@ def test_forget_stage_endpoint() -> None:
 def test_plan_without_thread_does_not_remember() -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
     saver = InMemorySaver()
-    app.dependency_overrides[get_llm] = lambda: FakeLlm(RootRoute(kind="ANSWER"), RootAnswer(message="요약이에요."))
+    app.dependency_overrides[get_llm] = lambda: FakeLlm(
+        RootRoute(kind="ANSWER"), CandidateNotes(), MultiSummary(message="요약이에요.")
+    )
     app.dependency_overrides[get_saver] = lambda: saver
     try:
         response = TestClient(app).post("/agents/root/plan", json={"context": {**context, "threadId": ""}})

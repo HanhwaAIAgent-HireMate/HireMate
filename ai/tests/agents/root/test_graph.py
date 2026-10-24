@@ -80,7 +80,7 @@ async def test_answer_flows_to_plan(
     context = make_context(
         sample_applicants, sample_company, sample_posting, message="@정유민 강점이 뭐야?", mentions=["정유민"]
     )
-    llm = FakeLlm(RootRoute(kind="ANSWER"), RootAnswer(message="강점은 정산 배치 개선이에요."))
+    llm = FakeLlm(RootRoute(kind="ANSWER"), CandidateNotes(), MultiSummary(message="강점은 정산 배치 개선이에요."))
 
     plan = await run_plan(llm, context)
 
@@ -120,7 +120,11 @@ async def test_interview_questions_outside_interview_stage_answer(
         message="@정유민 면접에서 뭘 확인해야 해?",
         mentions=["정유민"],
     )
-    llm = FakeLlm(RootRoute(kind="ANSWER", interview_questions=True), RootAnswer(message="면접에서 확인할 점이에요."))
+    llm = FakeLlm(
+        RootRoute(kind="ANSWER", interview_questions=True),
+        CandidateNotes(),
+        MultiSummary(message="면접에서 확인할 점이에요."),
+    )
 
     plan = await run_plan(llm, context)
 
