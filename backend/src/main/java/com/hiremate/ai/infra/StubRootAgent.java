@@ -130,10 +130,12 @@ class StubRootAgent implements RootAgent {
     private static Optional<ChatPlan> unavailableData(ChatContext context, String message) {
         boolean asksAssessment = message.contains("평가") || message.contains("과제") || message.contains("점수");
         boolean asksInterview = message.contains("면접 답변") || message.contains("답변에서");
-        boolean hasAssessment = context.stageType() != StageType.DOCUMENT
-                || context.previousTypes().contains(StageType.ASSESSMENT);
-        boolean hasInterview = context.stageType() == StageType.INTERVIEW
-                || context.previousTypes().contains(StageType.INTERVIEW);
+        List<StageType> previous = context.stages().stream()
+                .takeWhile(stage -> !stage.id().equals(context.stageId()))
+                .map(ChatContext.Stage::type)
+                .toList();
+        boolean hasAssessment = context.stageType() != StageType.DOCUMENT || previous.contains(StageType.ASSESSMENT);
+        boolean hasInterview = context.stageType() == StageType.INTERVIEW || previous.contains(StageType.INTERVIEW);
         if (asksAssessment && !hasAssessment && !message.contains("서류")) {
             return Optional.of(ChatPlan.answer(Intent.CLARIFY, "아직 평가 결과가 없어요. "
                     + "지원서에서 협업 경험이 약한 지원자를 찾아볼까요?", List.of(), List.of(), List.of()));
