@@ -159,9 +159,7 @@ public class ApplicationService {
     /** 분석 Agent가 정리한 결과. 회사 범위 검증은 이벤트를 발행한 접수 단계에서 끝났다. */
     @Transactional
     public void recordAnalysis(UUID applicationId, ApplicationAnalysis analysis) {
-        applications.findById(applicationId).ifPresent(application -> application.recordAnalysis(
-                analysis.careerYears(), analysis.lastCompany(), analysis.documentScore(), analysis.passed(),
-                analysis.held(), analysis.shortfalls()));
+        applications.findById(applicationId).ifPresent(application -> application.recordAnalysis(analysis));
     }
 
     @Transactional
@@ -231,7 +229,9 @@ public class ApplicationService {
         return new ApplicantInfo(application.getId(), application.getRecruitmentId(), application.getApplicationNo(),
                 application.getName(), application.getEmail(), application.getCareerYears(),
                 application.getLastCompany(), application.getDocumentScore(), application.isScorePassed(),
-                application.isScoreHeld(), application.shortfalls(), application.getAnalysisStatus(),
+                application.isScoreHeld(), application.shortfalls(), application.getQualificationStatus(),
+                application.getQualificationScore(), application.getQualificationMax(),
+                application.getPreferenceScore(), application.getPreferenceMax(), application.getAnalysisStatus(),
                 application.getSubmittedAt());
     }
 }

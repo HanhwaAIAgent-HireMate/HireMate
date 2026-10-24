@@ -286,10 +286,10 @@ class StubRootAgent implements RootAgent {
     private static ChatPlan mismatch(ChatContext context, List<CandidateRow> base, SelectionMode mode) {
         List<CandidateRow> found = base.stream()
                 .filter(row -> row.score() != null && context.documentScores().containsKey(row.applicationId()))
-                .filter(row -> Math.abs(row.score().doubleValue()
-                        - context.documentScores().get(row.applicationId())) >= 15)
-                .sorted(Comparator.comparing((CandidateRow row) -> Math.abs(row.score().doubleValue()
-                        - context.documentScores().get(row.applicationId()))).reversed())
+                .filter(row -> row.score().subtract(context.documentScores().get(row.applicationId())).abs()
+                        .compareTo(BigDecimal.valueOf(15)) >= 0)
+                .sorted(Comparator.comparing((CandidateRow row) -> row.score()
+                        .subtract(context.documentScores().get(row.applicationId())).abs()).reversed())
                 .toList();
         List<String> agents = List.of("Assessment Agent", "Application Agent");
         if (found.isEmpty()) {
@@ -297,10 +297,11 @@ class StubRootAgent implements RootAgent {
                     List.of(), List.of(), agents);
         }
         List<ChatItem> items = found.stream().limit(5).map(row -> {
-            int document = context.documentScores().get(row.applicationId());
-            String direction = row.score().doubleValue() > document ? "평가가 지원서보다 높음" : "지원서에 비해 평가가 낮음";
+            BigDecimal document = context.documentScores().get(row.applicationId());
+            String direction = row.score().compareTo(document) > 0 ? "평가가 지원서보다 높음" : "지원서에 비해 평가가 낮음";
             return new ChatItem(row.applicationId(), row.name(),
-                    "평가 " + row.score().stripTrailingZeros().toPlainString() + "점 · 서류 " + document + "점, " + direction,
+                    "평가 " + row.score().stripTrailingZeros().toPlainString() + "점 · 서류 "
+                            + document.stripTrailingZeros().toPlainString() + "점, " + direction,
                     null);
         }).toList();
         return new ChatPlan(Intent.FIND, mode, null, found.stream().map(CandidateRow::applicationId).toList(),

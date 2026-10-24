@@ -8,6 +8,7 @@ import com.hiremate.apply.ApplicantDocument;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.ScreeningRubric;
+import java.math.BigDecimal;
 import java.time.Year;
 import java.time.YearMonth;
 import java.util.LinkedHashSet;
@@ -49,8 +50,8 @@ class StubApplicationAgent implements ApplicationAgent {
         int careerYears = careerYears(text);
         String lastCompany = careerYears == 0 ? null : lastCompany(text);
         int score = score(text, posting, careerYears);
-        return Optional.of(new ApplicationAnalysis(careerYears, lastCompany, score, score >= PASS_SCORE, false,
-                List.of()));
+        return Optional.of(ApplicationAnalysis.of(careerYears, lastCompany, BigDecimal.valueOf(score),
+                score >= PASS_SCORE, false, List.of()));
     }
 
     static int careerYears(String text) {
