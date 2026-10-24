@@ -84,7 +84,7 @@ async def test_min_score_without_model(
 
     assert names(context, plan) == ["정유민", "박서준"]
     assert (plan.intent, plan.mode) == (Intent.FIND, SelectionMode.REPLACE)
-    assert plan.message == "지원자 {total}명 중 조건에 맞는 **{count}명**을 선택했어요."
+    assert plan.message == "미결정 지원자 8명 중 조건에 맞는 **{count}명**을 선택했어요."
     assert [item.text for item in plan.items] == ["평가 90점", "평가 82.5점"]
     assert plan.sources == ["평가 결과"]
     assert llm.calls == []
@@ -221,9 +221,76 @@ async def test_finance_keeps_rechecked(
     assert names(context, plan) == ["정유민", "김하늘", "한예린"]
     assert [item.label for item in plan.items] == ["정유민", "김하늘", "한예린"]
     assert plan.items[1].text == "페이온 정산개발팀 2025.01 ~ 현재"
+    assert plan.message == "기준선 위 미결정 지원자 8명 중 조건에 맞는 **{count}명**을 선택했어요."
     assert plan.sources == ["이력서"]
     assert plan.agents == []
     assert [call.agent for call in llm.calls] == ["root"]
+
+
+async def test_find_among_passed_answers_without_changing_selection(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="합격 처리된 지원자 중 금융 경험 있는 사람 찾아줘"
+    )
+    # 합격한 사람은 기준선 아래여도 찾는다. 미결정인 한예린은 금융 경험이 있어도 찾지 않는다
+    context = adjust(
+        context,
+        정유민={"decision": Decision.PASS, "above_line": False},
+        김하늘={"decision": Decision.PASS},
+        박서준={"decision": Decision.PASS},
+    )
+    llm = FakeLlm(rechecked(["정유민", "김하늘", "박서준"], {"정유민": [1], "김하늘": [1], "박서준": None}))
+
+    plan = await plan_find(llm, FINANCE.model_copy(update={"decision": "PASS"}), context, default_toolkit())
+
+    assert plan.intent is Intent.ANSWER
+    assert plan.targets == []
+    assert [item.label for item in plan.items] == ["정유민", "김하늘"]
+    assert plan.message == (
+        "합격한 지원자 3명 중 조건에 맞는 사람은 **2명**이에요. 결정한 지원자라 선택 지원자는 바꾸지 않았어요."
+    )
+    assert plan.sources == ["이력서"]
+
+
+async def test_find_among_decided_lists_every_match(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = assessment_context(sample_applicants, sample_company, sample_posting)
+    context = context.model_copy(update={"message": "불합격한 사람 중 평가 0점 이상인 사람"})
+    context = adjust(context, **{row.name: {"decision": Decision.FAIL, "score": 50.0} for row in context.candidates})
+
+    plan = await plan_find(FakeLlm(), RootRoute(kind="FIND", decision="FAIL", min_score=0), context, default_toolkit())
+
+    # 선택 지원자처럼 따로 볼 곳이 없어 찾은 사람을 모두 보여 준다
+    assert len(plan.items) == len(context.candidates) > 5
+    assert plan.message.startswith("불합격한 지원자 8명 중 조건에 맞는 사람은 **8명**이에요.")
+
+
+async def test_find_among_decided_reports_pool_when_none_found(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="불합격한 사람 중 양자 컴퓨팅 경험자 있어?"
+    )
+    context = adjust(context, 박서준={"decision": Decision.FAIL})
+    route = RootRoute(kind="FIND", decision="FAIL", concepts=["양자 컴퓨팅"])
+
+    plan = await plan_find(FakeLlm(), route, context, default_toolkit())
+
+    assert plan == ChatPlan.answer(Intent.ANSWER, "불합격한 지원자 1명 중 조건에 맞는 사람을 찾지 못했어요.")
+
+
+async def test_find_among_decided_without_any_decided(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="합격자 중 금융 경험자 찾아줘")
+    llm = FakeLlm()
+
+    plan = await plan_find(llm, FINANCE.model_copy(update={"decision": "PASS"}), context, default_toolkit())
+
+    assert plan == ChatPlan.answer(Intent.ANSWER, "아직 합격한 지원자가 없어요.")
+    assert llm.calls == []
 
 
 async def test_find_names_agent_of_profile_sentence(

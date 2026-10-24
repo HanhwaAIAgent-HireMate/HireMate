@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.root.targets import Targets, checked
 from hiremate_ai.agents.root.turns import Turn
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent, SelectionMode
+from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, EditAction, Intent, SelectionMode
 from hiremate_ai.contract import StageType
 from hiremate_ai.llm.client import LlmClient
 
@@ -51,6 +51,12 @@ _POSTING_WORDS = re.compile(r"공고|우대|자격\s*요건|요건")
 _BETWEEN_APPLICANTS = re.compile(
     r"둘|두\s*(?:사람|명|분)|세\s*(?:사람|명|분)|\d+\s*명|사람들|지원자들|이들|끼리|서로|누가\s*더|어느\s*쪽|중\s*누가"
 )
+# 이미 정한 결정을 가리키는 말. 이 말이 있어야 그 결정의 지원자 안에서 찾는다 ("합격 가능성"은 아니다)
+_DECIDED_WORDS = {
+    Decision.PASS: re.compile(r"(?<!불)합격\s*(?:처리\s*)?(?:한|된|시킨|했던|자|인)"),
+    Decision.FAIL: re.compile(r"(?:불합격|탈락)\s*(?:처리\s*)?(?:한|된|시킨|했던|자|인)"),
+    Decision.PENDING: re.compile(r"미결정|결정\s*(?:안|하지\s*않|되지\s*않)"),
+}
 
 
 class RootRoute(BaseModel):
@@ -68,6 +74,10 @@ class RootRoute(BaseModel):
     )
     criteria_match: Literal["any", "most", "all"] = Field(
         default="any", description="FIND 공고 기준: 하나 이상 any, 가장 많이 most, 모두 all"
+    )
+    decision: Literal["none", "PASS", "FAIL", "PENDING"] = Field(
+        default="none",
+        description="FIND: 합격한 사람 중이면 PASS, 불합격한 사람 중이면 FAIL, 아직 결정하지 않은 사람 중이면 PENDING",
     )
     edit: EditAction | None = Field(
         default=None, description="EDIT: 넣기 ADD, 빼기 REMOVE, 비우기 CLEAR, 되돌리기 RESTORE"
@@ -210,6 +220,14 @@ def asks_comparison(route: RootRoute, message: str) -> bool:
     return route.compare and bool(_BETWEEN_APPLICANTS.search(message))
 
 
+def decided_filter(route: RootRoute, message: str) -> Decision | None:
+    """그 결정의 지원자 안에서 찾는 찾기. 모델이 표시하고 문장에도 그 결정을 가리키는 말이 있어야 한다."""
+    if route.kind != "FIND" or route.decision == "none":
+        return None
+    decision = Decision(route.decision)
+    return decision if _DECIDED_WORDS[decision].search(message) else None
+
+
 async def classify(llm: LlmClient, context: ChatContext, targets: Targets, turns: Sequence[Turn] = ()) -> RootRoute:
     decided = await llm.structured(
         RootRoute, agent="root", system=ROUTE_SYSTEM, user=route_prompt(context, targets, turns)
@@ -262,7 +280,9 @@ def precheck(route: RootRoute, context: ChatContext) -> ChatPlan | None:
     """결정 요청, 아직 없는 전형 자료, 되묻기는 경로를 타지 않고 바로 답한다. 해당 없으면 None."""
     if route.kind == "DECISION":
         return ChatPlan.answer(Intent.CLARIFY, DECISION_REPLY)
-    if route.kind in ("FIND", "EDIT") and not context.selectable:
+    # 합격 · 불합격한 지원자 안에서 찾기는 선택 지원자를 바꾸지 않아 결과를 확정한 전형에서도 답한다
+    among_decided = decided_filter(route, context.message) in (Decision.PASS, Decision.FAIL)
+    if route.kind in ("FIND", "EDIT") and not context.selectable and not among_decided:
         return ChatPlan.answer(Intent.CLARIFY, LOCKED)
     available = {context.stage_type, *context.previous_types}
     missing = required_data(route, context.message) - available

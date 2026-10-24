@@ -30,10 +30,14 @@ class Turn(TypedDict):
 
 
 def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan, kind: str = "") -> Turn:
-    """찾기 턴은 찾은 결과만 남긴다. 아무도 못 찾았으면 비워 둔다."""
-    subject: list[UUID] = list(plan.targets) if kind == "FIND" else plan.targets or plan.question_targets
+    """찾기 턴은 찾은 결과만 남긴다. 아무도 못 찾았으면 비워 둔다.
+
+    합격 · 불합격한 지원자 안에서 찾았으면 선택 지원자를 바꾸지 않아 찾은 사람은 답 항목에만 있다.
+    """
+    answered = list(dict.fromkeys(item.application_id for item in plan.items if item.application_id))
+    subject: list[UUID] = (list(plan.targets) or answered) if kind == "FIND" else plan.targets or plan.question_targets
     if not subject and kind != "FIND":
-        subject = list(dict.fromkeys(item.application_id for item in plan.items if item.application_id))
+        subject = answered
     if not subject and kind != "FIND" and targets is not None:
         subject = [row.application_id for row in targets.rows]
     return Turn(
@@ -64,6 +68,7 @@ def next_result(result: list[str] | None, kind: str, mode: SelectionMode | None,
     """지금 결과 목록. 찾기와 면접 질문 만들기만 바꾼다. None은 아직 결과 목록을 만든 적이 없다는 뜻이다.
 
     새로 찾았는데 아무도 없으면 비운다. 좁히기 · 추가가 비면 화면의 선택 지원자처럼 그대로 둔다.
+    합격 · 불합격한 지원자 안에서 찾은 답이면 선택 지원자는 그대로지만 답 항목의 지원자를 결과 목록으로 둔다.
     """
     if plan.question_targets:
         return [str(application_id) for application_id in plan.question_targets]
@@ -75,6 +80,9 @@ def next_result(result: list[str] | None, kind: str, mode: SelectionMode | None,
             kept = result or []
             return kept + [application_id for application_id in ids if application_id not in kept]
         return ids
+    answered = [str(item.application_id) for item in plan.items if item.application_id]
+    if plan.intent is Intent.ANSWER and answered:
+        return list(dict.fromkeys(answered))
     if plan.intent is Intent.ANSWER and mode in (None, SelectionMode.REPLACE):
         return []
     return result

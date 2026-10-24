@@ -24,13 +24,14 @@ from hiremate_ai.agents.root.route import (
     RootRoute,
     asks_comparison,
     classify,
+    decided_filter,
     posting_section,
     refers_previous,
     required_data,
 )
 from hiremate_ai.agents.root.targets import resolve
 from hiremate_ai.agents.root.toolkit import AgentEvidence, RootToolkit, default_toolkit, profile_toolkit, scope_of
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
+from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.db.profile import ItemAgent, ItemCategory
@@ -107,7 +108,8 @@ async def toolkit(
 def context_for(
     case: dict[str, Any], applicants: dict[str, ApplicantDetail], company: CompanyProfile, posting: PostingContent
 ) -> ChatContext:
-    return make_context(
+    """decisions는 이름 → 결정(PASS · FAIL)이다. 적지 않은 지원자는 미결정이다."""
+    context = make_context(
         applicants,
         company,
         posting,
@@ -118,13 +120,19 @@ def context_for(
         checked=case.get("checked", []),
         selected=case.get("selected", []),
     )
+    decisions = case.get("decisions", {})
+    rows = [
+        row.model_copy(update={"decision": Decision(decisions[row.name])}) if row.name in decisions else row
+        for row in context.candidates
+    ]
+    return context.model_copy(update={"candidates": rows})
 
 
 def mismatches(route: RootRoute, context: ChatContext, expect: dict[str, Any]) -> list[str]:
     """낱말 검사를 거치는 칸은 코드가 실제로 쓰는 값으로 비교한다.
 
     필요한 자료는 required_data, 비교는 asks_comparison, 앞 대화는 refers_previous,
-    공고 기준은 posting_section을 거친 값이다.
+    공고 기준은 posting_section, 결정 상태는 decided_filter를 거친 값이다.
     """
     message = context.message
     required = required_data(route, message)
@@ -135,6 +143,7 @@ def mismatches(route: RootRoute, context: ChatContext, expect: dict[str, Any]) -
         "compare": asks_comparison(route, message),
         "previous_ref": route.previous_ref if refers_previous(route, context) else "none",
         "posting_criteria": posting_section(route, message) or "none",
+        "decision": decided_filter(route, message) or "none",
     }
     checked = {"needs_assessment": False, "needs_interview": False, **expect}
     return [f"{key}={actual[key]!r} (기대 {value!r})" for key, value in checked.items() if actual[key] != value]
@@ -181,11 +190,13 @@ async def test_root_find_cases(
         started = time.perf_counter()
         for _ in range(FIND_RUNS):
             plan = await run_plan(llm, context, toolkit)
-            runs.append((plan.intent, [by_id[application_id] for application_id in plan.targets]))
+            # 결정한 지원자 안에서 찾으면 선택 지원자를 바꾸지 않고(ANSWER) 찾은 사람을 항목으로만 보여 준다
+            found = plan.targets or [item.application_id for item in plan.items if item.application_id]
+            runs.append((plan.intent, [by_id[application_id] for application_id in found]))
         seconds = (time.perf_counter() - started) / FIND_RUNS
         problems = []
         for intent, chosen in runs:
-            if intent is not Intent.FIND:
+            if intent is not Intent(case.get("intent", "FIND")):
                 problems.append(f"intent={intent}")
             if missing := set(case["include"]) - set(chosen):
                 problems.append(f"빠짐 {sorted(missing)}")
