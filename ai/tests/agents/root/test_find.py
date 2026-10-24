@@ -5,6 +5,7 @@ from uuid import UUID
 from root_context import Recorder, extra_row, make_context
 
 from hiremate_ai.agents.root.find import (
+    JUDGED_LIMIT,
     LIMIT_NOTE,
     NO_POSTING_ITEMS,
     NONE_ALL,
@@ -207,6 +208,47 @@ class SpySearch:
     async def __call__(self, scope: ToolScope, concepts: Sequence[str], pool: Sequence[UUID]) -> list[CandidateMatch]:
         self.calls.append((list(concepts), list(pool)))
         return self.matches
+
+
+async def test_same_find_reuses_judgment(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 재확인은 모델 판정이라 같은 입력에도 근거가 애매한 후보의 판정이 바뀐다. 두 번째는 앞 판정을 다시 쓴다
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+    toolkit = default_toolkit()
+    met = {"정유민": [1], "김하늘": [1], "한예린": [1]}
+
+    first = await plan_find(FakeLlm(rechecked(FINANCE_ORDER, met)), FINANCE, context, toolkit)
+    second = await plan_find(FakeLlm(), FINANCE, context, toolkit)
+
+    assert second.targets == first.targets
+    assert list(toolkit.judged.values()) == [rechecked(FINANCE_ORDER, met).model_dump(mode="json")]
+
+
+async def test_changed_find_input_is_judged_again(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    toolkit = default_toolkit()
+    asked = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+    again = make_context(sample_applicants, sample_company, sample_posting, message="금융 도메인 경험자 보여줘")
+
+    await plan_find(FakeLlm(rechecked(FINANCE_ORDER, {"정유민": [1]})), FINANCE, asked, toolkit)
+    plan = await plan_find(FakeLlm(rechecked(FINANCE_ORDER, {"김하늘": [1]})), FINANCE, again, toolkit)
+
+    assert names(again, plan) == ["김하늘"]
+    assert len(toolkit.judged) == 2
+
+
+async def test_judgments_keep_latest(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    toolkit = default_toolkit()
+    toolkit.judged.update({f"old{index}": {} for index in range(JUDGED_LIMIT)})
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+
+    await plan_find(FakeLlm(rechecked(FINANCE_ORDER, {"정유민": [1]})), FINANCE, context, toolkit)
+
+    assert len(toolkit.judged) == JUDGED_LIMIT and "old0" not in toolkit.judged
 
 
 async def test_finance_keeps_rechecked(
@@ -644,6 +686,18 @@ async def test_all_keeps_only_full_match(
     assert plan.message.endswith(" 우대 사항 2개를 모두 충족한 사람이에요.")
     assert plan.items[0].text.startswith("우대 사항 2/2 · ")
     assert "공고" in plan.sources
+
+
+async def test_same_posting_find_reuses_judgment(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = posting_context(sample_applicants, sample_company, sample_posting)
+    toolkit = RootToolkit(search=posting_search(sample_applicants, ORDER, POSTING_SENTENCES))
+
+    first = await plan_find(FakeLlm(criteria(ORDER, BOTH_TWO)), preferred("all"), context, toolkit)
+    second = await plan_find(FakeLlm(), preferred("all"), context, toolkit)
+
+    assert second.targets == first.targets == [sample_applicants[name].info.application_id for name in ORDER[:2]]
 
 
 async def test_most_keeps_top_tier(

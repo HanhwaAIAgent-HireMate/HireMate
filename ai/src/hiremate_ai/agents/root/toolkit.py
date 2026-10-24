@@ -7,7 +7,8 @@
 import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Annotated
+from functools import cache
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import Depends
@@ -540,12 +541,16 @@ def cited_agents(recorded: Mapping[UUID, Sequence[AgentEvidence]], cited: Iterab
 
 @dataclass(frozen=True)
 class RootToolkit:
-    """search는 찾기, answer_tools는 도구 루프, brief는 여러 명 분석, evidence는 답 근거 확인이 쓴다."""
+    """search는 찾기, answer_tools는 도구 루프, brief는 여러 명 분석, evidence는 답 근거 확인이 쓴다.
+
+    judged는 찾기 재확인의 판정 기억이다. 같은 입력이면 앞 판정을 다시 써 같은 질문에 같은 후보를 낸다.
+    """
 
     search: CandidateSearch
     answer_tools: Sequence[BaseTool] = ()
     brief: CandidateBrief = context_brief
     evidence: ProfileEvidence = no_profile_evidence
+    judged: dict[str, dict[str, Any]] = field(default_factory=dict, compare=False)
 
 
 def default_toolkit() -> RootToolkit:
@@ -569,9 +574,11 @@ def profile_toolkit(sessions: async_sessionmaker[AsyncSession]) -> RootToolkit:
     )
 
 
+@cache
 def get_toolkit() -> RootToolkit:
     """FastAPI 의존성. ai DB의 지원자 프로필을 쓴다.
 
+    프로세스에 하나만 만들어 찾기 재확인의 판정 기억을 요청끼리 같이 쓴다.
     DB 없이 찾기 · 분석을 거치는 테스트는 default_toolkit으로 바꿔 넣는다.
     """
     return profile_toolkit(session_factory())

@@ -1,10 +1,12 @@
 """A 지원자 찾기. 후보 범위와 점수 조건은 코드가 정하고, 검색으로 넓게 모은 뒤 재확인으로 좁힌다 (기획 §11, §13).
 
-같은 질문에 같은 후보가 나오도록 순서는 코드가 정한다. 결과는 선택 지원자 변경 명령(FIND)으로만 낸다.
+같은 질문에 같은 후보가 나오도록 순서는 코드가 정한다. 재확인 판정은 같은 입력이면 앞 판정을 다시 쓴다.
+결과는 선택 지원자 변경 명령(FIND)으로만 낸다.
 """
 
 from collections.abc import Iterable, Sequence
-from typing import Literal
+from hashlib import sha256
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -38,6 +40,8 @@ from hiremate_ai.tools.candidates import CandidateMatch, SourcedSentence
 SCORE_GAP = 15
 ITEM_LIMIT = 5
 RECHECK_LIMIT = 30
+# 기억하는 재확인 판정 수. 넘으면 오래된 것부터 지운다
+JUDGED_LIMIT = 256
 EVIDENCE_LENGTH = 48
 LIMIT_NOTE = " 조건에 가까운 30명 중에서 골랐어요."
 _DOCUMENT_LABELS = {document.label for document in DocumentType}
@@ -195,7 +199,7 @@ async def plan_find(
         return _not_found(route, context, len(pool))
     progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
-        verified = await recheck(llm, context, matches, conditions=conditions, talents=talents)
+        verified = await recheck(llm, context, matches, conditions=conditions, talents=talents, memo=toolkit.judged)
     except LlmOutputError:
         return ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
     chosen = [(allowed[application_id], _shorten(evidence[0].sentence)) for application_id, evidence in verified]
@@ -241,7 +245,7 @@ async def _plan_posting(
         return _not_found(route, context, len(pool))
     progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
-        judged = await recheck_criteria(llm, context, matches, items, required)
+        judged = await recheck_criteria(llm, context, matches, items, required, toolkit.judged)
     except LlmOutputError:
         return ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
 
@@ -286,6 +290,7 @@ async def recheck_criteria(
     matches: list[CandidateMatch],
     items: list[str],
     required: list[str],
+    memo: dict[str, dict[str, Any]],
 ) -> list[tuple[UUID, dict[int, SourcedSentence]]]:
     """후보마다 충족한 항목(0부터 센 번호)과 그 근거 문장. 검색 순서를 지킨다.
 
@@ -305,9 +310,7 @@ async def recheck_criteria(
         for candidate_no, match in enumerate(matches, start=1)
     )
     user = f"요청: {context.message}\n공고 항목:\n{listed}\n\n{blocks}"
-    result = await llm.structured(
-        CriteriaResult, agent="root", system=f"{CRITERIA_SYSTEM}\n\n{UNTRUSTED_RULE}", user=user
-    )
+    result = await _judge(llm, memo, CriteriaResult, f"{CRITERIA_SYSTEM}\n\n{UNTRUSTED_RULE}", user)
     judged = {item.candidate_no: item for item in result.results}
     verified = []
     for candidate_no, match in enumerate(matches, start=1):
@@ -334,6 +337,7 @@ async def recheck(
     *,
     conditions: list[str],
     talents: list[str],
+    memo: dict[str, dict[str, Any]],
 ) -> list[tuple[UUID, list[SourcedSentence]]]:
     """모델이 충족한다고 판정한 후보와 근거 문장들. 검색 순서를 지킨다.
 
@@ -357,9 +361,7 @@ async def recheck(
     if talents:
         parts.append("인재상 (하나 이상 드러나야 한다):\n" + "\n".join(f"- {talent}" for talent in talents))
     user = "\n".join(parts) + f"\n\n{blocks}"
-    result = await llm.structured(
-        RecheckResult, agent="root", system=f"{RECHECK_SYSTEM}\n\n{UNTRUSTED_RULE}", user=user
-    )
+    result = await _judge(llm, memo, RecheckResult, f"{RECHECK_SYSTEM}\n\n{UNTRUSTED_RULE}", user)
     judged = {item.candidate_no: item for item in result.results}
     verified = []
     for candidate_no, match in enumerate(matches, start=1):
@@ -375,6 +377,27 @@ async def recheck(
         if evidence:
             verified.append((match.application_id, evidence))
     return verified
+
+
+async def _judge[T: BaseModel](
+    llm: LlmClient, memo: dict[str, dict[str, Any]], output: type[T], system: str, user: str
+) -> T:
+    """재확인 모델 판정. 같은 입력(지시문, 요청, 조건, 후보 문장)이면 기억한 앞 판정을 다시 쓴다.
+
+    모델은 temperature 0에서도 근거가 애매한 후보의 판정을 실행마다 바꾼다. 기억하면 같은 질문에 같은 후보가 나온다.
+    후보 문장이나 범위가 바뀌면 입력이 달라져 다시 판정한다. 판정에는 번호만 있고 문서 글은 없다.
+    """
+    key = sha256(f"{output.__name__}\n{system}\n{user}".encode()).hexdigest()
+    # 다시 쓴 판정은 꺼냈다 넣어 가장 최근 것으로 둔다
+    saved = memo.pop(key, None)
+    if saved is not None:
+        result = output.model_validate(saved)
+    else:
+        result = await llm.structured(output, agent="root", system=system, user=user)
+    memo[key] = result.model_dump(mode="json")
+    while len(memo) > JUDGED_LIMIT:
+        del memo[next(iter(memo))]
+    return result
 
 
 def _in_source(context: ChatContext, application_id: UUID, sourced: SourcedSentence) -> bool:
