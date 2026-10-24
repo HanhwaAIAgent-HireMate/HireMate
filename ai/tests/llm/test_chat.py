@@ -13,7 +13,7 @@ from hiremate_ai.config import settings
 from hiremate_ai.db.llm_call import LlmCallLog
 from hiremate_ai.llm import client
 from hiremate_ai.llm.call_log import CallRecord, DbCallLog
-from hiremate_ai.llm.chat import ChatLlm, LlmOutputError
+from hiremate_ai.llm.chat import LAST_CALL, SHORTER, ChatLlm, LlmOutputError
 
 
 class Summary(BaseModel):
@@ -61,7 +61,11 @@ def tool_completion(*calls: tuple[str, dict[str, Any]]) -> dict[str, Any]:
 
 
 def chat_llm(
-    contents: list[str | dict[str, Any]], call_log: RecordingCallLog, requests: list[dict[str, Any]]
+    contents: list[str | dict[str, Any]],
+    call_log: RecordingCallLog,
+    requests: list[dict[str, Any]],
+    *,
+    max_calls: int = 8,
 ) -> ChatLlm:
     """contents의 글은 모델 답 본문, dict는 응답 전체(tool_completion)다."""
     answers = iter(contents)
@@ -78,7 +82,7 @@ def chat_llm(
         max_retries=0,
         http_async_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
-    return ChatLlm(model, call_log, model_name="test-model", method="json_schema", agent_max_calls=8)
+    return ChatLlm(model, call_log, model_name="test-model", method="json_schema", agent_max_calls=max_calls)
 
 
 async def test_returns_structured_output_and_records_call() -> None:
@@ -122,6 +126,36 @@ async def test_records_error_when_output_never_matches() -> None:
     assert record.output is None
 
 
+def cut(body: dict[str, Any]) -> dict[str, Any]:
+    """출력 길이 상한(max_tokens)에서 끊긴 응답."""
+    body["choices"][0]["finish_reason"] = "length"
+    return body
+
+
+async def test_asks_shorter_when_output_is_cut() -> None:
+    call_log = RecordingCallLog()
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm([cut(completion('{"text": "같은 문장을 되풀이')), '{"text": "짧은 답"}'], call_log, requests)
+
+    result = await llm.structured(Summary, agent="root", system="", user="정리해")
+
+    assert result.text == "짧은 답"
+    assert requests[0]["messages"][1]["content"] == "정리해"
+    assert SHORTER in requests[1]["messages"][1]["content"]
+    assert [record.status for record in call_log.records] == ["OK"]
+
+
+async def test_fails_with_output_error_when_output_stays_cut() -> None:
+    call_log = RecordingCallLog()
+    llm = chat_llm([cut(completion('{"text": "끊')), cut(completion('{"text": "또 끊'))], call_log, [])
+
+    with pytest.raises(LlmOutputError, match="잘렸다"):
+        await llm.structured(Summary, agent="root", system="", user="")
+
+    [record] = call_log.records
+    assert record.status == "ERROR"
+
+
 @tool
 async def career(item: str) -> str:
     """지원자 프로필에서 항목 하나를 찾는다."""
@@ -148,6 +182,51 @@ async def test_tool_agent_records_each_model_call() -> None:
     assert first.output == {"content": "", "tool_calls": [{"name": "career", "args": {"item": "경력"}}]}
     assert (first.input_tokens, first.output_tokens) == (12, 5)
     assert '[tool career] <data kind="tool" name="career">' in second.user
+
+
+async def test_tool_agent_asks_shorter_when_answer_is_cut() -> None:
+    call_log = RecordingCallLog()
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [
+            cut(tool_completion(("Summary", {"text": "같은 문장 같은 문장 같은"}))),
+            tool_completion(("Summary", {"text": "짧게"})),
+        ],
+        call_log,
+        requests,
+    )
+
+    result = await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력")
+
+    assert result == Summary(text="짧게")
+    assert requests[1]["messages"][-1] == {"role": "user", "content": SHORTER}
+    assert len(call_log.records) == 2
+
+
+async def test_tool_agent_fails_when_answer_stays_cut() -> None:
+    cut_answer = tool_completion(("Summary", {"text": "끊"}))
+    llm = chat_llm([cut(cut_answer), cut(json.loads(json.dumps(cut_answer)))], RecordingCallLog(), [])
+
+    with pytest.raises(LlmOutputError, match="잘렸다"):
+        await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력")
+
+
+async def test_tool_agent_last_call_can_only_answer() -> None:
+    """호출 상한의 마지막 호출에서는 도구를 빼고 최종 답만 내게 한다. 자료를 더 읽다 상한을 넘기지 않게 한다."""
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [tool_completion(("career", {"item": "경력"})), tool_completion(("Summary", {"text": "확인한 만큼 답"}))],
+        RecordingCallLog(),
+        requests,
+        max_calls=2,
+    )
+
+    result = await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력")
+
+    assert result.text == "확인한 만큼 답"
+    assert [tool["function"]["name"] for tool in requests[0]["tools"]] == ["career", "Summary"]
+    assert [tool["function"]["name"] for tool in requests[1]["tools"]] == ["Summary"]
+    assert requests[1]["messages"][-1] == {"role": "user", "content": LAST_CALL}
 
 
 async def test_db_call_log_saves_record(db_session: AsyncSession) -> None:
