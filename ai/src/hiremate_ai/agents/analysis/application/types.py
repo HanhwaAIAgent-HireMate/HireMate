@@ -162,6 +162,16 @@ class CriterionResult(_Record):
         return FULFILLMENT.get(self.verdict)
 
 
+class DocumentSection(_Record):
+    """자기소개서 문항 하나의 요약. 판단 없이 무엇을 썼는지만 담는다."""
+
+    document: DocumentType
+    title: str
+    summary: str
+    points: list[str] = []
+    quotes: list[Quote] = []
+
+
 class Note(_Record):
     """카드에 보여 줄 한 줄과 출처."""
 
@@ -179,6 +189,7 @@ class ApplicationReview(_Record):
     criteria_version: str = ""
     facts: list[Fact] = []
     periods: list[Period] = []
+    sections: list[DocumentSection] = []  # 자기소개서 문항별 요약
     career_years: int | None = None
     last_company: str | None = None
     criteria: list[CriterionResult] = []
