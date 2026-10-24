@@ -6,6 +6,7 @@ export type StageOverview = Schemas['StageOverview']
 export type CandidateRow = Schemas['CandidateRow']
 export type CandidateDetail = Schemas['CandidateDetail']
 export type CandidateAnalysis = Schemas['CandidateAnalysis']
+export type CriterionLine = Schemas['CriterionLine']
 export type Decision = CandidateRow['decision']
 
 const PAGE_SIZE = 30
@@ -188,6 +189,29 @@ export function useSaveMemo(stageId: string, applicationId: string) {
       }),
     ),
   )
+}
+
+/** 서류 평가 점수 같은 소수 첫째 자리 점수 (예: 73.3) */
+export function formatScore(value: number) {
+  return value.toFixed(1)
+}
+
+/** "자격요건 33.3/50 · 우대사항 40.0/50". 확인 필요 항목이 있는 영역은 "확인 필요", 분석 전이면 null */
+export function scoreBreakdown(
+  row: Pick<
+    CandidateRow,
+    'qualificationScore' | 'qualificationMax' | 'preferenceScore' | 'preferenceMax'
+  >,
+) {
+  const parts = [
+    ['자격요건', row.qualificationScore, row.qualificationMax] as const,
+    ['우대사항', row.preferenceScore, row.preferenceMax] as const,
+  ]
+    .filter(([, , max]) => max > 0)
+    .map(([label, score, max]) =>
+      score === null ? `${label} 확인 필요` : `${label} ${formatScore(score)}/${max}`,
+    )
+  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 /** "경력 5년 · OO카드", 신입은 "신입". 분석은 끝났는데 서류에서 경력을 읽지 못하면 "경력 확인 필요" */

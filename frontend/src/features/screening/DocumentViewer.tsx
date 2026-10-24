@@ -3,7 +3,13 @@ import { useState, type ReactNode } from 'react'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
-import { useCandidateAnalysis, type CandidateDetail } from '@/features/screening/api'
+import {
+  formatScore,
+  useCandidateAnalysis,
+  type CandidateAnalysis,
+  type CandidateDetail,
+  type CriterionLine,
+} from '@/features/screening/api'
 import { cn } from '@/lib/utils'
 
 type Tab = 'RESUME' | 'COVER_LETTER' | 'PORTFOLIO' | 'CERTIFICATE'
@@ -14,6 +20,10 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'PORTFOLIO', label: '포트폴리오' },
   { key: 'CERTIFICATE', label: '자격증' },
 ]
+const DOCUMENT_LABELS = Object.fromEntries(TABS.map((item) => [item.key, item.label])) as Record<
+  Tab,
+  string
+>
 
 /** 서류 전형의 문서 Viewer (STG-06). 제출 문서를 탭으로 보고, AI 분석의 근거 문장에 밑줄을 친다. */
 export function DocumentViewer({
@@ -130,9 +140,9 @@ function AnalysisBox({
               </div>
             </Row>
           )}
-          {analysis.fit.length > 0 && (
-            <Row label="AI 적합도">
-              <FitScore lines={analysis.fit} />
+          {analysis.criteria.length > 0 && (
+            <Row label="서류 평가">
+              <CriteriaScore analysis={analysis} />
             </Row>
           )}
           <Row label="공고 조건">
@@ -179,31 +189,100 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-/** AI 적합도 점수(100점)와 항목별 점수 · 이유. 첫 줄은 우대사항 NCS 평가 조건(60점), 나머지는 직무 적합도(40점)다. */
-function FitScore({
-  lines,
-}: {
-  lines: { label: string; points: number; max: number; reason: string }[]
-}) {
-  const total = lines.reduce((sum, line) => sum + line.points, 0)
+const VERDICTS: Record<CriterionLine['verdict'], { label: string; className: string }> = {
+  MET: { label: '충족', className: 'bg-pass text-pass-foreground' },
+  PARTIAL: { label: '부분 충족', className: 'bg-ai-soft text-ai' },
+  NOT_MET: { label: '미충족', className: 'bg-muted text-muted-foreground' },
+  UNKNOWN: { label: '확인 필요', className: 'border border-dashed text-muted-foreground' },
+}
+
+const CERTIFICATE_STATUS: Record<NonNullable<CriterionLine['certificateStatus']>, string> = {
+  SELF_REPORTED: '본인 기재 · 미검증',
+  EVIDENCE_SUBMITTED: '증빙 제출',
+  ISSUER_VERIFIED: '발급기관 확인',
+}
+
+/**
+ * 서류 평가 점수(자격요건 + 우대사항)와 항목별 판정. 배점은 영역 만점 × 계수 ÷ 영역 계수 합이다(일반 1, 중요 1.5).
+ * 공고 조건에 대한 서류 평가일 뿐 합격 여부나 전체 역량을 뜻하지 않는다.
+ */
+function CriteriaScore({ analysis }: { analysis: CandidateAnalysis }) {
+  const areas = [
+    ['QUALIFICATION', '자격요건', analysis.qualificationScore, analysis.qualificationMax],
+    ['PREFERENCE', '우대사항', analysis.preferenceScore, analysis.preferenceMax],
+  ] as const
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="font-semibold">
-        {total}
-        <span className="text-xs font-normal text-muted-foreground"> / 100점</span>
+        {analysis.documentScore === null ? '점수 보류' : formatScore(analysis.documentScore)}
+        {analysis.documentScore !== null && (
+          <span className="text-xs font-normal text-muted-foreground"> / 100점</span>
+        )}
+        {analysis.qualificationStatus !== 'PASSED' && (
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            자격요건 75% {analysis.qualificationStatus === 'FAILED' ? '미달' : '판단 보류'}
+          </span>
+        )}
       </div>
-      <ul className="space-y-1">
-        {lines.map((line) => (
-          <li key={line.label} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3">
-            <span className="text-xs">{line.label}</span>
-            <span className="text-xs font-medium tabular-nums">
-              {line.points}/{line.max}
-            </span>
-            <span className="col-span-2 text-xs text-muted-foreground">{line.reason}</span>
-          </li>
+      {areas
+        .filter(([, , , max]) => max > 0)
+        .map(([category, label, score, max]) => (
+          <div key={category} className="space-y-1">
+            <div className="text-xs font-medium">
+              {label} {score === null ? '확인 필요' : `${formatScore(score)}/${max}`}
+            </div>
+            <ul className="space-y-1.5">
+              {analysis.criteria
+                .filter((line) => line.category === category)
+                .map((line) => (
+                  <CriterionItem key={line.criterionId} line={line} />
+                ))}
+            </ul>
+          </div>
         ))}
-      </ul>
+      <p className="text-[11px] text-muted-foreground">
+        공고 조건에 대한 서류 평가예요. 합격 여부를 뜻하지 않아요.
+        {analysis.criteriaVersion && ` · 평가 기준 ${analysis.criteriaVersion}`}
+      </p>
     </div>
+  )
+}
+
+function CriterionItem({ line }: { line: CriterionLine }) {
+  const details = [
+    line.careerYears !== null && `확인 경력 ${line.careerYears}년`,
+    line.certificateStatus && CERTIFICATE_STATUS[line.certificateStatus],
+    line.satisfiedParts.length > 0 && `충족: ${line.satisfiedParts.join(', ')}`,
+    line.unsatisfiedParts.length > 0 && `미충족: ${line.unsatisfiedParts.join(', ')}`,
+    line.unknownParts.length > 0 && `확인 안 됨: ${line.unknownParts.join(', ')}`,
+    line.recheckCount > 0 && `재확인 ${line.recheckCount}회`,
+  ].filter(Boolean)
+  const sources = [...new Set(line.evidence.map((item) => DOCUMENT_LABELS[item.document]))]
+  return (
+    <li className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5">
+      <span className="text-xs">
+        <span
+          className={cn(
+            'mr-1.5 inline-block rounded px-1.5 text-[11px] font-medium',
+            VERDICTS[line.verdict].className,
+          )}
+        >
+          {VERDICTS[line.verdict].label}
+        </span>
+        {line.important && (
+          <span className="mr-1 text-[11px] font-semibold text-foreground">중요</span>
+        )}
+        {line.text}
+      </span>
+      <span className="text-xs font-medium tabular-nums">
+        {line.earned === null ? '–' : formatScore(line.earned)}/{formatScore(line.allotted)}
+      </span>
+      <span className="col-span-2 text-xs text-muted-foreground">
+        {line.reason}
+        {details.length > 0 && ` · ${details.join(' · ')}`}
+        {sources.length > 0 && ` · 출처 ${sources.join(' · ')}`}
+      </span>
+    </li>
   )
 }
 
