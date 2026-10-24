@@ -116,6 +116,7 @@ def context_for(
         message=case["message"],
         stage_type=StageType(case.get("stage_type", "DOCUMENT")),
         previous_types=[StageType(stage) for stage in case.get("previous_types", [])],
+        later_types=[StageType(stage) for stage in case.get("later_types", [])],
         mentions=case.get("mentions", []),
         checked=case.get("checked", []),
         selected=case.get("selected", []),
@@ -218,6 +219,13 @@ ANSWER_CASES: list[dict[str, Any]] = [
     {"id": "answer-compare", "message": "@김하늘 @박서준 두 사람 비교해줘", "mentions": ["김하늘", "박서준"]},
     {"id": "answer-summary-checked", "message": "이 사람들 강점 요약해줘", "checked": ["정유민", "김하늘", "한예린"]},
     {"id": "answer-talent-fit", "message": "@정유민 우리 회사 인재상과 잘 맞아?", "mentions": ["정유민"]},
+    # 첫 서류 전형: 뒤 전형(과제 평가, 면접)의 자료가 아직 없는 것을 부족한 점으로 말하지 않는다
+    {
+        "id": "answer-first-stage",
+        "message": "@정유민 강점과 확인할 점 알려줘",
+        "mentions": ["정유민"],
+        "later_types": ["ASSESSMENT", "INTERVIEW"],
+    },
     {
         "id": "answer-interview-focus",
         "message": "@정유민 서류 기준으로 기술 심화 질문 만들어줘",
@@ -279,6 +287,12 @@ def answer_problems(
         case "answer-talent-fit":
             if not any(item.application_id == ids["정유민"] and item.status == "OK" for item in plan.items):
                 problems.append("근거 있는 항목 없음")
+        case "answer-first-stage":
+            problems += [
+                f"뒤 전형 자료를 부족한 점으로 말함: {word}"
+                for word in ("면접 기록", "면접 답변", "평가 결과", "평가 점수")
+                if word in text
+            ]
         case "answer-interview-focus":
             if ids["정유민"] not in plan.question_focus:
                 problems.append("확인할 점 없음")

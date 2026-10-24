@@ -15,8 +15,9 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from hiremate_ai.agents.root.stages import StageData, not_yet, reached, stage_data
 from hiremate_ai.agents.root.turns import Turn
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion, StageStatus
 from hiremate_ai.contract import ApplicantDocument, StageType
 from hiremate_ai.db.profile import ItemAgent, Verification
 from hiremate_ai.db.session import session_factory
@@ -205,6 +206,10 @@ def _best_sentences(sentences: list[SourcedSentence], terms: list[str]) -> list[
 
 OUT_OF_SCOPE = "조회 범위 밖의 지원자예요. 지원자 번호(C1 같은)로 다시 불러 주세요."
 NO_DOCUMENTS = "읽을 수 있는 제출 문서 본문이 없어요."
+NO_INTERVIEW_STAGE = "이 채용에는 면접 전형이 없어요."
+EARLIER_SCORE = "앞 평가 전형의 점수는 이 전형에서 불러오지 않았어요. 점수가 없다는 뜻은 아니에요."
+NO_ANSWER = "(답변 기록 없음)"
+NOT_ANSWERED = "(답변 아직 입력하지 않음)"
 _REF = re.compile(r"^\s*[Cc]?(\d+)\s*$")
 _DECISIONS = {Decision.PENDING: "미결정", Decision.PASS: "합격", Decision.FAIL: "불합격"}
 _STAGES = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
@@ -236,11 +241,16 @@ def documents_text(chat: ChatContext, row: CandidateRow) -> str:
 
 
 def stage_result_text(chat: ChatContext, row: CandidateRow) -> str:
+    """평가 점수는 평가 전형에서만 기록된다. 아직 평가 전형을 진행하지 않았으면 줄을 넣지 않는다."""
     document = chat.document_scores.get(row.application_id)
-    lines = [
-        _who(chat, row),
-        f"결정: {_DECISIONS[row.decision]}",
-        f"평가 점수: {f'{row.score:g}점' if row.score is not None else '없음'}",
+    lines = [_who(chat, row), f"결정: {_DECISIONS[row.decision]}"]
+    match stage_data(chat, StageType.ASSESSMENT):
+        case StageData.CURRENT:
+            missing = "아직 입력하지 않음" if chat.stage_status is StageStatus.ACTIVE else "없음"
+            lines.append(f"평가 점수: {f'{row.score:g}점' if row.score is not None else missing}")
+        case StageData.EARLIER:
+            lines.append(f"평가 점수: {EARLIER_SCORE}")
+    lines += [
         f"서류 점수: {f'{document}점' if document is not None else '없음'}",
         f"경력: {_career(row)}" + (f" · 마지막 회사 {row.last_company}" if row.last_company else ""),
         f"서류 기준선: {'위' if row.above_line else '아래'}",
@@ -249,17 +259,27 @@ def stage_result_text(chat: ChatContext, row: CandidateRow) -> str:
 
 
 def interview_text(chat: ChatContext, row: CandidateRow) -> str:
+    """면접 기록과 그 상태. 생성 전(뒤 전형), 진행 중 미입력, 실제로 없음, 불러오지 못함을 나눠 말한다."""
+    state = stage_data(chat, StageType.INTERVIEW)
+    if state is StageData.NONE:
+        return f"{_who(chat, row)}: {NO_INTERVIEW_STAGE}"
+    if state is StageData.LATER:
+        return f"{_who(chat, row)}: {not_yet(chat, StageType.INTERVIEW)}"
+    active = state is StageData.CURRENT and chat.stage_status is StageStatus.ACTIVE
     view = chat.interviews.get(row.application_id)
     if view is None or not (view.questions or view.previous):
-        if chat.stage_type is not StageType.INTERVIEW and StageType.INTERVIEW in chat.previous_types:
+        if state is StageData.EARLIER:
             # 면접 기록은 면접 전형 화면에서만 받는다. 없다고 단정하지 않게 한다
             return f"{_who(chat, row)}: 이전 면접 기록은 이 전형에서 불러오지 못했어요. 기록이 없다는 뜻은 아니에요."
+        if active:
+            return f"{_who(chat, row)}: 이 전형의 면접 질문과 답변을 아직 입력하지 않았어요."
         return f"{_who(chat, row)}: 면접 기록이 없어요."
     sections = [_who(chat, row)]
     for previous in view.previous:
-        sections.append(f"[{previous.stage_name}]\n" + _questions(previous.questions))
+        sections.append(f"[{previous.stage_name}]\n" + _questions(previous.questions, NO_ANSWER))
     if view.questions:
-        sections.append(f"[{chat.stage_name}]\n" + _questions(view.questions))
+        blank = NOT_ANSWERED if active else NO_ANSWER
+        sections.append(f"[{chat.stage_name}]\n" + _questions(view.questions, blank))
     return "\n\n".join(sections)
 
 
@@ -401,6 +421,7 @@ async def context_brief(scope: RootToolContext, row: CandidateRow) -> str:
     """지원자 한 명의 자료 묶음: 제출 문서, 전형 결과, 면접 기록, 앞 대화에서 정리한 것.
 
     여러 명 분석이 미리 모아 넣는다. ChatContext로 만들고 도구와 같은 글을 쓴다.
+    면접 기록은 면접 전형을 진행한 뒤에만 넣는다. 생기기 전인 기록을 부족한 자료로 읽지 않게 한다.
     지원자 자료는 <data> 블록으로 감싼다 (규칙 5).
     """
     chat = scope.chat
@@ -409,8 +430,9 @@ async def context_brief(scope: RootToolContext, row: CandidateRow) -> str:
         _who(chat, row),
         documents_block(documents) if documents else NO_DOCUMENTS,
         data_block("result", stage_result_text(chat, row)),
-        data_block("interview", interview_text(chat, row)),
     ]
+    if reached(chat, StageType.INTERVIEW):
+        parts.append(data_block("interview", interview_text(chat, row)))
     notes = previous_notes(chat, scope.turns, row)
     if notes:
         parts.append(data_block("previous", notes))
@@ -581,9 +603,9 @@ def _readable_documents(chat: ChatContext, row: CandidateRow) -> list[ApplicantD
     return [document for document in chat.documents.get(row.application_id, []) if document.text.strip()]
 
 
-def _questions(questions: Sequence[InterviewQuestion]) -> str:
+def _questions(questions: Sequence[InterviewQuestion], blank: str) -> str:
     return "\n".join(
-        f"Q{number}. {question.text}\nA{number}. {question.answer.strip() or '(답변 기록 없음)'}"
+        f"Q{number}. {question.text}\nA{number}. {question.answer.strip() or blank}"
         for number, question in enumerate(questions, start=1)
     )
 

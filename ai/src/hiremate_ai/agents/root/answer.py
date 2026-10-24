@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from typing import Literal
 from uuid import UUID
 
+from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.analysis.assessment.checks import NOTE_SOURCE, SUBMISSION_SOURCE
@@ -17,6 +18,7 @@ from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.edit import SAME_NAME
 from hiremate_ai.agents.root.progress import SILENT, Progress
 from hiremate_ai.agents.root.route import RootRoute, says_previous
+from hiremate_ai.agents.root.stages import blames_later_stage, reached, stage_plan, without_later_gaps
 from hiremate_ai.agents.root.targets import Targets, checked, resolve
 from hiremate_ai.agents.root.toolkit import (
     DOUBTFUL,
@@ -26,6 +28,7 @@ from hiremate_ai.agents.root.toolkit import (
     candidate_ref,
     cited_agents,
     company_text,
+    get_interview_records,
     posting_text,
     recorded_evidence,
     recorded_matches,
@@ -63,6 +66,10 @@ POSTING_SOURCE = "공고"
 # 한 명도 도구 루프로 답하면 실제 모델이 근거 항목(items) 없이 답 글만 쓰기 일쑤다
 MULTI_LIMIT = 5
 NOT_CHECKED = "자료를 확인하지 못했어요"
+LATER_GAP_PROBLEM = (
+    "아직 진행하지 않은 전형의 자료가 없다는 말만 했어요. 그 자료는 생기기 전이에요. "
+    "지금까지 진행한 전형의 자료로 답하세요."
+)
 MULTI_FALLBACK = "{names}의 근거를 지원자별로 정리했어요."
 # 처리 중 화면에 보이는 단계 문구 (진행 알림)
 MULTI_STATUS = "{count}명 자료를 정리하고 있어요"
@@ -88,6 +95,8 @@ ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확�
 도구로 필요한 자료만 골라 읽고, 근거가 모이면 답한다.
 
 - 근거가 있는 내용만 말한다. 자료가 없거나 확인하지 못한 점은 status=CHECK로 나눈다.
+- 전형 구성에서 아직 진행하지 않은 전형의 자료(평가 결과, 면접 기록)는 생기기 전이다.
+  없는 자료나 확인하지 못한 점으로 쓰지 않는다. 더 확인할 점이 있으면 "면접에서 확인"처럼 뒤 전형에서 할 일로 적는다.
 - 서류와 평가 · 면접을 함께 묻는 질문이면 그 자료를 모두 확인한다.
 - 지원자는 C1 같은 번호로만 가리킨다. 도구 인자와 답의 candidate 모두 번호를 쓴다.
 - 지원자에 관한 항목은 candidate에 반드시 그 지원자 번호를 적는다. 여러 지원자를 비교하면 지원자마다 항목을 따로 만든다.
@@ -137,6 +146,8 @@ NOTES_SYSTEM = """너는 채용 담당자의 질문에 답하려고 지원자 �
 - label은 "강점", "경력", "RDBMS 경험", "확인할 점"처럼 짧은 항목 이름이다. 공고 제목이나 문장을 쓰지 않는다.
 - text는 한 줄로 짧게 쓴다.
 - 자료가 없거나 확인하지 못한 점은 status=CHECK로 둔다.
+- 전형 구성에서 아직 진행하지 않은 전형의 자료(평가 결과, 면접 기록)는 생기기 전이다.
+  없는 자료나 확인하지 못한 점으로 쓰지 않는다. 더 확인할 점이 있으면 "면접에서 확인"처럼 뒤 전형에서 할 일로 적는다.
 - 앞 대화 기록이 있고 그때의 이유를 물으면 그 기록으로 답한다. 이유를 새로 지어내지 않는다.
 - 채용 결정, 점수 변경, 상태 변경은 하지 않는다."""
 
@@ -206,7 +217,7 @@ async def plan_answer(
     progress.status(ONE_STATUS.format(name=only.name) if only else STAGE_STATUS)
     scope = scope_of(context, turns)
     agent = llm.tool_agent(
-        RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
+        RootAnswer, agent="root", system=ANSWER_SYSTEM, tools=_answer_tools(toolkit, context), context=RootToolContext
     )
     target_ids = {row.application_id for row in rows}
     checked_plan: ChatPlan | None = None
@@ -220,6 +231,8 @@ async def plan_answer(
         agents: list[str] = []
         problems: list[str] = []
         for raw in answered.items:
+            if blames_later_stage(context, f"{raw.label} {raw.text}"):
+                continue
             own, found, used = verify_items([raw], context, only, recorded)
             if not own:
                 problems.append("항목의 지원자 번호가 현재 전형에 없어요. 대상 지원자의 번호로 작성하세요.")
@@ -234,8 +247,11 @@ async def plan_answer(
             problems.append(
                 "대상 지원자의 항목이 없어요. 근거가 있는 항목이나 자료 부족을 알리는 CHECK 항목을 작성하세요."
             )
-        message = readable(answered.message, context)
-        if _invalid_message(message):
+        written = readable(answered.message, context)
+        message = without_later_gaps(context, written)
+        if written.strip() and not message:
+            problems.append(LATER_GAP_PROBLEM)
+        elif _invalid_message(message):
             problems.append("본문에 내부 필드명이나 JSON 조각이 있어요. 담당자가 읽을 자연스러운 문장으로 작성하세요.")
         checked_plan = ChatPlan.answer(Intent.ANSWER, message, items, sources, agents)
         if fallback is None or _item_quality(checked_plan.items) > _item_quality(fallback.items):
@@ -377,7 +393,11 @@ def _verify_notes(
 ) -> tuple[list[ChatItem], list[str], list[str]]:
     """지원자 한 명의 정리를 그 지원자의 항목으로 바꾸고 근거를 원문과 맞춰 본다."""
     ref = candidate_ref(context, row.application_id)
-    own = [item.model_copy(update={"candidate": ref}) for item in notes.items]
+    own = [
+        item.model_copy(update={"candidate": ref})
+        for item in notes.items
+        if not blames_later_stage(context, f"{item.label} {item.text}")
+    ]
     items, sources, agents = verify_items(own, context, row, recorded)
     items = [
         item.model_copy(update={"text": "이 항목의 근거를 충분히 확인하지 못했어요."})
@@ -409,6 +429,7 @@ async def _notes(
 ) -> CandidateNotes:
     user = (
         f"질문: {context.message}\n"
+        f"{_stage_lines(context)}\n"
         f"정리할 지원자: {candidate_ref(context, row.application_id)} {row.name}\n\n"
         f"{shared}\n\n지원자 자료:\n{await toolkit.brief(scope, row)}"
     )
@@ -457,7 +478,7 @@ async def _summary(llm: LlmClient, context: ChatContext, rows: Sequence[Candidat
         )
     except LlmOutputError:
         return fallback
-    message = readable(summary.message.strip(), context)
+    message = without_later_gaps(context, readable(summary.message.strip(), context))
     # 대상이 아닌 지원자를 말하면 항목에 없는 내용을 지어낸 것이다
     targets = {row.application_id for row in rows}
     if any(row.name in message for row in context.candidates if row.application_id not in targets):
@@ -493,7 +514,11 @@ async def plan_questions(
 
     scope = scope_of(context, turns)
     agent = llm.tool_agent(
-        RootQuestionFocus, agent="root", system=FOCUS_SYSTEM, tools=toolkit.answer_tools, context=RootToolContext
+        RootQuestionFocus,
+        agent="root",
+        system=FOCUS_SYSTEM,
+        tools=_answer_tools(toolkit, context),
+        context=RootToolContext,
     )
     prompt = answer_prompt(context, Targets(rows=rows, ambiguous=[]))
     progress.status(FOCUS_STATUS)
@@ -551,13 +576,22 @@ async def _recorded(
 
 
 def answer_prompt(context: ChatContext, targets: Targets) -> str:
-    previous = ", ".join(_STAGE_LABELS[stage] for stage in context.previous_types) or "없음"
     return (
         f"질문: {context.message}\n"
         f"대상 지원자: {_refs(context, targets.rows) or '지정 없음 (전형 지원자 전체)'}\n"
-        f"현재 전형: {context.stage_name} ({_STAGE_LABELS[context.stage_type]})\n"
-        f"끝난 전형: {previous}"
+        f"{_stage_lines(context)}"
     )
+
+
+def _stage_lines(context: ChatContext) -> str:
+    return f"현재 전형: {context.stage_name} ({_STAGE_LABELS[context.stage_type]})\n전형 구성: {stage_plan(context)}"
+
+
+def _answer_tools(toolkit: RootToolkit, context: ChatContext) -> Sequence[BaseTool]:
+    """면접 전형을 아직 진행하지 않았으면 읽을 면접 기록이 없어 면접 기록 도구를 주지 않는다."""
+    if reached(context, StageType.INTERVIEW):
+        return toolkit.answer_tools
+    return [tool for tool in toolkit.answer_tools if tool.name != get_interview_records.name]
 
 
 def verify_items(
