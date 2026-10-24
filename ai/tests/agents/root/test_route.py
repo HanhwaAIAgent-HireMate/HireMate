@@ -402,6 +402,22 @@ async def test_clarified_comparison_goes_to_answer(
     assert precheck(decided, context) is None
 
 
+async def test_comparison_words_mark_compare(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 대상 없는 "둘 비교해줘"를 compare 없이 CLARIFY로 표시하고 자기 되물음을 쓰기도 한다
+    async def settled(message: str, route: RootRoute) -> RootRoute:
+        context = context_for(sample_applicants, sample_company, sample_posting, message=message)
+        return await classify(FakeLlm(route), context, resolve(context))
+
+    unflagged = await settled("둘 비교해줘", RootRoute(kind="CLARIFY", clarify="비교할 지원자를 지정해 주세요."))
+    assert (unflagged.kind, unflagged.compare) == ("ANSWER", True)
+    answered = await settled("두 사람 비교해줘", RootRoute(kind="ANSWER"))
+    assert answered.compare is True
+    posting = await settled("@김하늘 공고 자격 요건과 비교해줘", RootRoute(kind="ANSWER"))
+    assert posting.compare is False
+
+
 async def test_among_them_refers_to_result(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:

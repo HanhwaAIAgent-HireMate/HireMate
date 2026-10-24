@@ -189,6 +189,18 @@ async def test_clarified_comparison_without_targets_asks_for_two(
     assert plan == ChatPlan.answer(Intent.CLARIFY, COMPARE_NEEDS_TWO)
 
 
+async def test_unflagged_comparison_without_targets_asks_for_two(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 compare 표시 없이 CLARIFY로 두고 자기 되물음("비교할 지원자를 지정해 주세요.")을 쓰기도 한다
+    context = make_context(sample_applicants, sample_company, sample_posting, message="둘 비교해줘")
+    llm = FakeLlm(RootRoute(kind="CLARIFY", clarify="비교할 지원자를 지정해 주세요."))
+
+    plan = await run_plan(llm, context)
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, COMPARE_NEEDS_TWO)
+
+
 async def test_clarified_comparison_with_checked_compares(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:

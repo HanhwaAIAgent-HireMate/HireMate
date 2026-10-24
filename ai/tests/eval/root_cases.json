@@ -52,6 +52,8 @@
    "expect": {"kind": "ANSWER", "compare": true}},
   {"id": "answer-compare-checked", "message": "둘 비교해줘", "checked": ["박서준", "이도윤"],
    "expect": {"kind": "ANSWER", "compare": true, "previous_ref": "none"}},
+  {"id": "answer-compare-none", "message": "둘 비교해줘",
+   "expect": {"kind": "ANSWER", "compare": true}},
   {"id": "answer-compare-posting", "message": "@김하늘 공고 자격 요건과 비교해줘", "mentions": ["김하늘"],
    "expect": {"kind": "ANSWER", "compare": false}},
   {"id": "answer-cross-stage", "message": "@정유민 자기소개서에 쓴 협업 경험이 과제에서도 드러났어?", "mentions": ["정유민"],
