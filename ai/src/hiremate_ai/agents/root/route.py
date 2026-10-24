@@ -64,6 +64,8 @@ _POSTING_WORDS = re.compile(r"공고|우대|자격\s*요건|요건")
 _BETWEEN_APPLICANTS = re.compile(
     r"둘|두\s*(?:사람|명|분)|세\s*(?:사람|명|분)|\d+\s*명|사람들|지원자들|이들|끼리|서로|누가\s*더|어느\s*쪽|중\s*누가"
 )
+# 비교해 달라는 말. 여러 지원자를 가리키는 말과 같이 있으면 모델이 compare를 빠뜨려도 지원자끼리 비교다
+_COMPARE_WORDS = re.compile(r"비교|견주|견줘")
 # 이미 정한 결정을 가리키는 말. 이 말이 있어야 그 결정의 지원자 안에서 찾는다 ("합격 가능성"은 아니다)
 _DECIDED_WORDS = {
     Decision.PASS: re.compile(r"(?<!불)합격\s*(?:처리\s*)?(?:한|된|시킨|했던|자|인)"),
@@ -255,7 +257,8 @@ def _settled(route: RootRoute, message: str) -> RootRoute:
     "그중", "찾은"이 있으면 직전에 다룬 지원자가 아니라 찾기 결과다. 아무도 못 찾은 새 찾기 뒤의 "그중 첫 번째"가
     그 전 찾기 결과를 가리키지 않게 한다.
     지원자끼리 비교하는 요청을 되묻기로 표시하면 분석으로 돌린다. 대상이 모자라면 정해 둔 문구로 되묻고,
-    체크한 지원자가 있으면 그 사람들을 비교한다.
+    체크한 지원자가 있으면 그 사람들을 비교한다. 비교하는 말과 여러 지원자를 가리키는 말이 있으면 모델 표시와 상관없이
+    지원자끼리 비교로 본다. 실제 모델은 대상 없는 "둘 비교해줘"에 compare 없이 자기 되물음을 쓰기도 한다.
     만든 질문의 이유만 묻는 문장("방금 만든 질문은 왜 만든 거야?")은 면접 질문 만들기가 아니라 분석이다.
     표시를 남기면 질문을 다시 만든다.
     """
@@ -266,7 +269,9 @@ def _settled(route: RootRoute, message: str) -> RootRoute:
         update["ordinal"] = None
     if route.previous_ref == "subject" and _RESULT_WORDS.search(message):
         update["previous_ref"] = "result"
-    if route.kind == "CLARIFY" and asks_comparison(route, message):
+    if route.kind in ("CLARIFY", "ANSWER") and _COMPARE_WORDS.search(message) and _BETWEEN_APPLICANTS.search(message):
+        update |= {"kind": "ANSWER", "compare": True}
+    elif route.kind == "CLARIFY" and asks_comparison(route, message):
         update["kind"] = "ANSWER"
     return route.model_copy(update=update) if update else route
 
