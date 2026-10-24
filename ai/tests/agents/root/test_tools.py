@@ -4,13 +4,25 @@ from pydantic import BaseModel
 from root_context import make_context
 
 from hiremate_ai.agents.root.toolkit import (
+    EARLIER_SCORE,
+    NO_ANSWER,
+    NO_INTERVIEW_STAGE,
+    NOT_ANSWERED,
     OUT_OF_SCOPE,
     RootToolContext,
     default_toolkit,
+    interview_text,
     resolve_ref,
     scope_of,
+    stage_result_text,
 )
-from hiremate_ai.agents.root.types import ChatContext, InterviewQuestion, InterviewView, QuestionSource
+from hiremate_ai.agents.root.types import (
+    ChatContext,
+    InterviewQuestion,
+    InterviewView,
+    QuestionSource,
+    StageStatus,
+)
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
 
@@ -171,7 +183,8 @@ async def test_interview_records(
     result = llm.calls[-1].user
     assert "정산 배치 개선 과정은?" in result
     assert "파티셔닝" in result
-    assert "면접 기록이 없어요" in result
+    # 진행 중인 면접 전형이면 기록이 없는 게 아니라 아직 입력하지 않은 것이다
+    assert "C2 김하늘: 이 전형의 면접 질문과 답변을 아직 입력하지 않았어요." in result
 
 
 async def test_interview_records_unavailable_after_interview_stage(
@@ -191,3 +204,106 @@ async def test_interview_records_unavailable_after_interview_stage(
     result = llm.calls[-1].user
     assert "불러오지 못했어요" in result
     assert "면접 기록이 없어요" not in result
+
+
+def interview_of(context: ChatContext, name: str) -> str:
+    return interview_text(context, next(row for row in context.candidates if row.name == name))
+
+
+def result_of(context: ChatContext, name: str) -> str:
+    return stage_result_text(context, next(row for row in context.candidates if row.name == name))
+
+
+def test_interview_records_before_interview_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="확인",
+        later_types=(StageType.ASSESSMENT, StageType.INTERVIEW),
+    )
+
+    result = interview_of(context, "정유민")
+
+    assert result.startswith("C1 정유민: 면접 자료는 3번째 전형 '1차 면접'에서 생겨요.")
+    assert "없는 자료가 아니에요" in result
+
+
+def test_interview_records_without_interview_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="확인")
+
+    assert interview_of(context, "정유민") == f"C1 정유민: {NO_INTERVIEW_STAGE}"
+
+
+def test_interview_records_missing_after_stage_ends(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="확인",
+        stage_type=StageType.INTERVIEW,
+        stage_status=StageStatus.DONE,
+    )
+
+    assert interview_of(context, "정유민") == "C1 정유민: 면접 기록이 없어요."
+
+
+def test_blank_answer_reads_as_not_entered_while_active(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    jung = sample_applicants["정유민"].info.application_id
+    question = InterviewQuestion(
+        question_id=uuid4(), text="정산 배치 개선 과정은?", source=QuestionSource.AI, answer=""
+    )
+    view = InterviewView(application_id=jung, schedule=None, questions=[question], previous=[])
+
+    def answers(status: StageStatus) -> str:
+        context = make_context(
+            sample_applicants,
+            sample_company,
+            sample_posting,
+            message="확인",
+            stage_type=StageType.INTERVIEW,
+            stage_status=status,
+            interviews={jung: view},
+        )
+        return interview_of(context, "정유민")
+
+    assert NOT_ANSWERED in answers(StageStatus.ACTIVE)
+    assert NO_ANSWER in answers(StageStatus.DONE)
+
+
+def test_stage_results_leave_out_score_before_assessment(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="확인", later_types=(StageType.ASSESSMENT,)
+    )
+
+    assert "평가 점수" not in result_of(context, "정유민")
+
+
+def test_stage_results_tell_score_state(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    def scored(stage_type: StageType, previous: tuple[StageType, ...], status: StageStatus) -> str:
+        context = make_context(
+            sample_applicants,
+            sample_company,
+            sample_posting,
+            message="확인",
+            stage_type=stage_type,
+            previous_types=previous,
+            stage_status=status,
+        )
+        return result_of(context, "정유민")
+
+    assert "평가 점수: 아직 입력하지 않음" in scored(StageType.ASSESSMENT, (), StageStatus.ACTIVE)
+    assert "평가 점수: 없음" in scored(StageType.ASSESSMENT, (), StageStatus.DONE)
+    assert f"평가 점수: {EARLIER_SCORE}" in scored(StageType.INTERVIEW, (StageType.ASSESSMENT,), StageStatus.ACTIVE)

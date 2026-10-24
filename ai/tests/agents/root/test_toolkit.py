@@ -17,7 +17,7 @@ from hiremate_ai.agents.root.toolkit import (
 )
 from hiremate_ai.agents.root.turns import Turn, TurnItem
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext
-from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
+from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.profile_store import NewItem, save_profile
 from hiremate_ai.db.session import session_factory
@@ -278,10 +278,13 @@ def turn_with(application_id: UUID, focus: str, item_text: str) -> Turn:
     )
 
 
-async def test_brief_has_documents_result_and_interview(
+async def test_brief_has_documents_and_result(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
-    context = context_of(sample_applicants, sample_company, sample_posting)
+    # 첫 서류 전형에는 면접 기록이 아직 생기지 않았다. 없는 자료로 읽지 않게 넣지 않는다
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="찾아줘", later_types=(StageType.INTERVIEW,)
+    )
 
     brief = await context_brief(scope_of(context), row_of(context, "정유민"))
 
@@ -289,8 +292,21 @@ async def test_brief_has_documents_result_and_interview(
     assert '<data kind="document"' in brief
     assert "한빛카드 결제플랫폼팀" in brief
     assert "결정: 미결정" in brief
-    assert '<data kind="interview"' in brief
+    assert '<data kind="interview"' not in brief
+    assert "면접" not in brief
     assert "새솔은행" not in brief
+
+
+async def test_brief_has_interview_in_interview_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="찾아줘", stage_type=StageType.INTERVIEW
+    )
+
+    brief = await context_brief(scope_of(context), row_of(context, "정유민"))
+
+    assert '<data kind="interview"' in brief
 
 
 async def test_brief_has_previous_notes(

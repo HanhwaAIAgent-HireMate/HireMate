@@ -8,6 +8,8 @@ from hiremate_ai.agents.root.route import (
     LOCKED,
     NO_ASSESSMENT,
     NO_INTERVIEW,
+    NOT_YET_ASSESSMENT,
+    NOT_YET_INTERVIEW,
     RootRoute,
     asks_comparison,
     classify,
@@ -32,9 +34,16 @@ def context_for(
     stage_type: StageType = StageType.DOCUMENT,
     previous_types: tuple[StageType, ...] = (),
     message: str = "질문",
+    later_types: tuple[StageType, ...] = (),
 ) -> ChatContext:
     return make_context(
-        applicants, company, posting, message=message, stage_type=stage_type, previous_types=previous_types
+        applicants,
+        company,
+        posting,
+        message=message,
+        stage_type=stage_type,
+        previous_types=previous_types,
+        later_types=later_types,
     )
 
 
@@ -100,6 +109,22 @@ def test_needs_assessment_in_document_stage(
     assert plan == ChatPlan.answer(Intent.CLARIFY, NO_ASSESSMENT)
 
 
+def test_needs_assessment_before_assessment_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="평가 점수 좋은 사람 찾아줘",
+        later_types=(StageType.ASSESSMENT,),
+    )
+
+    plan = precheck(RootRoute(kind="FIND", needs_assessment=True), context)
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_YET_ASSESSMENT.format(order=2, name="과제 평가"))
+
+
 def test_needs_assessment_in_interview_stage_without_assessment(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
@@ -136,6 +161,24 @@ def test_needs_assessment_in_assessment_stage(
 
 
 def test_needs_interview_before_interview(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        StageType.ASSESSMENT,
+        (StageType.DOCUMENT,),
+        message="면접 답변에서 확인된 거 알려줘",
+        later_types=(StageType.INTERVIEW,),
+    )
+
+    plan = precheck(RootRoute(kind="ANSWER", needs_interview=True), context)
+
+    assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_YET_INTERVIEW.format(order=3, name="1차 면접"))
+
+
+def test_needs_interview_without_interview_stage(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = context_for(
