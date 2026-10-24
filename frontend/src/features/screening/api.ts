@@ -7,6 +7,7 @@ export type CandidateRow = Schemas['CandidateRow']
 export type CandidateDetail = Schemas['CandidateDetail']
 export type CandidateAnalysis = Schemas['CandidateAnalysis']
 export type CriterionLine = Schemas['CriterionLine']
+export type SummarySection = Schemas['SummarySection']
 export type Decision = CandidateRow['decision']
 
 const PAGE_SIZE = 30
@@ -73,6 +74,7 @@ export function useSelection(stageId: string) {
 export function useCandidateDetail(stageId: string, applicationId: string) {
   return useQuery({
     queryKey: stageKeys.detail(stageId, applicationId),
+    enabled: applicationId !== '',
     queryFn: () =>
       unwrap(
         api.GET('/api/stages/{stageId}/candidates/{applicationId}', {
@@ -114,7 +116,13 @@ export function useStageMutation<T, R = unknown>(
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: request,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: stageKeys.all(stageId) }),
+    // 다시 불러오기를 기다리지 않는다. 카드 AI 분석은 결정 · 넣기 · 빼기로 바뀌지 않아 다시 부르지 않는다
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: stageKeys.all(stageId),
+        predicate: (query) => query.queryKey[2] !== 'analysis',
+      })
+    },
   })
 }
 
@@ -196,7 +204,7 @@ export function formatScore(value: number) {
   return value.toFixed(1)
 }
 
-/** "자격요건 33.3/50 · 우대사항 40.0/50". 확인 필요 항목이 있는 영역은 "확인 필요", 분석 전이면 null */
+/** "자격 33.3 · 우대 40.0" (영역 만점 50). 한 영역만 있으면 "자격 77.8/100". 확인 필요가 남은 영역은 "확인 필요" */
 export function scoreBreakdown(
   row: Pick<
     CandidateRow,
@@ -204,12 +212,14 @@ export function scoreBreakdown(
   >,
 ) {
   const parts = [
-    ['자격요건', row.qualificationScore, row.qualificationMax] as const,
-    ['우대사항', row.preferenceScore, row.preferenceMax] as const,
+    ['자격', row.qualificationScore, row.qualificationMax] as const,
+    ['우대', row.preferenceScore, row.preferenceMax] as const,
   ]
     .filter(([, , max]) => max > 0)
     .map(([label, score, max]) =>
-      score === null ? `${label} 확인 필요` : `${label} ${formatScore(score)}/${max}`,
+      score === null
+        ? `${label} 확인 필요`
+        : `${label} ${formatScore(score)}${max === 50 ? '' : `/${max}`}`,
     )
   return parts.length > 0 ? parts.join(' · ') : null
 }

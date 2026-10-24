@@ -52,10 +52,17 @@ function StatusView({ posting }: { posting: Posting }) {
   const total = applications.data?.total
   const url = `${window.location.origin}${careersPath(posting.postingId)}`
   const accepting = posting.status === 'PUBLISHED'
+  // 시작한 전형은 눌러 그 전형 화면으로 간다. 끝난 전형은 화면만 볼 수 있다
   const stages = posting.stages.map((stage) => ({
     key: stage.id,
     label: stage.name,
-    state: 'pending' as const,
+    state:
+      stage.status === 'DONE'
+        ? ('done' as const)
+        : stage.status === 'ACTIVE' || stage.status === 'CONFIRMED'
+          ? ('ongoing' as const)
+          : ('pending' as const),
+    to: `/hr/recruitments/${posting.recruitmentId}/stages/${stage.id}`,
   }))
 
   const copy = async () => {
