@@ -18,6 +18,8 @@ import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.RootAgent;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
+import com.hiremate.recruit.StageStatus;
+import com.hiremate.recruit.StageType;
 import com.hiremate.screening.SelectionMode;
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -71,6 +73,26 @@ class RootMemoryChatTests extends IntegrationTest {
 
         TestApi other = newHr();
         expect(other.get(setup.path() + "/chat"), 404);
+    }
+
+    @Test
+    @DisplayName("Chat은 채용의 전형 구성을 순서와 진행 상태와 함께 Root에 넘긴다")
+    void chatSendsStagePlan() throws Exception {
+        Setup setup = documentStage();
+        when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.CLARIFY, "답", List.of(), List.of(),
+                List.of()));
+
+        expect(setup.hr().post(setup.path() + "/chat",
+                Map.of("message", "강점 요약해줘", "mentionIds", List.of(), "checkedIds", List.of())), 200);
+
+        ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
+        verify(root).plan(sent.capture(), any());
+        List<ChatContext.Stage> stages = sent.getValue().stages();
+        assertThat(stages.getFirst()).extracting(ChatContext.Stage::id, ChatContext.Stage::type,
+                ChatContext.Stage::status).containsExactly(setup.stageId(), StageType.DOCUMENT, StageStatus.ACTIVE);
+        List<ChatContext.Stage> later = stages.subList(1, stages.size());
+        assertThat(later).isNotEmpty().allMatch(stage -> stage.status() == StageStatus.PENDING);
+        assertThat(later).extracting(ChatContext.Stage::type).contains(StageType.INTERVIEW);
     }
 
     @Test

@@ -17,6 +17,7 @@ from hiremate_ai.agents.root.answer import (
     FOCUS_STATUS,
     FOCUS_WITH_REQUEST,
     FOCUSED,
+    LATER_GAP_PROBLEM,
     MULTI_FALLBACK,
     MULTI_STATUS,
     NO_QUESTION_TARGET,
@@ -1170,3 +1171,114 @@ async def test_focus_reports_status(
     await plan_questions(FakeLlm(focused()), QUESTIONS, context, resolve(context), default_toolkit(), progress=progress)
 
     assert progress.statuses == [FOCUS_STATUS]
+
+
+LATER_GAP = "면접 기록이 없어 실제 역량과 태도를 확인할 수 없어요."
+
+
+class ToolsSpy:
+    """도구 루프에 준 도구 이름을 남기는 LLM."""
+
+    def __init__(self, fake: FakeLlm) -> None:
+        self.fake = fake
+        self.tools: list[str] = []
+
+    async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
+        return await self.fake.structured(output, agent=agent, system=system, user=user)
+
+    def tool_agent[T: BaseModel](
+        self,
+        output: type[T],
+        *,
+        agent: str,
+        system: str,
+        tools: Sequence[BaseTool],
+        context: type[Any] | None = None,
+    ) -> ToolAgent[T]:
+        self.tools = [tool.name for tool in tools]
+        return self.fake.tool_agent(output, agent=agent, system=system, tools=tools, context=context)
+
+
+def first_stage(applicants: Applicants, company: CompanyProfile, posting: PostingContent, **kwargs: Any) -> ChatContext:
+    """면접 전형이 뒤에 있는 첫 서류 전형."""
+    return make_context(applicants, company, posting, later_types=(StageType.INTERVIEW,), **kwargs)
+
+
+async def test_notes_drop_gap_of_later_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = first_stage(
+        sample_applicants, sample_company, sample_posting, message="@정유민 강점이 뭐야?", mentions=["정유민"]
+    )
+    strength = AnswerItem(
+        label="강점", text="정산 배치 개선", status="OK", evidence=[AnswerEvidence(sentence=BATCH, source="이력서")]
+    )
+    gap = AnswerItem(label="확인할 점", text=LATER_GAP, status="CHECK")
+    llm = FakeLlm(
+        CandidateNotes(items=[strength, gap]),
+        MultiSummary(message=f"정유민은 정산 배치를 줄였어요. {LATER_GAP}"),
+    )
+
+    plan = await ask(llm, context)
+
+    assert [(item.label, item.status) for item in plan.items] == [("강점", "OK")]
+    assert plan.message == "정유민은 정산 배치를 줄였어요."
+    notes_prompt = llm.calls[0].user
+    assert "전형 구성: 1. 서류 전형 (서류 · 진행 중, 현재) → 2. 1차 면접 (면접 · 시작 전)" in notes_prompt
+    assert '<data kind="interview"' not in notes_prompt
+    assert LATER_GAP not in llm.calls[1].user
+
+
+async def test_tool_loop_drops_gap_of_later_stage_without_interview_tool(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = first_stage(sample_applicants, sample_company, sample_posting, message="강점이 뭐야?")
+    strength = AnswerItem(
+        candidate="C1",
+        label="강점",
+        text="정산 배치 시간을 줄였다",
+        status="OK",
+        evidence=[AnswerEvidence(sentence=BATCH, source="이력서")],
+    )
+    gap = AnswerItem(candidate="C1", label="확인할 점", text=LATER_GAP, status="CHECK")
+    llm = ToolsSpy(FakeLlm(answered(strength, gap, message=f"정유민 님의 강점이에요. {LATER_GAP}")))
+
+    plan = await ask(llm, context)
+
+    assert [(item.label, item.status) for item in plan.items] == [("강점", "OK")]
+    assert plan.message == "정유민 님의 강점이에요."
+    assert "get_interview_records" not in llm.tools
+    assert "전형 구성: 1. 서류 전형" in llm.fake.calls[0].user
+
+
+async def test_tool_loop_asks_again_when_message_only_blames_later_stage(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = first_stage(sample_applicants, sample_company, sample_posting, message="강점이 뭐야?")
+    strength = AnswerItem(
+        candidate="C1",
+        label="강점",
+        text="정산 배치 시간을 줄였다",
+        status="OK",
+        evidence=[AnswerEvidence(sentence=BATCH, source="이력서")],
+    )
+    llm = FakeLlm(answered(strength, message=LATER_GAP), answered(strength))
+
+    plan = await ask(llm, context)
+
+    assert plan.message == "정유민 님의 강점이에요."
+    assert LATER_GAP_PROBLEM in llm.calls[1].user
+
+
+async def test_interview_stage_keeps_interview_tool_and_its_gaps(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 면접 전형에서 면접 기록이 없다는 말은 실제 상태라 그대로 둔다
+    context = context_for(sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW)
+    gap = AnswerItem(candidate="C1", label="확인할 점", text=LATER_GAP, status="CHECK")
+    llm = ToolsSpy(FakeLlm(answered(gap)))
+
+    plan = await ask(llm, context)
+
+    assert "get_interview_records" in llm.tools
+    assert [item.text for item in plan.items] == [LATER_GAP]

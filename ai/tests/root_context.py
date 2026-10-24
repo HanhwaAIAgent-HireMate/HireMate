@@ -11,12 +11,21 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem, Decision, InterviewView
+from hiremate_ai.agents.root.types import (
+    CandidateRow,
+    ChatContext,
+    ChatItem,
+    ChatStage,
+    Decision,
+    InterviewView,
+    StageStatus,
+)
 from hiremate_ai.contract import AnalysisStatus, ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.db.profile import ItemAgent
 from hiremate_ai.db.profile_store import NewItem, ProfileFields, save_profile
 
 STAGE_ID = UUID("9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b61")
+STAGE_NAMES = {StageType.DOCUMENT: "서류 전형", StageType.ASSESSMENT: "과제 평가", StageType.INTERVIEW: "1차 면접"}
 SAMPLES_DIR = Path(__file__).resolve().parent / "samples"
 
 
@@ -81,13 +90,18 @@ def make_context(
     message: str,
     stage_type: StageType = StageType.DOCUMENT,
     previous_types: Sequence[StageType] = (),
+    later_types: Sequence[StageType] = (),
+    stage_status: StageStatus = StageStatus.ACTIVE,
     mentions: Sequence[str | UUID] = (),
     checked: Sequence[str | UUID] = (),
     selected: Sequence[str] = (),
     extra_rows: Sequence[CandidateRow] = (),
     interviews: Mapping[UUID, InterviewView] | None = None,
 ) -> ChatContext:
-    """가상 지원자 8명이 모두 미결정이고 기준선 위에 있는 전형. 이름이 겹치면 먼저 나온 지원자를 가리킨다."""
+    """가상 지원자 8명이 모두 미결정이고 기준선 위에 있는 전형. 이름이 겹치면 먼저 나온 지원자를 가리킨다.
+
+    전형 구성은 앞 전형(previous_types, 종료) → 현재 전형(stage_status) → 뒤 전형(later_types, 시작 전)이다.
+    """
     rows = [
         CandidateRow(
             application_id=applicant.info.application_id,
@@ -112,14 +126,20 @@ def make_context(
         return [person if isinstance(person, UUID) else ids[person] for person in people]
 
     first = next(iter(applicants.values()))
+    stage_name = "서류 전형" if stage_type is StageType.DOCUMENT else "1차 면접"
+    stages = [
+        *(ChatStage(id=uuid4(), name=STAGE_NAMES[kind], type=kind, status=StageStatus.DONE) for kind in previous_types),
+        ChatStage(id=STAGE_ID, name=stage_name, type=stage_type, status=stage_status),
+        *(ChatStage(id=uuid4(), name=STAGE_NAMES[kind], type=kind, status=StageStatus.PENDING) for kind in later_types),
+    ]
     return ChatContext(
         stage_id=STAGE_ID,
         recruitment_id=first.info.recruitment_id,
         thread_id=f"{company.company_id}:{STAGE_ID}:test",
-        stage_name="서류 전형" if stage_type is StageType.DOCUMENT else "1차 면접",
+        stage_name=stage_name,
         selectable=True,
         stage_type=stage_type,
-        previous_types=list(previous_types),
+        stages=stages,
         candidates=rows,
         documents={applicant.info.application_id: applicant.documents for applicant in applicants.values()},
         document_scores={},

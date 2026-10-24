@@ -6,7 +6,10 @@
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
+from typing import Self
 from uuid import UUID
+
+from pydantic import model_validator
 
 from hiremate_ai.contract import (
     AnalysisStatus,
@@ -116,6 +119,24 @@ class InterviewView(ContractModel):
     previous: list[PreviousInterview]
 
 
+class StageStatus(StrEnum):
+    """전형 진행 상태 (recruit.StageStatus). 결과를 확정하면 CONFIRMED(안내 단계), 전형을 종료하면 DONE이다."""
+
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    CONFIRMED = "CONFIRMED"
+    DONE = "DONE"
+
+
+class ChatStage(ContractModel):
+    """채용의 전형 하나 (ChatContext.Stage)."""
+
+    id: UUID
+    name: str
+    type: StageType
+    status: StageStatus
+
+
 class ChatContext(ContractModel):
     """Root Agent가 받는 요청 범위: 현재 채용 · 전형 + 대상(@멘션 · 체크) + 질문 (ai.application.ChatContext)."""
 
@@ -125,7 +146,7 @@ class ChatContext(ContractModel):
     stage_name: str
     selectable: bool  # 선택 지원자를 바꿀 수 있는 전형(진행 중)인가. 결과를 확정한 전형이면 false
     stage_type: StageType
-    previous_types: list[StageType]
+    stages: list[ChatStage]  # 채용의 전형 전체, 전형 순서대로. 현재 전형도 들어 있다
     candidates: list[CandidateRow]
     documents: dict[UUID, list[ApplicantDocument]]
     document_scores: dict[UUID, float]
@@ -135,6 +156,26 @@ class ChatContext(ContractModel):
     company: CompanyProfile
     posting: PostingContent
     message: str
+
+    @model_validator(mode="after")
+    def _has_current_stage(self) -> Self:
+        if all(stage.id != self.stage_id for stage in self.stages):
+            raise ValueError("stages에 현재 전형이 없다")
+        return self
+
+    @property
+    def stage_index(self) -> int:
+        """현재 전형이 stages에서 몇 번째인가 (0부터)."""
+        return next(index for index, stage in enumerate(self.stages) if stage.id == self.stage_id)
+
+    @property
+    def stage_status(self) -> StageStatus:
+        return self.stages[self.stage_index].status
+
+    @property
+    def previous_types(self) -> list[StageType]:
+        """현재 전형 앞에 있는 전형의 종류."""
+        return [stage.type for stage in self.stages[: self.stage_index]]
 
 
 class ChatItem(ContractModel):

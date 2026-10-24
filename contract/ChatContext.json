@@ -5,7 +5,11 @@
   "stageName": "최종 면접",
   "selectable": true,
   "stageType": "INTERVIEW",
-  "previousTypes": ["DOCUMENT", "INTERVIEW"],
+  "stages": [
+    {"id": "7b6a5f4e-3d2c-4b1a-8f0e-9d8c7b6a5f43", "name": "서류 전형", "type": "DOCUMENT", "status": "DONE"},
+    {"id": "8c7b6a5f-4e3d-4c2b-9a1f-0e9d8c7b6a52", "name": "1차 면접", "type": "INTERVIEW", "status": "DONE"},
+    {"id": "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b61", "name": "최종 면접", "type": "INTERVIEW", "status": "ACTIVE"}
+  ],
   "candidates": [
     {
       "applicationId": "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60",

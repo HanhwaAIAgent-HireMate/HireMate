@@ -58,9 +58,8 @@ public class ChatService {
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         StageInfo stage = recruitment.stage(stageId).orElseThrow();
         List<CandidateRow> candidates = screening.candidates(companyId, stageId, null, 0, 1000).items();
-        List<StageType> previous = recruitment.stages().stream()
-                .filter(other -> other.seq() < stage.seq())
-                .map(StageInfo::type)
+        List<ChatContext.Stage> stages = recruitment.stages().stream()
+                .map(other -> new ChatContext.Stage(other.id(), other.name(), other.type(), other.status()))
                 .toList();
         Map<UUID, BigDecimal> documentScores = new HashMap<>();
         applications.applicants(companyId, recruitment.id()).stream()
@@ -72,7 +71,7 @@ public class ChatService {
         // 대화는 전형 종료까지만 보관한다. 끝난 전형에서 물으면 대화방 없이 답한다
         String threadId = stage.status() == StageStatus.DONE ? "" : threadId(companyId, stageId, memberId);
         ChatContext context = new ChatContext(stageId, recruitment.id(), threadId, stage.name(),
-                stage.status() == StageStatus.ACTIVE, stage.type(), previous,
+                stage.status() == StageStatus.ACTIVE, stage.type(), stages,
                 candidates, applications.documents(companyId, recruitment.id()), documentScores, interviewViews,
                 mentions, checked, companies.profile(companyId),
                 postings.draftContext(companyId, recruitment.id()).content(), message);

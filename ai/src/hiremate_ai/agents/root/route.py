@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from hiremate_ai.agents.root.stages import next_stage, reached
 from hiremate_ai.agents.root.targets import Targets, checked
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, EditAction, Intent, SelectionMode
@@ -18,8 +19,17 @@ DEFAULT_CLARIFY = (
     '@로 지원자를 골라 물어보세요("@이름 강점과 확인할 점은?").'
 )
 NOT_UNDERSTOOD = "요청을 이해하지 못했어요. " + DEFAULT_CLARIFY
-NO_ASSESSMENT = "아직 평가 결과가 없어요. 지원서에서 협업 경험이 약한 지원자를 찾아볼까요?"
-NO_INTERVIEW = "아직 면접 답변 기록이 없어요. @로 지원자를 골라 면접에서 확인할 점을 물어볼 수 있어요."
+# 아직 없는 전형 자료: 뒤 전형에서 생기는지, 이 채용에 그 전형이 없는지 나눠 말한다
+NOT_YET_ASSESSMENT = (
+    "평가는 아직 진행하지 않았어요. 결과는 {order}번째 전형 '{name}'에서 생겨요. "
+    "지금은 지원서에서 협업 경험이 약한 지원자를 찾아볼까요?"
+)
+NO_ASSESSMENT = "이 채용에는 평가 전형이 없어요. 지원서에서 협업 경험이 약한 지원자를 찾아볼까요?"
+NOT_YET_INTERVIEW = (
+    "면접은 아직 진행하지 않았어요. 답변 기록은 {order}번째 전형 '{name}'에서 생겨요. "
+    "지금은 @로 지원자를 골라 면접에서 확인할 점을 물어볼 수 있어요."
+)
+NO_INTERVIEW = "이 채용에는 면접 전형이 없어요. @로 지원자를 골라 지원서의 강점과 확인할 점을 물어볼 수 있어요."
 NO_PREVIOUS = "앞 대화에서 가리킨 지원자를 찾지 못했어요. @로 골라 다시 말씀해 주세요."
 COMPARE_NEEDS_TWO = "비교할 지원자를 두 명 이상 @로 고르거나 체크해 주세요."
 # backend ChatService와 같은 문구. 확정한 전형에서는 선택 지원자를 바꾸지 않는다
@@ -283,6 +293,16 @@ def _mentions_assessment(message: str) -> bool:
     return rest == message and bool(_POINTS.search(message))
 
 
+def unavailable(context: ChatContext, kind: StageType) -> str:
+    """아직 진행하지 않았거나 이 채용에 없는 전형의 자료를 물었을 때의 답."""
+    later = next_stage(context, kind)
+    if later is None:
+        return NO_ASSESSMENT if kind is StageType.ASSESSMENT else NO_INTERVIEW
+    order, stage = later
+    template = NOT_YET_ASSESSMENT if kind is StageType.ASSESSMENT else NOT_YET_INTERVIEW
+    return template.format(order=order, name=stage.name)
+
+
 def precheck(route: RootRoute, context: ChatContext) -> ChatPlan | None:
     """결정 요청, 아직 없는 전형 자료, 되묻기는 경로를 타지 않고 바로 답한다. 해당 없으면 None."""
     if route.kind == "DECISION":
@@ -291,12 +311,10 @@ def precheck(route: RootRoute, context: ChatContext) -> ChatPlan | None:
     among_decided = decided_filter(route, context.message) in (Decision.PASS, Decision.FAIL)
     if route.kind in ("FIND", "EDIT") and not context.selectable and not among_decided:
         return ChatPlan.answer(Intent.CLARIFY, LOCKED)
-    available = {context.stage_type, *context.previous_types}
-    missing = required_data(route, context.message) - available
-    if StageType.ASSESSMENT in missing:
-        return ChatPlan.answer(Intent.CLARIFY, NO_ASSESSMENT)
-    if StageType.INTERVIEW in missing:
-        return ChatPlan.answer(Intent.CLARIFY, NO_INTERVIEW)
+    required = required_data(route, context.message)
+    for kind in (StageType.ASSESSMENT, StageType.INTERVIEW):
+        if kind in required and not reached(context, kind):
+            return ChatPlan.answer(Intent.CLARIFY, unavailable(context, kind))
     if route.kind == "CLARIFY":
         return ChatPlan.answer(Intent.CLARIFY, route.clarify or DEFAULT_CLARIFY)
     return None
