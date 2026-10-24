@@ -72,6 +72,10 @@ PROFILE_SOURCES = (SUBMISSION_SOURCE, NOTE_SOURCE)
 _DOCUMENT_LABELS = {document.label: document for document in DocumentType}
 _REF = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)(?![0-9])")
 _REF_WITH_NAME = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)\s+([^\s,.!?·]+)")
+# 실제 모델은 "responseC1"처럼 영문 낱말 뒤에 번호를 붙여 쓰기도 한다. 대문자 약어(EC2)는 번호가 아니다
+_GLUED_REF = re.compile(r"(?<![A-Za-z0-9])[a-z]+C(\d+)(?![0-9])")
+# 생각을 끈 모델도 생각 태그를 흘리기도 한다
+_THINK = re.compile(r"<think>.*?</think>|</?think>", re.DOTALL)
 _STAGE_LABELS = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
 
 ANSWER_SYSTEM = """너는 채용 담당자의 질문에 지원자 자료를 확인해 답한다.
@@ -451,7 +455,10 @@ def verify_items(
 
 
 def readable(text: str, context: ChatContext) -> str:
-    """담당자가 읽을 글의 지원자 번호(C2)를 이름으로 바꾼다. "C2 김하늘"처럼 이름이 뒤따르면 번호만 뺀다."""
+    """담당자가 읽을 글의 지원자 번호(C2)를 이름으로 바꾼다. "C2 김하늘"처럼 이름이 뒤따르면 번호만 뺀다.
+
+    모델이 흘린 생각 태그는 지운다.
+    """
 
     def with_name(match: re.Match[str]) -> str:
         row = resolve_ref(context, match.group(1))
@@ -461,6 +468,7 @@ def readable(text: str, context: ChatContext) -> str:
         row = resolve_ref(context, match.group(1))
         return row.name if row is not None else match.group(0)
 
+    text = _GLUED_REF.sub(name_only, _THINK.sub("", text).strip())
     return _REF.sub(name_only, _REF_WITH_NAME.sub(with_name, text))
 
 
@@ -525,6 +533,8 @@ def _canonical_source(source: str) -> str | None:
         return SUBMISSION_SOURCE
     if "메모" in compact:
         return NOTE_SOURCE
+    if "인재상" in compact or "문화" in compact:
+        return COMPANY_SOURCE
     for label in (RESULT_SOURCE, SCORE_SOURCE, COMPANY_SOURCE, POSTING_SOURCE):
         if "".join(label.split()) in compact:
             return label
@@ -532,15 +542,25 @@ def _canonical_source(source: str) -> str | None:
 
 
 def _company_text(context: ChatContext) -> str:
+    """근거를 맞춰 볼 회사 글. 도구가 보여 준 글(인재상 줄의 "제목: 설명")도 넣는다. 모델은 그 줄을 그대로 옮긴다."""
     company = context.company
     talents = " ".join(f"{talent.title} {talent.description}" for talent in company.talents)
-    return " ".join([company.name, company.intro, company.culture, talents, *company.benefits])
+    return " ".join([company_text(context), company.name, company.intro, company.culture, talents, *company.benefits])
 
 
 def _posting_text(context: ChatContext) -> str:
+    """근거를 맞춰 볼 공고 글. 도구가 보여 준 글도 넣는다."""
     posting = context.posting
     return " ".join(
-        [posting.title, posting.intro, *posting.duties, *posting.qualifications, *posting.preferred, *posting.benefits]
+        [
+            posting_text(context),
+            posting.title,
+            posting.intro,
+            *posting.duties,
+            *posting.qualifications,
+            *posting.preferred,
+            *posting.benefits,
+        ]
     )
 
 
