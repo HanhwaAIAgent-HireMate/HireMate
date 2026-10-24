@@ -121,6 +121,25 @@ async def test_score_gap_sorted(
     assert plan.sources == ["평가 결과", "서류 점수"]
 
 
+async def test_min_score_on_document_scores(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 실제 모델은 "서류 점수 80점"도 min_score로 적는다. 서류 전형에는 평가 점수가 없어 아무도 남지 않았다
+    context = make_context(sample_applicants, sample_company, sample_posting, message="서류 점수 80점 이상만 골라줘")
+    scores = {
+        sample_applicants["정유민"].info.application_id: 90,
+        sample_applicants["김하늘"].info.application_id: 75,
+        sample_applicants["박서준"].info.application_id: 80,
+    }
+    context = context.model_copy(update={"document_scores": scores})
+
+    plan = await plan_find(FakeLlm(), RootRoute(kind="FIND", min_score=80), context, default_toolkit())
+
+    assert names(context, plan) == ["정유민", "박서준"]
+    assert [item.text for item in plan.items] == ["서류 90점", "서류 80점"]
+    assert plan.sources == ["서류 점수"]
+
+
 async def test_no_conditions_clarifies(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
