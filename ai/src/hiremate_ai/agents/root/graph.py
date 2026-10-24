@@ -105,14 +105,17 @@ def build_root_graph(
             # 대상은 코드가 정한다: @멘션 · 이름 → 체크한 지원자 → 앞 대화.
             # 앞 대화는 순서나 앞 대화를 가리키는 말이 있으면 체크한 지원자보다 먼저다.
             # 앞 대화에 가리킬 지원자가 없으면 문장이 앞 대화를 가리킬 때만 되묻고, 아니면 대상 없이 간다
+            implied = False
             if refers_previous(decided, context):
                 ids = remembered(state.get("result"), state.get("subject") or [], decided.previous_ref)
                 rows = recall(context, ids, decided.ordinal)
-                if not rows and says_previous(decided, context.message):
+                said = says_previous(decided, context.message)
+                if not rows and said:
                     return {"route": decided, "plan": ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)}
+                implied = bool(rows) and not said
             else:
                 rows = checked(context)
-            targets = Targets(rows=rows, ambiguous=[])
+            targets = Targets(rows=rows, ambiguous=[], implied=implied)
         if decided.kind == "ANSWER" and asks_comparison(decided, context.message) and len(targets.rows) < 2:
             plan = ChatPlan.answer(Intent.CLARIFY, COMPARE_NEEDS_TWO)
             return {"route": decided, "targets": targets, "plan": plan}

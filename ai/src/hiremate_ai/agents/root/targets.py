@@ -10,10 +10,14 @@ _FOUND = "\0"
 
 @dataclass(frozen=True)
 class Targets:
-    """대상 지원자(후보 순서)와, 멘션 없이 이름만으로는 누구인지 정할 수 없는 이름."""
+    """대상 지원자(후보 순서)와, 멘션 없이 이름만으로는 누구인지 정할 수 없는 이름.
+
+    implied는 문장이 가리키지 않았는데 모델이 앞 대화를 표시해 앞 대화의 지원자를 대상으로 삼았다는 뜻이다.
+    """
 
     rows: list[CandidateRow]
     ambiguous: list[str]
+    implied: bool = False
 
 
 def resolve(context: ChatContext) -> Targets:
