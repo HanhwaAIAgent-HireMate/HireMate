@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from typing import Any, Literal, NotRequired, cast
 
 from langchain.agents import create_agent
@@ -43,8 +44,18 @@ REPEATED_BATCH = "모든 조회가 반복이다. 기존 조회 결과로 최종 
 COALESCED_READ = "한 번에 요청한 동일한 조회는 한 번만 실행했다. 기존 조회 결과를 쓰고 필요한 다른 자료만 조회한다."
 
 
+class LlmFailureReason(StrEnum):
+    FORMAT = "FORMAT"
+    VALIDATION = "VALIDATION"
+    BUDGET = "BUDGET"
+
+
 class LlmOutputError(RuntimeError):
-    """모델 답이 요청한 형식에 맞지 않을 때."""
+    """모델 답을 완성하지 못한 이유를 보존한다."""
+
+    def __init__(self, message: str, *, reason: LlmFailureReason = LlmFailureReason.FORMAT) -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclass
@@ -80,7 +91,7 @@ def consume_model_call() -> None:
     if budget is None:
         return
     if budget.remaining <= 0:
-        raise LlmOutputError(f"요청의 모델 호출 상한을 넘었다 ({budget.limit}회)")
+        raise LlmOutputError(f"요청의 모델 호출 상한을 넘었다 ({budget.limit}회)", reason=LlmFailureReason.BUDGET)
     budget.remaining -= 1
 
 
@@ -202,7 +213,8 @@ class ToolAgent[T: BaseModel]:
                 )
             except ModelCallLimitExceededError as exceeded:
                 raise LlmOutputError(
-                    f"{self._output.__name__} 답을 받기 전에 모델 호출 상한을 넘었다 ({self._agent})"
+                    f"{self._output.__name__} 답을 받기 전에 모델 호출 상한을 넘었다 ({self._agent})",
+                    reason=LlmFailureReason.BUDGET,
                 ) from exceeded
             result = state.get("structured_response")
             if not isinstance(result, self._output):
@@ -211,7 +223,9 @@ class ToolAgent[T: BaseModel]:
             if problem is None:
                 return result
             if attempt:
-                raise LlmOutputError(f"{self._output.__name__} 답을 검증하지 못했다: {problem}")
+                raise LlmOutputError(
+                    f"{self._output.__name__} 답을 검증하지 못했다: {problem}", reason=LlmFailureReason.VALIDATION
+                )
             state = {**state, "messages": [*state["messages"], HumanMessage(problem)], "structured_response": None}
         raise AssertionError("도달할 수 없는 재작성 단계")
 
