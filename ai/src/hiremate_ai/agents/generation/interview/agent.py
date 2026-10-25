@@ -1,7 +1,9 @@
 """Interview Agent 질문 생성 (FR-27). 이전 전형의 근거에서 면접에서 더 확인할 빈틈을 골라 질문으로 만든다.
 
-질문 구성 (데모 스토리보드 v8과 같게. 맨 앞 '1분 자기소개'는 '공통' 표시 없이 일반 질문으로 넣는다)
-  1차 실무면접 (이전 면접 기록 없음) : 1분 자기소개 + 코드가 고른 빈틈 2개 + 모델이 고른 '이 사람만의 확인 포인트' 1개
+질문 구성 (맨 앞 '1분 자기소개'는 별도 질문)
+  1차 최초 생성: 자기소개 + 확인 사항 · 실제 경험 · 개념/상황 판단을 배분한 핵심 질문 3~5개
+    4·5번째는 중요 표시된 별도 확인 사항이 있을 때만. 자료 부족·중복·검증 실패 시 개수를 강제로 채우지 않는다.
+    Chat 추가 요청은 기존 범위 요청과 이미 물은 질문을 존중하며 최대 3개를 추가한다.
   최종면접    (이전 면접 기록 있음) : 1분 자기소개 + 자리 5개
       ① 1차 미확인   이전 면접 답변 분석(FR-28)에서 확인 안 된 질문을 이어서 (없으면 모델이 서류에서 골라 채움)
       ② 인성 · 가치관 ③ 조직 적응 ④ 리더십 ⑤ 진정성 · 커리어
@@ -17,14 +19,15 @@
 
 빈틈 재료 (1차)
   서류 전형 Agent의 상세 판정(ApplicationReview, ai DB에 저장됨)이 있으면 그것을, 없으면 요약(CandidateAnalysis)을 쓴다.
-  상세 판정에는 우대사항별 충족도 · 근거 · 본인(SELF)/팀(TEAM) 구분이 있어 데모처럼 빈틈을 구체적으로 잡는다.
+  판정의 satisfied_parts와 unknown_parts/unsatisfied_parts를 구분해 이미 확인된 부분은 다시 묻지 않는다.
+  같은 기준의 판정과 확인 메모는 합치고, 경험 자리와 개념/상황 자리를 확보한다.
 
 빈틈 우선순위 (같은 공고의 지원자 모두에게 같은 순서를 적용한다)
                             상세 판정이 있을 때                         요약만 있을 때
   1 이전 면접에서 확인 안 됨  이전 면접 답변 분석(FR-28)에서 확인되지 않은 질문 (최종면접)
-  2 필수 조건 근거 없음       qualifications 중 met=false               conditions 중 met=false 이고 자격 요건
+  2 필수 조건 근거 없음       criteria 중 남은 확인 사항                 criteria 우선, 없으면 conditions
   3 확인 필요               checks                                   checks
-  4 우대 조건 근거 없음       우대사항 중 충족이 아닌 것                  criteria의 우대사항 중 충족이 아닌 것
+  4 우대 조건 근거 없음       우대사항 중 남은 확인 사항                  criteria의 우대사항 중 남은 확인 사항
   5 주장만 있음              팀 성과로 적었거나(TEAM) 본인 역할이 불분명,  (없음)
                             근거가 주장을 받치지 못한 경험
   6 본인 역할 확인           본인이 한 성과 · 프로젝트 (원문 근거 문장)    notable
@@ -47,7 +50,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from hiremate_ai.agents.analysis.application.present import notable_facts
-from hiremate_ai.agents.analysis.application.types import VERDICT_LABEL, Actor, ApplicationReview
+from hiremate_ai.agents.analysis.application.types import VERDICT_LABEL, Actor, ApplicationReview, CriterionResult
 from hiremate_ai.agents.analysis.interview.agent import CONFIRMED, NO_ANSWER, analyze_answers
 from hiremate_ai.agents.guardrails import blocked_attribute, evidence_source
 from hiremate_ai.contract import (
@@ -55,6 +58,8 @@ from hiremate_ai.contract import (
     CandidateAnalysis,
     CompanyProfile,
     CriterionCategory,
+    CriterionLine,
+    CriterionType,
     DocumentType,
     PostingContent,
     Verdict,
@@ -68,7 +73,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 AGENT_KEY = "interview"
-MAX_QUESTIONS = 3  # 1차 AI 질문 수 (맨 앞 1분 자기소개는 따로)
+MAX_QUESTIONS = 5  # 1차 핵심 질문 상한. 자기소개는 별도이며, 추가할 중요한 소재가 있을 때만 늘린다.
+MIN_QUESTIONS = 3
 CODE_SLOTS = 2
 MAX_RETRY = 1
 MAX_QUESTION_LENGTH = 160
@@ -122,6 +128,7 @@ PICK_FALLBACK = "서류에 적어 주신 경험 중 가장 자신 있는 일 하
 
 FOLLOW_UP, REQUIRED, CHECK, PREFERRED, NOTABLE = "FOLLOW_UP", "REQUIRED", "CHECK", "PREFERRED", "NOTABLE"
 CLAIM = "CLAIM"  # 주장만 있음: 상세 판정에서 팀 성과로 적었거나 본인 역할 · 근거가 약한 경험 (데모의 '주장만')
+CONCEPT, SCENARIO, FACT = "CONCEPT", "SCENARIO", "FACT"
 GAP_TYPES: dict[str, tuple[int, str]] = {
     FOLLOW_UP: (1, "이전 면접에서 확인 안 됨"),
     REQUIRED: (2, "필수 조건 근거 없음"),
@@ -129,6 +136,9 @@ GAP_TYPES: dict[str, tuple[int, str]] = {
     PREFERRED: (4, "우대 조건 근거 없음"),
     CLAIM: (5, "주장만 있음"),
     NOTABLE: (6, "본인 역할 확인"),
+    CONCEPT: (7, "직무 개념과 적용 판단"),
+    SCENARIO: (7, "가상 업무 상황 판단"),
+    FACT: (2, "사실 관계 확인"),
 }
 # 근거 문장을 인용하는 빈틈. 모델이 쓴 질문이 그 문장과 이어지는지 검사한다
 QUOTED_KINDS = (CHECK, CLAIM, NOTABLE)
@@ -137,6 +147,9 @@ CLAIM_FACT_KINDS = ("ACHIEVEMENT", "PROJECT", "EXPERIENCE")
 CLAIM_LIMIT = 2  # 주장만 빈틈은 2개까지 (코드 자리 2개를 모두 차지하지 않게 우선순위가 뒤다)
 
 TEMPLATES = {
+    CONCEPT: "{topic}에서 중요한 원리 하나를 골라, 그 원리가 실제 업무의 선택에 어떻게 영향을 주는지 설명해 주세요.",
+    SCENARIO: "{topic} 업무를 처음 맡는다면, 진행 순서와 그 순서를 선택할 근거를 설명해 주세요.",
+    FACT: "{topic}에 관해 확인할 수 있는 사실과 이를 확인할 자료를 설명해 주세요.",
     FOLLOW_UP: "지난 면접에서 '{topic}' 질문에 답해 주셨는데, {detail}에 대해 조금 더 구체적으로 말해 주세요.",
     FOLLOW_UP + NO_ANSWER: "지난 면접에서 다루지 못한 '{topic}' 부분을 본인이 직접 한 일과 결과 중심으로 말해 주세요.",
     REQUIRED: "{topic}와 관련해 직접 해 본 경험이 있다면, 본인이 맡은 일과 결과를 구체적으로 말해 주세요.",
@@ -162,6 +175,12 @@ SYSTEM = f"""너는 채용 면접 질문을 만드는 Interview Agent다. 두 �
 - "주장만 있음": 근거 문장을 인용하고, 팀 전체가 아니라 그중 본인이 직접 한 부분과 결과를 묻는다.
 - "본인 역할 확인": 근거 문장을 인용하고 본인 역할 · 판단 근거 · 결과를 묻는다.
 - note에 NCS 수행준거가 있으면 그 실무 용어로 구체적인 상황을 묻는다 (수행준거 문장을 그대로 읽지 않는다).
+- confirmed는 이미 확인된 부분이다. 같은 경험 유무를 다시 묻지 말고 target에 적힌 남은 부분만 묻는다.
+- verdict UNKNOWN은 경험이 없다는 뜻이 아니다. PARTIAL은 확인된 부분과 남은 부분을 구분한다.
+- mode FACT는 기간·자격증 등 사실 확인이다. 이론이나 가상 상황으로 충족을 대신 확인하지 않는다.
+- mode CONCEPT는 직무 개념과 적용 판단, SCENARIO는 명시적인 가상 업무 상황을 묻는다.
+  이 두 유형에서만 경험 없이 답할 수 있는 이론·상황 질문을 허용한다. 실제 수행했다고 전제하지 않는다.
+- 같은 답변으로 해결되는 질문은 표현만 바꾸어 두 번 만들지 않는다. 핵심 질문만 쓰고 꼬리질문은 붙이지 않는다.
 
 [일 2] sentences(지원 문서 문장, 번호 S1…)를 끝까지 읽고, gaps와 겹치지 않는 이 지원자만의 경험 중
 면접에서 깊게 확인할 문장 하나를 골라 free_pick 질문 하나를 만든다. sid는 sentences에 있는 번호만 쓴다.
@@ -230,6 +249,11 @@ class Gap:
     evidence: list[str] = field(default_factory=list)
     detail: str = ""
     status: str = ""
+    criterion_id: str = ""
+    confirmed: list[str] = field(default_factory=list)
+    targets: list[str] = field(default_factory=list)
+    mode: str = ""
+    important: bool = False
 
     @property
     def priority(self) -> int:
@@ -251,6 +275,7 @@ class State(TypedDict, total=False):
     interview: Any  # InterviewView (router.py에 있어 여기서 import하면 순환)
     focus: str
     final: bool  # 이전 면접 기록이 있으면 최종면접 (자리 5개 구성)
+    balanced: bool  # 최초 자동 생성만 3~5개 구성. Chat의 추가 요청은 기존 범위·중복 처리를 유지한다.
     company: CompanyProfile | None  # 회사 인재상 · 조직 문화 (없으면 None — 기준 없이 서류에서 찾음)
     slot_kept: dict[str, str]  # 최종면접 자리 → 통과한 질문
     follow_ups: list[Gap]
@@ -259,6 +284,8 @@ class State(TypedDict, total=False):
     gaps: list[Gap]
     spare: list[Gap]
     kept: dict[str, str]
+    purposes: dict[str, str]
+    redundant: list[str]
     pick: str | None
     pick_sid: str | None
     errors: list[str]
@@ -359,6 +386,8 @@ async def load_context(state: State) -> dict[str, Any]:
         "existing": existing,
         "sentences": sentences,
         "kept": {},
+        "purposes": {},
+        "redundant": [],
         "pick": None,
         "pick_sid": None,
         "errors": [],
@@ -403,7 +432,83 @@ def find_gaps(state: State) -> dict[str, Any]:
         seen.add(key)
         gap.gap_id = f"G{len(gaps) + len(spare) + 1}"
         (gaps if len(gaps) < CODE_SLOTS else spare).append(gap)
-    return {"gaps": gaps, "spare": spare}
+    balanced = not focus and not any("자기소개" not in question.text for question in state["interview"].questions)
+    if balanced:
+        selected = _balanced_gaps(gaps + spare, state)
+        for index, gap in enumerate(selected, 1):
+            gap.gap_id = f"G{index}"
+        return {"gaps": selected, "spare": [], "balanced": True}
+    return {"gaps": gaps, "spare": spare, "balanced": False}
+
+
+def _same_goal(left: Gap, right: Gap) -> bool:
+    """기준 ID와 원문을 먼저 비교한다. 표현만 다른 동일 확인 사항도 한 자리에 묶는다."""
+    if left.criterion_id and left.criterion_id == right.criterion_id:
+        return True
+    if {left.mode, right.mode} == {CONCEPT, SCENARIO}:
+        return False  # 개념의 적용 근거와 가상 업무의 실행 순서는 서로 다른 답을 확인한다.
+    if _normalize(left.topic) == _normalize(right.topic) or _same_topic(left.topic, right.topic):
+        return True
+    if any(_same_fact(a, b) for a in left.evidence for b in right.evidence):
+        return True
+    a, b = set(_words(left.topic)), set(_words(right.topic))
+    shared = a & b - _QUESTION_WORDS
+    return left.mode == right.mode and len(shared) >= 2 and len(shared) / max(1, min(len(a), len(b))) >= 0.75
+
+
+def _balanced_gaps(candidates: list[Gap], state: State) -> list[Gap]:
+    """확인 사항이 경험 자리를 독점하지 않게 고른다. 4·5번째는 중요한 별도 항목만 허용한다."""
+    selected: list[Gap] = []
+
+    def add(gap: Gap) -> bool:
+        if any(_same_goal(gap, prior) for prior in selected):
+            return False
+        if any(_asked_before(gap, text) for text in state["existing"]):
+            return False
+        selected.append(gap)
+        return True
+
+    checks = [gap for gap in candidates if gap.kind not in (CLAIM, NOTABLE)]
+    experiences = [gap for gap in candidates if gap.kind in (CLAIM, NOTABLE)]
+    if checks:
+        add(checks[0])
+    for gap in experiences:
+        if add(gap):
+            break
+    # 분석에 경험이 빠졌어도 원문에서 실제 행동을 적은 문장을 찾을 수 있다.
+    if not any(gap.kind in (CLAIM, NOTABLE) for gap in selected):
+        for sentence in state["sentences"].values():
+            if (
+                _ROLE.search(sentence)
+                and re.search(r"했|였|았|었|담당|구현함|개발함|설계함", sentence)
+                and not re.search(r"하고 싶|예정|계획|목표|경험이 없", sentence)
+                and add(Gap("", NOTABLE, _quote_part(sentence), "지원 문서 경험", [sentence]))
+            ):
+                break
+    # 직무 자료에 있는 소재만 사용한다. 자격증·연차 같은 조건형은 개념 문제로 바꾸지 않는다.
+    review = state.get("review")
+    criteria = review.criteria if review is not None and review.readable else state["analysis"].criteria
+    skill_topics = [item.text for item in criteria if item.criterion_type != CriterionType.CONDITION]
+    topics = list(dict.fromkeys([*state["posting"].duties, *skill_topics]))
+    for topic in topics:
+        if topic.strip() and add(Gap("", CONCEPT, topic, "직무의 원리와 적용 판단", mode=CONCEPT)):
+            break
+    # 경험이 적으면 가상 상황으로 보완한다. 서류에 없는 프로젝트를 했다고 만들지 않는다.
+    for topic in topics:
+        if len(selected) >= MIN_QUESTIONS:
+            break
+        if topic.strip():
+            add(Gap("", SCENARIO, topic, "직무의 수행 순서와 판단 근거", mode=SCENARIO))
+    for gap in candidates:
+        if len(selected) >= MIN_QUESTIONS:
+            break
+        add(gap)
+    for gap in candidates:
+        if len(selected) >= MAX_QUESTIONS:
+            break
+        if gap.important and gap.criterion_id and gap.targets:
+            add(gap)
+    return selected
 
 
 def _document_header(text: str, name: str) -> bool:
@@ -446,6 +551,8 @@ def summary_gaps(posting: PostingContent, analysis: CandidateAnalysis) -> list[G
     candidates: list[Gap] = []
     unmet: list[str] = []
     for condition in analysis.conditions:
+        if any(_normalize(line.text) == _normalize(condition.requirement) for line in analysis.criteria):
+            continue  # 새 상세 판정을 우선한다. met=False만으로 PARTIAL/UNKNOWN을 뭉개지 않는다.
         if condition.met:
             continue
         key = _normalize(condition.requirement)
@@ -453,15 +560,14 @@ def summary_gaps(posting: PostingContent, analysis: CandidateAnalysis) -> list[G
         unmet.append(condition.requirement)
         note = f"공고 조건 [{condition.label}] 근거가 지원 자료에 없음"
         candidates.append(Gap("", kind, condition.requirement, note))
-    lines = [line for line in analysis.criteria if line.category == CriterionCategory.PREFERENCE]
-    for line in sorted(lines, key=lambda line: not line.important):
-        if line.verdict == Verdict.MET:
-            continue
-        unmet.append(line.text)
-        note = f"우대사항 {VERDICT_LABEL[line.verdict]} — {_short(line.reason, 100)}"
-        candidates.append(Gap("", PREFERRED, line.text, note))
+    for line in sorted(analysis.criteria, key=lambda line: not line.important):
+        gap = _criterion_gap(line)
+        if gap is not None:
+            candidates.append(gap)
     for finding in analysis.checks:
         if _is_unrated_preference_notice(finding.text, finding.source):
+            continue
+        if _criterion_note(finding.text, analysis.criteria):
             continue
         if any(_normalize(text) in _normalize(finding.text) for text in unmet):
             continue  # 충족 못 한 조건을 다시 말하는 확인 필요는 건너뛴다
@@ -479,8 +585,49 @@ def summary_gaps(posting: PostingContent, analysis: CandidateAnalysis) -> list[G
     return candidates
 
 
+def _criterion_note(text: str, criteria: list[CriterionResult] | list[CriterionLine]) -> bool:
+    """판정에서 파생된 확인 메모를 다시 질문으로 세지 않는다. MET/확정 미충족도 재질문하지 않는다."""
+    return any(
+        bool(re.search(rf"(?<![\w-]){re.escape(item.criterion_id)}(?![\w-])", text))
+        or _normalize(item.text) in _normalize(text)
+        for item in criteria
+        if item.criterion_id and item.text
+    )
+
+
+def _criterion_gap(item: CriterionResult | CriterionLine) -> Gap | None:
+    """판정 전체가 아니라 남은 확인 부분을 질문 목표로 만든다. 판정·점수 자체는 바꾸지 않는다."""
+    if item.verdict == Verdict.MET:
+        return None
+    factual = item.criterion_type == CriterionType.CONDITION
+    if factual and item.verdict == Verdict.NOT_MET and not item.unknown_parts:
+        return None  # 이미 확인된 경력/자격 미달은 면접에서 경험 유무를 다시 물어 해결할 일이 아니다.
+    targets = list(dict.fromkeys([*item.unknown_parts, *item.unsatisfied_parts]))
+    targets = [part for part in targets if _normalize(part) not in {_normalize(s) for s in item.satisfied_parts}]
+    topic = targets[0] if targets else item.text
+    kind = REQUIRED if item.category == CriterionCategory.QUALIFICATION else PREFERRED
+    mode = FACT if factual else SCENARIO if item.verdict == Verdict.NOT_MET and not item.unknown_parts else ""
+    evidence = (
+        [quote.sentence for quote in item.quotes]
+        if isinstance(item, CriterionResult)
+        else [quote.sentence for quote in item.evidence]
+    )
+    return Gap(
+        "",
+        kind,
+        topic,
+        f"{VERDICT_LABEL[item.verdict]} — {item.reason}",
+        evidence,
+        criterion_id=item.criterion_id,
+        confirmed=item.satisfied_parts,
+        targets=targets,
+        mode=mode,
+        important=item.important,
+    )
+
+
 def review_gaps(review: ApplicationReview) -> list[Gap]:
-    """서류 전형 Agent의 상세 판정(ApplicationReview)으로 빈틈 후보를 만든다 (데모의 15개 기준 판정과 같은 역할).
+    """서류 전형 Agent의 상세 판정(ApplicationReview)으로 빈틈 후보를 만든다.
 
     - 필수 조건: 자격요건 판정이 충족이 아닌 것 (차별 조건처럼 평가하지 않은 요건은 판정에 없다)
     - 확인 필요: 서류 전형 Agent가 남긴 확인 필요 메모
@@ -489,20 +636,20 @@ def review_gaps(review: ApplicationReview) -> list[Gap]:
     - 본인 역할 확인: 본인이 한 성과 · 프로젝트 · 경험. 인용은 요약 문장이 아니라 서류 원문 그대로
     """
     candidates: list[Gap] = []
-    for result in review.qualifications:
-        if result.verdict == Verdict.MET:
-            continue
-        note = f"자격 요건 근거 부족 — {result.shortfall or result.reason}"
-        candidates.append(Gap("", REQUIRED, result.text, _short(note, 120)))
+    for result in sorted(review.qualifications, key=lambda result: not result.important):
+        gap = _criterion_gap(result)
+        if gap is not None:
+            candidates.append(gap)
     for check in review.checks:
         if _is_unrated_preference_notice(check.text, check.source):
             continue
+        if _criterion_note(check.text, review.criteria):
+            continue
         candidates.append(Gap("", CHECK, _short(check.text), f"확인 필요 ({check.source})", [check.text]))
     for preference in sorted(review.preferences, key=lambda preference: not preference.important):
-        if preference.verdict == Verdict.MET:
-            continue
-        note = f"우대사항 {VERDICT_LABEL[preference.verdict]} — {_short(preference.reason, 100)}"
-        candidates.append(Gap("", PREFERRED, preference.text, note))
+        gap = _criterion_gap(preference)
+        if gap is not None:
+            candidates.append(gap)
     claims = 0
     for fact in review.facts:
         if fact.kind not in CLAIM_FACT_KINDS or not fact.quotes or claims >= CLAIM_LIMIT:
@@ -538,7 +685,9 @@ def review_gaps(review: ApplicationReview) -> list[Gap]:
 
 async def write(state: State) -> dict[str, Any]:
     """모델에게 빈틈 질문과 free_pick 질문을 한 번에 쓰게 한다."""
-    gaps = [gap for gap in state["gaps"] if gap.gap_id not in state["kept"]]
+    gaps = [
+        gap for gap in state["gaps"] if gap.gap_id not in state["kept"] and gap.gap_id not in state.get("redundant", [])
+    ]
     avoid = [
         sid
         for sid, text in state["sentences"].items()
@@ -547,15 +696,24 @@ async def write(state: State) -> dict[str, Any]:
     lines = []
     for gap in gaps:
         lines.append(
-            f"- gap_id: {gap.gap_id} | type: {gap.label} | topic: {gap.topic} | note: {gap.note}"
+            f"- gap_id: {gap.gap_id} | type: {gap.label} | topic: {gap.topic}"
+            f" | note: {gap.note}"
             + (f" | still_unconfirmed: {gap.detail}" if gap.kind == FOLLOW_UP else "")
+            + f" | mode: {gap.mode or gap.kind} | target: {gap.topic}"
         )
+        if gap.confirmed:
+            lines.append(data_block("confirmed", " / ".join(gap.confirmed)))
         for evidence in gap.evidence:
             lines.append("  " + data_block("evidence", evidence))
     numbered = "\n".join(f"{sid} {text}" for sid, text in state["sentences"].items())
     final = bool(state.get("final"))
-    # free_pick: 1차는 늘, 최종면접은 ① 1차 미확인 자리를 이전 면접 기록으로 못 채울 때만 (모델이 서류에서 골라 채움)
-    want_pick = state["pick"] is None and bool(state["sentences"]) and not (final and state["gaps"])
+    # 최초 1차는 미리 배분한 자리만 쓴다. 추가 요청과 최종면접의 기존 free_pick 경로는 유지한다.
+    want_pick = (
+        not state.get("balanced")
+        and state["pick"] is None
+        and bool(state["sentences"])
+        and not (final and state["gaps"])
+    )
     slots = [key for key in FINAL_SLOTS if key not in state.get("slot_kept", {})] if final else []
     # (줄여 쓰면) slot_lines = [f"- {key} ({…label}): {…hint}" for key in slots]
     slot_lines = []
@@ -574,7 +732,7 @@ async def write(state: State) -> dict[str, Any]:
     user = "\n".join(
         [
             "gaps:",
-            *(lines or ["(없음)"]),
+            data_block("question_plan", "\n".join(lines) or "(없음)"),
             "",
             "free_pick: " + ("요청함" if want_pick else "요청하지 않음 (free_pick은 null)"),
             "slot_picks: " + ("요청함" if slots else "요청하지 않음 (slot_picks는 빈 목록)"),
@@ -861,16 +1019,28 @@ def _style_problem(text: str, kind: str) -> str | None:
         return "면접에서 아직 말하지 않은 것을 전제함 ('이전에 언급한')"
     if re.match(r"^구체적으로\s", text):
         return "무엇에 대한 질문인지 빠짐 ('구체적으로 어떤 …'으로 시작)"
-    if kind not in FINAL_SLOTS and _KNOWLEDGE.search(text) and not _DID_IT.search(re.sub(r"'[^']*'", "", text)):
+    if (
+        kind not in (*FINAL_SLOTS, CONCEPT, SCENARIO, FACT)
+        and _KNOWLEDGE.search(text)
+        and not _DID_IT.search(re.sub(r"'[^']*'", "", text))
+    ):
         return "경험이 아니라 지식 · 의견만 물음 (지원자가 실제로 한 일을)"
     if _JUDGMENT.search(text):
         return "내부 판단(경력 부족 · 요건 · 낮은 평가)을 지원자에게 말함"
-    if _HYPOTHETICAL.search(re.sub(r"'[^']*'", "", text)):
+    unquoted = re.sub(r"'[^']*'", "", text)
+    if kind not in (CONCEPT, SCENARIO) and (
+        _HYPOTHETICAL.search(unquoted)
+        or (re.search(r"라면|다면", unquoted) and not any(word in text for word in _OPEN_WORDS))
+    ):
         return "가정 · 상상으로 물음 ('…할 수 있을지') — 실제로 한 일을"
     if _INSTRUCTION.search(text):
         return "프롬프트 지시('인용해 보세요')를 지원자에게 말함"
     if kind in (REQUIRED, PREFERRED) and not any(word in text for word in _OPEN_WORDS):
         return "근거 없는 조건인데 경험이 있다고 전제함 ('~경험이 있다면')"
+    if kind == SCENARIO and not re.search(r"가정|라면|다면|상황에서", text):
+        return "가상 상황이라는 표시가 없음"
+    if kind == CONCEPT and not re.search(r"원리|개념|작동|정의|특성|무엇|차이|기준|장단점", text):
+        return "개념과 적용 판단을 묻지 않음"
     return None
 
 
@@ -1053,23 +1223,43 @@ def _validate(
 ) -> dict[str, Any]:
     """모델이 쓴 질문을 코드로 검사한다. 통과한 것만 kept · pick에 넣는다."""
     kept = dict(state["kept"])
+    purposes = dict(state.get("purposes", {}))
+    redundant = list(state.get("redundant", []))
     errors: list[str] = []
     kinds = {gap.gap_id: gap.kind for gap in state["gaps"]}
-    open_ids = {gap.gap_id for gap in state["gaps"] if gap.gap_id not in kept}
+    open_ids = {gap.gap_id for gap in state["gaps"] if gap.gap_id not in kept and gap.gap_id not in redundant}
     for item in draft.questions:
         gap_id = _resolve_gap_id(item.gap_id, state["gaps"], open_ids)
         if gap_id is None:
             errors.append(f"없는 gap_id 또는 중복 '{item.gap_id}'")
             continue
         gap = next(gap for gap in state["gaps"] if gap.gap_id == gap_id)
-        evidence = gap.evidence if gap.kind in QUOTED_KINDS else None
+        evidence = [gap.topic] if gap.targets or gap.mode else gap.evidence if gap.kind in QUOTED_KINDS else None
         text, problem = _checked(
-            item.question.strip(), kinds[gap_id], _compare_with(state, kinds[gap_id]) + list(kept.values()), evidence
+            item.question.strip(),
+            gap.mode or kinds[gap_id],
+            _gap_others(state, gap, kept),
+            evidence,
         )
+        if text is not None and gap.targets:
+            # 'API 구현'을 확인했는데 목표가 'API 오류 복구'라면 API라는 공통 낱말만으로 통과시키지 않는다.
+            remaining = set(_words(gap.topic)) - set(_words(" ".join(gap.confirmed))) - _QUESTION_WORDS
+            if remaining and not remaining.intersection(_words(text)):
+                text, problem = None, "이미 확인된 부분 대신 target의 남은 확인 사항을 물어야 함"
+        if text is not None and item.purpose.strip():
+            for prior in state["gaps"]:
+                prior_purpose = purposes.get(prior.gap_id, "")
+                shared = set(_words(gap.topic)) & set(_words(prior.topic)) - _QUESTION_WORDS
+                if shared and prior_purpose and _similar(item.purpose, prior_purpose):
+                    text, problem = None, "다른 질문과 확인 목적이 같음 (같은 답변을 반복해서 요구함)"
+                    redundant.append(gap_id)
+                    open_ids.discard(gap_id)
+                    break
         if text is None:
             errors.append(f"{gap_id}: {problem}")
             continue
         kept[gap_id] = text
+        purposes[gap_id] = item.purpose.strip()
         open_ids.discard(gap_id)
     pick, pick_sid = state["pick"], state["pick_sid"]
     if want_pick:
@@ -1106,7 +1296,24 @@ def _validate(
             errors.append(f"{key}: '{FINAL_SLOTS[key].label}' 자리인데 그 주제를 묻지 않음")
         else:
             slot_kept[key] = checked
-    return {"kept": kept, "pick": pick, "pick_sid": pick_sid, "errors": errors, "slot_kept": slot_kept}
+    return {
+        "kept": kept,
+        "purposes": purposes,
+        "redundant": redundant,
+        "pick": pick,
+        "pick_sid": pick_sid,
+        "errors": errors,
+        "slot_kept": slot_kept,
+    }
+
+
+def _gap_others(state: State, gap: Gap, kept: dict[str, str]) -> list[str]:
+    """동일 기술의 개념 설명과 가상 업무 순서는 함께 물을 수 있다. 경험 질문끼리는 기존 검사를 유지한다."""
+    return _compare_with(state, gap.kind) + [
+        text
+        for key, text in kept.items()
+        if not any(prior.gap_id == key and {gap.mode, prior.mode} == {CONCEPT, SCENARIO} for prior in state["gaps"])
+    ]
 
 
 def route_after_gaps(state: State) -> str:
@@ -1115,9 +1322,14 @@ def route_after_gaps(state: State) -> str:
 
 
 def route_after_write(state: State) -> str:
-    pick_done = state["pick"] is not None or not state["sentences"] or (state.get("final") and bool(state["gaps"]))
+    pick_done = (
+        state.get("balanced")
+        or state["pick"] is not None
+        or not state["sentences"]
+        or (state.get("final") and bool(state["gaps"]))
+    )
     slots_done = not state.get("final") or len(state.get("slot_kept", {})) >= len(FINAL_SLOTS)
-    done = len(state["kept"]) >= len(state["gaps"]) and pick_done and slots_done
+    done = len(state["kept"]) + len(state.get("redundant", [])) >= len(state["gaps"]) and pick_done and slots_done
     if done or state["retry"] >= MAX_RETRY:
         return "finalize"
     return "retry"
@@ -1160,7 +1372,7 @@ def _slot_fallback(key: str, company: CompanyProfile | None) -> str:
 def finalize(state: State) -> dict[str, Any]:
     """통과 못 한 빈틈은 템플릿으로 채워 순서대로 돌려준다. 맨 앞에는 1분 자기소개를 넣는다.
 
-    1차   : 자기소개 + 빈틈 2개(우선순위 순) + 이 사람만의 확인 포인트(실패하면 다음 순위 빈틈)
+    1차 최초: 자기소개 + 미리 배분한 핵심 질문 3~5개 (부적절한 질문을 개수 때문에 복원하지 않음)
     최종면접: 자기소개 + ① 1차 미확인(없으면 모델이 고른 문장, 그것도 없으면 기본 질문)
             + ②~⑤ 자리 질문(없으면 자리별 기본 질문)
     """
@@ -1177,15 +1389,29 @@ def finalize(state: State) -> dict[str, Any]:
             questions.append(state.get("slot_kept", {}).get(key) or _slot_fallback(key, state.get("company")))
         limit = 1 + len(FINAL_SLOTS)
     else:
+        accepted: dict[str, str] = {}
         for gap in state["gaps"]:
-            questions.append(state["kept"].get(gap.gap_id) or _template(gap))
+            if gap.gap_id in state.get("redundant", []):
+                continue  # 같은 답을 요구하는 질문을 템플릿으로 되살리지 않는다.
+            text = state["kept"].get(gap.gap_id)
+            if state.get("balanced"):
+                # 모델이 실패해도 템플릿이 내부 판단·중복·금지 내용을 우회하지 않게 같은 검사를 거친다.
+                text, _ = _checked(text or _template(gap), gap.mode or gap.kind, _gap_others(state, gap, accepted))
+            elif text is None:
+                text = _template(gap)
+            if text:
+                questions.append(text)
+                accepted[gap.gap_id] = text
         if state["pick"]:
             questions.append(state["pick"])
         elif state["spare"]:
             questions.append(_template(state["spare"][0]))
-        limit = MAX_QUESTIONS
+        limit = MAX_QUESTIONS if state.get("balanced") else MIN_QUESTIONS
     result: list[str] = []
     for text in questions:
+        if state.get("balanced"):
+            result.append(text)  # 모델 출력과 기본 질문 모두 이미 자리 유형을 고려한 검사를 통과했다.
+            continue
         others = _compare_with(state, FOLLOW_UP) if text == follow_up else state["existing"]
         if not text or any(_similar(text, other) for other in others + result):
             continue
@@ -1222,6 +1448,11 @@ def _title(quote: str) -> str | None:
 
 
 def _template(gap: Gap) -> str:
+    if gap.mode == FACT:
+        topic = re.sub(r"\d+\s*(?:년|개월)\s*(?:이상|이하)?", "", gap.topic).strip()
+        return _fix_josa(TEMPLATES[FACT].format(topic=_short(topic, 45)))
+    if gap.mode in (CONCEPT, SCENARIO):
+        return _fix_josa(TEMPLATES[gap.mode].format(topic=_short(gap.topic, 45)))
     key = gap.kind + NO_ANSWER if gap.kind == FOLLOW_UP and gap.status == NO_ANSWER else gap.kind
     title = _title(gap.topic) if gap.kind == NOTABLE and "이력서" in gap.note else None
     if title:
@@ -1297,7 +1528,7 @@ async def generate_questions(
     company: CompanyProfile | None = None,
     review: ApplicationReview | None = None,
 ) -> list[str]:
-    """맞춤 면접 질문을 만든다 (1차: 자기소개 + 3개, 최종면접: 자기소개 + 자리 5개).
+    """맞춤 면접 질문을 만든다 (1차 최초: 자기소개 + 3~5개 목표, 최종면접: 자기소개 + 자리 5개).
 
     차별 조건이 들어간 범위 요청은 무시하고 기본 기준으로 만든다 (규칙 6).
     company: 회사 인재상 · 조직 문화. 주면 최종면접 ② · ③ 자리의 기준으로 쓴다 (없어도 동작한다).
