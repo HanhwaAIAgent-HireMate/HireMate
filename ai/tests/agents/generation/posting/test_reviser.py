@@ -363,16 +363,47 @@ async def test_revise_keeps_extras_not_named_in_request() -> None:
 
 
 async def test_revise_after_publishing_skips_process_steps_and_keeps_content() -> None:
-    llm = FakeLlm(route("CONTENT", "STAGES"), content(preferred=["대용량 트래픽 경험"]))
+    llm = FakeLlm(route("CONTENT", "STAGES"), content(benefits=["원격 근무"]))
+
+    result = await revise_posting(llm, posting(status=RecruitmentStatus.PUBLISHED), "", "복지 고치고 1차 면접 추가")
+
+    assert result.suggestion is not None
+    assert result.suggestion.changed_fields == ["benefits"]
+    assert result.reply.endswith(LOCKED_REPLY)
+    assert [call.output for call in llm.calls] == [Route, ContentChanges]
+
+
+async def test_revise_after_publishing_keeps_requirements_as_they_are() -> None:
+    """자격 요건 · 우대 사항은 서류 평가 기준과 짝을 맞춰서 게시한 뒤에 바꾸지 않는다. 다른 칸은 고친다."""
+    llm = FakeLlm(route("CONTENT"), content(preferred=["대용량 트래픽 경험"], intro="함께 성장할 분을 찾아요."))
 
     result = await revise_posting(
-        llm, posting(status=RecruitmentStatus.PUBLISHED), "", "우대 사항 고치고 1차 면접 추가"
+        llm, posting(status=RecruitmentStatus.PUBLISHED), "", "우대 사항이랑 회사 소개 고쳐 줘"
     )
 
     assert result.suggestion is not None
-    assert result.suggestion.changed_fields == ["preferred"]
+    assert result.suggestion.changed_fields == ["intro"]
+    assert result.suggestion.content.preferred == CONTENT.preferred
     assert result.reply.endswith(LOCKED_REPLY)
-    assert [call.output for call in llm.calls] == [Route, ContentChanges]
+
+
+async def test_revise_after_publishing_refuses_requirement_only_changes() -> None:
+    llm = FakeLlm(route("CONTENT"), content(qualifications=["Kotlin 서버 개발 경력"]))
+
+    result = await revise_posting(llm, posting(status=RecruitmentStatus.PUBLISHED), "", "자격 요건 고쳐 줘")
+
+    assert result.suggestion is None
+    assert result.reply == LOCKED_REPLY
+
+
+async def test_revise_after_publishing_does_not_write_ncs_requirements() -> None:
+    llm = FakeLlm(route("NCS_REQUIREMENTS"))
+
+    result = await revise_posting(llm, posting(status=RecruitmentStatus.PUBLISHED), "", "우대 사항 새로 써 줘")
+
+    assert result.suggestion is None
+    assert result.reply == LOCKED_REPLY
+    assert len(llm.calls) == 1
 
 
 async def test_revise_after_publishing_refuses_only_process_changes_without_more_calls() -> None:
@@ -843,7 +874,9 @@ async def test_context_tells_model_when_process_is_locked_and_marks_empty_fields
     )
 
     user = llm.calls[0].user
-    assert "공고 상태: 공고 게시 중 (게시한 뒤라 전형 절차와 필수 제출 서류는 바꿀 수 없다)" in user
+    assert (
+        "공고 상태: 공고 게시 중 (게시한 뒤라 전형 절차, 필수 제출 서류, 자격 요건 · 우대 사항은 바꿀 수 없다)" in user
+    )
     assert "필수 제출 서류: 이력서, 자기소개서\n" in user
     assert "근무지: (비어 있음)" in user
     assert "복지:\n(비어 있음)" in user

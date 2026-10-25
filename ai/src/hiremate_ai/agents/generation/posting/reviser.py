@@ -13,7 +13,7 @@ NCS 근거는 고른 능력단위의 정의를 보여 주고 쓰게 하며, 근�
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -58,7 +58,7 @@ STATUS_LABELS = {
 }
 
 NOTHING_CHANGED_REPLY = "요청에서 바꿀 부분을 찾지 못했어요. 어느 칸을 어떻게 바꿀지 알려 주세요."
-LOCKED_REPLY = "공고를 게시한 뒤에는 전형 절차와 필수 제출 서류를 바꿀 수 없어요."
+LOCKED_REPLY = "공고를 게시한 뒤에는 전형 절차, 필수 제출 서류, 자격 요건 · 우대 사항을 바꿀 수 없어요."
 BLOCKED_REPLY = (
     "나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 자격 요건이나 우대 사항에 넣을 수 없어요. "
     "직무와 관련된 경험이나 역량으로 다시 말씀해 주세요."
@@ -147,8 +147,8 @@ _PARTICLE_SPACE = re.compile(
 )
 
 Target = Literal["CONTENT", "STAGES", "REQUIRED_EXTRAS", "NCS_REQUIREMENTS"]
-PROCESS_TARGETS: frozenset[Target] = frozenset({"STAGES", "REQUIRED_EXTRAS"})
-"""게시한 뒤에는 바꿀 수 없는 대상."""
+LOCKED_TARGETS: frozenset[Target] = frozenset({"STAGES", "REQUIRED_EXTRAS", "NCS_REQUIREMENTS"})
+"""게시한 뒤에는 바꿀 수 없는 대상. 자격 요건 · 우대 사항은 서류 평가 기준과 짝을 맞춰서 게시한 뒤에 바꾸지 않는다."""
 
 # 모델에게서 받는 답. 모든 필드를 필수(값이 없으면 null)로 둔다. 선택 필드로 두면 작은 모델이 필드를 통째로 빼먹는다.
 
@@ -302,8 +302,9 @@ async def revise_posting(
     if not _NCS_WORDS.search(request):
         # 근거로 새로 쓰는 일은 오래 걸려, 자격 요건 · 우대 사항을 말한 요청일 때만 한다
         targets.discard("NCS_REQUIREMENTS")
-    locked = posting.status is not RecruitmentStatus.DRAFT and bool(targets & PROCESS_TARGETS)
-    targets -= PROCESS_TARGETS if locked else set()
+    published = posting.status is not RecruitmentStatus.DRAFT
+    locked = published and bool(targets & LOCKED_TARGETS)
+    targets -= LOCKED_TARGETS if published else set()
     if not targets:
         reply = LOCKED_REPLY if locked else (route.question or NOTHING_CHANGED_REPLY)
         return RevisionResult(reply=reply, suggestion=None)
@@ -312,6 +313,9 @@ async def revise_posting(
     for _ in range(ATTEMPTS):
         edit = await _write(llm, posting, writing_style, request, context, targets, found)
         draft = _draft(posting, edit, request)
+        if published:
+            draft, kept = _keep_requirements(posting, draft)
+            locked = locked or kept
         if draft.unknown_stages:
             # 모델의 되묻는 말은 평가 방식 같은 다른 것을 묻곤 해서, 정해 둔 말로 종류만 묻는다
             return RevisionResult(reply=_stage_question(draft.unknown_stages), suggestion=None)
@@ -490,6 +494,15 @@ def _draft(posting: PostingDraftContext, edit: _Edit, request: str) -> _Draft:
         if set(proposed_extras) != set(posting.required_extras):
             extras = proposed_extras
     return _Draft(content=content, changed=changed, stages=stages, required_extras=extras, unknown_stages=unknown)
+
+
+def _keep_requirements(posting: PostingDraftContext, draft: _Draft) -> tuple[_Draft, bool]:
+    """게시한 뒤에는 자격 요건 · 우대 사항을 지금 공고대로 둔다. 바꾸려던 칸이 있었는지도 돌려준다."""
+    names = [name for name, _ in NCS_FIELDS if name in draft.changed]
+    if not names:
+        return draft, False
+    content = draft.content.model_copy(update={name: getattr(posting.content, name) for name in names})
+    return replace(draft, content=content, changed=[name for name in draft.changed if name not in names]), True
 
 
 def _ambiguous(name: str, current: set[str], request: str) -> bool:
@@ -704,7 +717,7 @@ def _context(posting: PostingDraftContext, writing_style: str, request: str) -> 
     lines.append(f"필수 제출 서류: {', '.join(['이력서', '자기소개서', *extras])}")
     status = STATUS_LABELS[posting.status]
     if posting.status is not RecruitmentStatus.DRAFT:
-        status += " (게시한 뒤라 전형 절차와 필수 제출 서류는 바꿀 수 없다)"
+        status += " (게시한 뒤라 전형 절차, 필수 제출 서류, 자격 요건 · 우대 사항은 바꿀 수 없다)"
     lines += [
         f"공고 상태: {status}",
         "",
