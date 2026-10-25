@@ -1,0 +1,7 @@
+{
+  "qualifications": [
+    { "index": 0, "duty": "결제 승인 · 정산 API 개발" },
+    { "index": 2, "duty": "대용량 트랜잭션 처리 구조 개선" }
+  ],
+  "preferred": [{ "index": 1, "duty": "결제 승인 · 정산 API 개발" }]
+}

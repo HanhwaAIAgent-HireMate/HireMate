@@ -1,0 +1,7 @@
+{
+  "criterionType": "COMPOSITE",
+  "met": "RDBMS 스키마(테이블 · 인덱스)를 본인이 설계하고 SQL을 작성했다.",
+  "partial": "SQL 작성이나 쿼리 튜닝은 했지만 스키마 설계는 드러나지 않는다 (또는 그 반대).",
+  "unmet": "RDBMS를 다룬 기록이 서류에서 확인되지 않는다.",
+  "certificates": ["SQLD"]
+}
