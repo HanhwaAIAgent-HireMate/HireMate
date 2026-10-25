@@ -3,8 +3,11 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hiremate_ai.agents.generation.posting.criteria import RuleDraft
+from hiremate_ai.agents.generation.posting.important import ImportantPicks, Pick
 from hiremate_ai.agents.generation.posting.reviser import NOTHING_CHANGED_REPLY, ContentChanges, FieldChange, Route
 from hiremate_ai.agents.generation.posting.router import router
+from hiremate_ai.contract import CriterionType
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
 
@@ -85,3 +88,49 @@ def test_revise_rejects_unknown_status() -> None:
 
     assert response.status_code == 422
     assert llm.calls == []
+
+
+def test_draft_criterion_takes_backend_parameters_and_returns_draft_shape() -> None:
+    """backend PostingCriteriaAgent.draftCriterion(posting, category, text, ncsUnitCode)가 보내는 JSON."""
+    llm = FakeLlm(
+        RuleDraft(
+            criterion_type=CriterionType.CONDITION,
+            met="Java 서버 개발 재직 경력이 3년 이상이다.",
+            partial=None,
+            unmet="Java 서버 개발 경력이 서류에서 확인되지 않는다.",
+            certificates=[],
+        )
+    )
+
+    response = client(llm).post(
+        "/agents/posting/draftCriterion",
+        json={
+            "posting": CONTENT,
+            "category": "QUALIFICATION",
+            "text": "Java · Spring Boot 기반 서버 개발 경력 3년 이상",
+            "ncsUnitCode": None,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "criterionType": "CONDITION",
+        "met": "Java 서버 개발 재직 경력이 3년 이상이다.",
+        "partial": None,
+        "unmet": "Java 서버 개발 경력이 서류에서 확인되지 않는다.",
+        "certificates": [],
+    }
+
+
+def test_recommend_important_reads_lists_from_the_posting() -> None:
+    """backend PostingCriteriaAgent.recommendImportant(posting). 한 항목 목록은 묻지 않는다."""
+    content = {**CONTENT, "qualifications": ["Java 서버 개발 경력", "SQL 작성 경험", "Git 협업 경험"]}
+    llm = FakeLlm(ImportantPicks(picks=[Pick(item=1, duty=1)]))
+
+    response = client(llm).post("/agents/posting/recommendImportant", json={"posting": content})
+
+    assert response.json() == {
+        "qualifications": [{"index": 0, "duty": "결제 승인 · 정산 API 개발"}],
+        "preferred": [],
+    }
+    assert len(llm.calls) == 1
