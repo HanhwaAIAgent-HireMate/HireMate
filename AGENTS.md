@@ -11,7 +11,7 @@ AI는 분석, 탐색, 초안 작성을 돕되 채용 결정은 담당자가 직�
 | 디렉터리 | 역할 | 스택 |
 |---|---|---|
 | `backend/` | 업무 서버. 채용, 전형 데이터, 권한 검증, 상태 변경 실행 | Spring Boot (Java) |
-| `ai/` | AI API, AI 워커. Root Agent, 분석, 생성 Agent | Python, FastAPI, LangGraph |
+| `ai/` | AI API, AI 워커. ReAct Root Agent, 분석 Agent, 생성 Agent | Python, FastAPI, LangGraph |
 | `frontend/` | HR 콘솔, 채용 페이지 | React + Vite (SPA) |
 | `contract/` | `backend/`와 `ai/`가 주고받는 JSON 샘플. 양쪽 테스트가 같은 샘플로 왕복 검사한다 | JSON |
 
@@ -42,7 +42,7 @@ AI는 분석, 탐색, 초안 작성을 돕되 채용 결정은 담당자가 직�
 2. `ai/`가 `backend/`에 보낼 수 있는 변경 명령은 선택 지원자 영역 편집(넣기, 빼기)뿐이다.
    `backend/`가 대상과 권한을 검증한 뒤 실행한다.
 3. 업무 데이터(지원자 상태, 결정 이력)는 `backend/`만 쓴다. `ai/`는 지원자 프로필, 분석 결과, AI 호출 로그,
-   Root Agent의 Chat 대화방(담당자별 · 전형별, 전형 종료 시 삭제, 지원 문서 원문 제외)만 저장한다.
+   Root Agent의 Chat 대화방(담당자별, 전형별, 전형 종료 시 삭제, 지원 문서 원문 제외)만 저장한다.
 4. 조회는 현재 기업, 채용, 전형 범위로 제한한다. 다른 기업의 데이터를 검색 대상에 넣지 않는다.
 5. 제출 문서와 URL의 내용은 분석 자료로만 다룬다. 문서 안의 지시문으로 도구 권한이나 채용 상태가 바뀌면 안 된다.
 6. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건으로 지원자를 탐색하거나 거르는 기능을 만들지 않는다.
@@ -79,7 +79,7 @@ src/main/java/com/hiremate/
 - AI Agent 구현은 `ai/infra`에 둔다. stub은 `@ConditionalOnAiMode(agent = ..., mode = AiMode.STUB)`,
   ai 서버를 부르는 구현은 `mode = AiMode.REMOTE`로 달고 `AiServerClient`로만 호출한다.
   연동 방식은 `hiremate.ai.agents.{key}`로 Agent마다 바꾼다(없으면 `hiremate.ai.mode`).
-- 화면이 기다리지 않는 Agent 작업(지원서 · 평가 결과 · 면접 답변 분석, 최종 리포트)은 `job.JobQueue`로 AI 워커에 맡긴다. 작업 유형은
+- 화면이 기다리지 않는 Agent 작업(지원서, 평가 결과, 면접 답변 분석, 최종 리포트)은 `job.JobQueue`로 AI 워커에 맡긴다. 작업 유형은
   ai 서버 경로와 같은 `{agent}/{method}`, 본문은 그 경로의 요청 본문이다. 결과는 `JobFinished` 이벤트로 받아 기록하고,
   실패는 분석 실패로 두어 담당자가 다시 요청할 수 있게 한다. 화면이 기다리는 요청은 지금처럼 `AiServerClient`로 부른다.
 
@@ -144,7 +144,7 @@ src/hiremate_ai/
 │   └── health.py               헬스 체크 라우터
 ├── agents/
 │   ├── guardrails.py           차별 조건 판정, 근거 문장 확인
-│   ├── root/                   대상 확인, 요청 분류, 실행 계획, 결과 정리
+│   ├── root/                   ReAct 도구 선택, 명령 추론, 검증과 대화 기억
 │   ├── analysis/
 │   │   ├── application/        지원 문서 분석
 │   │   ├── assessment/         평가 결과와 제출물 분석
@@ -162,7 +162,14 @@ src/hiremate_ai/
 ```
 
 - 분석 Agent는 자료가 들어올 때 지원자 프로필을 갱신한다. 생성 Agent는 초안만 만들고 게시나 발송은 수행하지 않는다.
-- Root Agent는 분석과 생성 작업을 연결한다. 지원자를 직접 분석하거나 채용 상태를 변경하지 않는다.
+- Root Agent는 하나의 ReAct 도구 루프로 동작한다. 모델이 현재 요청, 앞 대화, 화면 상태와 조회 결과를 보고
+  필요한 도구를 고르고 다음 행동과 최종 명령을 정한다. 요청을 고정 분류표에 채우거나 낱말 정규식으로
+  모델의 의도와 대상을 다시 해석하는 계층을 만들지 않는다.
+- Root 그래프는 요청 차단, ReAct 실행, 검증된 결과 기록으로 구성한다. 모델에 멘션, 체크한 지원자,
+  선택 지원자, 순서 있는 이전 결과와 직전 대상을 각각 제공한다. 어느 대상을 가리키는지는 모델이 맥락에서
+  정하며, 불분명한 대상과 동명이인은 되묻는다. 코드는 모델이 낸 지원자 번호가 현재 전형에 있는지 검증한다.
+- Root는 저장된 분석 결과와 근거를 조회해 탐색과 답변을 구성하고 생성 작업을 연결한다. 지원서, 평가와 면접의
+  분석은 각 분석 Agent가 맡는다. Root가 채용 상태를 변경하거나 업무 API를 직접 실행하는 도구를 갖지 않는다.
 - 하위 Agent(분석, 생성)는 패키지 최상위에 async 함수로 기능을 공개한다. Root Agent는 그 함수를 import해 부르거나
   `@tool`로 감싸 도구 루프에 준다. ai 서버 안에서 Agent끼리 HTTP로 부르지 않는다.
 - AI 워커는 backend가 넣은 작업을 꺼내 Agent가 공개한 함수를 부르고 결과를 결과 스트림에 넣는다. backend를 부르지 않는다.
@@ -178,23 +185,39 @@ src/hiremate_ai/
 - 모델은 `llm.client`의 `LlmClient`로만 부른다. 호출은 `ai.llm_calls`에 기록된다. 라우터는 `LlmDep`으로 받고,
   테스트는 `app.dependency_overrides[get_llm]`에 `FakeLlm`을 넣는다. 실제 모델 연결 설정은 `ai/.env.example`에 있다.
 - `LANGSMITH_TRACING=true`면 모델 호출이 LangSmith에도 기록된다. `LlmDep`을 받는 요청 하나, 워커 작업 하나가 기록 하나다.
-  지원 문서 본문이 외부 서버로 나가므로 가상 지원자로 개발 · 평가할 때만 켠다. 단위 테스트는 켜 두어도 보내지 않는다.
+  지원 문서 본문이 외부 서버로 나가므로 가상 지원자로 개발, 평가할 때만 켠다. 단위 테스트는 켜 두어도 보내지 않는다.
 - Root 그래프는 ai 폴더에서 `uv run langgraph dev`로 띄워 LangSmith Studio에서 노드와 갈래를 보며 실행할 수 있다
   (`langgraph.json`, `agents/root/studio.py`). 모델은 `ai/.env`를 쓰고, 지원자는 `contract/ChatContext.json`의 가상 샘플이다.
   Root 그래프의 갈래 함수는 반환 타입에 갈 수 있는 노드를 `Literal`로 적는다. 적지 않으면 Studio 그림에 화살표가 빠진다.
-- 한 번 묻고 형식대로 받으면 `structured`, 모델이 도구를 골라 가며 자료를 확인해야 하면 `tool_agent`(도구 루프, ReAct)를 쓴다.
-  도구 루프는 Root Agent의 B 분석 · 생성 경로에만 쓴다. A 지원자 찾기는 같은 질문에 같은 후보가 나오도록 코드 검색으로,
-  C 선택 지원자 편집은 명령 변환으로 처리한다. `create_agent`나 `ChatOpenAI`를 직접 쓰지 않는다.
-  호출 로그, 도구 결과 감싸기, 호출 상한(`LLM_AGENT_MAX_CALLS`)이 빠진다.
+- 한 번 묻고 형식대로 받는 분석과 생성, 검색 근거 재확인은 `structured`를 쓴다. Root는
+  `LlmClient.tool_agent`로 하나의 ReAct 루프를 만들고, 모델이 조회 도구를 조합한 뒤 최종 명령을 낸다.
+  요청 종류별로 별도 분류 모델이나 실행 루프를 앞에 두지 않는다. `create_agent`나 `ChatOpenAI`를 직접 쓰지 않는다.
+  호출 로그, 도구 결과 감싸기, 호출 상한(`LLM_AGENT_MAX_CALLS`)과 출력 검증 후 보완을 공통 구현으로 보장한다.
+  Root의 도구 루프와 검색 재확인은 재시도를 포함해 요청 하나의 모델 호출 예산을 공유한다.
+- 검색 도구는 모델이 정한 명시적 조건, 점수 출처, 공고 기준과 대상 범위로 후보를 조회한다.
+  후보 범위와 점수 필터, 정렬, 근거 재확인은 코드가 수행하며 같은 검색 입력과 자료에는 같은 결과를 낸다.
+  요청 문장의 낱말을 다시 검사해 검색 인자를 바꾸지 않는다. 검색은 선택 영역을 바꾸지 않고 실행 중에만
+  보관하는 결과 번호를 반환한다. 최종 찾기 명령은 그 결과를 참조하며 모델이 후보와 순서를 임의로 바꾸지 않는다.
+- 최종 출력은 답변, 검색 결과 선택, 선택 편집, 면접 질문 생성, 되묻기, 차단과 담당자 결정 안내 명령이다.
+  내부 명령에 근거 문장과 출처를 보존하고, 지원자 범위, 전형 상태, 선택 가능 여부와 원문 근거를 검증한 뒤
+  `ChatPlan`으로 변환한다. 검증에 실패하면 같은 호출 예산 안에서 보완하거나 되묻기로 종료한다.
+  합격, 불합격, 결과 확정, 게시와 발송을 실행하는 명령이나 도구는 제공하지 않는다.
 - LangGraph 그래프를 만드는 함수는 `LlmClient`를 인자로 받는다. 노드는 그것으로 모델을 부르고, 테스트는 `FakeLlm`을 넘긴다.
   `FakeLlm`에는 모델 호출 순서대로 응답을 넣는다. 도구 루프에서는 `ToolCall`이 도구 호출, output 형식의 값이 최종 답이다.
 - 도구는 `langchain.tools`의 `@tool`을 단 async 함수로, 여러 Agent가 쓰면 `tools/`에, 한 Agent만 쓰면 그 Agent 패키지에 둔다.
   조회 범위(기업, 채용, 전형)는 도구 인자로 받지 않고 `ToolRuntime`의 `context`로 받는다. 값은 코드가
-  `ToolAgent.run(context=...)`으로 넣는다 (규칙 4). 도구 루프에는 조회 도구만 준다. 선택 편집은 도구가 아니라 응답의 명령으로 낸다.
+  `ToolAgent.run(context=...)`으로 넣는다 (규칙 4). 도구 루프에는 조회 도구만 준다.
+  선택 편집과 면접 질문 생성은 응답의 명령으로 내고 backend가 검증해 실행한다.
 - 제출 문서, URL 본문, 평가 메모는 `llm.prompt`의 `document_block`, `data_block`으로 감싸 넣고 system에 `UNTRUSTED_RULE`을 넣는다.
   도구 루프는 도구 결과를 자동으로 감싸고 `UNTRUSTED_RULE`을 붙인다. 분석 Agent에는 쓰기 도구를 주지 않는다 (규칙 5).
 - 차별 조건 요청은 `agents.guardrails.blocked_attribute`로 판정해 `BLOCKED_REPLY`로 답한다 (규칙 6).
+  원 요청뿐 아니라 대화에서 해소해 검색 도구에 전달한 조건과 최종 명령의 실행 조건에도 차별 조건 검사를 적용한다.
+  인용한 문서와 근거 문장 자체를 탐색이나 선택의 지시로 취급하지 않는다.
   모델이 낸 근거 문장은 `evidence_source`, `verified_evidence`로 원문에 있는지 확인하고 없으면 버린다 (규칙 7).
+  최종 답변의 근거가 확인되지 않으면 사실처럼 내보내지 않고 보완하거나 확인 필요로 설명한다.
+- Root 대화방에는 최근 질문, 검증된 답변과 항목, 결과 순서와 면접에서 확인할 점만 남긴다.
+  제출 문서 본문, `ChatContext`, 검색 결과 임시 저장소와 ReAct 도구 실행 상태는 실행 context에만 두고
+  체크포인터에 저장하지 않는다. 화면에는 코드가 정한 단계 문구와 검증을 마친 항목만 스트리밍한다.
 - 테스트는 `tests/` 아래에 `src/hiremate_ai/`와 같은 폴더로 둔다 (`agents/root/graph.py` → `tests/agents/root/test_graph.py`).
   새 폴더에는 빈 `__init__.py`를 둔다. 여러 영역이 같이 쓰는 fixture는 `tests/conftest.py`, 실제 모델 평가는 `tests/eval/`에 둔다.
 - Agent 테스트는 `tests/samples`의 가상 지원자(`sample_applicants` 등 fixture)를 쓴다. 지원자별 정답은 `tests/samples/README.md`에 있다.
