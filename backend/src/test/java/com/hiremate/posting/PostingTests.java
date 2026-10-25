@@ -8,11 +8,14 @@ import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
 import com.hiremate.TestMailConfiguration;
+import com.hiremate.posting.domain.JobPostingRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +25,12 @@ class PostingTests extends IntegrationTest {
 
     @Autowired
     private TestMailConfiguration.RecordingMailClient mail;
+
+    @Autowired
+    private PostingService postings;
+
+    @Autowired
+    private JobPostingRepository postingRepository;
 
     @Test
     @DisplayName("새 채용은 설정의 회사 소개 · 복지 · 필수 안내 문구로 공고 초안을 연다")
@@ -143,6 +152,89 @@ class PostingTests extends IntegrationTest {
                 form), 201);
         assertThat(awaitMail("receipt@example.com")).isEqualTo("receipt@example.com|[테스트 기업] 지원 확인|"
                 + "김하늘님, 결제 백엔드 개발자 지원번호는 1번입니다.\n\n본 메일은 발신 전용입니다. 지원자 정보는 채용 목적으로만 이용됩니다.");
+    }
+
+    @Test
+    @DisplayName("평가 기준은 공고 문장과 짝지어 저장하고, 저장 전에는 더미를 쓰며, 게시하면 기준과 자격요건 · 우대사항이 잠긴다")
+    void screeningCriteriaFollowPostingItemsAndLockOnPublish() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        UUID id = UUID.fromString(draft.path("recruitmentId").asString());
+        String base = "/api/recruitments/" + id + "/posting";
+        Map<String, Object> content = new HashMap<>(Map.of("title", "결제 백엔드 개발자", "jobCategory", "",
+                "employmentType", "", "career", "", "location", "", "intro", "", "duties", List.of("결제 API 개발"),
+                "qualifications", List.of("Java 서버 개발 경력 3년 이상", "SQL 작성 경험"),
+                "preferred", List.of("결제 도메인 경험"), "benefits", List.of()));
+        expect(hr.put(base, content), 200);
+        UUID companyId = postingRepository.findAll().stream()
+                .filter(posting -> posting.getRecruitmentId().equals(id))
+                .findFirst().orElseThrow().getCompanyId();
+
+        JsonNode empty = json(expect(hr.get(base + "/criteria"), 200));
+        assertThat(empty.path("locked").asBoolean()).isFalse();
+        assertThat(empty.path("hireCount").isNull()).isTrue();
+        assertThat(empty.path("items").size()).isEqualTo(3);
+        assertThat(empty.path("items").get(2).path("criterion").path("criterionId").asString()).isEqualTo("P-01");
+        assertThat(empty.path("items").get(0).path("saved").asBoolean()).isFalse();
+        assertThat(postings.screeningRubric(companyId, id).criteriaVersion()).startsWith("dummy");
+
+        Map<String, Object> java = criterion("QUALIFICATION", "Java 서버 개발 경력 3년 이상", true, "CONDITION", null);
+        Map<String, Object> sql = criterion("QUALIFICATION", "SQL 작성 경험", false, "COMPOSITE", null);
+        expect(hr.put(base + "/criteria", Map.of("hireCount", 2, "criteria", List.of(java, sql))), 400);
+        expect(hr.put(base + "/criteria", Map.of("hireCount", 2,
+                "criteria", List.of(criterion("PREFERENCE", "공고에 없는 문장", false, "SINGLE", null)))), 400);
+        expect(hr.put(base + "/criteria", Map.of("hireCount", 0, "criteria", List.of(java))), 400);
+
+        sql.put("partial", "SQL은 썼지만 스키마 설계는 드러나지 않는다");
+        JsonNode saved = json(expect(hr.put(base + "/criteria", Map.of("hireCount", 2, "criteria", List.of(java, sql))),
+                200));
+        assertThat(saved.path("criteriaVersion").asString()).isEqualTo("v1");
+        assertThat(saved.path("items").get(0).path("saved").asBoolean()).isTrue();
+        assertThat(saved.path("items").get(2).path("saved").asBoolean()).isFalse();
+        ScreeningRubric rubric = postings.screeningRubric(companyId, id);
+        assertThat(rubric.hireCount()).isEqualTo(2);
+        assertThat(rubric.criteria()).extracting(ScreeningRubric.Criterion::criterionId)
+                .containsExactly("Q-01", "Q-02");
+        assertThat(rubric.criteria().get(0).important()).isTrue();
+        assertThat(rubric.criteria().get(1).evaluationRules().partial()).isEqualTo("SQL은 썼지만 스키마 설계는 드러나지 않는다");
+
+        // 문장 순서를 바꾸면 항목 번호가 따라가고, 고친 문장은 기준을 잃는다
+        content.put("qualifications", List.of("SQL 작성 경험", "Java 서버 개발 경력 5년 이상"));
+        expect(hr.put(base, content), 200);
+        JsonNode reordered = json(expect(hr.get(base + "/criteria"), 200));
+        assertThat(reordered.path("items").get(0).path("criterion").path("criterionId").asString()).isEqualTo("Q-01");
+        assertThat(reordered.path("items").get(0).path("saved").asBoolean()).isTrue();
+        assertThat(reordered.path("items").get(1).path("saved").asBoolean()).isFalse();
+        assertThat(postings.screeningRubric(companyId, id).criteria())
+                .extracting(ScreeningRubric.Criterion::text).containsExactly("SQL 작성 경험");
+
+        Instant now = Instant.now();
+        expect(hr.post(base + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
+                "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
+        assertThat(json(expect(hr.get(base + "/criteria"), 200)).path("locked").asBoolean()).isTrue();
+        expect(hr.put(base + "/criteria", Map.of("hireCount", 3, "criteria", List.of(sql))), 409);
+        content.put("preferred", List.of("결제 도메인 경험", "정산 경험"));
+        assertThat(expect(hr.put(base, content), 409).body()).contains("REQUIREMENTS_LOCKED");
+        expect(hr.post(base + "/ai-requests", Map.of("message", "우대 사항에 정산 경험을 더해줘")), 200);
+        assertThat(expect(hr.post(base + "/suggestion/apply", null), 409).body()).contains("REQUIREMENTS_LOCKED");
+        content.put("preferred", List.of("결제 도메인 경험"));
+        content.put("title", "결제 백엔드 개발자 (경력)");
+        expect(hr.put(base, content), 200);
+    }
+
+    private static Map<String, Object> criterion(String category, String text, boolean important, String type,
+            String partial) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("category", category);
+        item.put("text", text);
+        item.put("important", important);
+        item.put("criterionType", type);
+        item.put("met", text + "을 서류에서 확인할 수 있다");
+        item.put("partial", partial);
+        item.put("unmet", text + "이 서류에서 확인되지 않는다");
+        item.put("certificates", List.of());
+        item.put("ncsUnitCode", null);
+        return item;
     }
 
     /** 접수 확인 메일은 접수가 끝난 뒤 따로 보내져 잠깐 기다린다. */

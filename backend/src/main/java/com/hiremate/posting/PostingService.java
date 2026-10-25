@@ -4,6 +4,9 @@ import com.hiremate.company.CompanyProfile;
 import com.hiremate.company.CompanyService;
 import com.hiremate.global.ApiException;
 import com.hiremate.global.JsonText;
+import com.hiremate.posting.ScreeningRubric.Category;
+import com.hiremate.posting.ScreeningRubric.Criterion;
+import com.hiremate.posting.ScreeningRubric.CriterionType;
 import com.hiremate.posting.application.DummyScreeningRubric;
 import com.hiremate.posting.domain.JobPosting;
 import com.hiremate.posting.domain.JobPostingRepository;
@@ -13,15 +16,20 @@ import com.hiremate.recruit.RecruitmentStatus;
 import com.hiremate.recruit.StageDraft;
 import com.hiremate.recruit.StageType;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
 
 /** 공고 작성. 새 채용은 기업 공고 Template(설정의 회사 소개 · 복지 · 필수 안내 문구)으로 시작한다. */
 @Service
@@ -71,20 +79,76 @@ public class PostingService {
     }
 
     /**
-     * 서류 평가 기준(우대 사항 가중치 · NCS 능력단위 · 선발 인원). 공고 작성 화면에서 입력하기 전까지는 설정의 더미를 쓴다.
-     * 다른 기업의 채용이면 404다.
+     * 서류 평가 기준. 공고 작성 화면에서 입력해 저장했으면 그 기준을, 입력하기 전에는 설정의 더미를 쓴다.
+     * 저장한 기준 중 지금 공고 문장과 짝이 맞는 항목만 넘긴다. 다른 기업의 채용이면 404다.
      */
     @Transactional(readOnly = true)
     public ScreeningRubric screeningRubric(UUID companyId, UUID recruitmentId) {
-        posting(companyId, recruitmentId);
-        return dummyRubric.of(companyId, recruitmentId);
+        JobPosting posting = posting(companyId, recruitmentId);
+        if (posting.getScreeningCriteria() == null) {
+            return dummyRubric.of(companyId, recruitmentId);
+        }
+        List<Criterion> criteria = criterionItems(posting).stream()
+                .filter(ScreeningCriteriaView.CriterionItem::saved)
+                .map(ScreeningCriteriaView.CriterionItem::criterion)
+                .toList();
+        return new ScreeningRubric(companyId, recruitmentId, posting.getCriteriaVersion(), posting.getHireCount(),
+                criteria);
     }
 
-    /** 본문은 게시 후에도 고칠 수 있다. 채용명이 바뀌면 채용 이름도 함께 바꾼다. */
+    /** 공고의 자격요건 · 우대사항마다 저장한 서류 평가 기준을 짝지어 보여 준다. */
+    @Transactional(readOnly = true)
+    public ScreeningCriteriaView screeningCriteria(UUID companyId, UUID recruitmentId) {
+        JobPosting posting = posting(companyId, recruitmentId);
+        boolean locked = recruits.get(companyId, recruitmentId).status() != RecruitmentStatus.DRAFT;
+        return new ScreeningCriteriaView(locked, posting.getHireCount(), posting.getCriteriaVersion(),
+                criterionItems(posting));
+    }
+
+    /**
+     * 서류 평가 기준과 선발 인원을 저장한다. 게시 전에만 고칠 수 있다. 게시한 뒤에는 모든 지원자를 같은 기준으로 본다.
+     * 기준은 공고의 자격요건 · 우대사항 문장과 같아야 하고, 저장할 때마다 평가 기준 버전이 올라간다.
+     */
+    @Transactional
+    public ScreeningCriteriaView changeScreeningCriteria(UUID companyId, UUID recruitmentId, int hireCount,
+            List<Criterion> criteria) {
+        JobPosting posting = posting(companyId, recruitmentId);
+        if (recruits.get(companyId, recruitmentId).status() != RecruitmentStatus.DRAFT) {
+            throw new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_LOCKED",
+                    "Screening criteria cannot change after publishing.");
+        }
+        Set<CriterionKey> items = new HashSet<>();
+        criterionItems(posting).forEach(item -> items.add(CriterionKey.of(item.criterion())));
+        Set<CriterionKey> seen = new HashSet<>();
+        for (Criterion criterion : criteria) {
+            CriterionKey key = CriterionKey.of(criterion);
+            if (!items.contains(key)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "CRITERION_NOT_IN_POSTING",
+                        "Each criterion must match a qualification or preferred item of the posting.");
+            }
+            if (!seen.add(key)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "DUPLICATE_CRITERION",
+                        "Each item can have only one criterion.");
+            }
+            if (criterion.criterionType() == CriterionType.COMPOSITE && criterion.evaluationRules().partial() == null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "PARTIAL_RULE_REQUIRED",
+                        "A composite criterion needs a partial rule.");
+            }
+        }
+        posting.changeCriteria(JsonText.write(criteria), hireCount, nextVersion(posting.getCriteriaVersion()));
+        return screeningCriteria(companyId, recruitmentId);
+    }
+
+    /**
+     * 본문은 게시 후에도 고칠 수 있다. 자격요건 · 우대사항은 서류 평가 기준과 짝을 맞춰서 게시 전에만 고친다.
+     * 채용명이 바뀌면 채용 이름도 함께 바꾼다.
+     */
     @Transactional
     public PostingView updateContent(UUID companyId, UUID recruitmentId, PostingContent content) {
         JobPosting posting = posting(companyId, recruitmentId);
-        requireEditable(recruits.get(companyId, recruitmentId));
+        RecruitmentInfo recruitment = recruits.get(companyId, recruitmentId);
+        requireEditable(recruitment);
+        requireSameRequirements(recruitment, posting.content(), content);
         posting.update(content);
         recruits.rename(companyId, recruitmentId, content.title());
         return view(companyId, recruitmentId);
@@ -112,6 +176,7 @@ public class PostingService {
             throw new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_LOCKED",
                     "Stages and required documents cannot change after publishing.");
         }
+        requireSameRequirements(recruitment, posting.content(), suggestion.content());
         posting.update(suggestion.content());
         recruits.rename(companyId, recruitmentId, suggestion.content().title());
         if (suggestion.stages() != null) {
@@ -228,6 +293,61 @@ public class PostingService {
     private static void requireEditable(RecruitmentInfo recruitment) {
         if (recruitment.status() != RecruitmentStatus.DRAFT && recruitment.status() != RecruitmentStatus.PUBLISHED) {
             throw new ApiException(HttpStatus.CONFLICT, "POSTING_CLOSED", "The posting can no longer be edited.");
+        }
+    }
+
+    /** 게시한 뒤에는 자격요건 · 우대사항을 바꾸지 않는다. 서류 평가 기준이 이 문장과 짝을 맞춘다. */
+    private static void requireSameRequirements(RecruitmentInfo recruitment, PostingContent current,
+            PostingContent next) {
+        boolean changed = !current.qualifications().equals(next.qualifications())
+                || !current.preferred().equals(next.preferred());
+        if (changed && recruitment.status() != RecruitmentStatus.DRAFT) {
+            throw new ApiException(HttpStatus.CONFLICT, "REQUIREMENTS_LOCKED",
+                    "Qualifications and preferred items cannot change after publishing.");
+        }
+    }
+
+    /** 공고 순서대로 자격요건 다음 우대사항을 놓고, 저장한 기준을 문장으로 짝짓는다. 항목 번호는 공고 순서로 붙인다. */
+    private static List<ScreeningCriteriaView.CriterionItem> criterionItems(JobPosting posting) {
+        Map<CriterionKey, Criterion> saved = new HashMap<>();
+        List<Criterion> stored = JsonText.read(posting.getScreeningCriteria(), new TypeReference<List<Criterion>>() {
+        });
+        if (stored != null) {
+            stored.forEach(criterion -> saved.put(CriterionKey.of(criterion), criterion));
+        }
+        PostingContent content = posting.content();
+        List<ScreeningCriteriaView.CriterionItem> items = new ArrayList<>();
+        addItems(items, saved, Category.QUALIFICATION, "Q", content.qualifications());
+        addItems(items, saved, Category.PREFERENCE, "P", content.preferred());
+        return items;
+    }
+
+    private static void addItems(List<ScreeningCriteriaView.CriterionItem> items, Map<CriterionKey, Criterion> saved,
+            Category category, String prefix, List<String> texts) {
+        for (int index = 0; index < texts.size(); index++) {
+            String id = "%s-%02d".formatted(prefix, index + 1);
+            String text = texts.get(index);
+            Criterion found = saved.get(new CriterionKey(category, text));
+            items.add(found == null
+                    ? new ScreeningCriteriaView.CriterionItem(false, new Criterion(id, category, text, false,
+                            CriterionType.SINGLE, new ScreeningRubric.EvaluationRules("", null, ""), List.of(), null))
+                    : new ScreeningCriteriaView.CriterionItem(true, new Criterion(id, category, text, found.important(),
+                            found.criterionType(), found.evaluationRules(), found.certificates(),
+                            found.ncsUnitCode())));
+        }
+    }
+
+    /** 평가 기준 버전. 저장할 때마다 v1, v2 … 로 올린다. */
+    static String nextVersion(String current) {
+        int number = current != null && current.matches("v\\d+") ? Integer.parseInt(current.substring(1)) : 0;
+        return "v" + (number + 1);
+    }
+
+    /** 기준과 공고 문장을 짝짓는 열쇠. 영역이 다르면 같은 문장도 다른 항목이다. */
+    private record CriterionKey(Category category, String text) {
+
+        static CriterionKey of(Criterion criterion) {
+            return new CriterionKey(criterion.category(), criterion.text());
         }
     }
 

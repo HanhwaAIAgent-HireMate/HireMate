@@ -97,6 +97,14 @@ public class JobPosting {
     @Column(nullable = false, length = 5000)
     private String receiptBody = "";
 
+    /** 서류 평가 기준 항목 (ScreeningRubric.Criterion 목록 JSON). 입력하기 전에는 비어 있어 설정의 더미를 쓴다. */
+    private String screeningCriteria;
+
+    private Integer hireCount;
+
+    @Column(length = 100)
+    private String criteriaVersion;
+
     public JobPosting(UUID recruitmentId, UUID companyId, String title, String intro, List<String> benefits,
             List<String> notices) {
         this.id = UUID.randomUUID();
@@ -120,6 +128,14 @@ public class JobPosting {
     public void changeReceipt(ReceiptTemplate receipt) {
         this.receiptSubject = receipt.subject();
         this.receiptBody = receipt.body();
+        this.updatedAt = Instant.now();
+    }
+
+    /** 서류 평가 기준을 바꾼다. 버전이 바뀌면 서류 평가는 저장된 분석 결과를 다시 쓰지 않는다. */
+    public void changeCriteria(String criteriaJson, int hireCount, String version) {
+        this.screeningCriteria = criteriaJson;
+        this.hireCount = hireCount;
+        this.criteriaVersion = version;
         this.updatedAt = Instant.now();
     }
 

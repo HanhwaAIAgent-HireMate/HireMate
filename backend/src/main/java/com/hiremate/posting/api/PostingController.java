@@ -4,6 +4,7 @@ import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.posting.PostingService;
 import com.hiremate.posting.PostingView;
 import com.hiremate.posting.PublicPostingView;
+import com.hiremate.posting.ScreeningCriteriaView;
 import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -76,5 +77,19 @@ public class PostingController {
     public PostingView changeReceipt(AuthenticatedMember member, @PathVariable UUID recruitmentId,
             @Valid @RequestBody ReceiptRequest request) {
         return postings.changeReceipt(member.companyId(), recruitmentId, request.toTemplate());
+    }
+
+    /** 서류 평가 기준과 선발 인원. 공고 작성 화면이 자격요건 · 우대사항 줄마다 기준을 보여 준다. */
+    @GetMapping("/api/recruitments/{recruitmentId}/posting/criteria")
+    public ScreeningCriteriaView screeningCriteria(AuthenticatedMember member, @PathVariable UUID recruitmentId) {
+        return postings.screeningCriteria(member.companyId(), recruitmentId);
+    }
+
+    /** 서류 평가 기준과 선발 인원 저장. 게시 전에만 고칠 수 있다. */
+    @PutMapping("/api/recruitments/{recruitmentId}/posting/criteria")
+    public ScreeningCriteriaView changeScreeningCriteria(AuthenticatedMember member, @PathVariable UUID recruitmentId,
+            @Valid @RequestBody CriteriaRequest request) {
+        return postings.changeScreeningCriteria(member.companyId(), recruitmentId, request.hireCount(),
+                request.criteria().stream().map(CriteriaRequest.CriterionInput::toCriterion).toList());
     }
 }
