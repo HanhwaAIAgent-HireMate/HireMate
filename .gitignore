@@ -25,6 +25,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+# LangSmith Studio 서버(langgraph dev)의 실행 기록
+ai/.langgraph_api/
 
 # frontend (Node)
 node_modules/

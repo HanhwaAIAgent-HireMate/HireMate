@@ -75,11 +75,16 @@ type PlanEvent = tuple[Literal["status", "item", "done"], ChatStatus | ChatItem 
 
 
 def build_root_graph(
-    llm: LlmClient, toolkit: RootToolkit | None = None, checkpointer: BaseCheckpointSaver[Any] | None = None
+    llm: LlmClient,
+    toolkit: RootToolkit | None = None,
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
+    *,
+    context_schema: type[ChatContext] = ChatContext,
 ) -> CompiledStateGraph[RootState, ChatContext, RootState, RootState]:
     """노드는 llm으로 모델을 부른다. 테스트는 FakeLlm을 넘긴다. 실행할 때 context에 ChatContext를 준다.
 
     toolkit을 주지 않으면 ChatContext 문서로 동작하는 임시 도구를 쓴다.
+    context_schema는 Studio가 기본값 있는 ChatContext를 넣을 때만 바꾼다 (agents/root/studio.py).
     """
     tools = toolkit or default_toolkit()
 
@@ -149,15 +154,19 @@ def build_root_graph(
             **_NEW_TURN,
         }
 
-    def after_guard(state: RootState) -> str:
+    # 반환 타입에 갈 수 있는 노드를 적어 두면 그래프 그림(Studio)에 갈래 화살표가 그려진다
+    def after_guard(state: RootState) -> Literal["record", "route"]:
         return "record" if state.get("plan") is not None else "route"
 
-    def after_route(state: RootState) -> str:
+    def after_route(state: RootState) -> Literal["record", "edit", "find", "answer"]:
         if state.get("plan") is not None:
             return "record"
-        return {"EDIT": "edit", "FIND": "find"}.get(_route(state).kind, "answer")
+        kind = _route(state).kind
+        return "edit" if kind == "EDIT" else "find" if kind == "FIND" else "answer"
 
-    graph: StateGraph[RootState, ChatContext, RootState, RootState] = StateGraph(RootState, context_schema=ChatContext)
+    graph: StateGraph[RootState, ChatContext, RootState, RootState] = StateGraph(
+        RootState, context_schema=context_schema
+    )
     graph.add_node("guard", guard)
     graph.add_node("route", route)
     graph.add_node("edit", edit)
