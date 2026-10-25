@@ -1,17 +1,19 @@
 import asyncio
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from langsmith import tracing_context
+from langsmith import Client, tracing_context
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from testcontainers.community.postgres import PostgresContainer
 
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
+from hiremate_ai.llm import tracing
 from hiremate_ai.llm.tracing import traced
 
 AI_DIR = Path(__file__).resolve().parents[1]
@@ -45,6 +47,15 @@ def langsmith_tracing(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
     monkeypatch.setattr(settings, "langsmith_tracing", False)
     with tracing_context(enabled=False):
         yield
+
+
+@pytest.fixture
+def langsmith(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """추적을 켜고 LangSmith 서버 대신 받은 기록(create_run, update_run 호출)을 모으는 클라이언트를 넣는다."""
+    client = MagicMock(spec=Client)
+    monkeypatch.setattr(settings, "langsmith_tracing", True)
+    monkeypatch.setattr(tracing, "_client", lambda: client)
+    return client
 
 
 def _alembic_config(database_url: str | None = None) -> Config:

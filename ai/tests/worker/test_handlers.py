@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -57,6 +58,20 @@ async def test_application_analyze_returns_backend_summary(
     result = await handle(payload(sample_applicants["정유민"], sample_posting, make_rubric()))
 
     assert result == YUMIN_SUMMARY
+
+
+async def test_each_job_is_one_trace(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, langsmith: MagicMock
+) -> None:
+    handle = job_handlers(scripted(yumin_script()), MemoryStore(), SESSIONS)["application/analyze"]
+
+    await handle(payload(sample_applicants["정유민"], sample_posting, make_rubric()))
+
+    created = [call.kwargs for call in langsmith.mock_calls if call[0] == "create_run"]
+    root = created[0]
+    assert root["name"] == "application/analyze"
+    assert len(created) > 1
+    assert all(run["trace_id"] == root["id"] for run in created)
 
 
 async def test_rubric_of_another_recruitment_is_permanent(
