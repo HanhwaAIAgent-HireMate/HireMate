@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "root": "./src/hiremate_ai/agents/root/studio.py:make_graph"
+  },
+  "env": ".env"
+}
