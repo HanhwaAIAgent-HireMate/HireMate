@@ -21,6 +21,7 @@ from hiremate_ai.api import assessment, interview, report
 from hiremate_ai.config import settings
 from hiremate_ai.db.profile_store import ProfileScopeError
 from hiremate_ai.llm.client import LlmClient
+from hiremate_ai.llm.tracing import traced
 
 Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -102,10 +103,21 @@ def job_handlers(
         )
         return {"questions": questions}
 
-    return {
+    handlers: dict[str, Handler] = {
         "application/analyze": application_analyze,
         "interview/questions": interview_questions,
         "assessment/analyze": assessment_analyze,
         "interview-analyst/analyze": interview_analyze,
         "report/write": report_write,
     }
+    return {job_type: _traced(job_type, handler) for job_type, handler in handlers.items()}
+
+
+def _traced(job_type: str, handler: Handler) -> Handler:
+    """작업 하나의 시도 한 번을 LangSmith 기록 하나로 묶는다 (추적을 켰을 때만)."""
+
+    async def run(payload: dict[str, Any]) -> dict[str, Any]:
+        with traced(job_type):
+            return await handler(payload)
+
+    return run

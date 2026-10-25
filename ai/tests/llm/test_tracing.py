@@ -24,15 +24,6 @@ from hiremate_ai.main import app
 CONTRACT_DIR = Path(__file__).resolve().parents[3] / "contract"
 
 
-@pytest.fixture
-def langsmith(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """추적을 켜고 LangSmith 서버 대신 받은 기록을 모으는 클라이언트를 넣는다."""
-    client = MagicMock(spec=Client)
-    monkeypatch.setattr(settings, "langsmith_tracing", True)
-    monkeypatch.setattr(tracing, "_client", lambda: client)
-    return client
-
-
 def runs(client: MagicMock, method: str) -> list[Mapping[str, Any]]:
     """클라이언트가 받은 create_run · update_run 호출의 인자. 맨 위 기록에는 parent_run_id가 없다."""
     return [call.kwargs for call in client.mock_calls if call[0] == method]
