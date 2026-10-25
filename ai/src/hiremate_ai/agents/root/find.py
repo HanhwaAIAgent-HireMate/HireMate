@@ -1,7 +1,7 @@
-"""A 지원자 찾기. 후보 범위와 점수 조건은 코드가 정하고, 검색으로 넓게 모은 뒤 재확인으로 좁힌다 (기획 §11, §13).
+"""Root 조회 도구의 검색 실행기. 명시적 조건으로 후보를 모으고 근거를 재확인한다.
 
-같은 질문에 같은 후보가 나오도록 순서는 코드가 정한다. 재확인 판정은 같은 입력이면 앞 판정을 다시 쓴다.
-결과는 선택 지원자 변경 명령(FIND)으로만 낸다.
+같은 검색 입력에 같은 후보가 나오도록 순서는 코드가 정한다. 재확인 판정은 같은 입력이면 앞 판정을 다시 쓴다.
+결과는 계획 형태로 반환하고 선택 변경은 실행하지 않는다.
 """
 
 from collections.abc import Iterable, Sequence
@@ -13,15 +13,8 @@ from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.progress import SILENT, Progress
-from hiremate_ai.agents.root.route import (
-    DEFAULT_CLARIFY,
-    NOT_UNDERSTOOD,
-    RootRoute,
-    decided_filter,
-    names_document_score,
-    posting_section,
-)
-from hiremate_ai.agents.root.toolkit import RootToolkit, cited_agents, concept_terms, scope_of
+from hiremate_ai.agents.root.stages import StageData, not_yet, stage_data
+from hiremate_ai.agents.root.toolkit import RootToolkit, cited_agents, scope_of
 from hiremate_ai.agents.root.types import (
     CandidateRow,
     ChatContext,
@@ -45,13 +38,16 @@ JUDGED_LIMIT = 256
 EVIDENCE_LENGTH = 48
 LIMIT_NOTE = " 조건에 가까운 30명 중에서 골랐어요."
 _DOCUMENT_LABELS = {document.label for document in DocumentType}
-# 인재상을 가리키기만 하는 말. 인재상으로 찾을 때 이런 말만 든 조건은 따로 세지 않는다
-_TALENT_WORDS = {"인재상", "인재", "가치", "가치관", "핵심가치", "요소"}
+DEFAULT_CLARIFY = "찾을 직무 조건이나 점수 기준을 알려 주세요."
+NOT_UNDERSTOOD = "검색 결과를 확인하지 못했어요. 조건을 좁혀 다시 말씀해 주세요."
+LOCKED = "결과를 확정한 전형이라 선택 지원자를 바꿀 수 없어요. 분석이나 요약은 계속 물어볼 수 있어요."
+NO_ASSESSMENT = "이 채용에는 평가 전형이 없어요. 서류 점수나 직무 조건으로 찾아 주세요."
+EARLIER_SCORE = "앞 평가 전형의 점수는 이 전형에서 불러오지 않았어요. 점수가 없다는 뜻은 아니에요."
 REPLACED = "{scope} {pool}명 중 조건에 맞는 **{{count}}명**을 선택했어요."
 ADDED = "조건에 맞는 **{count}명**을 선택 지원자에 더했어요."
 NARROWED = "{pool}명 중 **{{count}}명**으로 좁혔어요."
 NOT_FOUND = "조건에 맞는 지원자를 찾지 못했어요. 선택 지원자는 그대로예요."
-# 합격 · 불합격한 지원자 안에서 찾기. 결정한 지원자는 선택 지원자에 넣을 수 없어 대화로만 답한다
+# 합격, 불합격한 지원자 안에서 찾기. 결정한 지원자는 선택 지원자에 넣을 수 없어 대화로만 답한다
 _DECIDED_LABELS = {Decision.PASS: "합격한", Decision.FAIL: "불합격한"}
 DECIDED_FOUND = (
     "{label} 지원자 {pool}명 중 조건에 맞는 사람은 **{count}명**이에요. 결정한 지원자라 선택 지원자는 바꾸지 않았어요."
@@ -60,9 +56,7 @@ DECIDED_NOT_FOUND = "{label} 지원자 {pool}명 중 조건에 맞는 사람을 
 NO_DECIDED = "아직 {label} 지원자가 없어요."
 RECHECK_STATUS = "후보 {count}명을 다시 확인하고 있어요"
 # 공고 기준 찾기 (기획 18절)
-_SECTION_LABELS = {"qualifications": "자격 요건", "preferred": "우대 사항", "both": "자격 요건 · 우대 사항"}
-# 공고 항목을 가리키기만 하는 말. 공고 기준으로 찾을 때 이런 말만 든 조건은 따로 세지 않는다
-_POSTING_TERMS = {"공고", "우대", "사항", "자격", "요건", "필수", "조건", "적합", "적합성", "충족", "만족", "부합"}
+_SECTION_LABELS = {"qualifications": "자격 요건", "preferred": "우대 사항", "both": "자격 요건, 우대 사항"}
 NO_POSTING_ITEMS = "공고에 {label}이 없어요. 찾을 조건을 직접 말씀해 주세요."
 CRITERIA_ALL = " {label} {n}개를 모두 충족한 사람이에요."
 CRITERIA_MOST = " {label} {n}개 중 {k}개를 충족해 가장 많이 맞는 사람이에요."
@@ -77,7 +71,7 @@ RECHECK_SYSTEM = """너는 채용 담당자의 지원자 찾기 요청에서, �
 - "인재상 (하나 이상 드러나야 한다)"은 그 가운데 하나 이상이 문장에 잘 드러나면 된다.
 - 두 부분이 다 있으면 둘 다 만족해야 met=true다.
 - 도메인 경험은 그 업계의 회사나 서비스에서 일한 경력이다.
-  다른 업계에서 비슷한 기능을 만든 일, 개인 · 학교 프로젝트, 데이터를 분석만 한 일은 그 도메인 경험이 아니다.
+  다른 업계에서 비슷한 기능을 만든 일, 개인, 학교 프로젝트, 데이터를 분석만 한 일은 그 도메인 경험이 아니다.
 - 후보는 블록의 번호(candidate_no)로, 근거는 블록 안 문장 번호(sentence_nos)로 답한다. 문장을 옮겨 쓰지 않는다.
   근거가 된 조건마다 문장 번호를 하나씩 적는다. met=false면 sentence_nos를 비운다."""
 
@@ -87,9 +81,24 @@ CRITERIA_SYSTEM = """너는 채용 담당자가 공고 항목을 기준으로 �
 
 - 항목마다 따로 판정한다. 충족한 항목만 met에 적고, 항목 번호(criterion_no)와 근거 문장 번호(sentence_no)를 하나 단다.
 - 도메인 경험은 그 업계의 회사나 서비스에서 일한 경력이다.
-  다른 업계에서 비슷한 기능을 만든 일, 개인 · 학교 프로젝트, 데이터를 분석만 한 일은 그 도메인 경험이 아니다.
+  다른 업계에서 비슷한 기능을 만든 일, 개인, 학교 프로젝트, 데이터를 분석만 한 일은 그 도메인 경험이 아니다.
 - 기간 조건("3년 이상")은 문장에 기간이 드러날 때만 충족으로 본다.
 - 후보는 블록의 번호(candidate_no)로 답하고 문장을 옮겨 쓰지 않는다. 충족한 항목이 없으면 met을 비운다."""
+
+
+class SearchQuery(BaseModel):
+    """검색 도구의 실행 인자. 요청 문장의 의미를 다시 해석하거나 보정하지 않는다."""
+
+    mode: SelectionMode = SelectionMode.REPLACE
+    concepts: list[str] = Field(default_factory=list)
+    min_score: int | None = None
+    score_source: Literal["document", "assessment"] = "assessment"
+    without_score: bool = False
+    score_gap: bool = False
+    use_talents: bool = False
+    posting_criteria: Literal["none", "qualifications", "preferred", "both"] = "none"
+    criteria_match: Literal["any", "most", "all"] = "any"
+    decision: Decision = Decision.PENDING
 
 
 class RecheckItem(BaseModel):
@@ -116,42 +125,45 @@ class CriteriaResult(BaseModel):
     results: list[CriteriaItem]
 
 
-def candidate_pool(route: RootRoute, context: ChatContext) -> list[CandidateRow]:
-    """미결정 지원자. 서류 전형은 기준선 위만, 좁히기는 지금 선택된 지원자 안에서만.
+def candidate_pool(query: SearchQuery, context: ChatContext, pool: Sequence[UUID] | None = None) -> list[CandidateRow]:
+    """명시한 결정의 지원자. 미결정 서류 지원자는 기준선 위만 조회한다.
 
-    합격 · 불합격한 지원자 안에서 찾으면 그 결정의 지원자 모두다. 기준선과 선택 지원자는 보지 않는다.
+    명시한 pool이 있으면 그 안에서만 찾는다. pool 없는 좁히기는 화면의 선택 지원자 안에서 찾는다.
+    이미 결정한 지원자 조회에는 기준선과 화면 선택을 적용하지 않는다.
     """
-    decided = _decided(route, context)
-    if decided is not None:
-        return [row for row in context.candidates if row.decision is decided]
-    rows = [row for row in context.candidates if row.decision is Decision.PENDING]
-    if context.stage_type is StageType.DOCUMENT:
-        rows = [row for row in rows if row.above_line]
-    if route.mode is SelectionMode.NARROW:
-        rows = [row for row in rows if row.selected]
+    rows = [row for row in context.candidates if row.decision is query.decision]
+    if query.decision is Decision.PENDING:
+        if context.stage_type is StageType.DOCUMENT:
+            rows = [row for row in rows if row.above_line]
+        if query.mode is SelectionMode.NARROW and pool is None:
+            rows = [row for row in rows if row.selected]
+    if pool is not None:
+        allowed = set(pool)
+        rows = [row for row in rows if row.application_id in allowed]
     return rows
 
 
 def score_filter(
-    route: RootRoute, context: ChatContext, rows: list[CandidateRow]
+    query: SearchQuery, context: ChatContext, rows: list[CandidateRow]
 ) -> tuple[list[CandidateRow], dict[UUID, str]]:
     """점수 조건을 적용하고 지원자별 점수 설명을 붙인다. score는 평가 전형 점수, document_scores는 서류 점수다.
 
-    점수 하한은 문장이 서류 점수를 가리키면 서류 점수에, 아니면 평가 점수에 건다.
+    점수 하한과 미입력 조건에는 명시한 score_source를 사용한다.
     """
     notes: dict[UUID, str] = {}
-    on_document = _on_document(route, context.message)
-    if route.min_score is not None:
-        minimum = route.min_score
+    on_document = query.score_source == "document"
+    if query.min_score is not None:
+        minimum = query.min_score
         rows = [row for row in rows if (score := _score(context, row, on_document)) is not None and score >= minimum]
-    if route.without_score:
-        rows = [row for row in rows if row.score is None]
+    if query.without_score:
+        rows = [row for row in rows if _score(context, row, on_document) is None]
     for row in rows:
         if on_document:
-            notes[row.application_id] = f"서류 {context.document_scores[row.application_id]}점"
+            if (document := context.document_scores.get(row.application_id)) is not None:
+                notes[row.application_id] = f"서류 {_points(document)}점"
         elif row.score is not None:
             notes[row.application_id] = f"평가 {_points(row.score)}점"
-    if route.score_gap:
+    if query.score_gap:
         gaps = []
         for row in rows:
             document = context.document_scores.get(row.application_id)
@@ -161,34 +173,44 @@ def score_filter(
         rows = [row for row, _, _ in gaps]
         for row, score, document in gaps:
             direction = "평가가 지원서보다 높음" if score > document else "지원서에 비해 평가가 낮음"
-            notes[row.application_id] = f"평가 {_points(score)}점 · 서류 {_points(document)}점, {direction}"
+            notes[row.application_id] = f"평가 {_points(score)}점, 서류 {_points(document)}점, {direction}"
     return rows, notes
 
 
 async def plan_find(
-    llm: LlmClient, route: RootRoute, context: ChatContext, toolkit: RootToolkit, *, progress: Progress = SILENT
+    llm: LlmClient,
+    query: SearchQuery,
+    context: ChatContext,
+    toolkit: RootToolkit,
+    *,
+    pool: Sequence[UUID] | None = None,
+    progress: Progress = SILENT,
 ) -> ChatPlan:
-    pool = candidate_pool(route, context)
-    decided = _decided(route, context)
-    if decided is not None and not pool:
+    if query.decision is Decision.PENDING and not context.selectable:
+        return ChatPlan.answer(Intent.CLARIFY, LOCKED)
+    missing = _unavailable_scores(query, context)
+    if missing:
+        return ChatPlan.answer(Intent.CLARIFY, missing)
+    candidates = candidate_pool(query, context, pool)
+    decided = _decided(query)
+    if decided is not None and not candidates:
         return ChatPlan.answer(Intent.ANSWER, NO_DECIDED.format(label=_DECIDED_LABELS[decided]))
-    rows, notes = score_filter(route, context, pool)
-    section = posting_section(route, context.message)
-    if section is not None:
-        return await _plan_posting(llm, route, context, toolkit, section, pool, rows, progress)
-    conditions = list(route.concepts)
+    rows, notes = score_filter(query, context, candidates)
+    section = query.posting_criteria
+    if section != "none":
+        return await _plan_posting(llm, query, context, toolkit, section, candidates, rows, progress)
+    conditions = list(query.concepts)
     talents: list[str] = []
-    if route.use_talents:
-        conditions = [concept for concept in conditions if set(concept_terms(concept)) - _TALENT_WORDS]
+    if query.use_talents:
         talents = [f"{talent.title} {talent.description}" for talent in context.company.talents]
     concepts = conditions + talents
-    has_score = route.min_score is not None or route.without_score or route.score_gap
-    score_sources = _score_sources(route, context.message)
+    has_score = query.min_score is not None or query.without_score or query.score_gap
+    score_sources = _score_sources(query)
     if not concepts:
         if not has_score:
             return ChatPlan.answer(Intent.CLARIFY, DEFAULT_CLARIFY)
         chosen = [(row, notes.get(row.application_id, row.name)) for row in rows]
-        return _plan(route, context, len(pool), chosen, score_sources)
+        return _plan(query, context, len(candidates), chosen, score_sources)
 
     allowed = {row.application_id: row for row in rows}
     found = await toolkit.search(scope_of(context), concepts, list(allowed))
@@ -196,7 +218,7 @@ async def plan_find(
     limited = len(matches) > RECHECK_LIMIT
     matches = matches[:RECHECK_LIMIT]
     if not matches:
-        return _not_found(route, context, len(pool))
+        return _not_found(query, len(candidates))
     progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
         verified = await recheck(llm, context, matches, conditions=conditions, talents=talents, memo=toolkit.judged)
@@ -207,7 +229,7 @@ async def plan_find(
     agents = await _agents(
         toolkit, context, [(application_id, sourced) for application_id, evidence in verified for sourced in evidence]
     )
-    plan = _plan(route, context, len(pool), chosen, sources, agents)
+    plan = _plan(query, context, len(candidates), chosen, sources, agents)
     if limited and chosen:
         plan = plan.model_copy(update={"message": plan.message + LIMIT_NOTE})
     return plan
@@ -215,7 +237,7 @@ async def plan_find(
 
 async def _plan_posting(
     llm: LlmClient,
-    route: RootRoute,
+    query: SearchQuery,
     context: ChatContext,
     toolkit: RootToolkit,
     section: Literal["qualifications", "preferred", "both"],
@@ -223,7 +245,7 @@ async def _plan_posting(
     rows: list[CandidateRow],
     progress: Progress,
 ) -> ChatPlan:
-    """공고의 자격 요건 · 우대 사항으로 찾는다. 항목은 공고에서 코드가 꺼내고, 충족한 항목 수로 고른다.
+    """공고의 자격 요건, 우대 사항으로 찾는다. 항목은 공고에서 코드가 꺼내고, 충족한 항목 수로 고른다.
 
     HR이 따로 말한 조건은 반드시 충족해야 한다. 근거 문장이 원문에 있는 항목만 충족으로 센다 (규칙 7).
     """
@@ -234,7 +256,7 @@ async def _plan_posting(
     )
     if not items:
         return ChatPlan.answer(Intent.CLARIFY, NO_POSTING_ITEMS.format(label=label))
-    required = [concept for concept in route.concepts if set(concept_terms(concept)) - _POSTING_TERMS]
+    required = list(query.concepts)
     criteria = [*items, *required]
     allowed = {row.application_id: row for row in rows}
     found = await toolkit.search(scope_of(context), criteria, list(allowed))
@@ -242,7 +264,7 @@ async def _plan_posting(
     limited = len(matches) > RECHECK_LIMIT
     matches = matches[:RECHECK_LIMIT]
     if not matches:
-        return _not_found(route, context, len(pool))
+        return _not_found(query, len(pool))
     progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
         judged = await recheck_criteria(llm, context, matches, items, required, toolkit.judged)
@@ -257,22 +279,22 @@ async def _plan_posting(
             if count:
                 scored.append((application_id, count, met))
     best = max((count for _, count, _ in scored), default=0)
-    match_mode = route.criteria_match
+    match_mode = query.criteria_match
     if match_mode == "all" and best < n:
         if not best:
-            return _not_found(route, context, len(pool))
+            return _not_found(query, len(pool))
         return ChatPlan.answer(Intent.ANSWER, NONE_ALL.format(label=label, n=n, k=best))
     keep = n if match_mode == "all" else best if match_mode == "most" else 1
     kept = sorted((entry for entry in scored if entry[1] >= keep), key=lambda entry: -entry[1])
     chosen = [
-        (allowed[application_id], f"{label} {count}/{n} · {_shorten(_first(met).sentence)}")
+        (allowed[application_id], f"{label} {count}/{n}, {_shorten(_first(met).sentence)}")
         for application_id, count, met in kept
     ]
     sources = list(dict.fromkeys(sourced.source for _, _, met in kept for sourced in met.values())) + [POSTING_SOURCE]
     agents = await _agents(
         toolkit, context, [(application_id, sourced) for application_id, _, met in kept for sourced in met.values()]
     )
-    plan = _plan(route, context, len(pool), chosen, sources, agents)
+    plan = _plan(query, context, len(pool), chosen, sources, agents)
     if not chosen:
         return plan
     note = {"all": CRITERIA_ALL, "most": CRITERIA_MOST, "any": CRITERIA_ANY}[match_mode]
@@ -294,7 +316,7 @@ async def recheck_criteria(
 ) -> list[tuple[UUID, dict[int, SourcedSentence]]]:
     """후보마다 충족한 항목(0부터 센 번호)과 그 근거 문장. 검색 순서를 지킨다.
 
-    모델은 항목 · 후보 · 문장을 번호로만 답한다. 제출 문서 문장은 원문에 있는지 한 번 더 확인한다 (규칙 7).
+    모델은 항목, 후보, 문장을 번호로만 답한다. 제출 문서 문장은 원문에 있는지 한 번 더 확인한다 (규칙 7).
     """
     criteria = [*items, *(f"{condition} (반드시 충족)" for condition in required)]
     listed = "\n".join(f"{number}. {criterion}" for number, criterion in enumerate(criteria, start=1))
@@ -309,7 +331,7 @@ async def recheck_criteria(
         )
         for candidate_no, match in enumerate(matches, start=1)
     )
-    user = f"요청: {context.message}\n공고 항목:\n{listed}\n\n{blocks}"
+    user = f"요청: {context.message}\n{data_block('criteria', f'공고 항목:\n{listed}')}\n\n{blocks}"
     result = await _judge(llm, memo, CriteriaResult, f"{CRITERIA_SYSTEM}\n\n{UNTRUSTED_RULE}", user)
     judged = {item.candidate_no: item for item in result.results}
     verified = []
@@ -359,7 +381,11 @@ async def recheck(
     if conditions:
         parts.append("조건 (모두 충족해야 한다):\n" + "\n".join(f"- {condition}" for condition in conditions))
     if talents:
-        parts.append("인재상 (하나 이상 드러나야 한다):\n" + "\n".join(f"- {talent}" for talent in talents))
+        parts.append(
+            data_block(
+                "talents", "인재상 (하나 이상 드러나야 한다):\n" + "\n".join(f"- {talent}" for talent in talents)
+            )
+        )
     user = "\n".join(parts) + f"\n\n{blocks}"
     result = await _judge(llm, memo, RecheckResult, f"{RECHECK_SYSTEM}\n\n{UNTRUSTED_RULE}", user)
     judged = {item.candidate_no: item for item in result.results}
@@ -420,7 +446,7 @@ async def _agents(
 
 
 def _plan(
-    route: RootRoute,
+    query: SearchQuery,
     context: ChatContext,
     pool_size: int,
     chosen: list[tuple[CandidateRow, str]],
@@ -429,8 +455,8 @@ def _plan(
 ) -> ChatPlan:
     """찾은 지원자로 선택 지원자 변경 명령을 낸다. 결정한 지원자 안에서 찾았으면 선택 지원자를 바꾸지 않고 답한다."""
     if not chosen:
-        return _not_found(route, context, pool_size)
-    decided = _decided(route, context)
+        return _not_found(query, pool_size)
+    decided = _decided(query)
     if decided is not None:
         # 선택 지원자처럼 따로 볼 곳이 없어 찾은 사람을 모두 항목으로 보여 준다
         found = [
@@ -438,7 +464,7 @@ def _plan(
         ]
         message = DECIDED_FOUND.format(label=_DECIDED_LABELS[decided], pool=pool_size, count=len(chosen))
         return ChatPlan.answer(Intent.ANSWER, message, found, sources, agents)
-    mode = route.mode or SelectionMode.REPLACE
+    mode = query.mode
     scope = "기준선 위 미결정 지원자" if context.stage_type is StageType.DOCUMENT else "미결정 지원자"
     message = {
         SelectionMode.REPLACE: REPLACED.format(scope=scope, pool=pool_size),
@@ -463,38 +489,51 @@ def _plan(
     )
 
 
-def _decided(route: RootRoute, context: ChatContext) -> Decision | None:
-    """합격 · 불합격한 지원자 안에서 찾을 때 그 결정. 미결정 안에서 찾기는 원래 찾기와 같아 None이다."""
-    decision = decided_filter(route, context.message)
-    return decision if decision in _DECIDED_LABELS else None
+def _decided(query: SearchQuery) -> Decision | None:
+    """이미 결정한 지원자 안에서 조회하는 검색이면 그 결정이다."""
+    return query.decision if query.decision in _DECIDED_LABELS else None
 
 
-def _not_found(route: RootRoute, context: ChatContext, pool_size: int) -> ChatPlan:
-    decided = _decided(route, context)
+def _not_found(query: SearchQuery, pool_size: int) -> ChatPlan:
+    decided = _decided(query)
     if decided is None:
         return ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
     return ChatPlan.answer(Intent.ANSWER, DECIDED_NOT_FOUND.format(label=_DECIDED_LABELS[decided], pool=pool_size))
+
+
+def _unavailable_scores(query: SearchQuery, context: ChatContext) -> str:
+    uses_score = query.min_score is not None or query.without_score
+    if not query.score_gap and not (uses_score and query.score_source == "assessment"):
+        return ""
+    match stage_data(context, StageType.ASSESSMENT):
+        case StageData.CURRENT:
+            return ""
+        case StageData.EARLIER:
+            return EARLIER_SCORE
+        case StageData.LATER:
+            return not_yet(context, StageType.ASSESSMENT)
+        case StageData.NONE:
+            return NO_ASSESSMENT
 
 
 def _points(value: float) -> str:
     return f"{value:g}"
 
 
-def _on_document(route: RootRoute, message: str) -> bool:
-    """점수 하한을 서류 점수에 거는가."""
-    return route.min_score is not None and names_document_score(message)
-
-
 def _score(context: ChatContext, row: CandidateRow, on_document: bool) -> float | None:
     return context.document_scores.get(row.application_id) if on_document else row.score
 
 
-def _score_sources(route: RootRoute, message: str) -> list[str]:
-    """점수 조건이 쓴 자료의 출처."""
-    on_document = _on_document(route, message)
-    evaluated = route.score_gap or route.without_score or (route.min_score is not None and not on_document)
+def _score_sources(query: SearchQuery) -> list[str]:
+    """명시적 점수 조건이 사용한 출처."""
+    has_filter = query.min_score is not None or query.without_score
     return [
-        source for source, used in (("평가 결과", evaluated), ("서류 점수", route.score_gap or on_document)) if used
+        source
+        for source, used in (
+            ("평가 결과", query.score_gap or (has_filter and query.score_source == "assessment")),
+            ("서류 점수", query.score_gap or (has_filter and query.score_source == "document")),
+        )
+        if used
     ]
 
 

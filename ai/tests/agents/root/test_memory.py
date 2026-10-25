@@ -1,34 +1,103 @@
+import json
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context
 
-from hiremate_ai.agents.root.answer import (
-    FOCUS_WITH_REQUEST,
-    AnswerItem,
-    CandidateNotes,
-    MultiSummary,
-    QuestionFocusItem,
-    RootAnswer,
-    RootQuestionFocus,
+from hiremate_ai.agents.root.answer import AnswerEvidence, AnswerItem
+from hiremate_ai.agents.root.commands import (
+    AnswerCommand,
+    ClarifyCommand,
+    EditCommand,
+    FindCommand,
+    QuestionsCommand,
+    RootReply,
 )
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import RootThread, run_plan
-from hiremate_ai.agents.root.route import NO_PREVIOUS, RootRoute
 from hiremate_ai.agents.root.turns import Turn
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent, SelectionMode
+from hiremate_ai.agents.root.types import ChatContext, EditAction, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
-from hiremate_ai.llm.fake import FakeLlm, ToolCall
+from hiremate_ai.llm.fake import FakeLlm, FakeReply, LlmCall, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
 
 
-def checked_notes() -> CandidateNotes:
-    return CandidateNotes(
-        items=[AnswerItem(label="확인할 점", text="세부 근거는 추가 확인이 필요해요.", status="CHECK")]
+@pytest.fixture
+def context(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> ChatContext:
+    return make_context(sample_applicants, sample_company, sample_posting, message="비워줘")
+
+
+@pytest.fixture
+def interview(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> ChatContext:
+    return make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="@정유민 면접 질문 만들어줘",
+        mentions=["정유민"],
+        stage_type=StageType.INTERVIEW,
+        previous_types=(StageType.DOCUMENT,),
     )
+
+
+def ids(context: ChatContext, *names: str) -> list[UUID]:
+    by_name = {row.name: row.application_id for row in context.candidates}
+    return [by_name[name] for name in names]
+
+
+def ask(
+    context: ChatContext, message: str, *, checked: tuple[str, ...] = (), mentions: tuple[str, ...] = ()
+) -> ChatContext:
+    return context.model_copy(
+        update={"message": message, "checked": ids(context, *checked), "mentions": ids(context, *mentions)}
+    )
+
+
+def screen_of(call: LlmCall) -> dict[str, Any]:
+    screen: dict[str, Any] = json.loads(call.user.split('<data kind="screen">', 1)[1].split("</data>", 1)[0])
+    return screen
+
+
+def answer(*candidates: str, message: str = "세부 근거는 추가 확인이 필요해요.") -> RootReply:
+    return RootReply(
+        message=message,
+        command=AnswerCommand(candidates=list(candidates)),
+        items=[
+            AnswerItem(candidate=ref, label="확인할 점", text="추가 확인이 필요해요.", status="CHECK")
+            for ref in candidates
+        ],
+    )
+
+
+def edit(action: EditAction, *candidates: str) -> RootReply:
+    return RootReply(message="선택 요청을 처리했어요.", command=EditCommand(action=action, candidates=list(candidates)))
+
+
+def questions(focus: str) -> RootReply:
+    return RootReply(
+        message="면접 질문의 확인할 점을 정리했어요.",
+        command=QuestionsCommand(candidates=["C1"], focus={"C1": focus}),
+        items=[AnswerItem(candidate="C1", label="확인할 점", text=focus, status="CHECK")],
+    )
+
+
+FINANCE_FOUND = RecheckResult(results=[RecheckItem(candidate_no=no, met=True, sentence_nos=[1]) for no in (1, 2, 6)])
+
+
+def search(*, concept: str = "금융 도메인 경험", mode: str = "REPLACE") -> list[FakeReply]:
+    replies: list[FakeReply] = [ToolCall("search_candidates", {"query": {"concepts": [concept], "mode": mode}})]
+    if concept == "금융 도메인 경험":
+        replies.append(FINANCE_FOUND)
+    replies.append(RootReply(message="검색 결과예요.", command=FindCommand(result="S1")))
+    return replies
 
 
 def thread_of(context: ChatContext, member: UUID | None = None) -> RootThread:
@@ -39,621 +108,300 @@ def thread_of(context: ChatContext, member: UUID | None = None) -> RootThread:
     )
 
 
-async def saved_turns(saver: InMemorySaver, thread: RootThread) -> list[Turn]:
+async def saved_values(saver: InMemorySaver, thread: RootThread) -> dict[str, Any]:
     saved = await saver.aget_tuple({"configurable": {"thread_id": thread.id}})
     assert saved is not None
-    turns: list[Turn] = saved.checkpoint["channel_values"]["turns"]
+    values: dict[str, Any] = saved.checkpoint["channel_values"]
+    return values
+
+
+async def saved_turns(saver: InMemorySaver, thread: RootThread) -> list[Turn]:
+    turns: list[Turn] = (await saved_values(saver, thread))["turns"]
     return turns
 
 
-def context_with(applicants: Applicants, company: CompanyProfile, posting: PostingContent, message: str) -> ChatContext:
-    return make_context(applicants, company, posting, message=message)
+async def test_second_turn_runs_full_graph(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(edit(EditAction.CLEAR), edit(EditAction.RESTORE))
 
-
-async def test_second_turn_runs_full_graph(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    first = context_with(sample_applicants, sample_company, sample_posting, "비워줘")
-    thread = thread_of(first)
-    llm = FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR), RootRoute(kind="EDIT", edit=EditAction.RESTORE))
-
-    cleared = await run_plan(llm, first, saver=saver, thread=thread)
-    restored = await run_plan(
-        llm, context_with(sample_applicants, sample_company, sample_posting, "되돌려줘"), saver=saver, thread=thread
-    )
+    cleared = await run_plan(llm, context, saver=saver, thread=thread)
+    restored = await run_plan(llm, ask(context, "되돌려줘"), saver=saver, thread=thread)
 
     assert (cleared.edit, restored.edit) == (EditAction.CLEAR, EditAction.RESTORE)
     turns = await saved_turns(saver, thread)
     assert [turn["message"] for turn in turns] == ["비워줘", "되돌려줘"]
     assert turns[1]["intent"] == Intent.EDIT.value
+    assert "비워줘" in llm.calls[1].user.split("앞 대화", 1)[1]
 
 
-async def test_turns_keep_last_n(
-    sample_applicants: Applicants,
-    sample_company: CompanyProfile,
-    sample_posting: PostingContent,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_turns_keep_last_n(context: ChatContext, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "root_memory_turns", 3)
-    saver = InMemorySaver()
-    context = context_with(sample_applicants, sample_company, sample_posting, "비워줘")
-    thread = thread_of(context)
-
+    saver, thread = InMemorySaver(), thread_of(context)
     for _ in range(5):
-        await run_plan(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR)), context, saver=saver, thread=thread)
-
+        await run_plan(FakeLlm(edit(EditAction.CLEAR)), context, saver=saver, thread=thread)
     assert len(await saved_turns(saver, thread)) == 3
 
 
-async def test_threads_are_separate(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
+async def test_threads_are_separate(context: ChatContext) -> None:
     saver = InMemorySaver()
-    context = context_with(sample_applicants, sample_company, sample_posting, "비워줘")
     mine, theirs = thread_of(context), thread_of(context)
-
-    await run_plan(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR)), context, saver=saver, thread=mine)
-    await run_plan(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR)), context, saver=saver, thread=theirs)
-    await run_plan(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR)), context, saver=saver, thread=theirs)
-
+    for thread in (mine, theirs, theirs):
+        await run_plan(FakeLlm(edit(EditAction.CLEAR)), context, saver=saver, thread=thread)
     assert len(await saved_turns(saver, mine)) == 1
     assert len(await saved_turns(saver, theirs)) == 2
 
 
-async def test_turn_records_subject_and_answer(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    context = make_context(
-        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
+async def test_turn_records_subject_and_answer(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    await run_plan(
+        FakeLlm(answer("C2", message="추가 확인할 점이에요.")),
+        ask(context, "@김하늘 강점은?", mentions=("김하늘",)),
+        saver=saver,
+        thread=thread,
     )
-    thread = thread_of(context)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER"),
-        CandidateNotes(items=[AnswerItem(label="강점", text="은행 경력", status="CHECK")]),
-        MultiSummary(message="은행 경력이 강점이에요."),
-    )
-
-    await run_plan(llm, context, saver=saver, thread=thread)
-
     turn = (await saved_turns(saver, thread))[0]
-    kim = str(sample_applicants["김하늘"].info.application_id)
+    kim = str(ids(context, "김하늘")[0])
     assert turn["targets"] == [kim]
-    assert turn["answer"] == "은행 경력이 강점이에요."
-    assert turn["items"] == [{"application_id": kim, "label": "강점", "text": "은행 경력"}]
+    assert turn["answer"] == "추가 확인할 점이에요."
+    assert turn["items"] == [{"application_id": kim, "label": "확인할 점", "text": "추가 확인이 필요해요."}]
     assert turn["total"] == 8
 
 
-async def test_state_has_no_documents(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    context = make_context(
-        sample_applicants, sample_company, sample_posting, message="@정유민 강점은?", mentions=["정유민"]
+async def test_state_has_no_documents(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    await run_plan(
+        FakeLlm(answer("C1")), ask(context, "@정유민 강점은?", mentions=("정유민",)), saver=saver, thread=thread
     )
-    thread = thread_of(context)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER"),
-        checked_notes(),
-        MultiSummary(message="강점이에요."),
-    )
-
-    await run_plan(llm, context, saver=saver, thread=thread)
-
     saved = await saver.aget_tuple({"configurable": {"thread_id": thread.id}})
     assert saved is not None
     stored = repr(saved.checkpoint["channel_values"])
-    assert "Kafka" not in stored
-    assert "한빛카드 결제플랫폼팀" not in stored
+    assert "Kafka" not in stored and "한빛카드 결제플랫폼팀" not in stored
     assert saved.metadata.get("stage_id") == str(context.stage_id)
 
 
-async def test_tool_loop_is_not_saved(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    """도구 루프는 Root 그래프 안에서 돌지만 대화방에 자기 checkpoint를 남기지 않는다.
-
-    남기면 도구 결과로 읽은 문서 본문이 저장된다 (규칙 3). 대상 없는 질문이 도구 루프로 간다.
-    """
-    saver = InMemorySaver()
-    context = make_context(sample_applicants, sample_company, sample_posting, message="강점이 가장 뚜렷한 사람은?")
-    thread = thread_of(context)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER"),
-        ToolCall("get_candidate_documents", {"candidate": "C1"}),
-        RootAnswer(message="강점이에요.", items=[]),
-    )
-
-    await run_plan(llm, context, saver=saver, thread=thread)
-
+async def test_tool_loop_is_not_saved(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(ToolCall("get_candidate_documents", {"candidate": "C1"}), answer("C1"))
+    await run_plan(llm, ask(context, "지원자 자료를 확인해줘"), saver=saver, thread=thread)
     namespaces = {*saver.storage[thread.id], *(key[1] for key in saver.writes), *(key[1] for key in saver.blobs)}
     assert namespaces == {""}
     assert "Kafka" not in repr([saver.storage, saver.writes, saver.blobs])
+    assert "Kafka" in llm.calls[-1].user
 
 
-FINANCE_FOUND = RecheckResult(
-    results=[
-        RecheckItem(candidate_no=1, met=True, sentence_nos=[1]),
-        RecheckItem(candidate_no=2, met=True, sentence_nos=[1]),
-        RecheckItem(candidate_no=6, met=True, sentence_nos=[1]),
-    ]
-)
+async def test_ordinal_from_previous_result(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(*search(), answer("C2"))
+    first = await run_plan(llm, ask(context, "금융 경험 있는 사람 찾아줘"), saver=saver, thread=thread)
+    plan = await run_plan(llm, ask(context, "그중 두 번째 사람 강점은?"), saver=saver, thread=thread)
+    assert first.targets[1] == ids(context, "김하늘")[0]
+    assert plan.items[0].application_id == first.targets[1]
+    assert "이전 결과" in llm.calls[-1].user
+    assert "금융 경험 있는 사람 찾아줘" in llm.calls[-1].user.split("앞 대화", 1)[1]
 
 
-async def test_ordinal_from_previous_result(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    found = context_with(sample_applicants, sample_company, sample_posting, "금융 경험 있는 사람 찾아줘")
-    thread = thread_of(found)
-    llm = FakeLlm(
-        RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
-        FINANCE_FOUND,
-        RootRoute(kind="ANSWER", previous_ref="result", ordinal=2),
-        checked_notes(),
-        MultiSummary(message="강점이에요."),
-    )
-
-    await run_plan(llm, found, saver=saver, thread=thread)
-    await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "그중 두 번째 사람 강점은?"),
-        saver=saver,
-        thread=thread,
-    )
-
-    assert "앞 대화" in llm.calls[2].user
-    assert "정유민, 김하늘, 한예린" in llm.calls[2].user
-    assert "정리할 지원자: C2 김하늘" in llm.calls[3].user
+async def test_subject_from_previous_turn(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(answer("C2"), edit(EditAction.REMOVE, "C2"))
+    await run_plan(llm, ask(context, "@김하늘 강점은?", mentions=("김하늘",)), saver=saver, thread=thread)
+    plan = await run_plan(llm, ask(context, "아까 그 사람 빼줘"), saver=saver, thread=thread)
+    assert (plan.edit, plan.targets) == (EditAction.REMOVE, ids(context, "김하늘"))
+    assert "직전 대상" in llm.calls[-1].user
+    assert "@김하늘 강점은?" in llm.calls[-1].user.split("앞 대화", 1)[1]
 
 
-async def test_subject_from_previous_turn(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    asked = make_context(
-        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
-    )
-    thread = thread_of(asked)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER"),
-        checked_notes(),
-        MultiSummary(message="은행 경력이에요."),
-        RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
-    )
-
-    await run_plan(llm, asked, saver=saver, thread=thread)
+async def test_missing_previous_result_can_be_clarified_by_model(context: ChatContext) -> None:
+    llm = FakeLlm(RootReply(message="앞에서 찾은 지원자가 없어요. 누구를 말씀하세요?", command=ClarifyCommand()))
     plan = await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "아까 그 사람 빼줘"),
-        saver=saver,
-        thread=thread,
+        llm, ask(context, "그중 두 번째 사람 강점은?"), saver=InMemorySaver(), thread=thread_of(context)
     )
+    assert plan.intent is Intent.CLARIFY and plan.targets == []
+    assert screen_of(llm.calls[0])["이전 결과"] is None
+    assert screen_of(llm.calls[0])["직전 대상"] == []
 
-    assert (plan.edit, plan.targets) == (EditAction.REMOVE, [sample_applicants["김하늘"].info.application_id])
+
+async def test_stage_count_after_subject_uses_model_selected_scope(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(answer("C2"), ToolCall("get_stage_summary"), answer(message="미결정은 8명이에요."))
+    await run_plan(llm, ask(context, "@김하늘 강점은?", mentions=("김하늘",)), saver=saver, thread=thread)
+
+    plan = await run_plan(llm, ask(context, "미결정이 몇 명 남았어?"), saver=saver, thread=thread)
+
+    assert (plan.intent, plan.message, plan.items) == (Intent.ANSWER, "미결정은 8명이에요.", [])
+    assert "@김하늘 강점은?" in llm.calls[1].user.split("앞 대화", 1)[1]
 
 
-async def test_missing_previous_result_clarifies(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    context = context_with(sample_applicants, sample_company, sample_posting, "그중 두 번째 사람 강점은?")
-
-    plan = await run_plan(
-        FakeLlm(RootRoute(kind="ANSWER", previous_ref="result", ordinal=2)),
-        context,
-        saver=saver,
-        thread=thread_of(context),
+async def test_stage_ranking_after_subject_reads_backend_evidence(context: ChatContext) -> None:
+    context = context.model_copy(
+        update={
+            "candidates": [
+                row.model_copy(update={"career_years": 7 if row.name == "김하늘" else 1}) for row in context.candidates
+            ]
+        }
     )
-
-    assert plan == ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)
-
-
-async def test_implied_subject_answers_through_tools(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    # 실제 모델은 대상 없는 질문에도 앞 대화의 지원자를 표시한다. 문장이 그 사람을 가리키지 않으면 전형 질문일 수 있어
-    # 그 사람 자료만 정리하지 않고 도구 루프로 답한다 (전형 요약을 읽을 수 있게)
-    saver = InMemorySaver()
-    asked = make_context(
-        sample_applicants, sample_company, sample_posting, message="@김하늘 강점이 뭐야?", mentions=["김하늘"]
+    saver, thread = InMemorySaver(), thread_of(context)
+    ranking = RootReply(
+        message="김하늘의 경력이 7년으로 가장 많아요.",
+        command=AnswerCommand(candidates=["C2"]),
+        items=[
+            AnswerItem(
+                candidate="C2",
+                label="경력",
+                text="경력 7년",
+                status="OK",
+                evidence=[AnswerEvidence(sentence="경력 7년", source="전형 결과")],
+            )
+        ],
     )
-    thread = thread_of(asked)
+    llm = FakeLlm(answer("C1"), ToolCall("get_stage_summary"), ranking)
+    await run_plan(llm, ask(context, "@정유민 강점은?", mentions=("정유민",)), saver=saver, thread=thread)
+
+    plan = await run_plan(llm, ask(context, "경력이 가장 많은 사람은?"), saver=saver, thread=thread)
+
+    assert plan.intent is Intent.ANSWER
+    assert plan.message == ranking.message
+    assert [(item.application_id, item.status) for item in plan.items] == [(ids(context, "김하늘")[0], "OK")]
+    assert plan.sources == ["전형 결과"]
+    assert screen_of(llm.calls[1])["직전 대상"] == ["C1"]
+    assert (await saved_values(saver, thread))["subject"] == [str(ids(context, "김하늘")[0])]
+
+
+async def test_remembered_candidate_must_be_in_stage(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
     llm = FakeLlm(
-        RootRoute(kind="ANSWER"),
-        checked_notes(),
-        MultiSummary(message="은행 경력이에요."),
-        RootRoute(kind="ANSWER", previous_ref="subject"),
-        ToolCall("get_stage_summary"),
-        RootAnswer(message="미결정은 8명이에요.", items=[]),
+        answer("C2"), RootReply(message="현재 전형에서 해당 지원자를 찾지 못했어요.", command=ClarifyCommand())
     )
-
-    await run_plan(llm, asked, saver=saver, thread=thread)
-    plan = await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "미결정이 몇 명 남았어?"),
-        saver=saver,
-        thread=thread,
+    await run_plan(llm, ask(context, "@김하늘 강점은?", mentions=("김하늘",)), saver=saver, thread=thread)
+    kim = ids(context, "김하늘")[0]
+    later = ask(context, "아까 그 사람 빼줘").model_copy(
+        update={"candidates": [row for row in context.candidates if row.application_id != kim]}
     )
-
-    assert (plan.intent, plan.message) == (Intent.ANSWER, "미결정은 8명이에요.")
-    assert "대상 지원자: C2 김하늘" in llm.calls[4].user
-
-
-async def test_remembered_candidate_must_be_in_stage(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    asked = make_context(
-        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
-    )
-    thread = thread_of(asked)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER"),
-        checked_notes(),
-        MultiSummary(message="은행 경력이에요."),
-        RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
-    )
-    await run_plan(llm, asked, saver=saver, thread=thread)
-    later = context_with(sample_applicants, sample_company, sample_posting, "아까 그 사람 빼줘")
-    kim = sample_applicants["김하늘"].info.application_id
-    later = later.model_copy(update={"candidates": [row for row in later.candidates if row.application_id != kim]})
-
     plan = await run_plan(llm, later, saver=saver, thread=thread)
-
-    assert plan == ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)
-
-
-def interview_context(
-    applicants: Applicants, company: CompanyProfile, posting: PostingContent, message: str
-) -> ChatContext:
-    return make_context(
-        applicants,
-        company,
-        posting,
-        message=message,
-        mentions=["정유민"] if "@정유민" in message else [],
-        stage_type=StageType.INTERVIEW,
-        previous_types=(StageType.DOCUMENT,),
-    )
+    assert plan.intent is Intent.CLARIFY and plan.targets == []
+    assert str(kim) not in llm.calls[-1].user
+    assert screen_of(llm.calls[-1])["직전 대상"] == []
 
 
 FOCUS = "정산 배치를 줄인 설계 판단을 기술 심화로 확인"
 
 
-async def test_reason_question_reads_previous_turns(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    first = interview_context(sample_applicants, sample_company, sample_posting, "@정유민 면접 질문 만들어줘")
-    thread = thread_of(first)
+async def test_reason_question_reads_previous_turns(interview: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(interview)
     llm = FakeLlm(
-        RootRoute(kind="ANSWER", interview_questions=True),
-        RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus=FOCUS)]),
-        RootRoute(kind="ANSWER", previous_ref="subject"),
-        checked_notes(),
-        MultiSummary(message="정산 배치 설계 판단을 확인하려고 만들었어요."),
+        questions(FOCUS), ToolCall("get_previous_turns"), answer("C1", message="설계 판단을 확인하려고 만들었어요.")
     )
-
-    await run_plan(llm, first, saver=saver, thread=thread)
-    plan = await run_plan(
-        llm,
-        interview_context(sample_applicants, sample_company, sample_posting, "3번 질문은 왜 만든 거야?"),
-        saver=saver,
-        thread=thread,
-    )
-
-    assert plan.message == "정산 배치 설계 판단을 확인하려고 만들었어요."
-    # 정리할 자료에 앞 대화에서 정리한 확인할 점이 들어간다
-    notes = llm.calls[-2].user
-    assert '<data kind="previous">' in notes
-    assert FOCUS in notes
-    assert "@정유민 면접 질문 만들어줘" in notes
+    await run_plan(llm, interview, saver=saver, thread=thread)
+    plan = await run_plan(llm, ask(interview, "3번 질문은 왜 만든 거야?"), saver=saver, thread=thread)
+    assert plan.message == "설계 판단을 확인하려고 만들었어요." and plan.question_targets == []
+    assert FOCUS in llm.calls[-1].user
+    assert "@정유민 면접 질문 만들어줘" in llm.calls[-1].user
 
 
-async def test_refine_uses_previous_subject(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    first = interview_context(sample_applicants, sample_company, sample_posting, "@정유민 면접 질문 만들어줘")
-    thread = thread_of(first)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER", interview_questions=True),
-        RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus=FOCUS)]),
-        RootRoute(kind="ANSWER", interview_questions=True, previous_ref="subject"),
-        RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus="장애 대응을 더 기술적으로")]),
-    )
-
-    await run_plan(llm, first, saver=saver, thread=thread)
-    plan = await run_plan(
-        llm,
-        interview_context(sample_applicants, sample_company, sample_posting, "좀 더 기술적으로 다시 해줘"),
-        saver=saver,
-        thread=thread,
-    )
-
-    jung = sample_applicants["정유민"].info.application_id
+async def test_refine_uses_previous_subject(interview: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(interview)
+    llm = FakeLlm(questions(FOCUS), questions("장애 대응을 더 기술적으로"))
+    await run_plan(llm, interview, saver=saver, thread=thread)
+    plan = await run_plan(llm, ask(interview, "좀 더 기술적으로 다시 해줘"), saver=saver, thread=thread)
+    jung = ids(interview, "정유민")[0]
     assert plan.question_targets == [jung]
-    focus = FOCUS_WITH_REQUEST.format(focus="장애 대응을 더 기술적으로", request="좀 더 기술적으로 다시 해줘")
-    assert plan.question_focus == {jung: focus}
+    assert "장애 대응을 더 기술적으로" in plan.question_focus[jung]
+    assert "좀 더 기술적으로 다시 해줘" in plan.question_focus[jung]
+    assert FOCUS in llm.calls[-1].user
 
 
-async def test_result_ref_falls_back_to_latest_turn_with_targets(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    first = interview_context(sample_applicants, sample_company, sample_posting, "@정유민 면접 질문 만들어줘")
-    thread = thread_of(first)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER", interview_questions=True),
-        RootQuestionFocus(items=[QuestionFocusItem(candidate="C1", focus=FOCUS)]),
-        RootRoute(kind="ANSWER", previous_ref="result"),
-        checked_notes(),
-        MultiSummary(message="이유예요."),
-    )
+async def test_questions_become_ordered_result_for_followup(interview: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(interview)
+    llm = FakeLlm(questions(FOCUS), answer("C1", message="이유를 정리했어요."))
+    await run_plan(llm, interview, saver=saver, thread=thread)
+    await run_plan(llm, ask(interview, "방금 만든 질문은 왜 만든 거야?"), saver=saver, thread=thread)
+    assert (await saved_values(saver, thread))["result"] == [str(ids(interview, "정유민")[0])]
+    assert "이전 결과" in llm.calls[-1].user and FOCUS in llm.calls[-1].user
 
-    await run_plan(llm, first, saver=saver, thread=thread)
+
+async def test_saved_state_keeps_only_json_values(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
     plan = await run_plan(
-        llm,
-        interview_context(sample_applicants, sample_company, sample_posting, "방금 만든 질문은 왜 만든 거야?"),
+        FakeLlm(edit(EditAction.REMOVE, "C2")),
+        ask(context, "@김하늘 빼줘", mentions=("김하늘",)),
         saver=saver,
         thread=thread,
     )
-
-    assert plan.intent is Intent.ANSWER
-    assert "정리할 지원자: C1 정유민" in llm.calls[-2].user
-
-
-async def test_saved_state_keeps_only_json_values(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    context = make_context(
-        sample_applicants, sample_company, sample_posting, message="@김하늘 빼줘", mentions=["김하늘"]
-    )
-    thread = thread_of(context)
-
-    plan = await run_plan(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.REMOVE)), context, saver=saver, thread=thread)
-
-    saved = await saver.aget_tuple({"configurable": {"thread_id": thread.id}})
-    assert saved is not None
-    values = saved.checkpoint["channel_values"]
-    assert values.get("targets") is None and values.get("route") is None and values.get("plan") is None
+    values = await saved_values(saver, thread)
+    assert values.get("plan") is None and values.get("kind") in (None, "") and values.get("searches") is None
     assert plan.edit is EditAction.REMOVE
 
 
-async def test_empty_latest_result_clarifies(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    found = context_with(sample_applicants, sample_company, sample_posting, "금융 경험 있는 사람 찾아줘")
-    thread = thread_of(found)
+@pytest.mark.parametrize("followup", ["그중 두 번째 사람 강점은?", "그중 첫 번째 사람 강점은?"])
+async def test_empty_latest_result_is_visible_to_model(context: ChatContext, followup: str) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
     llm = FakeLlm(
-        RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
-        FINANCE_FOUND,
-        RootRoute(kind="FIND", concepts=["양자 컴퓨팅"]),
-        RootRoute(kind="ANSWER", previous_ref="result", ordinal=2),
+        *search(),
+        *search(concept="양자 컴퓨팅"),
+        RootReply(message="최근 검색 결과가 비어 있어요.", command=ClarifyCommand()),
     )
-
-    await run_plan(llm, found, saver=saver, thread=thread)
-    await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "양자 컴퓨팅 경험자 찾아줘"),
-        saver=saver,
-        thread=thread,
-    )
-    plan = await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "그중 두 번째 사람 강점은?"),
-        saver=saver,
-        thread=thread,
-    )
-
-    assert plan == ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)
+    await run_plan(llm, ask(context, "금융 경험 있는 사람 찾아줘"), saver=saver, thread=thread)
+    await run_plan(llm, ask(context, "양자 컴퓨팅 경험자 찾아줘"), saver=saver, thread=thread)
+    assert (await saved_values(saver, thread))["result"] == []
+    plan = await run_plan(llm, ask(context, followup), saver=saver, thread=thread)
+    assert plan.intent is Intent.CLARIFY and plan.targets == []
+    assert screen_of(llm.calls[-1])["이전 결과"] == []
 
 
-async def test_among_them_after_empty_find_clarifies(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    # 실제 모델은 "그중 첫 번째"를 subject로도 표시한다. "그중"은 찾기 결과라 아무도 못 찾은 새 찾기 뒤에는 되묻는다
-    saver = InMemorySaver()
-    found = context_with(sample_applicants, sample_company, sample_posting, "금융 경험 있는 사람 찾아줘")
-    thread = thread_of(found)
-    llm = FakeLlm(
-        RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
-        FINANCE_FOUND,
-        RootRoute(kind="FIND", mode=SelectionMode.REPLACE, concepts=["양자 컴퓨팅"]),
-        RootRoute(kind="ANSWER", previous_ref="subject", ordinal=1),
-    )
-
-    await run_plan(llm, found, saver=saver, thread=thread)
-    await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "양자 컴퓨팅 경험자 찾아줘"),
-        saver=saver,
-        thread=thread,
-    )
-    plan = await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "그중 첫 번째 사람 강점은?"),
-        saver=saver,
-        thread=thread,
-    )
-
-    assert plan == ChatPlan.answer(Intent.CLARIFY, NO_PREVIOUS)
+async def test_model_can_compare_checked_candidates_after_a_search(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(*search(), answer("C3", "C4", message="두 사람을 비교했어요."))
+    await run_plan(llm, ask(context, "금융 경험 있는 사람 찾아줘"), saver=saver, thread=thread)
+    plan = await run_plan(llm, ask(context, "둘 비교해줘", checked=("박서준", "이도윤")), saver=saver, thread=thread)
+    assert {item.application_id for item in plan.items} == set(ids(context, "박서준", "이도윤"))
+    assert "체크" in llm.calls[-1].user and "이전 결과" in llm.calls[-1].user
 
 
-async def test_checked_beats_previous_without_words(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    found = context_with(sample_applicants, sample_company, sample_posting, "금융 경험 있는 사람 찾아줘")
-    thread = thread_of(found)
-    llm = FakeLlm(
-        RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
-        FINANCE_FOUND,
-        RootRoute(kind="ANSWER", previous_ref="result", compare=True),
-        checked_notes(),
-        checked_notes(),
-        MultiSummary(message="비교했어요."),
-    )
-    compare = make_context(
-        sample_applicants, sample_company, sample_posting, message="둘 비교해줘", checked=["박서준", "이도윤"]
-    )
-
-    await run_plan(llm, found, saver=saver, thread=thread)
-    await run_plan(llm, compare, saver=saver, thread=thread)
-
-    notes = [call.user for call in llm.calls if call.output is CandidateNotes]
-    assert ["정리할 지원자: C3 박서준" in notes[0], "정리할 지원자: C4 이도윤" in notes[1]] == [True, True]
-    assert not any("정유민" in user or "한예린" in user for user in notes)
+async def test_model_can_choose_previous_subject_while_another_candidate_is_checked(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(answer("C2"), edit(EditAction.REMOVE, "C2"))
+    await run_plan(llm, ask(context, "@김하늘 강점은?", mentions=("김하늘",)), saver=saver, thread=thread)
+    plan = await run_plan(llm, ask(context, "아까 그 사람 빼줘", checked=("정유민",)), saver=saver, thread=thread)
+    assert plan.targets == ids(context, "김하늘")
+    assert "체크" in llm.calls[-1].user and "직전 대상" in llm.calls[-1].user
 
 
-async def test_previous_words_beat_checked(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    asked = make_context(
-        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
-    )
-    thread = thread_of(asked)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER"),
-        checked_notes(),
-        MultiSummary(message="은행 경력이에요."),
-        RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
-    )
-    later = make_context(
-        sample_applicants, sample_company, sample_posting, message="아까 그 사람 빼줘", checked=["정유민"]
-    )
-
-    await run_plan(llm, asked, saver=saver, thread=thread)
-    plan = await run_plan(llm, later, saver=saver, thread=thread)
-
-    assert plan.targets == [sample_applicants["김하늘"].info.application_id]
+async def test_empty_narrow_keeps_result(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(*search(), *search(concept="양자 컴퓨팅", mode="NARROW"), answer("C2"))
+    first = await run_plan(llm, ask(context, "금융 경험 있는 사람 찾아줘"), saver=saver, thread=thread)
+    narrowed = await run_plan(llm, ask(context, "그중 양자 컴퓨팅 경험 있는 사람만"), saver=saver, thread=thread)
+    assert (await saved_values(saver, thread))["result"] == [str(target) for target in first.targets]
+    last = await run_plan(llm, ask(context, "그중 두 번째 사람 강점은?"), saver=saver, thread=thread)
+    assert narrowed.intent is Intent.ANSWER and last.items[0].application_id == first.targets[1]
 
 
-async def test_empty_narrow_keeps_result(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    found = context_with(sample_applicants, sample_company, sample_posting, "금융 경험 있는 사람 찾아줘")
-    thread = thread_of(found)
-    llm = FakeLlm(
-        RootRoute(kind="FIND", concepts=["금융 도메인 경험"]),
-        FINANCE_FOUND,
-        RootRoute(kind="FIND", mode=SelectionMode.NARROW, concepts=["양자 컴퓨팅"]),
-        RootRoute(kind="ANSWER", previous_ref="result", ordinal=2),
-        checked_notes(),
-        MultiSummary(message="강점이에요."),
-    )
-
-    await run_plan(llm, found, saver=saver, thread=thread)
-    narrowed = await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "그중 양자 컴퓨팅 경험 있는 사람만"),
-        saver=saver,
-        thread=thread,
-    )
-    await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "그중 두 번째 사람 강점은?"),
-        saver=saver,
-        thread=thread,
-    )
-
-    assert narrowed.intent is Intent.ANSWER
-    assert "정리할 지원자: C2 김하늘" in llm.calls[-2].user
-
-
-async def test_find_turn_records_only_found(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    asked = make_context(
-        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
-    )
-    thread = thread_of(asked)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER"),
-        checked_notes(),
-        MultiSummary(message="은행 경력이에요."),
-        RootRoute(kind="FIND", concepts=["양자 컴퓨팅"], previous_ref="subject"),
-        RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
-    )
-
-    await run_plan(llm, asked, saver=saver, thread=thread)
-    await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "양자 컴퓨팅 경험자 찾아줘"),
-        saver=saver,
-        thread=thread,
-    )
-    plan = await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "아까 그 사람 빼줘"),
-        saver=saver,
-        thread=thread,
-    )
-
+async def test_find_turn_records_only_found(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(answer("C2"), *search(concept="양자 컴퓨팅"), edit(EditAction.REMOVE, "C2"))
+    await run_plan(llm, ask(context, "@김하늘 강점은?", mentions=("김하늘",)), saver=saver, thread=thread)
+    await run_plan(llm, ask(context, "양자 컴퓨팅 경험자 찾아줘"), saver=saver, thread=thread)
+    plan = await run_plan(llm, ask(context, "아까 그 사람 빼줘"), saver=saver, thread=thread)
     assert (await saved_turns(saver, thread))[1]["targets"] == []
-    assert plan.targets == [sample_applicants["김하늘"].info.application_id]
+    assert plan.targets == ids(context, "김하늘")
 
 
-async def test_clear_with_checked_keeps_subject(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    saver = InMemorySaver()
-    asked = make_context(
-        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
-    )
-    thread = thread_of(asked)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER"),
-        checked_notes(),
-        MultiSummary(message="은행 경력이에요."),
-        RootRoute(kind="EDIT", edit=EditAction.CLEAR),
-        RootRoute(kind="EDIT", edit=EditAction.REMOVE, previous_ref="subject"),
-    )
-    cleared = make_context(sample_applicants, sample_company, sample_posting, message="선택 비워줘", checked=["정유민"])
-
-    await run_plan(llm, asked, saver=saver, thread=thread)
-    await run_plan(llm, cleared, saver=saver, thread=thread)
-    plan = await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "아까 그 사람 빼줘"),
-        saver=saver,
-        thread=thread,
-    )
-
-    assert plan.targets == [sample_applicants["김하늘"].info.application_id]
+async def test_clear_with_checked_keeps_subject(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(answer("C2"), edit(EditAction.CLEAR), edit(EditAction.REMOVE, "C2"))
+    await run_plan(llm, ask(context, "@김하늘 강점은?", mentions=("김하늘",)), saver=saver, thread=thread)
+    await run_plan(llm, ask(context, "선택 비워줘", checked=("정유민",)), saver=saver, thread=thread)
+    plan = await run_plan(llm, ask(context, "아까 그 사람 빼줘"), saver=saver, thread=thread)
+    assert plan.targets == ids(context, "김하늘")
 
 
-async def test_stage_ranking_after_mention_answers_stage(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    # 앞 턴의 지원자를 이어받아도 전형 전체 순위 질문이라 그 사람 항목을 요구하지 않는다
-    saver = InMemorySaver()
-    asked = make_context(
-        sample_applicants, sample_company, sample_posting, message="@김하늘 강점은?", mentions=["김하늘"]
-    )
-    thread = thread_of(asked)
-    llm = FakeLlm(
-        RootRoute(kind="ANSWER"),
-        checked_notes(),
-        MultiSummary(message="은행 경력이에요."),
-        RootRoute(kind="FIND", concepts=["경력"], previous_ref="subject"),
-        ToolCall("get_stage_summary"),
-        RootAnswer(message="김하늘이 가장 많아요.", items=[]),
-    )
+async def test_previous_subject_is_remapped_after_candidate_order_changes(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(answer("C2"), edit(EditAction.REMOVE, "C1"))
+    await run_plan(llm, ask(context, "@김하늘 강점은?", mentions=("김하늘",)), saver=saver, thread=thread)
+    rows = [context.candidates[1], context.candidates[0], *context.candidates[2:]]
+    reordered = ask(context, "아까 그 사람 빼줘").model_copy(update={"candidates": rows})
 
-    await run_plan(llm, asked, saver=saver, thread=thread)
-    plan = await run_plan(
-        llm,
-        context_with(sample_applicants, sample_company, sample_posting, "경력이 가장 많은 사람은?"),
-        saver=saver,
-        thread=thread,
-    )
+    plan = await run_plan(llm, reordered, saver=saver, thread=thread)
 
-    assert (plan.intent, plan.message) == (Intent.ANSWER, "김하늘이 가장 많아요.")
+    assert plan.targets == ids(context, "김하늘")
+    assert screen_of(llm.calls[-1])["직전 대상"] == ["C1"]

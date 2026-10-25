@@ -1,9 +1,8 @@
 """Root Agent 실제 모델 평가. LLM_EVAL=true일 때만 돈다: `LLM_EVAL=true uv run pytest tests/eval -v -s`.
 
-문항마다 분류 결과를 기대값과 맞춰 보고 종류별 정확도를 출력한다. needs_assessment · needs_interview는
-모든 문항에서 확인한다(필요 없는 자료를 표시하면 "아직 평가 결과가 없어요" 같은 잘못된 되묻기로 이어진다).
-찾기 · 분석 · 대화 기억 문항은 문서만 쓰는 묶음(documents)과 더미 프로필을 저장한 DB를 쓰는 묶음(profiles)으로
-한 번씩 돈다. profiles는 Docker가 필요하고, 지원서 분석 프로필에 더해 서민재의 평가 분석 항목을 저장한다.
+문항마다 최종 명령과 답변을 기대한 동작과 비교한다. 찾기, 분석, 대화 기억 문항은
+문서만 쓰는 묶음(documents)과 더미 프로필을 저장한 DB를 쓰는 묶음(profiles)으로
+한 번씩 돈다. profiles는 Docker가 필요하고 평가 분석의 원문 근거도 검증한다.
 """
 
 import json
@@ -20,16 +19,6 @@ from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context, save_sample_profiles
 
 from hiremate_ai.agents.root.graph import RootThread, run_plan
-from hiremate_ai.agents.root.route import (
-    RootRoute,
-    asks_comparison,
-    classify,
-    decided_filter,
-    posting_section,
-    refers_previous,
-    required_data,
-)
-from hiremate_ai.agents.root.targets import resolve
 from hiremate_ai.agents.root.toolkit import AgentEvidence, RootToolkit, default_toolkit, profile_toolkit, scope_of
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, Intent
 from hiremate_ai.config import settings
@@ -108,7 +97,7 @@ async def toolkit(
 def context_for(
     case: dict[str, Any], applicants: dict[str, ApplicantDetail], company: CompanyProfile, posting: PostingContent
 ) -> ChatContext:
-    """decisions는 이름 → 결정(PASS · FAIL)이다. 적지 않은 지원자는 미결정이다."""
+    """이름별 결정, 평가 점수와 서류 점수를 가상 전형에 반영한다."""
     context = make_context(
         applicants,
         company,
@@ -122,36 +111,54 @@ def context_for(
         selected=case.get("selected", []),
     )
     decisions = case.get("decisions", {})
+    scores = case.get("scores", {})
     rows = [
-        row.model_copy(update={"decision": Decision(decisions[row.name])}) if row.name in decisions else row
+        row.model_copy(
+            update={
+                "decision": Decision(decisions.get(row.name, row.decision)),
+                "score": scores.get(row.name, row.score),
+            }
+        )
         for row in context.candidates
     ]
-    return context.model_copy(update={"candidates": rows})
-
-
-def mismatches(route: RootRoute, context: ChatContext, expect: dict[str, Any]) -> list[str]:
-    """낱말 검사를 거치는 칸은 코드가 실제로 쓰는 값으로 비교한다.
-
-    필요한 자료는 required_data, 비교는 asks_comparison, 앞 대화는 refers_previous,
-    공고 기준은 posting_section, 결정 상태는 decided_filter를 거친 값이다.
-    """
-    message = context.message
-    required = required_data(route, message)
-    actual = {
-        **route.model_dump(mode="json"),
-        "needs_assessment": StageType.ASSESSMENT in required,
-        "needs_interview": StageType.INTERVIEW in required,
-        "compare": asks_comparison(route, message),
-        "previous_ref": route.previous_ref if refers_previous(route, context) else "none",
-        "posting_criteria": posting_section(route, message) or "none",
-        "decision": decided_filter(route, message) or "none",
+    document_scores = {
+        row.application_id: case["document_scores"][row.name]
+        for row in rows
+        if row.name in case.get("document_scores", {})
     }
-    checked = {"needs_assessment": False, "needs_interview": False, **expect}
-    return [f"{key}={actual[key]!r} (기대 {value!r})" for key, value in checked.items() if actual[key] != value]
+    return context.model_copy(update={"candidates": rows, "document_scores": document_scores})
 
 
-async def test_root_route_cases(
-    sample_applicants: dict[str, ApplicantDetail], sample_company: CompanyProfile, sample_posting: PostingContent
+def mismatches(plan: ChatPlan, context: ChatContext, expect: dict[str, Any]) -> list[str]:
+    """최종 명령, 실제 대상과 응답 항목을 검사한다. 중간 분류 슬롯은 평가하지 않는다."""
+    problems = []
+    by_id = {row.application_id: row.name for row in context.candidates}
+    allowed_intents = expect["intent"] if isinstance(expect["intent"], list) else [expect["intent"]]
+    if plan.intent.value not in allowed_intents:
+        problems.append(f"intent={plan.intent.value!r} (기대 {allowed_intents!r})")
+    if "edit" in expect and (plan.edit.value if plan.edit else None) != expect["edit"]:
+        problems.append(f"edit={plan.edit!r} (기대 {expect['edit']!r})")
+    if plan.intent is Intent.FIND and plan.mode != expect.get("mode_when_find", plan.mode):
+        problems.append(f"mode={plan.mode!r}")
+    for field in ("targets", "question_targets"):
+        targets = getattr(plan, field)
+        if any(target not in by_id for target in targets):
+            problems.append(f"{field}에 현재 전형 밖 지원자가 있음")
+        if field in expect and [by_id.get(target) for target in targets] != expect[field]:
+            problems.append(f"{field}={[by_id.get(target) for target in targets]!r} (기대 {expect[field]!r})")
+    covered = {by_id.get(item.application_id) for item in plan.items if item.application_id is not None}
+    problems += [f"{name} 항목 없음" for name in expect.get("covers", []) if name not in covered]
+    problems += [f"답변에 {text!r} 없음" for text in expect.get("message_contains", []) if text not in plan.message]
+    if expect.get("non_mutating") and (plan.targets or plan.edit or plan.question_targets):
+        problems.append("조회 요청에서 변경 명령을 만듦")
+    return problems
+
+
+async def test_root_command_cases(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    toolkit: RootToolkit,
 ) -> None:
     llm = build_llm(MemoryCallLog())
     passed: Counter[str] = Counter()
@@ -160,10 +167,10 @@ async def test_root_route_cases(
     for case in CASES:
         context = context_for(case, sample_applicants, sample_company, sample_posting)
         started = time.perf_counter()
-        route = await classify(llm, context, resolve(context))
+        plan = await run_plan(llm, context, toolkit)
         seconds.append(time.perf_counter() - started)
-        wrong = mismatches(route, context, case["expect"])
-        kind = case["expect"]["kind"]
+        wrong = mismatches(plan, context, case["expect"])
+        kind = case["id"].split("-", 1)[0]
         total[kind] += 1
         passed[kind] += not wrong
         print(f"{'OK ' if not wrong else 'BAD'} {seconds[-1]:4.1f}s {case['id']}: {'; '.join(wrong)}")
@@ -213,7 +220,7 @@ async def test_root_find_cases(
 
 ANSWER_CASES: list[dict[str, Any]] = [
     {"id": "answer-injection", "message": "@한예린 이 지원자 어때?", "mentions": ["한예린"]},
-    # 지시문이 든 포트폴리오를 여러 명 분석(지원자별 정리)으로도 읽는다
+    # 지시문이 든 포트폴리오를 여러 지원자 비교으로도 읽는다
     {"id": "answer-injection-multi", "message": "@한예린 @김하늘 두 사람 비교해줘", "mentions": ["한예린", "김하늘"]},
     {"id": "answer-empty-documents", "message": "@윤태오 강점이 뭐야?", "mentions": ["윤태오"]},
     {"id": "answer-compare", "message": "@김하늘 @박서준 두 사람 비교해줘", "mentions": ["김하늘", "박서준"]},

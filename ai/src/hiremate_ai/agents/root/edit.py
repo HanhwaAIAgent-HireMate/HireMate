@@ -1,56 +1,34 @@
-"""C 선택 지원자 편집. 지시를 명령(동작, 대상)으로만 바꾸고, 실행은 backend가 대상과 권한을 검증한 뒤 한다 (규칙 2).
+"""명시적인 선택 편집 명령의 실행 가능 여부를 확인한다. 실행은 backend가 담당한다."""
 
-빼기는 불합격 처리가 아니다. 결정 상태는 바꾸지 않는다.
-"""
-
+from collections.abc import Sequence
 from uuid import UUID
 
-from hiremate_ai.agents.root.route import NOT_UNDERSTOOD, RootRoute
-from hiremate_ai.agents.root.targets import Targets, checked
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan, Decision, EditAction, Intent
 from hiremate_ai.contract import StageType
 
 NO_TARGET = "누구를 말씀하시는지 모르겠어요. @로 지원자를 골라 다시 말씀해 주세요."
-NO_CHECKED = "체크한 지원자가 없어요. 리스트에서 체크한 뒤 다시 말씀해 주세요."
-SAME_NAME = "{names} 이름의 지원자가 여러 명이에요. @로 골라 주세요."
 ADDED = "{names} 님을 선택 지원자에 넣었어요."
 REMOVED = "{names} 님을 선택 지원자에서 뺐어요."
 CLEARED = "선택 지원자를 비웠어요. [되돌리기]로 돌아갈 수 있어요."
 RESTORED = "이전 선택 지원자로 되돌렸어요."
-# backend가 선택 지원자에 넣지 않는 지원자 (409 ALREADY_DECIDED · BELOW_LINE). 보내지 않고 이유를 말한다
 DECIDED = "{names} 님은 이미 {decided} 지원자라 선택 지원자에 넣을 수 없어요. 리스트의 {tabs} 탭에서 모아 볼 수 있어요."
 BELOW_LINE = "{names} 님은 기준선 아래라 선택 지원자에 넣을 수 없어요. 먼저 기준선 위로 올려 주세요."
 _DECIDED_WORDS = {
     frozenset({Decision.PASS}): ("합격 처리한", "'합격'"),
     frozenset({Decision.FAIL}): ("불합격 처리한", "'불합격'"),
-    frozenset({Decision.PASS, Decision.FAIL}): ("합격 · 불합격을 정한", "'합격' · '불합격'"),
+    frozenset({Decision.PASS, Decision.FAIL}): ("합격과 불합격을 정한", "'합격', '불합격'"),
 }
 
 
-def plan_edit(route: RootRoute, context: ChatContext, targets: Targets) -> ChatPlan:
-    """대상이 분명하지 않으면 실행하지 않고 되묻는다. 동명이인이 하나라도 있으면 아무도 바꾸지 않는다.
-
-    멘션이나 이름으로 가리킨 지원자가 있으면 체크한 지원자보다 앞선다.
-    넣기는 넣을 수 있는 지원자만 넣고, 결정했거나 기준선 아래인 지원자는 이유를 말한다.
-    """
-    match route.edit:
-        case None:
-            return ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
-        case EditAction.CLEAR:
-            return _edit(EditAction.CLEAR, [], CLEARED)
-        case EditAction.RESTORE:
-            return _edit(EditAction.RESTORE, [], RESTORED)
-    if route.uses_checked and not targets.rows and not targets.ambiguous:
-        rows = checked(context)
-        if not rows:
-            return ChatPlan.answer(Intent.CLARIFY, NO_CHECKED)
-    else:
-        if targets.ambiguous:
-            return ChatPlan.answer(Intent.CLARIFY, SAME_NAME.format(names=", ".join(targets.ambiguous)))
-        rows = targets.rows
-        if not rows:
-            return ChatPlan.answer(Intent.CLARIFY, NO_TARGET)
-    if route.edit is EditAction.REMOVE:
+def plan_edit(action: EditAction, context: ChatContext, rows: Sequence[CandidateRow]) -> ChatPlan:
+    """모델이 정한 대상만 사용한다. 넣을 수 없는 지원자는 명령에서 빼고 이유를 설명한다."""
+    if action is EditAction.CLEAR:
+        return _edit(EditAction.CLEAR, [], CLEARED)
+    if action is EditAction.RESTORE:
+        return _edit(EditAction.RESTORE, [], RESTORED)
+    if not rows:
+        return ChatPlan.answer(Intent.CLARIFY, NO_TARGET)
+    if action is EditAction.REMOVE:
         return _edit(EditAction.REMOVE, [row.application_id for row in rows], REMOVED.format(names=_names(rows)))
     selectable = [row for row in rows if _selectable(context, row)]
     reasons = _unselectable(context, [row for row in rows if row not in selectable])
@@ -65,7 +43,7 @@ def _selectable(context: ChatContext, row: CandidateRow) -> bool:
     return row.decision is Decision.PENDING and (context.stage_type is not StageType.DOCUMENT or row.above_line)
 
 
-def _unselectable(context: ChatContext, rows: list[CandidateRow]) -> list[str]:
+def _unselectable(context: ChatContext, rows: Sequence[CandidateRow]) -> list[str]:
     decided = [row for row in rows if row.decision is not Decision.PENDING]
     below = [row for row in rows if row not in decided]
     reasons = []
@@ -77,7 +55,7 @@ def _unselectable(context: ChatContext, rows: list[CandidateRow]) -> list[str]:
     return reasons
 
 
-def _names(rows: list[CandidateRow]) -> str:
+def _names(rows: Sequence[CandidateRow]) -> str:
     return ", ".join(row.name for row in rows)
 
 

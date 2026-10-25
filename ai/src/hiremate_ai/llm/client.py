@@ -18,7 +18,7 @@ class LlmClient(Protocol):
     """모델 호출. 모든 Agent는 이 인터페이스로만 모델을 부른다. 호출은 ai.llm_calls에 기록된다."""
 
     async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
-        """system · user 지시로 모델을 불러 output 형식의 결과를 받는다.
+        """system과 user 지시로 모델을 불러 output 형식의 결과를 받는다.
 
         agent는 호출한 Agent 키다 (예: "root", "candidate-analyst"). 호출 로그에 남는다.
         제출 문서나 URL 본문은 hiremate_ai.llm.prompt의 블록으로 감싸 user에 넣는다.
@@ -36,7 +36,7 @@ class LlmClient(Protocol):
     ) -> ToolAgent[T]:
         """모델이 도구를 골라 부르며 자료를 확인하고 output 형식으로 답하는 Agent(ReAct)를 만든다.
 
-        무엇을 볼지 미리 정할 수 없는 곳(Root Agent의 B 분석 · 생성 경로)에만 쓴다.
+        Root Agent는 이 루프로 대화 맥락을 해석하고 조회 도구를 조합해 최종 명령을 낸다.
         한 번 묻고 형식대로 받으면 structured를 쓴다.
         tools는 @tool로 만든 조회 도구다. context는 도구가 ToolRuntime으로 받을 조회 범위의 타입이고,
         값은 ToolAgent.run에 넘긴다. 도구 결과는 자료 블록으로 감싸지고 system에는 UNTRUSTED_RULE이 붙는다.

@@ -5,13 +5,12 @@ from typing import Any
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 
-from hiremate_ai.agents.root.answer import AnswerItem, CandidateNotes, MultiSummary
+from hiremate_ai.agents.root.commands import AnswerCommand, EditCommand, RootReply
 from hiremate_ai.agents.root.memory import get_saver
-from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.toolkit import default_toolkit, get_toolkit
 from hiremate_ai.agents.root.types import EditAction
 from hiremate_ai.llm.client import get_llm
-from hiremate_ai.llm.fake import FakeLlm
+from hiremate_ai.llm.fake import FakeLlm, ToolCall
 from hiremate_ai.main import app
 
 CONTRACT_DIR = Path(__file__).resolve().parents[4] / "contract"
@@ -19,7 +18,9 @@ CONTRACT_DIR = Path(__file__).resolve().parents[4] / "contract"
 
 def test_plan_endpoint_round_trip() -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
-    app.dependency_overrides[get_llm] = lambda: FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR))
+    app.dependency_overrides[get_llm] = lambda: FakeLlm(
+        RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR))
+    )
     app.dependency_overrides[get_saver] = lambda: InMemorySaver()
     try:
         response = TestClient(app).post("/agents/root/plan", json={"context": context})
@@ -29,7 +30,9 @@ def test_plan_endpoint_round_trip() -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     events = sse_events(response.text)
-    assert [name for name, _ in events] == ["status", "status", "done"]
+    assert events[0][0] == "status"
+    assert events[-1][0] == "done"
+    assert all(name == "status" for name, _ in events[:-1])
     assert events[0][1] == {"text": "요청을 확인하고 있어요"}
     body = events[-1][1]
     assert (body["intent"], body["edit"]) == ("EDIT", "CLEAR")
@@ -61,7 +64,10 @@ def plan_request(context: dict[str, object], message: str) -> dict[str, object]:
 def test_plan_history_and_forget_use_thread() -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
     saver = InMemorySaver()
-    llm = FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR), RootRoute(kind="EDIT", edit=EditAction.RESTORE))
+    llm = FakeLlm(
+        RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR)),
+        RootReply(message="되돌렸어요.", command=EditCommand(action=EditAction.RESTORE)),
+    )
     app.dependency_overrides[get_llm] = lambda: llm
     app.dependency_overrides[get_saver] = lambda: saver
     client = TestClient(app)
@@ -88,7 +94,9 @@ def test_plan_history_and_forget_use_thread() -> None:
 def test_forget_stage_endpoint() -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
     saver = InMemorySaver()
-    app.dependency_overrides[get_llm] = lambda: FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR))
+    app.dependency_overrides[get_llm] = lambda: FakeLlm(
+        RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR))
+    )
     app.dependency_overrides[get_saver] = lambda: saver
     client = TestClient(app)
     try:
@@ -106,12 +114,11 @@ def test_plan_without_thread_does_not_remember() -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
     saver = InMemorySaver()
     app.dependency_overrides[get_llm] = lambda: FakeLlm(
-        RootRoute(kind="ANSWER"),
-        CandidateNotes(items=[AnswerItem(label="확인할 점", text="세부 근거는 추가 확인이 필요해요.", status="CHECK")]),
-        MultiSummary(message="요약이에요."),
+        ToolCall("get_stage_summary"),
+        RootReply(message="요약이에요.", command=AnswerCommand()),
     )
     app.dependency_overrides[get_saver] = lambda: saver
-    # 대상이 있는 분석은 지원자 자료를 모아 정리한다. DB 없이 문서로 모은다
+    # 연결된 DB 없이 문서 도구 묶음으로 요청을 처리한다
     app.dependency_overrides[get_toolkit] = default_toolkit
     try:
         response = TestClient(app).post("/agents/root/plan", json={"context": {**context, "threadId": ""}})
