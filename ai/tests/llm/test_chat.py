@@ -12,13 +12,20 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from hiremate_ai.config import settings
 from hiremate_ai.db.llm_call import LlmCallLog
-from hiremate_ai.llm import client
+from hiremate_ai.llm import chat, client
 from hiremate_ai.llm.call_log import CallRecord, DbCallLog
 from hiremate_ai.llm.chat import LAST_CALL, SHORTER, ChatLlm, LlmOutputError, model_call_budget
 
 
 class Summary(BaseModel):
     text: str
+
+
+def test_output_error_keeps_legacy_message_and_defaults_to_format() -> None:
+    error = LlmOutputError("기존 형식 오류")
+
+    assert str(error) == "기존 형식 오류"
+    assert error.reason is chat.LlmFailureReason.FORMAT
 
 
 class RecordingCallLog:
@@ -121,9 +128,10 @@ async def test_structured_parse_retries_consume_the_shared_budget() -> None:
     log = RecordingCallLog()
     llm = chat_llm(['{"wrong": 1}', '{"text": "예산 밖 답"}'], log, requests)
 
-    with model_call_budget(1), pytest.raises(LlmOutputError, match="상한"):
+    with model_call_budget(1), pytest.raises(LlmOutputError, match="상한") as failure:
         await llm.structured(Summary, agent="root", system="", user="요약해")
 
+    assert failure.value.reason is chat.LlmFailureReason.BUDGET
     assert len(requests) == 1
     assert log.records[-1].status == "ERROR"
 
@@ -161,9 +169,10 @@ async def test_records_error_when_output_never_matches() -> None:
     call_log = RecordingCallLog()
     llm = chat_llm(['{"wrong": 1}', '{"wrong": 2}'], call_log, [])
 
-    with pytest.raises(LlmOutputError):
+    with pytest.raises(LlmOutputError) as failure:
         await llm.structured(Summary, agent="report", system="", user="")
 
+    assert failure.value.reason is chat.LlmFailureReason.FORMAT
     [record] = call_log.records
     assert record.status == "ERROR"
     assert record.error is not None and record.error.startswith("LlmOutputError")
@@ -214,9 +223,10 @@ async def test_fails_with_output_error_when_output_stays_cut() -> None:
     call_log = RecordingCallLog()
     llm = chat_llm([cut(completion('{"text": "끊')), cut(completion('{"text": "또 끊'))], call_log, [])
 
-    with pytest.raises(LlmOutputError, match="잘렸다"):
+    with pytest.raises(LlmOutputError, match="잘렸다") as failure:
         await llm.structured(Summary, agent="root", system="", user="")
 
+    assert failure.value.reason is chat.LlmFailureReason.FORMAT
     [record] = call_log.records
     assert record.status == "ERROR"
 
@@ -247,6 +257,44 @@ async def test_tool_agent_records_each_model_call() -> None:
     assert first.output == {"content": "", "tool_calls": [{"name": "career", "args": {"item": "경력"}}]}
     assert (first.input_tokens, first.output_tokens) == (12, 5)
     assert '[tool career] <data kind="tool" name="career">' in second.user
+
+
+async def test_tool_agent_reports_format_failure_when_final_answer_is_missing() -> None:
+    llm = chat_llm(["본문으로 온 답"], RecordingCallLog(), [])
+
+    with pytest.raises(LlmOutputError, match="형식") as failure:
+        await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력")
+
+    assert failure.value.reason is chat.LlmFailureReason.FORMAT
+
+
+async def test_tool_agent_reports_validation_failure_after_unsuccessful_rewrite() -> None:
+    async def validate(result: Summary) -> str | None:
+        return "근거가 없다"
+
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [tool_completion(("Summary", {"text": "미확인"})), tool_completion(("Summary", {"text": "여전히 미확인"}))],
+        RecordingCallLog(),
+        requests,
+    )
+
+    with pytest.raises(LlmOutputError, match="근거가 없다") as failure:
+        await llm.tool_agent(Summary, agent="root", system="", tools=[]).run("확인", validate=validate)
+
+    assert failure.value.reason is chat.LlmFailureReason.VALIDATION
+    assert len(requests) == 2
+
+
+async def test_tool_agent_reports_model_call_limit_as_budget_failure() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm([tool_completion(("career", {"item": "경력"}))], RecordingCallLog(), requests, max_calls=1)
+
+    with pytest.raises(LlmOutputError, match="상한") as failure:
+        await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력")
+
+    assert failure.value.reason is chat.LlmFailureReason.BUDGET
+    assert len(requests) == 1
 
 
 async def test_tool_agent_asks_shorter_when_answer_is_cut() -> None:
@@ -290,8 +338,10 @@ async def test_tool_agent_fails_when_answer_stays_cut() -> None:
     cut_answer = tool_completion(("Summary", {"text": "끊"}))
     llm = chat_llm([cut(cut_answer), cut(json.loads(json.dumps(cut_answer)))], RecordingCallLog(), [])
 
-    with pytest.raises(LlmOutputError, match="잘렸다"):
+    with pytest.raises(LlmOutputError, match="잘렸다") as failure:
         await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력")
+
+    assert failure.value.reason is chat.LlmFailureReason.FORMAT
 
 
 async def test_tool_agent_last_call_can_only_answer() -> None:
@@ -337,9 +387,10 @@ async def test_tool_agent_cut_retry_consumes_shared_budget() -> None:
         requests,
     )
 
-    with model_call_budget(1), pytest.raises(LlmOutputError, match="상한"):
+    with model_call_budget(1), pytest.raises(LlmOutputError, match="상한") as failure:
         await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("요약해")
 
+    assert failure.value.reason is chat.LlmFailureReason.BUDGET
     assert len(requests) == 1
 
 
