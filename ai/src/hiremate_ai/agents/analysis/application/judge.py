@@ -58,6 +58,7 @@ JUDGE_SYSTEM = f"""너는 지원 서류를 공고의 평가 항목에 대조해 
 - 항목마다 먼저 relevance(업무 관련성: 실제로 한 일이 이 항목과 관련되는가), role(본인 역할: SELF 본인이 했다 /
   TEAM 팀 · 조직의 경험만 적었다 / UNCLEAR 알 수 없다), scope(수행 범위: 요구한 일을 어디까지 했는가)를 확인한다.
   셋에 따로 점수를 매기지 않고, 항목의 판정 기준 가운데 하나로 판정(verdict)한다.
+- criterion_id는 요청의 번호 그대로 쓴다. 예: Q-01. 목록 표시용 대괄호는 값에 넣지 않는다.
 - MET: 충족 기준에 해당한다는 근거가 있다.
 - PARTIAL: 복합 경험형 항목에서 일부 수행이 확인됐다. satisfied_parts와 unsatisfied_parts를 모두 쓴다.
   불확실하다는 뜻으로 쓰지 않는다. 부분 충족 기준이 '없음'인 항목에는 쓰지 않는다.
@@ -118,20 +119,20 @@ async def judge_criteria(
     """항목을 판정한다. 자격증 보유 조건은 코드가, 나머지는 영역(자격요건 · 우대사항)마다 한 번씩 모델이 본다."""
     by_code = {c.criterion_id: certificate_result(c, evidence) for c in criteria if c.certificates}
     asked = [criterion for criterion in criteria if not criterion.certificates]
-    groups = [[c for c in asked if c.category == category] for category in CriterionCategory]
+    groups = [group for category in CriterionCategory if (group := [c for c in asked if c.category == category])]
     answers = await asyncio.gather(
         *(
             _ask(
                 llm, group, evidence, evidence_text(evidence.documents, evidence.facts, _words(group), full_text_chars)
             )
             for group in groups
-            if group
         )
     )
-    verdicts = {verdict.criterion_id: verdict for answer in answers for verdict in answer.verdicts}
+    verdicts: dict[str, CriterionVerdict | None] = {}
+    for group, answer in zip(groups, answers, strict=True):
+        verdicts.update(_index_verdicts(answer.verdicts, {criterion.criterion_id for criterion in group}))
     return [
-        by_code.get(criterion.criterion_id) or settle(criterion, verdicts.get(criterion.criterion_id), evidence)
-        for criterion in criteria
+        by_code.get(criterion.criterion_id) or _settle_answer(criterion, verdicts, evidence) for criterion in criteria
     ]
 
 
@@ -158,8 +159,36 @@ async def recheck_criterion(
         RECHECK_NOTES[round_no].format(reason=previous.reason),
     ]
     answer = await _ask(llm, [criterion], evidence, "\n\n".join(parts))
-    verdict = next((item for item in answer.verdicts if item.criterion_id == criterion.criterion_id), None)
-    return settle(criterion, verdict, evidence).model_copy(update={"recheck_count": previous.recheck_count + 1})
+    verdicts = _index_verdicts(answer.verdicts, {criterion.criterion_id})
+    return _settle_answer(criterion, verdicts, evidence).model_copy(
+        update={"recheck_count": previous.recheck_count + 1}
+    )
+
+
+def _index_verdicts(verdicts: Sequence[CriterionVerdict], allowed: set[str]) -> dict[str, CriterionVerdict | None]:
+    """표시용 괄호·공백만 정리해 요청한 번호와 대조한다. 의미나 번호 자릿수는 추측하지 않는다."""
+    indexed: dict[str, CriterionVerdict | None] = {}
+    for verdict in verdicts:
+        key = verdict.criterion_id.strip()
+        bracketed = re.fullmatch(r"\[\s*([^\[\]]+?)\s*\]", key)
+        if bracketed:
+            key = bracketed.group(1).strip()
+        if key not in allowed:
+            continue
+        canonical = verdict.model_copy(update={"criterion_id": key})
+        if key not in indexed:
+            indexed[key] = canonical
+        elif indexed[key] != canonical:
+            indexed[key] = None  # 뒤에 같은 번호가 또 와도 충돌을 덮어쓰지 않는다.
+    return indexed
+
+
+def _settle_answer(
+    criterion: Criterion, verdicts: dict[str, CriterionVerdict | None], evidence: Evidence
+) -> CriterionResult:
+    if criterion.criterion_id in verdicts and verdicts[criterion.criterion_id] is None:
+        return _unknown(_base(criterion), "같은 항목 번호의 모델 판정이 서로 달라 확인이 필요해요.")
+    return settle(criterion, verdicts.get(criterion.criterion_id), evidence)
 
 
 def settle(criterion: Criterion, verdict: CriterionVerdict | None, evidence: Evidence) -> CriterionResult:
