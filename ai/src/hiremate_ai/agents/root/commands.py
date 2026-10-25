@@ -37,6 +37,10 @@ class AnswerCommand(_Command):
     candidates: list[str] = Field(default=[], description="답변 대상 지원자 번호. 전형 전체 질문이면 비운다")
 
 
+class ConversationCommand(_Command):
+    kind: Literal["conversation"] = "conversation"
+
+
 class FindCommand(_Command):
     kind: Literal["find"] = "find"
     result: str = Field(description="search_candidates가 반환한 검색 결과 식별자")
@@ -69,7 +73,14 @@ class DecisionCommand(_Command):
 
 
 type RootCommand = Annotated[
-    AnswerCommand | FindCommand | EditCommand | QuestionsCommand | ClarifyCommand | BlockedCommand | DecisionCommand,
+    AnswerCommand
+    | ConversationCommand
+    | FindCommand
+    | EditCommand
+    | QuestionsCommand
+    | ClarifyCommand
+    | BlockedCommand
+    | DecisionCommand,
     Field(discriminator="kind"),
 ]
 
@@ -116,6 +127,11 @@ async def compile_reply(
             raise ValueError("편집할 대상 지원자를 명시하세요. 불분명하면 되물어 주세요.")
         return plan_edit(command.action, context, rows)
     message = _message(reply.message, context)
+    if isinstance(command, ConversationCommand):
+        if reply.items:
+            raise ValueError("일반 대화에는 지원자 분석 항목을 넣지 마세요. 자료에 근거한 답변은 answer로 작성하세요.")
+        _check_message_subjects(reply.message, context, [])
+        return ChatPlan.answer(Intent.ANSWER, message)
     if isinstance(command, ClarifyCommand):
         if reply.items:
             raise ValueError("되묻기에는 지원자 분석 항목을 넣지 마세요.")
