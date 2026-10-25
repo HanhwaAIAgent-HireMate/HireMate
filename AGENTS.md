@@ -155,7 +155,7 @@ src/hiremate_ai/
 │       ├── communication/      안내 초안
 │       └── report/             최종 리포트 초안
 ├── tools/                      Agent 도구
-├── llm/                        모델 클라이언트 (LlmClient, 도구 루프 Agent, 테스트용 FakeLlm), 프롬프트 자료 블록, 호출 로그
+├── llm/                        모델 클라이언트 (LlmClient, 도구 루프 Agent, 테스트용 FakeLlm), 프롬프트 자료 블록, 호출 로그, LangSmith 추적
 ├── db/                         ai 스키마 (Base, 세션)
 │   └── migrations/             Alembic 리비전
 └── worker/                     AI 워커: Redis 작업 대기열 소비자 (uv run python -m hiremate_ai.worker)
@@ -177,6 +177,8 @@ src/hiremate_ai/
   검증을 마친 항목(`item`)을 먼저 보내고 마지막 `done`에 반환 타입의 JSON을 담는다. 모델이 쓴 문장을 검사 전에 보내지 않는다.
 - 모델은 `llm.client`의 `LlmClient`로만 부른다. 호출은 `ai.llm_calls`에 기록된다. 라우터는 `LlmDep`으로 받고,
   테스트는 `app.dependency_overrides[get_llm]`에 `FakeLlm`을 넣는다. 실제 모델 연결 설정은 `ai/.env.example`에 있다.
+- `LANGSMITH_TRACING=true`면 모델 호출이 LangSmith에도 기록된다. `LlmDep`을 받는 요청 하나, 워커 작업 하나가 기록 하나다.
+  지원 문서 본문이 외부 서버로 나가므로 가상 지원자로 개발 · 평가할 때만 켠다. 단위 테스트는 켜 두어도 보내지 않는다.
 - 한 번 묻고 형식대로 받으면 `structured`, 모델이 도구를 골라 가며 자료를 확인해야 하면 `tool_agent`(도구 루프, ReAct)를 쓴다.
   도구 루프는 Root Agent의 B 분석 · 생성 경로에만 쓴다. A 지원자 찾기는 같은 질문에 같은 후보가 나오도록 코드 검색으로,
   C 선택 지원자 편집은 명령 변환으로 처리한다. `create_agent`나 `ChatOpenAI`를 직접 쓰지 않는다.
