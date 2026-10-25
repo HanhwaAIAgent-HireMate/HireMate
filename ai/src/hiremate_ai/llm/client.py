@@ -1,8 +1,8 @@
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from functools import cache
 from typing import Annotated, Any, Protocol
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
@@ -11,6 +11,7 @@ from hiremate_ai.config import settings
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.call_log import CallLog, DbCallLog
 from hiremate_ai.llm.chat import ChatLlm, ToolAgent
+from hiremate_ai.llm.tracing import traced
 
 
 class LlmClient(Protocol):
@@ -88,5 +89,11 @@ def _provider_limit(providers: str) -> dict[str, Any] | None:
     return {"provider": {"only": only}} if only else None
 
 
-LlmDep = Annotated[LlmClient, Depends(get_llm)]
+async def _traced_llm(request: Request, llm: Annotated[LlmClient, Depends(get_llm)]) -> AsyncIterator[LlmClient]:
+    """요청 하나를 LangSmith 기록 하나로 묶는다 (추적을 켰을 때만). SSE 응답은 스트림이 끝날 때 기록이 닫힌다."""
+    with traced(request.url.path):
+        yield llm
+
+
+LlmDep = Annotated[LlmClient, Depends(_traced_llm)]
 """라우터 매개변수 타입. 예: async def plan(request: PlanRequest, llm: LlmDep) -> ChatPlan"""
