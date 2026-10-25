@@ -4,6 +4,7 @@ import com.hiremate.company.CompanyProfile;
 import com.hiremate.company.CompanyService;
 import com.hiremate.global.ApiException;
 import com.hiremate.global.JsonText;
+import com.hiremate.mail.MailPreview;
 import com.hiremate.posting.application.DummyScreeningRubric;
 import com.hiremate.posting.domain.JobPosting;
 import com.hiremate.posting.domain.JobPostingRepository;
@@ -144,10 +145,17 @@ public class PostingService {
 
     /** 지원자에게 보낼 접수 확인 메일. 공고의 템플릿에 지원자 값을 채우고 필수 문구를 붙인다. */
     @Transactional(readOnly = true)
-    public ReceiptTemplate receiptMail(UUID companyId, UUID recruitmentId, String applicantName, int applicationNo) {
+    public ReceiptMail receiptMail(UUID companyId, UUID recruitmentId, String applicantName, int applicationNo) {
         JobPosting posting = posting(companyId, recruitmentId);
         return posting.receipt().fill(companies.profile(companyId).name(), posting.getTitle(), applicantName,
                 applicationNo);
+    }
+
+    /** 게시 전에 보여 줄 접수 확인 메일. 저장한 템플릿으로 만들고 지원자 이름과 지원번호는 예시다. */
+    @Transactional(readOnly = true)
+    public MailPreview receiptPreview(UUID companyId, UUID recruitmentId) {
+        ReceiptMail receipt = receiptMail(companyId, recruitmentId, "홍길동", 1);
+        return MailPreview.of(receipt.subject(), receipt.content());
     }
 
     /** HR이 접수 기간을 정해 게시한다. AI는 게시하지 않는다. */

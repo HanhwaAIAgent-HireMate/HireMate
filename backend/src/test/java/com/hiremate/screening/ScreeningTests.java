@@ -248,6 +248,9 @@ class ScreeningTests extends IntegrationTest {
         assertThat(notices.get(0).path("guideMissing").toString()).isEqualTo("[\"장소·접속 링크\"]");
         assertThat(notices.get(1).path("guide").asString()).isEmpty();
         assertThat(notices.get(1).path("guideMissing").size()).isZero();
+        JsonNode preview = json(expect(hr.get(stage.path() + "/notices/PASS/preview"), 200));
+        assertThat(preview.path("html").asString()).containsSubsequence("홍길동님", ">1차 면접 안내</td>", ">일정</td>",
+                ">11월 3일(화) 오후 2시~4시</td>", "※ 건물 주차는 지원되지 않습니다.");
 
         expect(hr.put(guidePath, Map.of("schedule", "11월 4일(수) 오전 10시~11시", "method", "", "place", "",
                 "preparation", "", "note", "")), 200);
@@ -255,6 +258,8 @@ class ScreeningTests extends IntegrationTest {
         assertThat(mail.sent).anySatisfy(message -> assertThat(message)
                 .contains("지원자1님", "다음 전형은 1차 면접입니다.", "■ 1차 면접 안내\n- 일정: 11월 4일(수) 오전 10시~11시")
                 .doesNotContain("신분증"));
+        assertThat(mail.html).anySatisfy(html -> assertThat(html)
+                .containsSubsequence("지원자1님", ">1차 면접 안내</td>", ">11월 4일(수) 오전 10시~11시</td>"));
         assertThat(json(expect(hr.get(guides), 200)).get(0).path("notifiedCount").asInt()).isEqualTo(1);
     }
 
