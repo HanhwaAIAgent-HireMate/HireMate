@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     llm_providers: str = ""
     # 참이면 tests/eval의 실제 모델 평가를 돌린다. CI와 커밋 전 검사에서는 끈다
     llm_eval: bool = False
+    # 참이면 모델을 부르는 요청 · 작업을 LangSmith에 기록한다. 지시와 자료(지원 문서 본문 포함)가 외부 서버로 나가므로
+    # 가상 지원자로 개발 · 평가할 때만 켠다. 단위 테스트는 켜 두어도 보내지 않는다 (tests/conftest.py)
+    langsmith_tracing: bool = False
+    langsmith_api_key: SecretStr = SecretStr("")
+    # 기록을 모아 볼 LangSmith 프로젝트. 없으면 첫 기록 때 만들어진다
+    langsmith_project: str = "hiremate"
     # Root Agent 대화방에 남기는 최근 턴 수
     root_memory_turns: int = 20
     # 공공데이터포털 인증키. scripts/ncs_download.py로 NCS 자료를 받을 때만 쓰고, ai 서버는 실행 중에 쓰지 않는다

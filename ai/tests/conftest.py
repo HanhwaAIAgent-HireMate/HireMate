@@ -5,11 +5,14 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from langsmith import tracing_context
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from testcontainers.community.postgres import PostgresContainer
 
+from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
+from hiremate_ai.llm.tracing import traced
 
 AI_DIR = Path(__file__).resolve().parents[1]
 SAMPLES_DIR = AI_DIR / "tests" / "samples"
@@ -27,6 +30,21 @@ def pytest_asyncio_loop_factories(
     Linux · macOS는 원래 SelectorEventLoop라 동작이 같다.
     """
     return {"selector": asyncio.SelectorEventLoop}
+
+
+@pytest.fixture(autouse=True)
+def langsmith_tracing(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """LangSmith 추적은 실제 모델 평가(tests/eval)만 LANGSMITH_TRACING을 따른다.
+
+    다른 테스트는 ai/.env나 환경 변수로 추적을 켜 두어도 기록을 보내지 않는다.
+    """
+    if request.path.parent.name == "eval":
+        with traced():
+            yield
+        return
+    monkeypatch.setattr(settings, "langsmith_tracing", False)
+    with tracing_context(enabled=False):
+        yield
 
 
 def _alembic_config(database_url: str | None = None) -> Config:
