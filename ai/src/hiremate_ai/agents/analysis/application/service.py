@@ -2,21 +2,26 @@
 
 import asyncio
 import re
+from collections.abc import Sequence
 from datetime import date
 
+from hiremate_ai.agents.analysis.application.context import readable
+from hiremate_ai.agents.analysis.application.extract import extract_documents, merge
 from hiremate_ai.agents.analysis.application.graph import REVIEW_VERSION, ReviewInput, run_review
+from hiremate_ai.agents.analysis.application.review import fact_claims, review_claims
 from hiremate_ai.agents.analysis.application.score import Weights
 from hiremate_ai.agents.analysis.application.store import ReviewStore, input_hash
 from hiremate_ai.agents.analysis.application.types import (
     ApplicationReview,
     Criterion,
     EvaluationRules,
+    Fact,
     Note,
     ScreeningRubric,
 )
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.config import settings
-from hiremate_ai.contract import ApplicantDetail, CriterionCategory, CriterionType, PostingContent
+from hiremate_ai.contract import ApplicantDetail, ApplicantDocument, CriterionCategory, CriterionType, PostingContent
 from hiremate_ai.llm.client import LlmClient
 
 CRITERIA_SOURCE = "공고 · 평가 기준"
@@ -28,6 +33,23 @@ class RubricScopeError(ValueError):
 
 def weights() -> Weights:
     return Weights(normal=settings.criterion_weight_normal, important=settings.criterion_weight_important)
+
+
+async def review_application_documents(llm: LlmClient, documents: Sequence[ApplicantDocument]) -> list[Fact]:
+    """제출 문서의 사실과 근거를 검토한다. 점수를 매기거나 결과를 저장하지 않는다.
+
+    원문에서 찾은 인용과 본인 역할을 보존하며, 검토에서 명시적으로 뒷받침된 사실만 supported다.
+    """
+    usable = readable(documents)
+    if not usable:
+        return []
+    extracted = await extract_documents(llm, usable, settings.application_concurrency)
+    facts, _ = merge(usable, extracted, date.today())
+    reviews = await review_claims(llm, fact_claims(facts))
+    supported = {review.id for review in reviews.values() if review.verdict == "SUPPORTED"}
+    return [
+        fact.model_copy(update={"supported": f"F{index}" in supported}) for index, fact in enumerate(facts, start=1)
+    ]
 
 
 async def analyze_application(
