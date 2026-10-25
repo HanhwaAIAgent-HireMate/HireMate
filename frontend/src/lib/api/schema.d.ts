@@ -708,6 +708,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/notices/{group}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["preview_1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates": {
         parameters: {
             query?: never;
@@ -844,6 +860,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["report"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recruitments/{recruitmentId}/posting/receipt/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["receiptPreview"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1505,6 +1537,10 @@ export interface components {
             preferenceScore: number | null;
             /** Format: int32 */
             preferenceMax: number;
+        };
+        MailPreview: {
+            subject: string;
+            html: string;
         };
         ChatTurn: {
             message: string;
@@ -3054,6 +3090,29 @@ export interface operations {
             };
         };
     };
+    preview_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                group: "PASS" | "FAIL";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["MailPreview"];
+                };
+            };
+        };
+    };
     candidates: {
         parameters: {
             query?: {
@@ -3259,6 +3318,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ReportView"];
+                };
+            };
+        };
+    };
+    receiptPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["MailPreview"];
                 };
             };
         };

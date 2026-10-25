@@ -1,7 +1,7 @@
 import { Lock } from 'lucide-react'
 
 import { VariableField } from '@/features/company/VariableField'
-import { previewReceipt, RECEIPT_VARIABLES, type Receipt } from '@/features/posting/receipt'
+import { RECEIPT_VARIABLES, type Receipt } from '@/features/posting/receipt'
 
 // 접수 확인 메일 편집. 지원서를 내면 바로 가는 메일이라 HR이 게시 전에 확인하고, 게시하면 잠긴다
 export function ReceiptMailEditor({
@@ -47,29 +47,6 @@ export function ReceiptMailEditor({
         <Lock className="size-3.5" />
         {requiredText}
       </p>
-    </div>
-  )
-}
-
-// 게시 전 미리보기. 회사명 · 공고명은 이 공고 값, 지원자 값은 예시로 채운다
-export function ReceiptMailPreview({
-  receipt,
-  requiredText,
-  companyName,
-  title,
-}: {
-  receipt: Receipt
-  requiredText: string
-  companyName: string
-  title: string
-}) {
-  return (
-    <div className="space-y-2 rounded-lg border p-3 text-xs">
-      <p className="font-semibold">{previewReceipt(receipt.subject, companyName, title)}</p>
-      <p className="leading-5 whitespace-pre-line">
-        {previewReceipt(receipt.body, companyName, title)}
-      </p>
-      <p className="border-t pt-2 text-muted-foreground">{requiredText}</p>
     </div>
   )
 }
