@@ -44,7 +44,7 @@ from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CriterionCategory, PostingContent, ScoreStatus, Verdict
 from hiremate_ai.llm.client import LlmClient
 
-REVIEW_VERSION = "2026-10-24.2"
+REVIEW_VERSION = "2026-10-25.1"
 # 카드의 '눈여겨볼 점' 후보로 검토하는 사실 수
 NOTABLE_CANDIDATES = 6
 NOTABLE_KINDS = ("ACHIEVEMENT", "PROJECT", "EXPERIENCE")
