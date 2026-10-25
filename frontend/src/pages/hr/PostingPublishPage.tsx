@@ -209,7 +209,7 @@ function PublishForm({ posting }: { posting: Posting }) {
           </Field>
           <Field label="접수 확인 메일">
             <div className="space-y-2">
-              <MailFrame preview={receipt.data} title="접수 확인 메일 미리보기" />
+              <MailFrame preview={receipt.data} title="접수 확인 메일 미리보기" styleLink />
               <p className="text-xs text-muted-foreground">
                 지원서를 내면 바로 이 메일이 가요. 게시하면 바꿀 수 없어요. 지원자 이름과 지원번호는
                 예시예요.

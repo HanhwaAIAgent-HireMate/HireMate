@@ -3,6 +3,7 @@ import { NavLink, useParams } from 'react-router'
 
 import { useCompanyProfile, usePostingSettings } from '@/features/company/api'
 import { CompanyProfileForm } from '@/features/company/CompanyProfileForm'
+import { MailStyleForm } from '@/features/company/MailStyleForm'
 import { NoticeTemplateForm } from '@/features/company/NoticeTemplateForm'
 import { PostingSettingsForm } from '@/features/company/PostingSettingsForm'
 import { cn } from '@/lib/utils'
@@ -54,7 +55,10 @@ export function SettingsPage() {
         {section === 'posting' ? (
           <PostingSettingsForm />
         ) : section === 'mail' ? (
-          <NoticeTemplateForm />
+          <>
+            <MailStyleForm />
+            <NoticeTemplateForm />
+          </>
         ) : (
           <CompanyProfileForm />
         )}

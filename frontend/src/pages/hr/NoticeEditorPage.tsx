@@ -303,7 +303,7 @@ function Editor({
           </Tabs>
           {view === 'preview' ? (
             <div className="mx-auto max-w-[640px]">
-              <MailFrame preview={preview.data} title={`${notice.label} 미리보기`} />
+              <MailFrame preview={preview.data} title={`${notice.label} 미리보기`} styleLink />
             </div>
           ) : (
             <div className="mx-auto max-w-[560px] rounded-xl border bg-background p-5 text-sm">
