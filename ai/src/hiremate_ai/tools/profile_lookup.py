@@ -1,4 +1,4 @@
-"""지원자 프로필 조회 도구 (PRD §10 get_candidate_evidence). Root Agent의 B 분석 · 생성 도구 루프가 쓴다.
+"""지원자 프로필 조회 도구 (PRD §10 get_candidate_evidence). Root Agent의 ReAct 도구 루프가 쓴다.
 
 예: "@정유민 우리 회사랑 잘 맞는 것 같아?" → Root가 이 도구로 정유민의 프로필(항목 · 근거 · 출처)을 읽고 답한다.
 원문 문서를 처음부터 다시 읽지 않고, 분석 Agent들이 미리 정리해 둔 내용을 바로 볼 수 있다.

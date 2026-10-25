@@ -3,8 +3,8 @@ from pathlib import Path
 from typing import Any
 
 from hiremate_ai.agents.root import studio
+from hiremate_ai.agents.root.commands import EditCommand, RootReply
 from hiremate_ai.agents.root.graph import build_root_graph
-from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.studio import SAMPLE, StudioContext
 from hiremate_ai.agents.root.types import ChatContext, EditAction, Intent
 from hiremate_ai.llm.fake import FakeLlm
@@ -30,7 +30,10 @@ def test_context_defaults_to_sample_and_mentions_follow_message() -> None:
 
 
 async def test_graph_takes_only_message_as_context() -> None:
-    graph = build_root_graph(FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR)), context_schema=StudioContext)
+    graph = build_root_graph(
+        FakeLlm(RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR))),
+        context_schema=StudioContext,
+    )
 
     # Studio는 context를 JSON 객체로 보내고, 그래프가 context_schema로 바꾼다
     sent: Any = {"message": "선택 지원자 비워줘"}

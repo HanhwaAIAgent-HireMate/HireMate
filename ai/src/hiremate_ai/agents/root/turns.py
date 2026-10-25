@@ -7,8 +7,7 @@ from collections.abc import Sequence
 from typing import Any, TypedDict
 from uuid import UUID
 
-from hiremate_ai.agents.root.targets import Targets
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan, Intent, SelectionMode
+from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent, SelectionMode
 
 
 class TurnItem(TypedDict):
@@ -29,7 +28,7 @@ class Turn(TypedDict):
     plan: dict[str, Any]  # 화면에 다시 보여 줄 계획 (ChatPlan JSON)
 
 
-def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan, kind: str = "") -> Turn:
+def turn_of(context: ChatContext, targets: Sequence[UUID] | None, plan: ChatPlan, kind: str = "") -> Turn:
     """찾기 턴은 찾은 결과만 남긴다. 아무도 못 찾았으면 비워 둔다.
 
     합격 · 불합격한 지원자 안에서 찾았으면 선택 지원자를 바꾸지 않아 찾은 사람은 답 항목에만 있다.
@@ -39,7 +38,7 @@ def turn_of(context: ChatContext, targets: Targets | None, plan: ChatPlan, kind:
     if not subject and kind != "FIND":
         subject = answered
     if not subject and kind != "FIND" and targets is not None:
-        subject = [row.application_id for row in targets.rows]
+        subject = list(targets)
     return Turn(
         message=context.message,
         kind=kind,
@@ -86,18 +85,3 @@ def next_result(result: list[str] | None, kind: str, mode: SelectionMode | None,
     if plan.intent is Intent.ANSWER and mode in (None, SelectionMode.REPLACE):
         return []
     return result
-
-
-def remembered(result: list[str] | None, subject: list[str], ref: str) -> list[str]:
-    """앞 대화가 가리키는 지원자 id. result는 지금 결과 목록(만든 적이 없으면 직전에 다룬 지원자)이다."""
-    if ref == "result":
-        return subject if result is None else result
-    return subject
-
-
-def recall(context: ChatContext, ids: Sequence[str], ordinal: int | None) -> list[CandidateRow]:
-    """순서를 주면 그 사람만 고른다. 지금 전형에 없는 지원자는 뺀다."""
-    if ordinal is not None:
-        ids = ids[ordinal - 1 : ordinal] if 1 <= ordinal <= len(ids) else []
-    by_id = {str(row.application_id): row for row in context.candidates}
-    return [by_id[application_id] for application_id in ids if application_id in by_id]

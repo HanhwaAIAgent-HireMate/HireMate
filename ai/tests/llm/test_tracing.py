@@ -11,8 +11,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import Client, get_current_run_tree
 from pydantic import SecretStr
 
+from hiremate_ai.agents.root.commands import EditCommand, RootReply
 from hiremate_ai.agents.root.memory import get_saver
-from hiremate_ai.agents.root.route import RootRoute
 from hiremate_ai.agents.root.types import EditAction
 from hiremate_ai.config import settings
 from hiremate_ai.llm import tracing
@@ -25,7 +25,7 @@ CONTRACT_DIR = Path(__file__).resolve().parents[3] / "contract"
 
 
 def runs(client: MagicMock, method: str) -> list[Mapping[str, Any]]:
-    """클라이언트가 받은 create_run · update_run 호출의 인자. 맨 위 기록에는 parent_run_id가 없다."""
+    """클라이언트가 받은 create_run과 update_run 호출의 인자. 맨 위 기록에는 parent_run_id가 없다."""
     return [call.kwargs for call in client.mock_calls if call[0] == method]
 
 
@@ -65,7 +65,9 @@ def test_without_name_each_langchain_run_is_a_trace(langsmith: MagicMock) -> Non
 
 def test_sse_request_is_one_trace_closed_after_stream(langsmith: MagicMock) -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
-    app.dependency_overrides[get_llm] = lambda: FakeLlm(RootRoute(kind="EDIT", edit=EditAction.CLEAR))
+    app.dependency_overrides[get_llm] = lambda: FakeLlm(
+        RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR))
+    )
     app.dependency_overrides[get_saver] = lambda: InMemorySaver()
     try:
         response = TestClient(app).post("/agents/root/plan", json={"context": context})
