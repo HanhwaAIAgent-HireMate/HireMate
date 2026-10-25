@@ -3,7 +3,9 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from hiremate_ai.agents.analysis.application.present import criterion_lines
 from hiremate_ai.agents.analysis.application.router import get_store
+from hiremate_ai.agents.analysis.application.score import Weights
 from hiremate_ai.agents.analysis.application.types import (
     Actor,
     ApplicationReview,
@@ -16,12 +18,22 @@ from hiremate_ai.agents.analysis.interview.agent import AnswerReading
 from hiremate_ai.agents.generation.interview.agent import (
     CHECK,
     CLAIM,
+    CONCEPT,
+    FACT,
     FINAL_SLOTS,
     INTRO,
     NOTABLE,
     PREFERRED,
     REQUIRED,
+    SCENARIO,
+    Gap,
     QuestionDraft,
+    State,
+    _checked,
+    _same_goal,
+    _validate,
+    finalize,
+    find_gaps,
     generate_questions,
     load_review,
     review_gaps,
@@ -92,7 +104,7 @@ def view(*previous: PreviousInterview, questions: list[InterviewQuestion] | None
 
 def draft(call: LlmCall, *, bad: bool = False, sid: str = "S1") -> QuestionDraft:
     """user 프롬프트에 나온 gap_id마다 서로 다른 질문을 하나씩 쓴다."""
-    gap_ids = [line.split("gap_id: ")[1].split(" |")[0] for line in call.user.splitlines() if "gap_id: " in line]
+    gap_lines = [line for line in call.user.splitlines() if "gap_id: " in line]
     texts = [
         "서버 개발 경험이 있다면 맡았던 기능과 결과를 말해 주세요.",
         "금융 서비스를 다뤄 본 적이 있다면 어떤 데이터를 처리했는지 설명해 주세요.",
@@ -100,8 +112,17 @@ def draft(call: LlmCall, *, bad: bool = False, sid: str = "S1") -> QuestionDraft
     ]
     bad_text = "결혼 계획이 있으신가요? 업무 몰입에 영향이 없는지 말해 주세요."
     questions = []
-    for i, gap_id in enumerate(gap_ids):
-        questions.append({"gap_id": gap_id, "question": bad_text if bad else texts[i % len(texts)]})
+    for i, line in enumerate(gap_lines):
+        gap_id = line.split("gap_id: ")[1].split(" |")[0]
+        topic = line.split(" | topic: ")[1].split(" |")[0]
+        text = texts[i % len(texts)]
+        if "mode: CONCEPT" in line:
+            text = f"{topic}에 필요한 원리 하나를 골라 적용 기준을 설명해 주세요."
+        elif "mode: SCENARIO" in line:
+            text = f"{topic} 업무를 맡는다면 처음 확인할 항목과 그 이유를 말해 주세요."
+        elif "type: 본인 역할 확인" in line or "type: 주장만 있음" in line:
+            text = f"'{topic}'에서 본인이 맡은 부분과 결과를 말해 주세요."
+        questions.append({"gap_id": gap_id, "question": bad_text if bad else text})
     # 최종면접이면 프롬프트에 적힌 자리(- VALUES (…)…)마다 그 주제의 열린 질문을 하나씩 쓴다
     slot_texts = {
         "VALUES": "일하면서 가장 중요하게 지켜 온 원칙이 드러났던 경험이 있다면, 그때 한 선택을 말해 주세요.",
@@ -126,7 +147,7 @@ def draft(call: LlmCall, *, bad: bool = False, sid: str = "S1") -> QuestionDraft
     )
 
 
-async def test_required_gap_comes_first_and_free_pick_is_last(
+async def test_required_experience_and_concept_have_separate_slots(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
 ) -> None:
     llm = FakeLlm(draft)
@@ -143,9 +164,11 @@ async def test_required_gap_comes_first_and_free_pick_is_last(
     assert len(questions) == 4
     assert questions[0] == INTRO  # 맨 앞은 1분 자기소개 ('공통' 표시 없이 일반 질문)
     assert questions[1].startswith("서버 개발 경험")  # 필수 조건 근거 없음 빈틈의 질문
-    assert questions[-1].startswith("모의 결제 API")  # 이 사람만의 확인 포인트
+    assert "Spring Boot와 MySQL" in questions[2]  # 필수 조건 다음에는 실제 지원자 경험
+    assert "원리" in questions[-1]  # 개념·적용 판단도 별도 자리
     [call] = llm.calls
-    assert "필수 조건 근거 없음" in call.user.splitlines()[1]
+    assert "필수 조건 근거 없음" in call.user
+    assert "free_pick: 요청하지 않음" in call.user
     assert '<data kind="documents"' in call.user
     assert "한결대학교" not in call.user  # 학력 줄은 질문 소재로 넘기지 않는다
 
@@ -252,7 +275,7 @@ async def test_invalid_free_pick_falls_back_to_next_gap(
         posting=sample_posting,
         analysis=newcomer_analysis,
         interview=view(),
-        focus=None,
+        focus="프로젝트 질문 추가",
     )
 
     assert len(questions) == 4
@@ -870,7 +893,7 @@ def newcomer_review(applicant: ApplicantDetail, *, readable: bool = True) -> App
                 Verdict.NOT_MET,
                 "경력 없음",
                 shortfall="신입",
-            ),
+            ).model_copy(update={"criterion_type": CriterionType.CONDITION}),
             _result("Q-02", CriterionCategory.QUALIFICATION, "RDBMS 설계와 운영 경험", Verdict.MET, "MySQL 사용"),
             _result(
                 "P-01",
@@ -880,19 +903,19 @@ def newcomer_review(applicant: ApplicantDetail, *, readable: bool = True) -> App
                 "취소 API의 오류 처리는 했지만 대용량 요청 처리 성능 기준은 드러나지 않는다.",
             ),
         ],
-        checks=[Note(text="실무 경력 없이 모의 프로젝트만 있음", source="자격 요건")],
+        checks=[Note(text="Q-01 'Java · Spring Boot 기반 서버 개발 경력 3년 이상': 경력 없음", source="자격 요건")],
     )
 
 
-def test_review_gaps_follow_the_demo_like_priority(sample_applicants: dict[str, ApplicantDetail]) -> None:
-    """상세 판정으로 고른 빈틈: 필수 → 확인 필요 → 우대 → 주장만 → 본인 역할. 평가 기준 없는 우대사항은 뺀다."""
+def test_review_gaps_skip_known_shortfall_and_duplicate_note(sample_applicants: dict[str, ApplicantDetail]) -> None:
+    """이미 확인된 기간 미달과 그 판정 메모를 제외하고 실제로 확인할 소재를 남긴다."""
     gaps = review_gaps(newcomer_review(sample_applicants["이도윤"]))
 
-    assert [gap.kind for gap in gaps] == [REQUIRED, CHECK, PREFERRED, CLAIM, NOTABLE]
-    assert "부분 충족" in gaps[2].note and "성능 기준" in gaps[2].note  # 충족도와 이유가 메모로 간다
+    assert [gap.kind for gap in gaps] == [PREFERRED, CLAIM, NOTABLE]
+    assert "부분 충족" in gaps[0].note and "성능 기준" in gaps[0].note
     assert all("금융" not in gap.topic for gap in gaps)  # 평가 기준(UNRATED)이 없는 우대사항은 빈틈이 아니다
-    assert gaps[3].evidence == [SDK] and "불분명" in gaps[3].note  # 역할이 불분명한 경험은 '주장만'
-    assert gaps[4].evidence == [API]  # 본인 역할 확인은 요약 문장이 아니라 서류 원문을 인용한다
+    assert gaps[1].evidence == [SDK] and "불분명" in gaps[1].note
+    assert gaps[2].evidence == [API]
 
 
 @pytest.mark.parametrize("use_review", [True, False])
@@ -916,6 +939,7 @@ def test_configuration_notices_are_excluded_but_applicant_checks_remain(
     checks = [*notices, real_check]
     if use_review:
         review = newcomer_review(sample_applicants["이도윤"]).model_copy(update={"checks": checks})
+        review.criteria[0] = review.criteria[0].model_copy(update={"verdict": Verdict.UNKNOWN})
         gaps = review_gaps(review)
     else:
         analysis = newcomer_analysis.model_copy(
@@ -998,8 +1022,9 @@ async def test_detailed_review_is_used_instead_of_the_summary(
     )
 
     assert len(questions) == 4
-    assert "자격 요건 근거 부족 — 신입" in llm.calls[0].user
-    assert "실무 경력 없이 모의 프로젝트만 있음" in llm.calls[0].user
+    assert "부분 충족 — 취소 API" in llm.calls[0].user
+    assert "경력 없음" not in llm.calls[0].user
+    assert SDK in llm.calls[0].user  # 확인 메모가 경험 자리를 밀어내지 않는다.
 
 
 async def test_unreadable_review_falls_back_to_the_summary(
@@ -1079,3 +1104,285 @@ async def test_experience_already_asked_on_the_card_is_not_asked_again(
     )
 
     assert not any("결제 승인 · 취소 API" in text for text in questions)
+
+
+@pytest.mark.parametrize("use_review", [True, False])
+@pytest.mark.parametrize("verdict", [Verdict.PARTIAL, Verdict.UNKNOWN, Verdict.NOT_MET, Verdict.MET])
+def test_new_verdict_parts_take_precedence_over_legacy_boolean(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    use_review: bool,
+    verdict: Verdict,
+) -> None:
+    item = _result(
+        "Q-01", CriterionCategory.QUALIFICATION, "API 구현 및 오류 복구", verdict, "구현은 확인됨"
+    ).model_copy(update={"satisfied_parts": ["API 구현"], "unknown_parts": ["API 오류 복구"]})
+    review = newcomer_review(sample_applicants["이도윤"]).model_copy(
+        update={
+            "criteria": [item],
+            "facts": [],
+            "checks": [Note(text="Q-01 'API 구현 및 오류 복구': 구현은 확인됨", source="자격 요건")],
+        }
+    )
+    analysis = newcomer_analysis.model_copy(
+        update={
+            "criteria": criterion_lines(review, Weights(normal=1.0, important=2.0)),
+            "conditions": [Condition(label="API", requirement=item.text, met=False)],
+            "notable": [],
+            "checks": [Finding(text=review.checks[0].text, source="자격 요건")],
+        }
+    )
+    gaps = review_gaps(review) if use_review else summary_gaps(sample_posting, analysis)
+    if verdict == Verdict.MET:
+        assert gaps == []  # 과거 boolean=False가 최신 MET를 덮어쓰지 않는다.
+        return
+    assert len(gaps) == 1  # 판정과 확인 메모를 합쳐서 한 번만 묻는다.
+    gap = gaps[0]
+    assert gap.topic == "API 오류 복구"
+    assert gap.confirmed == ["API 구현"]
+    assert gap.criterion_id == "Q-01"
+    assert gap.mode == ""  # UNKNOWN 부분이 남으면 미경험으로 단정하여 가상 상황으로 바꾸지 않는다.
+
+
+@pytest.mark.parametrize("topic", ["경력 3년 이상", "SQLD 자격증 보유"])
+@pytest.mark.parametrize("verdict", [Verdict.UNKNOWN, Verdict.NOT_MET])
+def test_factual_conditions_are_not_replaced_by_theory(
+    sample_applicants: dict[str, ApplicantDetail],
+    topic: str,
+    verdict: Verdict,
+) -> None:
+    item = _result("Q-01", CriterionCategory.QUALIFICATION, topic, verdict, "기간 또는 증빙 확인").model_copy(
+        update={"criterion_type": CriterionType.CONDITION}
+    )
+    review = newcomer_review(sample_applicants["이도윤"]).model_copy(
+        update={"criteria": [item], "facts": [], "checks": []}
+    )
+    gaps = review_gaps(review)
+    if verdict == Verdict.NOT_MET:
+        assert gaps == []
+    else:
+        assert len(gaps) == 1 and gaps[0].mode == FACT
+
+
+def selection_state(
+    applicant: ApplicantDetail,
+    posting: PostingContent,
+    analysis: CandidateAnalysis,
+    review: ApplicationReview | None = None,
+) -> State:
+    return State(
+        applicant=applicant,
+        posting=posting,
+        analysis=analysis,
+        review=review,
+        interview=view(),
+        follow_ups=[],
+        existing=[],
+        sentences={},
+        focus="",
+        kept={},
+        pick=None,
+        pick_sid=None,
+        retry=0,
+    )
+
+
+@pytest.mark.parametrize("extra", [0, 1, 2, 4])
+def test_only_distinct_important_targets_expand_three_to_five(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    extra: int,
+) -> None:
+    applicant = sample_applicants["이도윤"]
+    topics = ["오류 복구", "접근 권한", "개인정보 암호화", "배포 자동화", "정산 대사"]
+    criteria = [
+        _result(f"Q-{i}", CriterionCategory.QUALIFICATION, topic, Verdict.UNKNOWN, "수행 범위 확인").model_copy(
+            update={"unknown_parts": [topic], "important": True}
+        )
+        for i, topic in enumerate(topics[: extra + 1])
+    ]
+    review = newcomer_review(applicant).model_copy(update={"criteria": criteria, "checks": []})
+    state = selection_state(applicant, sample_posting, newcomer_analysis, review)
+    planned = find_gaps(state)["gaps"]
+    assert len(planned) == min(3 + extra, 5)
+    assert planned[0].topic == "오류 복구"
+    assert planned[1].kind in (CLAIM, NOTABLE)
+    assert planned[2].kind == CONCEPT
+    assert all(gap.important and gap.targets for gap in planned[3:])
+
+
+def test_same_source_or_same_criterion_does_not_take_two_slots() -> None:
+    assert _same_goal(
+        Gap("", REQUIRED, "오류 복구", "", criterion_id="Q-1"), Gap("", CHECK, "장애 때 재시도", "", criterion_id="Q-1")
+    )
+    assert _same_goal(
+        Gap("", CLAIM, "Kafka 순서 보장", "", [SDK]), Gap("", NOTABLE, "파티션 키를 고른 이유", "", [SDK])
+    )
+    assert not _same_goal(Gap("", REQUIRED, "정산 대사", ""), Gap("", REQUIRED, "보안 점검", ""))
+
+
+async def test_no_experience_uses_explicit_situations_without_inventing_projects(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    applicant = sample_applicants["이도윤"].model_copy(update={"documents": []})
+    analysis = newcomer_analysis.model_copy(update={"criteria": [], "conditions": [], "notable": [], "checks": []})
+    llm = FakeLlm(draft, draft)
+    questions = await generate_questions(
+        llm, applicant=applicant, posting=sample_posting, analysis=analysis, interview=view(), focus=None
+    )
+    assert len(questions) == 4 and questions[0] == INTRO
+    assert any("원리" in text for text in questions[1:])
+    assert sum("맡는다면" in text for text in questions) == 2
+    assert all("적어 주셨" not in text and "하셨" not in text for text in questions)
+
+
+async def test_partial_question_cannot_reask_only_the_confirmed_part(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    applicant = sample_applicants["이도윤"]
+    item = _result(
+        "Q-1", CriterionCategory.QUALIFICATION, "API 구현 및 오류 복구", Verdict.PARTIAL, "오류 복구만 확인 필요"
+    )
+    item = item.model_copy(update={"satisfied_parts": ["API 구현"], "unknown_parts": ["API 오류 복구"]})
+    review = newcomer_review(applicant).model_copy(update={"criteria": [item], "checks": []})
+
+    def wrong_target(call: LlmCall) -> QuestionDraft:
+        response = draft(call)
+        for question in response.questions:
+            if question.gap_id == "G1":
+                question.question = "API 구현 경험이 있다면 어떤 기능을 만들었는지 말해 주세요."
+        return response
+
+    llm = FakeLlm(wrong_target, wrong_target)
+    questions = await generate_questions(
+        llm,
+        applicant=applicant,
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view(),
+        focus=None,
+        review=review,
+    )
+    assert len(llm.calls) == 2
+    assert "fix_errors: G1:" in llm.calls[1].user
+    assert "오류 복구" in questions[1]
+    assert all("API 구현 경험이 있다면" not in question for question in questions)
+
+
+def test_theory_and_situation_permission_is_limited_to_planned_modes() -> None:
+    theory = "Redis 캐시의 만료 시간을 결정하는 원리와 적용 기준을 설명해 주세요."
+    scenario = "캐시 데이터가 원본과 달라진다면 원인을 어떤 순서로 확인할지 설명해 주세요."
+    assert _checked(theory, CONCEPT, [])[0] is not None
+    assert _checked(scenario, SCENARIO, [])[0] is not None
+    assert _checked(scenario, NOTABLE, [])[0] is None
+    assert _checked("Redis를 도입하셨을 때 메모리를 관리한 과정을 말해 주세요.", CONCEPT, [])[0] is None
+
+
+def test_same_purpose_is_not_restored_by_fallback(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["gaps"] = [Gap("G1", REQUIRED, "Kafka 이벤트 순서", ""), Gap("G2", PREFERRED, "Kafka 파티션 키", "")]
+    state["spare"] = []
+    state["balanced"] = True
+    response = QuestionDraft.model_validate(
+        {
+            "questions": [
+                {
+                    "gap_id": "G1",
+                    "question": "Kafka 이벤트를 처리한 경험이 있다면 순서 보장 방식을 설명해 주세요.",
+                    "purpose": "Kafka 메시지 순서 보장 설계 판단 확인",
+                },
+                {
+                    "gap_id": "G2",
+                    "question": "Kafka 파티션 키를 결정한 경험이 있다면 선택 기준을 말해 주세요.",
+                    "purpose": "Kafka 메시지 순서 보장 설계 판단 확인",
+                },
+            ]
+        }
+    )
+    validated = _validate(state, response, [], False)
+    state["kept"], state["redundant"] = validated["kept"], validated["redundant"]
+    assert state["redundant"] == ["G2"]
+    result = finalize(state)["result"]
+    assert len(result) == 2  # 최소 개수 때문에 같은 질문을 복원하지 않는다.
+    assert not any("파티션 키" in question for question in result)
+
+
+async def test_unknown_career_survives_safe_fallback_as_fact_check(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    applicant = sample_applicants["이도윤"]
+    item = _result("Q-1", CriterionCategory.QUALIFICATION, "백엔드 개발 경력 3년 이상", Verdict.UNKNOWN, "기간 불명확")
+    item = item.model_copy(update={"criterion_type": CriterionType.CONDITION})
+    review = newcomer_review(applicant).model_copy(update={"criteria": [item], "checks": []})
+    llm = FakeLlm(lambda call: draft(call, bad=True), lambda call: draft(call, bad=True))
+    questions = await generate_questions(
+        llm,
+        applicant=applicant,
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view(),
+        focus=None,
+        review=review,
+    )
+    assert len(questions) == 4
+    assert "경력" in questions[1] and "확인할 자료" in questions[1]
+    assert "3년 이상" not in questions[1] and "원리" not in questions[1]
+    assert all("결혼" not in question for question in questions)
+
+
+def test_known_skill_shortfall_uses_situation_but_unknown_does_not(
+    sample_applicants: dict[str, ApplicantDetail],
+) -> None:
+    item = _result("Q-1", CriterionCategory.QUALIFICATION, "배포 자동화", Verdict.NOT_MET, "미수행을 명시")
+    item = item.model_copy(update={"unsatisfied_parts": ["배포 자동화"]})
+    review = newcomer_review(sample_applicants["이도윤"]).model_copy(
+        update={"criteria": [item], "checks": [], "facts": []}
+    )
+    assert review_gaps(review)[0].mode == SCENARIO
+    review = review.model_copy(update={"criteria": [item.model_copy(update={"unknown_parts": ["배포 자동화"]})]})
+    assert review_gaps(review)[0].mode == ""
+
+
+def test_unimportant_backlog_does_not_expand_to_five(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    applicant = sample_applicants["이도윤"]
+    review = newcomer_review(applicant).model_copy(
+        update={
+            "checks": [],
+            "criteria": [
+                _result(f"Q-{i}", CriterionCategory.QUALIFICATION, topic, Verdict.UNKNOWN, "범위 확인").model_copy(
+                    update={"unknown_parts": [topic]}
+                )
+                for i, topic in enumerate(["권한 관리", "개인정보 암호화", "배포 자동화", "정산 대사"])
+            ],
+        }
+    )
+    planned = find_gaps(selection_state(applicant, sample_posting, newcomer_analysis, review))["gaps"]
+    assert len(planned) == 3
+
+
+def test_learning_plan_is_not_treated_as_completed_experience(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    analysis = newcomer_analysis.model_copy(update={"conditions": [], "criteria": [], "checks": [], "notable": []})
+    state = selection_state(sample_applicants["이도윤"], sample_posting, analysis)
+    state["sentences"] = {"S1": "결제 시스템을 설계하고 싶어서 담당 업무를 공부할 계획입니다."}
+    planned = find_gaps(state)["gaps"]
+    assert not any(gap.kind in (CLAIM, NOTABLE) for gap in planned)
