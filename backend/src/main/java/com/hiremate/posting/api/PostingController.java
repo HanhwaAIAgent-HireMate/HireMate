@@ -1,6 +1,7 @@
 package com.hiremate.posting.api;
 
 import com.hiremate.global.AuthenticatedMember;
+import com.hiremate.mail.MailPreview;
 import com.hiremate.posting.PostingService;
 import com.hiremate.posting.PostingView;
 import com.hiremate.posting.PublicPostingView;
@@ -76,5 +77,11 @@ public class PostingController {
     public PostingView changeReceipt(AuthenticatedMember member, @PathVariable UUID recruitmentId,
             @Valid @RequestBody ReceiptRequest request) {
         return postings.changeReceipt(member.companyId(), recruitmentId, request.toTemplate());
+    }
+
+    /** 지원자가 받을 접수 확인 메일의 모습. 저장한 템플릿으로 만들고 지원자 값은 예시다. */
+    @GetMapping("/api/recruitments/{recruitmentId}/posting/receipt/preview")
+    public MailPreview receiptPreview(AuthenticatedMember member, @PathVariable UUID recruitmentId) {
+        return postings.receiptPreview(member.companyId(), recruitmentId);
     }
 }

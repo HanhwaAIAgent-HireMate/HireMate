@@ -7,6 +7,8 @@ import com.hiremate.company.CompanyService;
 import com.hiremate.company.NoticeTemplateInfo;
 import com.hiremate.company.NoticeTemplateType;
 import com.hiremate.global.ApiException;
+import com.hiremate.mail.MailContent;
+import com.hiremate.mail.MailPreview;
 import com.hiremate.mail.MailResult;
 import com.hiremate.mail.MailService;
 import com.hiremate.notice.domain.Notice;
@@ -40,6 +42,7 @@ public class NoticeService {
     static final String GUIDE_LEAD = "일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.";
     static final String ONBOARDING_LEAD = "입사 일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.";
     static final String ONBOARDING_LATER = "입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.";
+    static final String PREVIEW_APPLICANT = "홍길동";
 
     private final NoticeRepository notices;
     private final NoticeDeliveryRepository deliveries;
@@ -122,15 +125,8 @@ public class NoticeService {
         List<UUID> recipients = group == NoticeGroup.PASS ? results.passed() : results.failed();
         Map<UUID, NoticeDelivery> previous = deliveries.findByNoticeId(notice.getId()).stream()
                 .collect(Collectors.toMap(NoticeDelivery::getApplicationId, Function.identity()));
-        String stageName = recruitment.stage(stageId).orElseThrow().name();
-        List<String> parts = new ArrayList<>(List.of(notice.getGreeting(), notice.getContent()));
-        String guide = guideText(notice, recruitment);
-        if (!guide.isEmpty()) {
-            parts.add(guide);
-        }
-        parts.addAll(List.of(notice.getClosing(), notice.getRequiredText()));
-        String body = String.join("\n\n", parts);
         String companyName = companies.profile(companyId).name();
+        MailContent content = content(notice, recruitment, companyName);
         int sent = 0;
         int failed = 0;
         for (ApplicantInfo applicant : applications.applicants(companyId, recipients)) {
@@ -139,9 +135,9 @@ public class NoticeService {
                 sent++;
                 continue;
             }
-            Map<String, String> values = Map.of("{지원자명}", applicant.name(), "{회사명}", companyName,
-                    "{공고명}", recruitment.title(), "{전형명}", stageName);
-            MailResult result = mail.send(applicant.email(), fill(notice.getSubject(), values), fill(body, values));
+            Map<String, String> values = values(applicant.name(), companyName, recruitment, stageId);
+            MailResult result = mail.send(applicant.email(), fill(notice.getSubject(), values),
+                    content.fill(values));
             if (delivery == null) {
                 delivery = deliveries.save(new NoticeDelivery(notice.getId(), applicant.applicationId(),
                         applicant.email()));
@@ -157,6 +153,17 @@ public class NoticeService {
         activity.record(companyId, memberId, "SEND_NOTICE", "STAGE", stageId,
                 group + " sent=" + sent + ", failed=" + failed);
         return toView(notice, recruitment);
+    }
+
+    /** 보내기 전 화면의 미리보기. 저장한 초안으로 보낼 때와 같은 메일을 만들고, 지원자 이름은 예시로 채운다. */
+    @Transactional(readOnly = true)
+    public MailPreview preview(UUID companyId, UUID stageId, NoticeGroup group) {
+        Notice notice = notice(companyId, stageId, group);
+        RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
+        String companyName = companies.profile(companyId).name();
+        Map<String, String> values = values(PREVIEW_APPLICANT, companyName, recruitment, stageId);
+        return MailPreview.of(fill(notice.getSubject(), values),
+                content(notice, recruitment, companyName).fill(values));
     }
 
     /** 공고 작성 화면의 전형 안내. 첫 전형은 안내하는 메일이 없어 뺀다. */
@@ -211,6 +218,21 @@ public class NoticeService {
     private Notice notice(UUID companyId, UUID stageId, NoticeGroup group) {
         return notices.findByStageIdAndCompanyIdAndGroupType(stageId, companyId, group).orElseThrow(
                 () -> new ApiException(HttpStatus.NOT_FOUND, "NOTICE_NOT_FOUND", "Notice not found."));
+    }
+
+    /** 메일 내용. 인사말과 본문, 붙일 안내, 맺음말, 필수 문구 순서다. 변수는 아직 채우지 않았다. */
+    private static MailContent content(Notice notice, RecruitmentInfo recruitment, String companyName) {
+        List<MailContent.Block> blocks = new ArrayList<>(List.of(new MailContent.Text(notice.getGreeting()),
+                new MailContent.Text(notice.getContent())));
+        guideBlock(notice, recruitment).ifPresent(blocks::add);
+        return new MailContent(companyName, recruitment.title(), blocks, notice.getClosing(),
+                notice.getRequiredText());
+    }
+
+    private static Map<String, String> values(String applicantName, String companyName, RecruitmentInfo recruitment,
+            UUID stageId) {
+        return Map.of("{지원자명}", applicantName, "{회사명}", companyName, "{공고명}", recruitment.title(),
+                "{전형명}", recruitment.stage(stageId).orElseThrow().name());
     }
 
     private static String fill(String text, Map<String, String> values) {
@@ -285,32 +307,30 @@ public class NoticeService {
      * 다음 전형 안내가 없으면 아무것도 붙이지 않고, 입사 안내가 없으면 담당자가 따로 안내한다고 쓴다.
      */
     static String guideText(Notice notice, RecruitmentInfo recruitment) {
+        return guideBlock(notice, recruitment).map(MailContent.Block::text).orElse("");
+    }
+
+    /** guideText의 메일 블록. 안내가 있으면 안내 상자, 입사 안내가 없으면 따로 안내한다는 문장이다. */
+    private static Optional<MailContent.Block> guideBlock(Notice notice, RecruitmentInfo recruitment) {
         return switch (notice.getTemplateType()) {
             case NEXT_STAGE -> nextStage(notice, recruitment)
                     .filter(next -> next.guide().hasContent())
-                    .map(next -> block(GUIDE_LEAD, next.name() + " 안내", items(next.guide()), next.guide().note()))
-                    .orElse("");
-            case FINAL_PASS -> notice.onboarding().hasContent()
-                    ? block(ONBOARDING_LEAD, "입사 안내", items(notice.onboarding()), notice.onboarding().note())
-                    : ONBOARDING_LATER;
-            case REJECT, FINAL_REJECT -> "";
+                    .map(next -> guide(GUIDE_LEAD, next.name() + " 안내", items(next.guide()), next.guide().note()));
+            case FINAL_PASS -> Optional.of(notice.onboarding().hasContent()
+                    ? guide(ONBOARDING_LEAD, "입사 안내", items(notice.onboarding()), notice.onboarding().note())
+                    : new MailContent.Text(ONBOARDING_LATER));
+            case REJECT, FINAL_REJECT -> Optional.empty();
         };
     }
 
-    /** 안내 묶음. 비어 있는 칸은 넣지 않고, 기타 안내는 이름 없이 한 줄마다 ※를 붙인다 ("기타 안내:"는 지원자에게 어색하다). */
-    private static String block(String lead, String title, Map<String, String> items, String note) {
-        List<String> lines = new ArrayList<>(List.of(lead, "", "■ " + title));
-        items.forEach((label, value) -> {
-            if (!value.isEmpty()) {
-                lines.add("- " + label + ": " + value);
-            }
-        });
+    /** 안내 상자. 비어 있는 칸은 넣지 않고, 기타 안내는 이름 없이 한 줄마다 ※를 붙인다 ("기타 안내:"는 지원자에게 어색하다). */
+    private static MailContent.Guide guide(String lead, String title, Map<String, String> items, String note) {
+        List<MailContent.Item> filled = items.entrySet().stream()
+                .filter(item -> !item.getValue().isEmpty())
+                .map(item -> new MailContent.Item(item.getKey(), item.getValue()))
+                .toList();
         List<String> notes = note.lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
-        if (!notes.isEmpty()) {
-            lines.add("");
-            notes.forEach(line -> lines.add("※ " + line));
-        }
-        return String.join("\n", lines);
+        return new MailContent.Guide(lead, title, filled, notes);
     }
 
     /** 보내기 전에 화면이 경고할 비어 있는 안내 칸 이름. */

@@ -131,6 +131,10 @@ class PostingTests extends IntegrationTest {
         JsonNode changed = json(expect(hr.put(base + "/receipt", Map.of("subject", "[{회사명}] 지원 확인",
                 "body", "{지원자명}님, {공고명} 지원번호는 {지원번호}번입니다.")), 200));
         assertThat(changed.path("receipt").path("subject").asString()).isEqualTo("[{회사명}] 지원 확인");
+        JsonNode preview = json(expect(hr.get(base + "/receipt/preview"), 200));
+        assertThat(preview.path("subject").asString()).isEqualTo("[테스트 기업] 지원 확인");
+        assertThat(preview.path("html").asString()).contains(">지원 확인</div>",
+                "홍길동님, 결제 백엔드 개발자 지원번호는 1번입니다.", "본 메일은 발신 전용입니다.");
 
         Instant now = Instant.now();
         expect(hr.post(base + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
@@ -143,6 +147,8 @@ class PostingTests extends IntegrationTest {
                 form), 201);
         assertThat(awaitMail("receipt@example.com")).isEqualTo("receipt@example.com|[테스트 기업] 지원 확인|"
                 + "김하늘님, 결제 백엔드 개발자 지원번호는 1번입니다.\n\n본 메일은 발신 전용입니다. 지원자 정보는 채용 목적으로만 이용됩니다.");
+        assertThat(mail.html).anySatisfy(html -> assertThat(html).contains(">테스트 기업</td>",
+                "김하늘님, 결제 백엔드 개발자 지원번호는 1번입니다."));
     }
 
     /** 접수 확인 메일은 접수가 끝난 뒤 따로 보내져 잠깐 기다린다. */

@@ -2,6 +2,7 @@ package com.hiremate.notice.api;
 
 import com.hiremate.global.ApiException;
 import com.hiremate.global.AuthenticatedMember;
+import com.hiremate.mail.MailPreview;
 import com.hiremate.notice.NoticeGroup;
 import com.hiremate.notice.NoticeService;
 import com.hiremate.notice.NoticeView;
@@ -54,6 +55,13 @@ public class NoticeController {
             @PathVariable NoticeGroup group, @Valid @RequestBody OnboardingRequest request) {
         return notices.changeOnboarding(member.companyId(), stageId, group, new OnboardingGuide(request.startDate(),
                 request.place(), request.documents(), request.preparation(), request.note()));
+    }
+
+    /** 지원자가 받을 모습. 저장한 초안으로 만들고 지원자 이름은 예시다. */
+    @GetMapping("/notices/{group}/preview")
+    public MailPreview preview(AuthenticatedMember member, @PathVariable UUID stageId,
+            @PathVariable NoticeGroup group) {
+        return notices.preview(member.companyId(), stageId, group);
     }
 
     /** HR이 확인한 뒤 직접 발송한다. */

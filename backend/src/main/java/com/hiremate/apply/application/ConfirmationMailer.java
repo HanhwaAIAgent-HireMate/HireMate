@@ -5,7 +5,7 @@ import com.hiremate.apply.ApplicationService;
 import com.hiremate.apply.ApplicationSubmitted;
 import com.hiremate.mail.MailService;
 import com.hiremate.posting.PostingService;
-import com.hiremate.posting.ReceiptTemplate;
+import com.hiremate.posting.ReceiptMail;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
 
@@ -29,8 +29,8 @@ class ConfirmationMailer {
     @ApplicationModuleListener
     void on(ApplicationSubmitted event) {
         ApplicantDetail detail = applications.detailForAnalysis(event.applicationId());
-        ReceiptTemplate receipt = postings.receiptMail(event.companyId(), event.recruitmentId(),
+        ReceiptMail receipt = postings.receiptMail(event.companyId(), event.recruitmentId(),
                 detail.info().name(), detail.info().applicationNo());
-        mail.send(detail.info().email(), receipt.subject(), receipt.body());
+        mail.send(detail.info().email(), receipt.subject(), receipt.content());
     }
 }
