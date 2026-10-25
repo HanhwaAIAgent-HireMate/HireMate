@@ -179,6 +179,9 @@ src/hiremate_ai/
   테스트는 `app.dependency_overrides[get_llm]`에 `FakeLlm`을 넣는다. 실제 모델 연결 설정은 `ai/.env.example`에 있다.
 - `LANGSMITH_TRACING=true`면 모델 호출이 LangSmith에도 기록된다. `LlmDep`을 받는 요청 하나, 워커 작업 하나가 기록 하나다.
   지원 문서 본문이 외부 서버로 나가므로 가상 지원자로 개발 · 평가할 때만 켠다. 단위 테스트는 켜 두어도 보내지 않는다.
+- Root 그래프는 ai 폴더에서 `uv run langgraph dev`로 띄워 LangSmith Studio에서 노드와 갈래를 보며 실행할 수 있다
+  (`langgraph.json`, `agents/root/studio.py`). 모델은 `ai/.env`를 쓰고, 지원자는 `contract/ChatContext.json`의 가상 샘플이다.
+  Root 그래프의 갈래 함수는 반환 타입에 갈 수 있는 노드를 `Literal`로 적는다. 적지 않으면 Studio 그림에 화살표가 빠진다.
 - 한 번 묻고 형식대로 받으면 `structured`, 모델이 도구를 골라 가며 자료를 확인해야 하면 `tool_agent`(도구 루프, ReAct)를 쓴다.
   도구 루프는 Root Agent의 B 분석 · 생성 경로에만 쓴다. A 지원자 찾기는 같은 질문에 같은 후보가 나오도록 코드 검색으로,
   C 선택 지원자 편집은 명령 변환으로 처리한다. `create_agent`나 `ChatOpenAI`를 직접 쓰지 않는다.
