@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from hiremate_ai.config import settings
 from hiremate_ai.llm.call_log import CallRecord
-from hiremate_ai.llm.chat import ToolAgent, build_tool_agent, transcript
+from hiremate_ai.llm.chat import ToolAgent, build_tool_agent, consume_model_call, transcript
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,7 @@ class FakeLlm:
         self.calls: list[LlmCall] = []
 
     async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
+        consume_model_call()
         result = self._reply(LlmCall(agent=agent, system=system, user=user, output=output))
         if not isinstance(result, output):
             raise AssertionError(f"FakeLlm 응답이 {output.__name__}가 아니다 ({type(result).__name__})")
