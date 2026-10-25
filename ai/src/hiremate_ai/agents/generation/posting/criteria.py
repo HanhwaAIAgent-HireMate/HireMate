@@ -5,6 +5,7 @@
 
 - 항목 문장에 없는 자격증 이름은 버린다. 모델이 "관련 자격증"을 정보처리기사 같은 이름으로 채우곤 한다 (규칙 7).
 - 판정 기준이 비면 공고 문장 그대로 확인하는 기준으로 채운다. 서류 평가 AI가 기준이 없을 때 쓰는 문장과 같다.
+- 판정 기준을 "~않아야 한다"처럼 요구하는 말로 끝내면 "~않는다"처럼 사실을 적는 말로 바꾼다.
 - 근거 NCS 능력단위가 있으면 정의와 수행준거를 참고로 보여 준다.
 """
 
@@ -52,14 +53,21 @@ CRITERIA_SYSTEM = """너는 채용 공고의 자격 요건 · 우대 사항 한 
 
 규칙:
 1. 판정 기준은 지원 서류(이력서 · 자기소개서 · 포트폴리오)에서 확인할 수 있는 사실로 한 문장씩 쓴다.
-   충족은 "~을 본인이 했다", 미충족은 "~이 서류에서 확인되지 않는다"처럼 쓴다.
-2. 항목 문장에 없는 조건(기간, 기술 이름, 수준)을 더하지 않는다.
+   충족은 "~을 본인이 했다" 또는 "~이 서류에서 확인된다", 부분 충족은 "~만 서류에서 확인된다",
+   미충족은 "~이 서류에서 확인되지 않는다"로 끝낸다. "~해야 한다", "~않아야 한다"처럼 요구하는 말로 쓰지 않는다.
+   예) 항목 "Spring Boot로 REST API를 개발한 경험" → 충족 "Spring Boot로 REST API를 본인이 개발했다",
+   미충족 "Spring Boot로 REST API를 개발한 경험이 서류에서 확인되지 않는다"
+2. 항목 문장의 기술 이름과 용어는 글자 그대로 옮긴다. 비슷한 말로 바꾸거나 빼지 않는다.
+3. 항목 문장에 없는 조건(기간, 기술 이름, 수준)을 더하지 않는다.
    경력 기간 조건이면 충족 기준 끝에 "(기간은 경력표로 계산한다)"를 붙인다.
-3. partial은 COMPOSITE일 때만 쓰고, 어느 부분만 확인되면 부분 충족인지 적는다. 다른 유형이면 null이다.
-4. certificates에는 항목이 자격증 보유를 요구할 때 그 자격증 이름만 적는다. 아니면 빈 목록이다.
-5. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 기준에 넣지 않는다. 한국어로 쓴다."""
+4. partial은 COMPOSITE일 때만 쓰고, 어느 부분만 확인되면 부분 충족인지 적는다. 다른 유형이면 null이다.
+5. certificates에는 항목이 자격증 보유를 요구할 때 그 자격증 이름만 적는다. 아니면 빈 목록이다.
+6. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 기준에 넣지 않는다. 한국어로 쓴다."""
 
 CRITERIA_STEP = "지금 할 일: 이 항목의 유형을 고르고 판정 기준을 쓴다."
+
+DEMAND_ENDINGS = {"있어야 한다": "있다", "않아야 한다": "않는다", "되어야 한다": "된다", "돼야 한다": "된다"}
+"""요구하는 말 → 사실을 적는 말. 작은 모델이 규칙과 달리 "확인되지 않아야 한다"처럼 끝내곤 한다."""
 
 _SPACES = re.compile(r"\s+")
 
@@ -85,11 +93,20 @@ def _checked(draft: RuleDraft, text: str) -> CriterionDraft:
         kind = CriterionType.SINGLE
     return CriterionDraft(
         criterion_type=kind,
-        met=draft.met.strip() or f"서류에서 '{text}'을 확인할 수 있다",
-        partial=partial if kind is CriterionType.COMPOSITE else None,
-        unmet=draft.unmet.strip() or f"서류에서 '{text}'이 확인되지 않는다",
+        met=_plain(draft.met.strip()) or f"서류에서 '{text}'을 확인할 수 있다",
+        partial=_plain(partial) if kind is CriterionType.COMPOSITE else None,
+        unmet=_plain(draft.unmet.strip()) or f"서류에서 '{text}'이 확인되지 않는다",
         certificates=_named_certificates(draft.certificates, text),
     )
+
+
+def _plain(rule: str) -> str:
+    """요구하는 말로 끝난 판정 기준을 서류에서 본 사실을 적는 말로 바꾼다. 끝의 마침표는 둔다."""
+    body, dot = (rule[:-1], ".") if rule.endswith(".") else (rule, "")
+    for ending, plain in DEMAND_ENDINGS.items():
+        if body.endswith(ending):
+            return body[: -len(ending)] + plain + dot
+    return rule
 
 
 def _named_certificates(names: list[str], text: str) -> list[str]:

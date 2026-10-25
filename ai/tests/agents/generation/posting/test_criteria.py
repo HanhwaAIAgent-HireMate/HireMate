@@ -81,6 +81,24 @@ async def test_empty_rules_fall_back_to_the_posting_sentence() -> None:
     assert draft.unmet == "서류에서 '금융 도메인 경험'이 확인되지 않는다"
 
 
+async def test_demanding_endings_become_plain_facts() -> None:
+    """서류 평가 AI가 판정할 사실이어야 해서, 요구하는 말로 끝난 기준은 사실을 적는 말로 바꾼다."""
+    llm = FakeLlm(
+        rules(
+            CriterionType.COMPOSITE,
+            met="지원 서류에서 SQL 튜닝 경험을 확인할 수 있어야 한다.",
+            partial="SQL 튜닝만 서류에서 확인되어야 한다",
+            unmet="지원 서류에서 SQL 튜닝 경험이 확인되지 않아야 한다.",
+        )
+    )
+
+    draft = await draft_criterion(llm, CONTENT, CriterionCategory.PREFERENCE, "RDBMS 스키마 설계와 SQL 튜닝 경험", None)
+
+    assert draft.met == "지원 서류에서 SQL 튜닝 경험을 확인할 수 있다."
+    assert draft.partial == "SQL 튜닝만 서류에서 확인된다"
+    assert draft.unmet == "지원 서류에서 SQL 튜닝 경험이 확인되지 않는다."
+
+
 async def test_keeps_only_certificates_named_in_the_item() -> None:
     """'관련 자격증'처럼 이름이 없는 항목에 모델이 지어낸 자격증은 버린다 (규칙 7)."""
     named = FakeLlm(rules(CriterionType.CONDITION, certificates=["정보처리기사", "SQLD", "SQLD", "리눅스마스터"]))
