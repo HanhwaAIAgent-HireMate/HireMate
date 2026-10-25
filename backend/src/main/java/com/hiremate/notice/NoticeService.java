@@ -4,9 +4,11 @@ import com.hiremate.activity.ActivityService;
 import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.company.CompanyService;
+import com.hiremate.company.MailStyleService;
 import com.hiremate.company.NoticeTemplateInfo;
 import com.hiremate.company.NoticeTemplateType;
 import com.hiremate.global.ApiException;
+import com.hiremate.mail.MailBrand;
 import com.hiremate.mail.MailContent;
 import com.hiremate.mail.MailPreview;
 import com.hiremate.mail.MailResult;
@@ -50,18 +52,20 @@ public class NoticeService {
     private final RecruitService recruits;
     private final ApplicationService applications;
     private final CompanyService companies;
+    private final MailStyleService mailStyles;
     private final MailService mail;
     private final ActivityService activity;
 
     public NoticeService(NoticeRepository notices, NoticeDeliveryRepository deliveries, ScreeningService screening,
-            RecruitService recruits, ApplicationService applications, CompanyService companies, MailService mail,
-            ActivityService activity) {
+            RecruitService recruits, ApplicationService applications, CompanyService companies,
+            MailStyleService mailStyles, MailService mail, ActivityService activity) {
         this.notices = notices;
         this.deliveries = deliveries;
         this.screening = screening;
         this.recruits = recruits;
         this.applications = applications;
         this.companies = companies;
+        this.mailStyles = mailStyles;
         this.mail = mail;
         this.activity = activity;
     }
@@ -127,6 +131,7 @@ public class NoticeService {
                 .collect(Collectors.toMap(NoticeDelivery::getApplicationId, Function.identity()));
         String companyName = companies.profile(companyId).name();
         MailContent content = content(notice, recruitment, companyName);
+        MailBrand brand = mailStyles.brand(companyId);
         int sent = 0;
         int failed = 0;
         for (ApplicantInfo applicant : applications.applicants(companyId, recipients)) {
@@ -137,7 +142,7 @@ public class NoticeService {
             }
             Map<String, String> values = values(applicant.name(), companyName, recruitment, stageId);
             MailResult result = mail.send(applicant.email(), fill(notice.getSubject(), values),
-                    content.fill(values));
+                    content.fill(values), brand);
             if (delivery == null) {
                 delivery = deliveries.save(new NoticeDelivery(notice.getId(), applicant.applicationId(),
                         applicant.email()));
@@ -163,7 +168,7 @@ public class NoticeService {
         String companyName = companies.profile(companyId).name();
         Map<String, String> values = values(PREVIEW_APPLICANT, companyName, recruitment, stageId);
         return MailPreview.of(fill(notice.getSubject(), values),
-                content(notice, recruitment, companyName).fill(values));
+                content(notice, recruitment, companyName).fill(values), mailStyles.brand(companyId));
     }
 
     /** 공고 작성 화면의 전형 안내. 첫 전형은 안내하는 메일이 없어 뺀다. */

@@ -8,13 +8,15 @@ import java.util.stream.Collectors;
 import org.springframework.web.util.HtmlUtils;
 
 /**
- * 메일 HTML. 회사 이름 머리글, 공고명과 제목, 본문, 안내 상자, 맺음말, 바닥글 순서다.
+ * 메일 HTML. 회사 로고나 이름 머리글, 공고명과 제목, 본문, 안내 상자, 맺음말, 바닥글 순서다.
  * 메일 프로그램은 바깥 CSS와 스크립트를 무시해서 꾸밈은 태그 안에 넣고 배치는 표로 한다.
  * 회사 이름부터 본문까지 모든 글은 이스케이프한다. 지원자 이름이나 AI 본문에 꺾쇠가 있어도 메일 모양이 깨지지 않는다.
+ * 기업이 고른 색은 머리글 띠, 회사 이름, 안내 상자 제목에 쓴다.
  */
 public final class MailLayout {
 
-    static final String ACCENT = "#1e3a5f";
+    /** 메일에 함께 넣어 보내는 로고의 이름. HTML은 cid:로 가리킨다. */
+    public static final String LOGO_CID = "company-logo";
     private static final String TEXT = "#1f2328";
     private static final String MUTED = "#6b7280";
     private static final String LINE = "#e5e7eb";
@@ -28,10 +30,16 @@ public final class MailLayout {
     private MailLayout() {
     }
 
-    public static String html(String subject, MailContent content) {
+    /**
+     * 메일 HTML 문서.
+     *
+     * @param color 기업이 고른 색 (#rrggbb)
+     * @param logoSrc 로고 그림 주소. 보낼 때는 cid:, 미리보기에서는 data: 주소다. 로고가 없으면 null이고 회사 이름을 쓴다
+     */
+    public static String html(String subject, MailContent content, String color, String logoSrc) {
         String heading = heading(subject);
         String caption = caption(content.caption(), heading);
-        String blocks = content.blocks().stream().map(MailLayout::block).collect(Collectors.joining());
+        String blocks = content.blocks().stream().map(block -> block(block, color)).collect(Collectors.joining());
         String closing = content.closing().isBlank() ? ""
                 : "<p style=\"margin:18px 0 0;font-size:15px;line-height:1.75;font-weight:bold;color:" + TEXT
                         + ";\">" + lines(content.closing()) + "</p>";
@@ -52,7 +60,7 @@ public final class MailLayout {
                 <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" \
                 style="max-width:600px;background:#ffffff;border:1px solid %s;border-radius:10px;overflow:hidden;">
                 <tr><td style="height:4px;background:%s;font-size:0;line-height:0;">&nbsp;</td></tr>
-                <tr><td class="hm-pad" style="padding:20px 32px 0;font-size:16px;font-weight:bold;color:%s;">%s</td></tr>
+                <tr>%s</tr>
                 <tr><td class="hm-pad" style="padding:22px 32px 6px;">%s
                 <div style="font-size:22px;font-weight:bold;line-height:1.4;color:%s;">%s</div>
                 </td></tr>
@@ -66,8 +74,20 @@ public final class MailLayout {
                 </table>
                 </body>
                 </html>
-                """.formatted(escape(subject), PAGE, PAGE, FONT, LINE, ACCENT, ACCENT, escape(content.sender()),
-                caption, TEXT, escape(heading), LINE, blocks, closing, LINE, MUTED, lines(content.footer()));
+                """.formatted(escape(subject), PAGE, PAGE, FONT, LINE, escape(color),
+                header(content.sender(), color, logoSrc), caption, TEXT, escape(heading), LINE, blocks, closing, LINE,
+                MUTED, lines(content.footer()));
+    }
+
+    /** 머리글. 로고가 있으면 왼쪽 위에 높이 40px로, 없으면 회사 이름을 고른 색 글자로 쓴다. */
+    private static String header(String sender, String color, String logoSrc) {
+        if (logoSrc == null) {
+            return "<td class=\"hm-pad\" style=\"padding:20px 32px 0;font-size:16px;font-weight:bold;color:"
+                    + escape(color) + ";\">" + escape(sender) + "</td>";
+        }
+        return "<td class=\"hm-pad\" style=\"padding:20px 32px 0;\"><img src=\"" + escape(logoSrc) + "\" alt=\""
+                + escape(sender) + "\" height=\"40\" style=\"display:block;height:40px;width:auto;max-width:220px;"
+                + "border:0;\"></td>";
     }
 
     /** 제목 위의 작은 공고명. 큰 제목에 공고명이 이미 있으면 (접수 확인 메일) 두 번 쓰지 않는다. */
@@ -84,10 +104,10 @@ public final class MailLayout {
         return heading.isBlank() ? subject.strip() : heading.strip();
     }
 
-    private static String block(MailContent.Block block) {
+    private static String block(MailContent.Block block, String color) {
         return switch (block) {
             case MailContent.Text text -> paragraphs(text.text());
-            case MailContent.Guide guide -> guide(guide);
+            case MailContent.Guide guide -> guide(guide, color);
         };
     }
 
@@ -100,7 +120,7 @@ public final class MailLayout {
                 .collect(Collectors.joining());
     }
 
-    private static String guide(MailContent.Guide guide) {
+    private static String guide(MailContent.Guide guide, String color) {
         StringBuilder rows = new StringBuilder();
         List<MailContent.Item> items = guide.items();
         for (int index = 0; index < items.size(); index++) {
@@ -125,7 +145,8 @@ public final class MailLayout {
                 + "style=\"border-collapse:separate;border:1px solid " + LINE + ";border-radius:8px;background:" + BOX
                 + ";margin:0 0 8px;\">"
                 + "<tr><td colspan=\"2\" style=\"padding:12px 14px;border-bottom:1px solid " + LINE
-                + ";font-size:14px;font-weight:bold;color:" + ACCENT + ";\">" + escape(guide.title()) + "</td></tr>"
+                + ";font-size:14px;font-weight:bold;color:" + escape(color) + ";\">" + escape(guide.title())
+                + "</td></tr>"
                 + rows + "</table>";
     }
 

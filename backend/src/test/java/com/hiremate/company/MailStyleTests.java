@@ -1,0 +1,115 @@
+package com.hiremate.company;
+
+import static com.hiremate.TestApi.expect;
+import static com.hiremate.TestApi.json;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.hiremate.IntegrationTest;
+import com.hiremate.TestApi;
+import com.hiremate.TestFixtures;
+import com.hiremate.TestMailConfiguration;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import tools.jackson.databind.JsonNode;
+
+class MailStyleTests extends IntegrationTest {
+
+    private static final String BASE = "/api/companies/me/mail-style";
+    private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3};
+
+    @Autowired
+    private TestMailConfiguration.RecordingMailClient mail;
+
+    @Test
+    @DisplayName("메일 색은 기본 남색이고, 색 코드는 #를 빼거나 대문자로 넣어도 #rrggbb로 저장하며 6자리가 아니면 거절한다")
+    void colorIsNormalizedAndValidated() throws Exception {
+        TestApi hr = newHr();
+        assertThat(json(expect(hr.get(BASE), 200)).path("color").asString()).isEqualTo("#1e3a5f");
+
+        JsonNode saved = json(expect(hr.put(BASE, Map.of("color", "0055A4")), 200));
+        assertThat(saved.path("color").asString()).isEqualTo("#0055a4");
+        assertThat(saved.path("hasLogo").asBoolean()).isFalse();
+        expect(hr.put(BASE, Map.of("color", "#12345")), 400);
+        expect(hr.put(BASE, Map.of("color", "red")), 400);
+        expect(hr.get(BASE + "/preview?color=blue"), 400);
+
+        String preview = json(expect(hr.get(BASE + "/preview?color=%23ff0000"), 200)).path("html").asString();
+        assertThat(preview).contains("background:#ff0000;", ">1차 면접 안내</td>", "홍길동님");
+        assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString()).contains("#0055a4");
+        assertThat(json(expect(newHr().get(BASE), 200)).path("color").asString()).isEqualTo("#1e3a5f");
+    }
+
+    @Test
+    @DisplayName("로고는 PNG · JPEG만 500KB까지 받고, 올리면 미리보기에 보이며 지운 뒤에는 회사 이름 글자로 돌아간다")
+    void logoIsCheckedShownAndRemoved() throws Exception {
+        TestApi hr = newHr();
+        expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("logo.png", "image/png",
+                "%PDF-1.4".getBytes(StandardCharsets.US_ASCII)))), 400);
+        byte[] large = Arrays.copyOf(PNG, 500 * 1024 + 1);
+        assertThat(json(expect(hr.multipart(BASE + "/logo",
+                Map.of("file", new TestApi.FilePart("big.png", "image/png", large))), 400)).path("code").asString())
+                .isEqualTo("LOGO_TOO_LARGE");
+
+        JsonNode uploaded = json(expect(hr.multipart(BASE + "/logo",
+                Map.of("file", new TestApi.FilePart("logo.png", "image/png", PNG))), 200));
+        assertThat(uploaded.path("hasLogo").asBoolean()).isTrue();
+        HttpResponse<byte[]> logo = hr.getBytes(BASE + "/logo");
+        assertThat(logo.body()).isEqualTo(PNG);
+        assertThat(logo.headers().firstValue("Content-Type")).hasValue("image/png");
+        assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString())
+                .contains("<img src=\"data:image/png;base64,");
+
+        assertThat(json(expect(hr.delete(BASE + "/logo"), 200)).path("hasLogo").asBoolean()).isFalse();
+        expect(hr.get(BASE + "/logo"), 404);
+        assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString()).doesNotContain("<img");
+    }
+
+    @Test
+    @DisplayName("접수 확인 메일은 기업이 고른 색으로 꾸미고 로고를 메일 안에 함께 넣어 보낸다")
+    void receiptMailCarriesBrand() throws Exception {
+        TestApi hr = newHr();
+        expect(hr.put(BASE, Map.of("color", "#0055a4")), 200);
+        expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("logo.png", "image/png", PNG))),
+                200);
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String posting = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
+        expect(hr.put(posting, Map.of("title", "결제 백엔드 개발자", "jobCategory", "", "employmentType", "",
+                "career", "", "location", "", "intro", "", "duties", List.of(), "qualifications", List.of(),
+                "preferred", List.of(), "benefits", List.of())), 200);
+        assertThat(json(expect(hr.get(posting + "/receipt/preview"), 200)).path("html").asString())
+                .contains("background:#0055a4;", "data:image/png;base64,");
+        Instant now = Instant.now();
+        expect(hr.post(posting + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
+                "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
+
+        Map<String, Object> form = TestFixtures.form("brand@example.com", false);
+        expect(anonymous().multipart("/api/public/postings/" + draft.path("postingId").asString() + "/applications",
+                form), 201);
+        int index = awaitMail("brand@example.com");
+        assertThat(mail.html.get(index)).contains("background:#0055a4;", "<img src=\"cid:company-logo\"");
+        assertThat(mail.logos.get(index)).isEqualTo("image/png");
+    }
+
+    /** 접수 확인 메일은 접수가 끝난 뒤 따로 보내져 잠깐 기다린다. 보낸 순서를 돌려준다. */
+    private int awaitMail(String to) throws InterruptedException {
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(10));
+        while (Instant.now().isBefore(deadline)) {
+            for (int index = 0; index < mail.logos.size(); index++) {
+                if (mail.sent.get(index).startsWith(to + "|")) {
+                    return index;
+                }
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Receipt mail was not sent.");
+    }
+}

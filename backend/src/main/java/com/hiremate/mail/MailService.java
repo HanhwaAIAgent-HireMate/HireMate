@@ -18,9 +18,12 @@ public class MailService {
         this.client = client;
     }
 
-    public MailResult send(String to, String subject, MailContent content) {
+    /** 로고는 메일 안에 함께 넣어 보낸다. 공개 주소 없이도 지원자 메일에서 보인다. */
+    public MailResult send(String to, String subject, MailContent content, MailBrand brand) {
+        String logoSrc = brand.logo() == null ? null : "cid:" + MailLayout.LOGO_CID;
         try {
-            client.send(to, subject, content.text(), MailLayout.html(subject, content));
+            client.send(to, subject, content.text(), MailLayout.html(subject, content, brand.color(), logoSrc),
+                    brand.logo());
             return MailResult.success();
         } catch (RuntimeException exception) {
             log.warn("Mail delivery failed: {}", exception.getMessage());

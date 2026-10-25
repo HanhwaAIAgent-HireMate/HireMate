@@ -2,6 +2,7 @@ package com.hiremate.posting;
 
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.company.CompanyService;
+import com.hiremate.company.MailStyleService;
 import com.hiremate.global.ApiException;
 import com.hiremate.global.JsonText;
 import com.hiremate.mail.MailPreview;
@@ -34,14 +35,16 @@ public class PostingService {
     private final JobPostingRepository postings;
     private final RecruitService recruits;
     private final CompanyService companies;
+    private final MailStyleService mailStyles;
     private final ApplicationEventPublisher events;
     private final DummyScreeningRubric dummyRubric;
 
     public PostingService(JobPostingRepository postings, RecruitService recruits, CompanyService companies,
-            ApplicationEventPublisher events, DummyScreeningRubric dummyRubric) {
+            MailStyleService mailStyles, ApplicationEventPublisher events, DummyScreeningRubric dummyRubric) {
         this.postings = postings;
         this.recruits = recruits;
         this.companies = companies;
+        this.mailStyles = mailStyles;
         this.events = events;
         this.dummyRubric = dummyRubric;
     }
@@ -148,14 +151,14 @@ public class PostingService {
     public ReceiptMail receiptMail(UUID companyId, UUID recruitmentId, String applicantName, int applicationNo) {
         JobPosting posting = posting(companyId, recruitmentId);
         return posting.receipt().fill(companies.profile(companyId).name(), posting.getTitle(), applicantName,
-                applicationNo);
+                applicationNo, mailStyles.brand(companyId));
     }
 
     /** 게시 전에 보여 줄 접수 확인 메일. 저장한 템플릿으로 만들고 지원자 이름과 지원번호는 예시다. */
     @Transactional(readOnly = true)
     public MailPreview receiptPreview(UUID companyId, UUID recruitmentId) {
         ReceiptMail receipt = receiptMail(companyId, recruitmentId, "홍길동", 1);
-        return MailPreview.of(receipt.subject(), receipt.content());
+        return MailPreview.of(receipt.subject(), receipt.content(), receipt.brand());
     }
 
     /** HR이 접수 기간을 정해 게시한다. AI는 게시하지 않는다. */
