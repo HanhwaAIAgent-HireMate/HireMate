@@ -1,10 +1,13 @@
 package com.hiremate.mail.infra;
 
+import com.hiremate.mail.MailBrand;
 import com.hiremate.mail.application.MailClient;
+import com.hiremate.mail.application.MailLayout;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import java.nio.charset.StandardCharsets;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mail.MailPreparationException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -21,9 +24,9 @@ class SmtpMailClient implements MailClient {
         this.from = from;
     }
 
-    /** 텍스트와 HTML을 한 메일(multipart/alternative)에 담는다. */
+    /** 텍스트와 HTML을 한 메일(multipart/alternative)에 담고, 로고는 HTML 옆에 붙인다(multipart/related). */
     @Override
-    public void send(String to, String subject, String text, String html) {
+    public void send(String to, String subject, String text, String html, MailBrand.Logo logo) {
         MimeMessage message = sender.createMimeMessage();
         try {
             MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
@@ -31,6 +34,9 @@ class SmtpMailClient implements MailClient {
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(text, html);
+            if (logo != null) {
+                helper.addInline(MailLayout.LOGO_CID, new ByteArrayResource(logo.bytes()), logo.contentType());
+            }
         } catch (MessagingException exception) {
             throw new MailPreparationException(exception);
         }

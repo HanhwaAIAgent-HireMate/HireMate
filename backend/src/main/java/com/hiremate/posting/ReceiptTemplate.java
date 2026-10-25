@@ -1,5 +1,6 @@
 package com.hiremate.posting;
 
+import com.hiremate.mail.MailBrand;
 import com.hiremate.mail.MailContent;
 import java.util.List;
 import java.util.Map;
@@ -23,11 +24,12 @@ public record ReceiptTemplate(String subject, String body) {
             {회사명} 인사팀 드림""");
 
     /** 지원자에게 보낼 메일. 본문은 문단 글이고 필수 문구는 바닥글이다. */
-    public ReceiptMail fill(String companyName, String title, String applicantName, int applicationNo) {
+    public ReceiptMail fill(String companyName, String title, String applicantName, int applicationNo,
+            MailBrand brand) {
         Map<String, String> values = Map.of("{지원자명}", applicantName, "{회사명}", companyName, "{공고명}", title,
                 "{지원번호}", String.valueOf(applicationNo));
         return new ReceiptMail(replace(subject, values), new MailContent(companyName, title,
-                List.of(new MailContent.Text(replace(body, values))), "", REQUIRED_TEXT));
+                List.of(new MailContent.Text(replace(body, values))), "", REQUIRED_TEXT), brand);
     }
 
     private static String replace(String text, Map<String, String> values) {

@@ -2,12 +2,15 @@ package com.hiremate.mail.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hiremate.mail.MailBrand;
 import com.hiremate.mail.MailContent;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class MailLayoutTests {
+
+    private static final String COLOR = MailBrand.DEFAULT_COLOR;
 
     @Test
     @DisplayName("회사 이름 머리글, 공고명, 제목, 문단, 안내 상자, 맺음말, 바닥글 순서로 그린다")
@@ -18,13 +21,28 @@ class MailLayoutTests {
                                 List.of(new MailContent.Item("일정", "11월 5일")), List.of("신분증을 챙겨 주세요"))),
                 "예시 기업 인사팀 드림", "본 메일은 발신 전용입니다.");
 
-        String html = MailLayout.html("[예시 기업] 서류 전형 결과 안내", content);
+        String html = MailLayout.html("[예시 기업] 서류 전형 결과 안내", content, COLOR, null);
 
-        assertThat(html).startsWith("<!doctype html>").contains(MailLayout.ACCENT)
+        assertThat(html).startsWith("<!doctype html>")
                 .containsSubsequence(">예시 기업</td>", ">백엔드 개발자</div>", ">서류 전형 결과 안내</div>",
                         ">김하늘님, 감사합니다.</p>", ">합격하셨습니다.<br>다음 전형은 면접입니다.</p>",
                         ">아래 안내를 확인해 주세요.</p>", ">1차 면접 안내</td>", ">일정</td>", ">11월 5일</td>",
                         "※ 신분증을 챙겨 주세요", ">예시 기업 인사팀 드림</p>", ">본 메일은 발신 전용입니다.</td>");
+    }
+
+    @Test
+    @DisplayName("기업이 고른 색은 머리글 띠, 회사 이름, 안내 상자 제목에 쓰고, 로고가 있으면 회사 이름 대신 로고를 넣는다")
+    void usesBrandColorAndLogo() {
+        MailContent content = new MailContent("예시 기업", "백엔드 개발자",
+                List.of(new MailContent.Guide("안내", "1차 면접 안내", List.of(), List.of())), "", "발신 전용");
+
+        String text = MailLayout.html("[예시 기업] 결과 안내", content, "#0055a4", null);
+        String logo = MailLayout.html("[예시 기업] 결과 안내", content, "#0055a4", "cid:company-logo");
+
+        assertThat(text).containsSubsequence("height:4px;background:#0055a4;", "color:#0055a4;\">예시 기업</td>",
+                "color:#0055a4;\">1차 면접 안내</td>").doesNotContain("<img", MailBrand.DEFAULT_COLOR);
+        assertThat(logo).contains("<img src=\"cid:company-logo\" alt=\"예시 기업\" height=\"40\"")
+                .doesNotContain(">예시 기업</td>");
     }
 
     @Test
@@ -36,7 +54,7 @@ class MailLayoutTests {
                                 List.of())),
                 "", "<a href=x>발신 전용</a>");
 
-        String html = MailLayout.html("<제목>", content);
+        String html = MailLayout.html("<제목>", content, COLOR, null);
 
         assertThat(html).doesNotContain("<script>", "<b>회사", "<i>면접", "<a href=x>")
                 .contains("&lt;script&gt;", "&lt;b&gt;회사", "&quot;공고&quot;", "A&amp;B 빌딩", "&lt;제목&gt;");
@@ -48,8 +66,8 @@ class MailLayoutTests {
         MailContent content = new MailContent("예시 기업", "백엔드 개발자", List.of(new MailContent.Text("감사합니다.")),
                 "", "발신 전용");
 
-        String receipt = MailLayout.html("[예시 기업] 백엔드 개발자 지원이 접수되었습니다", content);
-        String notice = MailLayout.html("[예시 기업] 서류 전형 결과 안내", content);
+        String receipt = MailLayout.html("[예시 기업] 백엔드 개발자 지원이 접수되었습니다", content, COLOR, null);
+        String notice = MailLayout.html("[예시 기업] 서류 전형 결과 안내", content, COLOR, null);
 
         assertThat(receipt).doesNotContain(">백엔드 개발자</div>").contains(">백엔드 개발자 지원이 접수되었습니다</div>");
         assertThat(notice).contains(">백엔드 개발자</div>", ">서류 전형 결과 안내</div>");

@@ -31,6 +31,6 @@ class ConfirmationMailer {
         ApplicantDetail detail = applications.detailForAnalysis(event.applicationId());
         ReceiptMail receipt = postings.receiptMail(event.companyId(), event.recruitmentId(),
                 detail.info().name(), detail.info().applicationNo());
-        mail.send(detail.info().email(), receipt.subject(), receipt.content());
+        mail.send(detail.info().email(), receipt.subject(), receipt.content(), receipt.brand());
     }
 }
