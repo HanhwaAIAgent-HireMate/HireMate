@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 from langchain.tools import ToolRuntime, tool
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
-from hiremate_ai.agents.root.commands import AnswerCommand, FindCommand, RootReply, compile_reply
+from hiremate_ai.agents.root.commands import AnswerCommand, FindCommand, QuestionsCommand, RootReply, compile_reply
+from hiremate_ai.agents.root.delegation import Delegation
 from hiremate_ai.agents.root.find import SearchQuery, plan_find
 from hiremate_ai.agents.root.progress import SILENT, Progress
 from hiremate_ai.agents.root.stages import stage_plan
@@ -44,6 +45,11 @@ ROOT_SYSTEM = """너는 채용 담당자를 돕는 Root Agent다.
   선택 영역을 비우거나 되돌리는 명령에는 지원자를 넣지 않는다.
 - 분석이나 비교만 요청하면 answer로 답한다. candidates에는 실제 답변 대상을 적고 전형 전체 질문이면 비운다.
   여러 사람을 비교하면 각 지원자의 항목을 따로 쓴다. 비교 대상이 부족하면 되묻는다.
+- 전문 Agent의 검토가 필요하면 consult_application으로 서류의 사실과 근거를 검토하고,
+  consult_interview로 현재 면접 답변을 분석한다. 호출 여부와 순서는 요청과 자료를 보고 정한다.
+  앞선 결과 번호를 consult_interview의 previous_results에 넣으면 같은 지원자의 분석 결과가 전달된다.
+  결과의 CHECK와 팀의 성과를 본인에게 확인된 사실로 바꾸지 않는다. 없는 평가 제출물을 지어내지 않는다.
+  평가 분석 결과는 프로필 조회로 확인한다. 이 검토 도구는 저장된 프로필이나 업무 상태를 바꾸지 않는다.
 - 면접 질문 생성이나 수정 요청은 questions 명령으로 대상과 확인할 점을 전달한다.
   생성 이유만 묻는 요청은 기록을 읽고 answer로 답한다. 질문을 다시 만들지 않는다.
   확인할 점은 지원자별 items에 근거와 함께 적고 focus에는 해당 항목의 text를 그대로 넣는다.
@@ -210,6 +216,8 @@ async def run_agent(
         return "\n\n".join([await toolkit.brief(scope, row) for row in rows if row is not None])
 
     checked: ChatPlan | None = None
+    delegation = Delegation(llm, progress)
+    verified_toolkit = delegation.with_evidence(toolkit)
 
     async def validate(reply: RootReply) -> str | None:
         nonlocal checked
@@ -225,7 +233,10 @@ async def run_agent(
         ):
             return "전형 전체의 사실을 답하려면 get_stage_summary로 확인하세요. 의도가 불분명하면 되물어 주세요."
         try:
-            checked = await compile_reply(reply, context, toolkit, run.searches)
+            compiled = await compile_reply(reply, context, verified_toolkit, run.searches)
+            if compiled.intent is Intent.ANSWER and isinstance(reply.command, (AnswerCommand, QuestionsCommand)):
+                delegation.validate_items(reply.items, compiled.items)
+            checked = compiled
         except ValueError as invalid:
             return f"최종 명령 검증을 통과하지 못했어요. {invalid} 이미 조회한 자료로 명령과 근거를 고쳐 주세요."
         return None
@@ -235,7 +246,7 @@ async def run_agent(
         RootReply,
         agent="root",
         system=ROOT_SYSTEM,
-        tools=[*toolkit.answer_tools, get_candidate_briefs, search_candidates],
+        tools=[*toolkit.answer_tools, get_candidate_briefs, search_candidates, *delegation.tools()],
         context=RootRun,
     )
     try:
