@@ -5,7 +5,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hiremate_ai.agents.analysis.interview import InterviewAnalysisInput, analyze_interview
+from hiremate_ai.agents.analysis.interview import InterviewAnalysisInput, InterviewReference, analyze_interview
 from hiremate_ai.agents.analysis.interview.types import FindingDraft, InterviewDraft
 from hiremate_ai.db.profile import CandidateProfile, ItemAgent, ItemCategory, ProfileStatus
 from hiremate_ai.db.profile_store import NewItem, save_profile
@@ -119,6 +119,57 @@ async def test_previous_interviews_are_context_not_evidence() -> None:
     assert "evidence가 이번 면접 답변 원문에 없다" in llm.calls[1].user
     assert [(item.category, item.source) for item in analysis.items][-1] == (ItemCategory.CHECK, "2차 면접 답변")
     assert analysis.dropped == 0
+
+
+async def test_prior_specialist_results_are_comparison_context_with_current_answer_evidence() -> None:
+    reference = InterviewReference(
+        content="장애 재현 테스트는 팀의 결과로 기록되어 본인의 역할은 아직 확인되지 않았어요.",
+        evidence="팀에서 장애 재현 테스트를 작성했습니다.",
+        source="평가 결과",
+        verification="미확인",
+    )
+    llm = FakeLlm(InterviewDraft(findings=[unconfirmed()]))
+
+    analysis = await analyze_interview(interview_input(), llm, references=[reference])
+
+    [call] = llm.calls
+    assert '<data kind="specialist-reference"' in call.user
+    assert reference.content in call.user
+    assert reference.evidence in call.user
+    assert reference.source in call.user
+    assert reference.verification in call.user
+    assert "비교용" in call.user
+    assert call.system.endswith(UNTRUSTED_RULE)
+    assert analysis.dropped == 0
+    assert [(item.content, item.evidence, item.source) for item in analysis.items][-1] == (
+        "장애 재현 테스트 경험은 아직 확인되지 않았어요.",
+        "테스트는 다른 팀원이 주로 맡아서 자세히는 모릅니다.",
+        "1차 면접 답변",
+    )
+
+
+async def test_evidence_only_in_prior_specialist_result_is_retried_then_dropped() -> None:
+    prior_evidence = "팀에서 장애 재현 테스트를 작성했습니다."
+    reference = InterviewReference(
+        content="팀의 장애 재현 테스트 결과가 있어요.",
+        evidence=prior_evidence,
+        source="평가 결과",
+        verification="팀 결과",
+    )
+    borrowed = FindingDraft(kind="CONFIRMED", content="장애 재현 테스트를 직접 작성했어요.", evidence=prior_evidence)
+    llm = FakeLlm(
+        InterviewDraft(findings=[borrowed]),
+        InterviewDraft(findings=[borrowed]),
+        InterviewDraft(findings=[borrowed]),
+    )
+
+    analysis = await analyze_interview(interview_input(), llm, references=[reference])
+
+    assert len(llm.calls) == 3
+    assert "evidence가 이번 면접 답변 원문에 없다" in llm.calls[1].user
+    assert reference.content in llm.calls[1].user
+    assert analysis.dropped == 1
+    assert [(item.category, item.source) for item in analysis.items] == [(ItemCategory.CHECK, "면접 질문")]
 
 
 async def test_evidence_copied_from_the_question_is_rewritten_then_dropped() -> None:

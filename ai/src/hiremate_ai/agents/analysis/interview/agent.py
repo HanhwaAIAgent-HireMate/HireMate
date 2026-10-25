@@ -22,6 +22,7 @@ from hiremate_ai.agents.analysis.interview.types import (
     InterviewAnalysis,
     InterviewAnalysisInput,
     InterviewDraft,
+    InterviewReference,
 )
 from hiremate_ai.db.profile import ProfileStatus
 from hiremate_ai.db.profile_store import NewItem
@@ -154,6 +155,8 @@ PROFILE_SYSTEM = f"""채용 담당자가 볼 면접 기록에서, 면접관이 �
 - CONFLICT: 질문의 전제(서류 · 평가에서 온 내용)나 이전 면접 답변과 어긋나는 점.
 - 기록에 적힌 내용만으로 쓴다. 기록에 없는 경험, 숫자, 평가를 지어내지 않는다.
 - 항목마다 evidence에 이번 면접 답변 원문 한 문장을 글자 그대로 옮긴다. 질문 글이나 이전 면접 기록은 근거로 쓰지 않는다.
+- 앞선 분석 결과는 비교 맥락일 뿐이며, 미확인 내용이나 팀의 결과일 수 있다. 지원자의 확인된 사실로 승격하지 않는다.
+- 앞선 분석 결과의 evidence를 이번 면접 답변처럼 인용하지 않는다. 확인과 상충 여부도 이번 답변으로 뒷받침해야 한다.
 - 합격, 불합격, 순위, 채용 추천처럼 결정을 말하지 않는다. 결정은 담당자가 한다.
 - 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 쓰지 않는다.
 - content는 존댓말(~어요)로 짧게 쓴다.
@@ -161,7 +164,9 @@ PROFILE_SYSTEM = f"""채용 담당자가 볼 면접 기록에서, 면접관이 �
 {UNTRUSTED_RULE}"""
 
 
-async def analyze_interview(data: InterviewAnalysisInput, llm: LlmClient) -> InterviewAnalysis:
+async def analyze_interview(
+    data: InterviewAnalysisInput, llm: LlmClient, *, references: Sequence[InterviewReference] = ()
+) -> InterviewAnalysis:
     """지원자 한 명의 면접 기록을 정리해 프로필에 넣을 항목을 돌려준다. 저장하지 않고 채용 상태를 바꾸지 않는다.
 
     통과하지 못한 항목만 이유를 붙여 MAX_RETRIES번까지 다시 쓰게 하고, 그래도 남은 항목은 버린다.
@@ -170,7 +175,7 @@ async def analyze_interview(data: InterviewAnalysisInput, llm: LlmClient) -> Int
     if not any(question.answer.strip() for question in data.questions):
         return InterviewAnalysis(status=ProfileStatus.CHECK, items=items, dropped=0)
 
-    user = _user_prompt(data)
+    user = _user_prompt(data, references)
     prompt = user
     answered = False
     failed: list[tuple[FindingDraft, str]] = []
@@ -199,7 +204,7 @@ async def _draft(llm: LlmClient, user: str) -> InterviewDraft | None:
     return None
 
 
-def _user_prompt(data: InterviewAnalysisInput) -> str:
+def _user_prompt(data: InterviewAnalysisInput, references: Sequence[InterviewReference]) -> str:
     current = "\n\n".join(
         data_block("interview", f"질문: {question.text}\n답변: {question.answer}", label=f"{data.stage_name} 답변")
         for question in data.questions
@@ -214,6 +219,10 @@ def _user_prompt(data: InterviewAnalysisInput) -> str:
     ]
     if earlier:
         prompt += "\n\n이전 면접 기록 (비교용, 근거로 쓰지 않는다):\n\n" + "\n\n".join(earlier)
+    if references:
+        prompt += "\n\n앞선 분석 결과 (비교용, 이번 답변의 근거로 쓰지 않는다):\n\n" + "\n\n".join(
+            data_block("specialist-reference", reference.model_dump_json()) for reference in references
+        )
     return prompt
 
 

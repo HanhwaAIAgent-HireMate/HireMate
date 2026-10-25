@@ -5,7 +5,15 @@ from hiremate_ai.agents.analysis.interview.types import (
     AnsweredQuestion,
     InterviewAnalysis,
     InterviewAnalysisInput,
+    InterviewReference,
     PreviousInterview,
 )
 
-__all__ = ["AnsweredQuestion", "InterviewAnalysis", "InterviewAnalysisInput", "PreviousInterview", "analyze_interview"]
+__all__ = [
+    "AnsweredQuestion",
+    "InterviewAnalysis",
+    "InterviewAnalysisInput",
+    "InterviewReference",
+    "PreviousInterview",
+    "analyze_interview",
+]
