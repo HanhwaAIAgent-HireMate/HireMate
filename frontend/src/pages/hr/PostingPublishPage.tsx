@@ -15,10 +15,15 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useStageGuides } from '@/features/notice/api'
+import { MailFrame } from '@/features/notice/MailFrame'
 import { STAGE_GUIDES_ID } from '@/features/notice/StageGuides'
-import { usePosting, usePublishPosting, type Posting } from '@/features/posting/api'
+import {
+  usePosting,
+  usePublishPosting,
+  useReceiptPreview,
+  type Posting,
+} from '@/features/posting/api'
 import { CareersHeader, CareersPosting } from '@/features/posting/CareersPosting'
-import { ReceiptMailPreview } from '@/features/posting/ReceiptMail'
 import { careersPath } from '@/features/recruit/labels'
 import { errorMessage } from '@/lib/api/client'
 import { formatDateTime, toLocalInput } from '@/lib/format'
@@ -56,6 +61,7 @@ function PublishForm({ posting }: { posting: Posting }) {
   const [period, setPeriod] = useState(initial)
   const [device, setDevice] = useState<'mobile' | 'pc'>('pc')
   const [confirming, setConfirming] = useState(false)
+  const receipt = useReceiptPreview(posting.recruitmentId)
   const guides = useStageGuides(
     posting.recruitmentId,
     posting.stages.map((stage) => stage.id).join(),
@@ -203,12 +209,7 @@ function PublishForm({ posting }: { posting: Posting }) {
           </Field>
           <Field label="접수 확인 메일">
             <div className="space-y-2">
-              <ReceiptMailPreview
-                receipt={posting.receipt}
-                requiredText={posting.receipt.requiredText}
-                companyName={posting.companyName}
-                title={posting.content.title}
-              />
+              <MailFrame preview={receipt.data} title="접수 확인 메일 미리보기" />
               <p className="text-xs text-muted-foreground">
                 지원서를 내면 바로 이 메일이 가요. 게시하면 바꿀 수 없어요. 지원자 이름과 지원번호는
                 예시예요.

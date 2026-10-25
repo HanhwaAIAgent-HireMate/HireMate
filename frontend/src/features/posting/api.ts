@@ -68,6 +68,19 @@ export function useSaveReceipt(recruitmentId: string) {
   )
 }
 
+/** 지원자가 받을 접수 확인 메일. 저장한 템플릿으로 backend가 보낼 때와 같은 HTML을 만든다 */
+export function useReceiptPreview(recruitmentId: string) {
+  return useQuery({
+    queryKey: [...postingKeys.posting(recruitmentId), 'receipt-preview'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/recruitments/{recruitmentId}/posting/receipt/preview', {
+          params: { path: { recruitmentId } },
+        }),
+      ),
+  })
+}
+
 export function useApplySuggestion(recruitmentId: string) {
   return usePostingMutation(recruitmentId, () =>
     unwrap(

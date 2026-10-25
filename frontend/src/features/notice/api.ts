@@ -92,6 +92,20 @@ export function useSendNotice(stageId: string) {
   })
 }
 
+/** 지원자가 받을 모습. 저장한 초안으로 backend가 보낼 때와 같은 HTML을 만든다. 초안을 고치면 새로 받는다 */
+export function useNoticePreview(stageId: string, group: NoticeGroup, enabled: boolean) {
+  return useQuery({
+    queryKey: [...noticeKeys.all(stageId), group, 'preview'],
+    enabled,
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/stages/{stageId}/notices/{group}/preview', {
+          params: { path: { stageId, group } },
+        }),
+      ),
+  })
+}
+
 export function useNoticeAiRequest(stageId: string, group: NoticeGroup) {
   return useMutation({
     mutationFn: (message: string) =>
