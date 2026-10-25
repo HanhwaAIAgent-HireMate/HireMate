@@ -1,3 +1,4 @@
+import re
 from uuid import uuid4
 
 import httpx
@@ -30,11 +31,16 @@ from hiremate_ai.agents.generation.interview.agent import (
     QuestionDraft,
     State,
     _checked,
+    _DraftQuestion,
+    _gap_others,
+    _reasoning_problem,
+    _reasoning_sources,
     _same_goal,
     _validate,
     finalize,
     find_gaps,
     generate_questions,
+    load_context,
     load_review,
     review_gaps,
     summary_gaps,
@@ -116,13 +122,25 @@ def draft(call: LlmCall, *, bad: bool = False, sid: str = "S1") -> QuestionDraft
         gap_id = line.split("gap_id: ")[1].split(" |")[0]
         topic = line.split(" | topic: ")[1].split(" |")[0]
         text = texts[i % len(texts)]
+        extra = {"purpose": "필수 요건과 관련한 수행 범위 확인"}
+        sources = re.findall(r"^([DCS]\d+): (.+)$", call.user, re.MULTILINE)
+        source_id, anchor = next(
+            ((key, value) for key, value in sources if topic in value),
+            sources[i % len(sources)] if sources else ("", topic),
+        )
+        if len(anchor) > 60:
+            anchor = anchor[:35].rsplit(" ", 1)[0]
         if "mode: CONCEPT" in line:
-            text = f"{topic}에 필요한 원리 하나를 골라 적용 기준을 설명해 주세요."
+            text = f"{anchor}에서 중복 요청을 한 번만 처리하는 원리를 설명해 주세요."
+            extra = {"source_id": source_id, "anchor": anchor, "purpose": f"{anchor} 중복 요청 단일 처리 보장"}
         elif "mode: SCENARIO" in line:
-            text = f"{topic} 업무를 맡는다면 처음 확인할 항목과 그 이유를 말해 주세요."
+            event = "배포 직후 오류가 발생" if i == 0 else "외부 응답 형식이 변경"
+            text = f"{anchor} 업무에서 {event}한다면 복구 순서를 결정할 기준을 설명해 주세요."
+            extra = {"source_id": source_id, "anchor": anchor, "purpose": f"{anchor} {event} 복구 판단"}
         elif "type: 본인 역할 확인" in line or "type: 주장만 있음" in line:
+            extra = {"purpose": "프로젝트 본인 기여와 기술적 선택 확인"}
             text = f"'{topic}'에서 본인이 맡은 부분과 결과를 말해 주세요."
-        questions.append({"gap_id": gap_id, "question": bad_text if bad else text})
+        questions.append({"gap_id": gap_id, "question": bad_text if bad else text, **extra})
     # 최종면접이면 프롬프트에 적힌 자리(- VALUES (…)…)마다 그 주제의 열린 질문을 하나씩 쓴다
     slot_texts = {
         "VALUES": "일하면서 가장 중요하게 지켜 온 원칙이 드러났던 경험이 있다면, 그때 한 선택을 말해 주세요.",
@@ -1236,7 +1254,7 @@ async def test_no_experience_uses_explicit_situations_without_inventing_projects
     )
     assert len(questions) == 4 and questions[0] == INTRO
     assert any("원리" in text for text in questions[1:])
-    assert sum("맡는다면" in text for text in questions) == 2
+    assert sum("한다면" in text for text in questions) == 2
     assert all("적어 주셨" not in text and "하셨" not in text for text in questions)
 
 
@@ -1336,7 +1354,7 @@ async def test_unknown_career_survives_safe_fallback_as_fact_check(
         focus=None,
         review=review,
     )
-    assert len(questions) == 4
+    assert 3 <= len(questions) <= 4  # 원문의 기술 소재를 검증했을 때만 개념 기본 질문을 허용한다.
     assert "경력" in questions[1] and "확인할 자료" in questions[1]
     assert "3년 이상" not in questions[1] and "원리" not in questions[1]
     assert all("결혼" not in question for question in questions)
@@ -1386,3 +1404,987 @@ def test_learning_plan_is_not_treated_as_completed_experience(
     state["sentences"] = {"S1": "결제 시스템을 설계하고 싶어서 담당 업무를 공부할 계획입니다."}
     planned = find_gaps(state)["gaps"]
     assert not any(gap.kind in (CLAIM, NOTABLE) for gap in planned)
+
+
+@pytest.mark.parametrize("mode", [CONCEPT, SCENARIO])
+@pytest.mark.parametrize("past", ["어떤 판단을 내리셨는지", "어떤 원칙을 적용하셨는지", "그때 무엇을 선택했는지"])
+def test_planned_reasoning_does_not_require_unproven_past_work(mode: str, past: str) -> None:
+    text = f"계좌 API를 처음 맡는다면 보안 원리와 관련해 {past} 설명해 주세요."
+    assert _checked(text, mode, [])[0] is None
+
+
+@pytest.mark.parametrize("tail", ["경험을 통해", "사례를 들어", "해 본 일을 바탕으로"])
+def test_concept_slot_does_not_ask_for_a_personal_example(tail: str) -> None:
+    text = f"계좌 API의 데이터 정합성을 유지하는 원리를 {tail} 설명해 주세요."
+    assert _checked(text, CONCEPT, [])[0] is None
+
+
+@pytest.mark.parametrize("kind", [REQUIRED, CONCEPT, SCENARIO])
+def test_fallback_removes_ncs_metadata_without_breaking_the_sentence(kind: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _template
+
+    topic = "요구사항 분석 능력 (2001020201_23v5 요구사항 확인 - 수준 5)"
+    gap = Gap("G1", kind, topic, "", mode=kind if kind in (CONCEPT, SCENARIO) else "")
+    question = _template(gap)
+    assert "요구사항 분석 능력" in question
+    assert "200102" not in question and "수준 5" not in question and "…" not in question
+    assert _checked(question, kind, [])[0] is not None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "요구사항 분석 능력 (2001020201_23v5 요구사항 확인 - 수준 5)을 어떻게 이해하는지 설명해 주세요.",
+        "요구사항 분석 능력 수준 5를 어떻게 업무에 적용하는지 설명해 주세요.",
+        "요구사항 분석 능…와 관련해 직접 해 본 경험이 있다면 말해 주세요.",
+    ],
+)
+def test_model_cannot_leak_rubric_codes_or_truncated_text(text: str) -> None:
+    assert _checked(text, CONCEPT, [])[0] is None
+
+
+def test_real_technical_parentheses_are_preserved() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _question_topic
+
+    assert _question_topic("트랜잭션 격리 (READ COMMITTED) 이해") == "트랜잭션 격리 (READ COMMITTED) 이해"
+
+
+@pytest.mark.parametrize("use_review", [True, False])
+@pytest.mark.parametrize(
+    "future",
+    [
+        "입사 후 세 달 동안 회귀 테스트를 20건 이상 추가하겠다는 목표를 세웠습니다.",
+        "이후 세 달 동안 Spring 서비스의 예외 처리와 인증 갱신 경계를\r\n"
+        "점검하며 신규 회귀 테스트를 20건 이상 추가하는 목표를 세우겠습니다.",
+    ],
+)
+def test_future_goal_is_not_a_completed_experience_but_achieved_goal_is_kept(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    use_review: bool,
+    future: str,
+) -> None:
+    completed = "테스트 20건 추가 목표를 세우고 회귀 테스트를 실제로 작성했습니다."
+    if use_review:
+        review = newcomer_review(sample_applicants["이도윤"]).model_copy(
+            update={
+                "criteria": [],
+                "checks": [],
+                "facts": [
+                    Fact(
+                        kind="PROJECT",
+                        statement=text,
+                        actor=Actor.UNCLEAR,
+                        quotes=[Quote(document=DocumentType.COVER_LETTER, sentence=text)],
+                    )
+                    for text in (future, completed)
+                ],
+            }
+        )
+        gaps = review_gaps(review)
+    else:
+        analysis = newcomer_analysis.model_copy(
+            update={
+                "conditions": [],
+                "criteria": [],
+                "checks": [],
+                "notable": [Finding(text=text, source="자기소개서") for text in (future, completed)],
+            }
+        )
+        gaps = summary_gaps(sample_posting, analysis)
+    assert gaps and all(future not in gap.evidence for gap in gaps)
+    assert any(completed in gap.evidence for gap in gaps)
+
+
+def test_scenario_does_not_tell_applicant_that_their_document_is_missing_something() -> None:
+    leaked = "금융 API 개발 능력에 대해 언급이 없으신데, 만약 외부 기관과 연동한다면 어떤 기준으로 설계하시겠습니까?"
+    hypothetical = "요구사항에 오류 코드 언급이 없는 상황이라면, 어떤 기준으로 API 오류 응답을 설계하시겠습니까?"
+    assert _checked(leaked, SCENARIO, [])[0] is None
+    assert _checked(hypothetical, SCENARIO, [])[0] is not None
+
+
+async def test_generated_question_cannot_borrow_a_future_goal_from_other_document_sentences(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    future = (
+        "Spring 서비스에서 회귀 테스트를 20건 추가하겠다는 목표를 세우셨는데, "
+        "실제로 어떤 테스트를 수행하셨는지 말해 주세요."
+    )
+
+    def wrong_experience(call: LlmCall) -> QuestionDraft:
+        response = draft(call)
+        for question in response.questions:
+            if question.gap_id == "G2":
+                question.question = future
+        return response
+
+    llm = FakeLlm(wrong_experience, wrong_experience)
+    questions = await generate_questions(
+        llm,
+        applicant=sample_applicants["이도윤"],
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view(),
+        focus=None,
+    )
+    assert len(llm.calls) == 2 and "미래 계획" in llm.calls[1].user
+    assert all("추가하겠다는" not in question for question in questions)
+    assert any("Spring Boot와 MySQL" in question for question in questions)
+
+
+@pytest.mark.parametrize("source_id,anchor", [("S999", "Redis 캐시"), ("S1", "Kafka 파티션"), ("S1", "")])
+def test_reasoning_requires_a_real_scoped_source(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    source_id: str,
+    anchor: str,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["sentences"] = {"S1": "Redis 캐시의 만료 시간을 설정했습니다."}
+    item = _DraftQuestion(
+        gap_id="G1",
+        question="Redis 캐시의 만료 기준을 설명해 주세요.",
+        purpose="Redis 캐시 만료와 갱신 기준",
+        source_id=source_id,
+        anchor=anchor,
+    )
+    assert _reasoning_problem(state, item) is not None
+
+
+def test_broad_reasoning_is_retried_and_never_restored_as_template(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["gaps"] = [Gap("G1", CONCEPT, "계좌 API", "", mode=CONCEPT)]
+    state["spare"], state["balanced"] = [], True
+    state["sentences"] = {"S1": "Redis 캐시의 만료 시간을 설정했습니다."}
+    item = _DraftQuestion(
+        gap_id="G1",
+        question="Redis 캐시에서 중요한 원리 하나를 골라 설명해 주세요.",
+        purpose="Redis 캐시 만료와 갱신 기준",
+        source_id="S1",
+        anchor="Redis 캐시",
+    )
+    validated = _validate(state, QuestionDraft(questions=[item]), [], False)
+    assert validated["errors"] and not validated["kept"]
+    state["kept"] = validated["kept"]
+    state["reasoning_defaults"] = validated["reasoning_defaults"]
+    result = finalize(state)["result"]
+    assert not any("중요한 원리 하나" in text for text in result)
+    assert result == [INTRO]  # 주제를 지원자에게 고르게 한 질문을 다른 목적으로 채우지 않는다.
+
+
+def test_reasoning_same_objective_is_rejected_even_when_mode_differs(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["gaps"] = [
+        Gap("G1", CONCEPT, "Redis 캐시", "", mode=CONCEPT),
+        Gap("G2", SCENARIO, "Redis 캐시", "", mode=SCENARIO),
+    ]
+    state["spare"], state["balanced"] = [], True
+    state["kept"] = {"G1": "Redis 캐시의 만료 시간을 정하는 기준을 설명해 주세요."}
+    state["purposes"] = {"G1": "Redis 캐시 만료 시간의 결정 기준"}
+    state["sentences"] = {"S1": "Redis 캐시의 만료 시간을 설정했습니다."}
+    item = _DraftQuestion(
+        gap_id="G2",
+        question="Redis 캐시가 만료된다면 갱신 시점을 정할 기준을 설명해 주세요.",
+        purpose="Redis 캐시 만료 시간의 결정 기준",
+        source_id="S1",
+        anchor="Redis 캐시",
+    )
+    validated = _validate(state, QuestionDraft(questions=[item]), [], False)
+    assert "G2" not in validated["kept"] and validated["errors"]
+    assert "G2" not in validated["redundant"]  # 다음 호출에서 다른 내용을 고를 기회는 유지한다.
+
+
+def test_distinct_reasoning_objectives_share_a_technology_without_mutating_existing(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    first = Gap("G1", CONCEPT, "Redis 캐시", "", mode=CONCEPT)
+    second = Gap("G2", SCENARIO, "Redis 캐시", "", mode=SCENARIO)
+    state["gaps"] = [first, second]
+    state["purposes"] = {"G1": "Redis 캐시 만료 시점 결정", "G2": "Redis 장애 원본 조회 전환"}
+    before = list(state["existing"])
+    assert _gap_others(state, second, {"G1": "Redis 캐시 만료 기준을 설명해 주세요."}) == before
+    _gap_others(state, first, {"G2": "Redis가 중단된다면 원본 조회 전환 기준을 설명해 주세요."})
+    assert state["existing"] == before
+
+
+def test_reasoning_source_excludes_future_and_factual_conditions(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    criterion = _result("Q1", CriterionCategory.QUALIFICATION, "개발 경력 3년", Verdict.UNKNOWN, "기간 확인")
+    criterion = criterion.model_copy(update={"criterion_type": CriterionType.CONDITION})
+    review = newcomer_review(sample_applicants["이도윤"]).model_copy(update={"criteria": [criterion]})
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis, review)
+    state["sentences"] = {"S1": "Redis를 도입하겠습니다.", "S2": "캐시 만료 시간을 조정했습니다."}
+    sources = _reasoning_sources(state)
+    assert "S1" not in sources and "C1" not in sources and sources["S2"] == state["sentences"]["S2"]
+
+
+def test_short_technical_fallback_requires_a_real_source(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _reasoning_default
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    text = "테스트용 Spring Boot 서버를 만들었지만 운영한 경험은 없습니다."
+    state["sentences"] = {"S24": text}
+    item = _DraftQuestion(gap_id="G1", question="", source_id="S24", anchor=text)
+    result = _reasoning_default(state, item, CONCEPT)
+    assert result and "Spring Boot" in result and "경험" not in result
+    corrected = _reasoning_default(state, item.model_copy(update={"anchor": "Redis 서버를 만들었습니다."}), CONCEPT)
+    assert corrected is None  # 없는 Redis 대신 다른 기술을 찾아 넣지 않는다.
+
+
+def test_actual_source_outside_recommended_subset_remains_valid(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["sentences"] = {f"S{i}": f"업무 {i}의 설계를 직접 담당했습니다." for i in range(1, 15)}
+    state["sentences"]["S30"] = "Redis 캐시의 만료 시간을 조정했습니다."
+    assert "S30" not in _reasoning_sources(state)
+    item = _DraftQuestion(
+        gap_id="G1",
+        question="Redis 캐시의 만료 시간을 결정하는 기준을 설명해 주세요.",
+        purpose="Redis 캐시 만료 시점 결정",
+        source_id="S30",
+        anchor="Redis 캐시",
+    )
+    assert _reasoning_problem(state, item) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "체크리스트로 재배포를 줄인 경험에서 본인의 역할을 설명해 주세요. (purpose: 본인 기여 확인)",
+        "오류 응답 시나리오를 검증한 역할을 설명해 주세요. 목적: 본인의 수행 범위 확인",
+    ],
+)
+def test_internal_purpose_is_not_shown_in_questions(text: str) -> None:
+    result, _ = _checked(text, NOTABLE, [])
+    assert result is None or ("purpose:" not in result and "목적:" not in result)
+
+
+def test_opinion_is_not_used_as_completed_experience() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _experience_material
+
+    assert not _experience_material("계좌 API 업무에서도 실패 후 거래를 설명하는 것이 중요하다고 생각합니다.")
+    assert _experience_material("장애 대응이 중요하다고 생각해 오류 로그를 직접 설계했습니다.")
+
+
+def test_scenario_does_not_label_missing_experience() -> None:
+    question = "계좌 원장 경험이 없으시다면, 금융 연동 장애가 발생할 때 어떤 기준으로 대응하시겠습니까?"
+    assert _checked(question, SCENARIO, [])[0] is None
+
+
+def test_fallback_uses_linewrapped_technical_terms_but_not_certificate_names(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _reasoning_default
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["applicant"] = state["applicant"].model_copy(update={"certificates": "CKA"})
+    state["sentences"] = {
+        "S1": "CKA를 보유하고 운영을 담당했습니다.",
+        "S2": "Kafka 파티션 키를",
+        "S3": "거래 계좌 기준으로 재설계했습니다.",
+    }
+    item = _DraftQuestion(
+        gap_id="G1",
+        question="",
+        anchor="파티션 키를 거래 계좌 기준으로 재설계했습니다.",
+        purpose="Kafka 순서 보장 원리",
+        source_id="S3",
+    )
+    state["sentence_contexts"] = {"S3": "Kafka 파티션 키를 거래 계좌 기준으로 재설계했습니다."}
+    item = item.model_copy(update={"question": "Kafka 파티션 키로 거래 순서를 보장하는 원리를 설명해 주세요."})
+    result = _reasoning_default(state, item, CONCEPT)
+    assert result is None or ("CKA" not in result and ("Kafka" in result or "파티션" in result))
+
+
+def test_synthetic_document_labels_are_never_reasoning_topics(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _reasoning_default
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["sentences"] = {
+        "S1": "DEMO DATA 가상 지원서 SDET",
+        "S2": "SYNTHETIC SAMPLE",
+        "S3": "Kafka 파티션 키를 조정했습니다.",
+    }
+    item = _DraftQuestion(gap_id="G1", question="", source_id="S1", anchor="DEMO DATA")
+    result = _reasoning_default(state, item, CONCEPT)
+    assert result is None  # 샘플 표지의 질문을 다른 Kafka 질문으로 바꾸어 채우지 않는다.
+    assert _checked("DEMO의 작동 원리를 설명해 주세요.", CONCEPT, [])[0] is None
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "잔액 변경과 이벤트 발행의 일관성을 유지하기 위해 어떤 설계 원칙을 적용하나요?",
+        "동시 요청에서 트랜잭션과 잠금 방식을 비교할 때 어떤 조건에서 결과가 달라지나요?",
+        "보류 큐의 지연과 거래 정합성 중 무엇을 우선하여 판단하겠습니까?",
+    ],
+)
+def test_concept_questions_do_not_require_one_exact_keyword(question: str) -> None:
+    assert _checked(question, CONCEPT, [])[0] is not None
+
+
+def test_general_past_condition_is_normalized_but_personal_premise_is_not() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _prepare_reasoning
+
+    item = _DraftQuestion(gap_id="G1", question="합계 검증을 추가했을 때 데이터 일관성이 달라지는 원리는 무엇인가요?")
+    prepared = _prepare_reasoning(item, CONCEPT)
+    assert "추가할 때" in prepared.question and _checked(prepared.question, CONCEPT, [])[0]
+    personal = item.model_copy(
+        update={"question": "Redis 분산 락을 적용하셨을 때 결과가 달라지는 원리를 설명해 주세요."}
+    )
+    assert _checked(_prepare_reasoning(personal, CONCEPT).question, CONCEPT, [])[0] is None
+
+
+def test_scenario_condition_is_made_explicit_without_inventing_experience() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _prepare_reasoning
+
+    item = _DraftQuestion(
+        gap_id="G1", question="코드 배포와 규칙 변경을 분리하기 어려울 때 어떤 기준으로 우선순위를 정하겠습니까?"
+    )
+    prepared = _prepare_reasoning(item, SCENARIO)
+    assert prepared.question.startswith("만약 ") and _checked(prepared.question, SCENARIO, [])[0]
+
+
+def test_equivalent_purpose_words_do_not_discard_a_question(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["sentences"] = {"S1": "Kafka 파티션 키를 거래 계좌 기준으로 재설계하고 순번 검증을 추가했습니다."}
+    state["gaps"] = [Gap("G1", CONCEPT, "계좌 API", "", mode=CONCEPT)]
+    state["spare"], state["balanced"] = [], True
+    item = _DraftQuestion(
+        gap_id="G1",
+        source_id="S1",
+        anchor="파티션 키를 거래 계좌 기준으로 재설계하고 순번 검증을 추가했습니다.",
+        question="Kafka 파티션 키가 거래 계좌별 처리 순서를 보장하는 원리는 무엇인가요?",
+        purpose="Kafka 이벤트 순서 보장 원리 확인",
+    )
+    result = _validate(state, QuestionDraft(questions=[item]), [], False)
+    assert result["kept"].get("G1") == item.question and not result["errors"], result["errors"]
+
+
+def test_retry_cannot_switch_from_transactions_to_react(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["sentences"] = {"S1": "트랜잭션과 잠금 방식을 비교했습니다.", "S2": "React로 화면을 구현했습니다."}
+    state["gaps"] = [Gap("G1", CONCEPT, "동시 요청", "", mode=CONCEPT)]
+    state["spare"], state["balanced"] = [], True
+    first = _DraftQuestion(
+        gap_id="G1",
+        source_id="S1",
+        anchor="트랜잭션과 잠금 방식",
+        question="트랜잭션과 잠금 방식을 적용하셨을 때 어떤 결과를 얻으셨나요?",
+        purpose="트랜잭션과 잠금 방식 차이 확인",
+    )
+    initial = _validate(state, QuestionDraft(questions=[first]), [], False)
+    state["reasoning_targets"] = initial["reasoning_targets"]
+    state["reasoning_defaults"] = initial["reasoning_defaults"]
+    wrong = _DraftQuestion(
+        gap_id="G1",
+        source_id="S2",
+        anchor="React",
+        question="React의 작동 원리와 한계를 설명해 주세요.",
+        purpose="React 렌더링 원리",
+    )
+    result = _validate(state, QuestionDraft(questions=[wrong]), [], False)
+    assert "G1" not in result["kept"] and any("주제·목적" in error for error in result["errors"])
+    assert not any("React" in text for text in result["reasoning_defaults"].values())
+
+
+def test_same_technology_does_not_erase_the_original_objective(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _same_reasoning_target
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["sentences"] = {"S1": "Redis 캐시의 만료 시점을 조정했습니다."}
+    target = _DraftQuestion(
+        gap_id="G1",
+        source_id="S1",
+        anchor="Redis 캐시",
+        question="Redis 캐시의 만료 시점을 정할 때 적용하는 원칙을 설명해 주세요.",
+        purpose="Redis 캐시 만료 시점 결정",
+    )
+    assert not _same_reasoning_target(state, target, "Redis 캐시의 작동 원리를 설명해 주세요.")
+    assert _same_reasoning_target(state, target, "Redis 캐시의 만료 시점을 바꿀 조건을 설명해 주세요.")
+
+
+async def test_pdf_context_stays_in_its_document_and_omits_personal_or_future_lines(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    applicant = sample_applicants["이도윤"]
+    docs = applicant.documents
+    applicant = applicant.model_copy(
+        update={
+            "documents": [
+                docs[0].model_copy(
+                    update={
+                        "text": (
+                            "Kafka 파티션 키를\n거래 계좌 기준으로 재설계했습니다.\n"
+                            "연락처 010-1234-5678\n입사 후 Redis를 도입하겠습니다."
+                        )
+                    }
+                ),
+                docs[-1].model_copy(update={"text": "React로 화면을 구현했습니다."}),
+            ]
+        }
+    )
+    state = selection_state(applicant, sample_posting, newcomer_analysis)
+    context = await load_context(state)
+    key = next(key for key, text in context["sentences"].items() if "Kafka" in text)
+    material = context["sentence_contexts"][key]
+    assert "재설계" in material and "React" not in material and "Redis" not in material and "010-" not in material
+
+
+def test_partition_key_is_technical_but_personal_height_is_still_blocked() -> None:
+    good = "파티션 키가 거래 순서를 보장하도록 설계할 때 어떤 원칙을 적용하나요?"
+    assert _checked(good, CONCEPT, [])[0] is not None
+    mixed = "파티션 키가 거래 순서를 보장하는 원리를 설명하고 지원자의 키가 180 이상인지 알려 주세요."
+    assert _checked(mixed, CONCEPT, [])[0] is None
+
+
+def test_duplicate_objective_can_choose_another_topic_but_style_retry_cannot(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["sentences"] = {"S1": "Redis 캐시의 만료 시간을 조정했습니다.", "S2": "Kafka 파티션으로 순서를 보장했습니다."}
+    state["gaps"] = [
+        Gap("G1", CONCEPT, "Redis 캐시", "", mode=CONCEPT),
+        Gap("G2", CONCEPT, "직무 원리", "", mode=CONCEPT),
+    ]
+    state["spare"], state["balanced"] = [], True
+    state["kept"] = {"G1": "Redis 캐시의 만료 시간을 정하는 기준을 설명해 주세요."}
+    state["purposes"] = {"G1": "Redis 캐시 만료 시간 결정 기준"}
+    duplicate = _DraftQuestion(
+        gap_id="G2",
+        source_id="S1",
+        anchor="Redis 캐시",
+        question="Redis 캐시 만료 시간을 선택하는 원칙을 설명해 주세요.",
+        purpose="Redis 캐시 만료 시간 결정 기준",
+    )
+    first = _validate(state, QuestionDraft(questions=[duplicate]), [], False)
+    assert "G2" not in first["kept"] and "G2" not in first["reasoning_targets"]
+    state["reasoning_targets"] = first["reasoning_targets"]
+    other = _DraftQuestion(
+        gap_id="G2",
+        source_id="S2",
+        anchor="Kafka 파티션",
+        question="Kafka 파티션으로 순서를 보장하는 원리를 설명해 주세요.",
+        purpose="Kafka 파티션 순서 보장",
+    )
+    second = _validate(state, QuestionDraft(questions=[other]), [], False)
+    assert second["kept"]["G2"] == other.question
+
+
+def test_completed_question_drops_appended_internal_memo_but_keeps_a_question_about_purpose() -> None:
+    question = "거래 이벤트의 유실을 방지하는 원칙을 설명해 주세요."
+    assert _checked(question + " 목적은 이벤트 유실 방지 원리 확인입니다.", CONCEPT, [])[0] == question
+    legitimate = "Redis 캐시의 목적은 무엇인가요?"
+    assert _checked(legitimate, CONCEPT, [])[0] == legitimate
+
+
+def test_broad_criterion_is_a_concrete_situation_but_specific_targets_and_facts_stay_unchanged() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _criterion_question_problem, _criterion_task
+
+    broad = Gap("G1", REQUIRED, "데이터 입출력 구현 능력", "", criterion_id="Q-01", mode=SCENARIO)
+    task = _criterion_task(broad)
+    assert task is not None and "중복 저장" in task[1]
+    assert _criterion_task(Gap("G1", PREFERRED, "데이터 입출력 구현 능력", "", criterion_id="P-01")) is None
+    assert _criterion_question_problem(broad, "데이터 입출력 구현 능력과 관련해 경험이 있다면 말해 주세요.")
+    assert _criterion_question_problem(broad, task[1]) is None
+    assert _checked(task[1], SCENARIO, [])[0] == task[1]
+    assert _criterion_task(Gap("G1", REQUIRED, "데이터 입출력 구현 능력", "", criterion_id="Q-01", mode=FACT)) is None
+    assert _criterion_task(Gap("G1", REQUIRED, "통합 구현 시 순서 보장", "", criterion_id="Q-01")) is None
+    assert _criterion_task(Gap("G1", REQUIRED, "자격증 보유", "", criterion_id="Q-02", mode=FACT)) is None
+
+
+def test_unverified_criterion_uses_hypothetical_without_changing_verdict(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _prepare_criterion_gap
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    gap = Gap("G1", REQUIRED, "통합 구현 능력", "미확인", criterion_id="Q-01")
+    _prepare_criterion_gap(gap, state)
+    assert gap.mode == SCENARIO and gap.note == "미확인" and gap.kind == REQUIRED
+    forged = Gap("G1", REQUIRED, "통합 구현 능력", "", ["제가 연동 API를 직접 설계했습니다."], criterion_id="Q-01")
+    _prepare_criterion_gap(forged, state)
+    assert forged.mode == SCENARIO
+
+
+def test_concrete_criterion_question_survives_even_without_literal_criterion_title(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"] = True
+    state["gaps"] = [Gap("G1", REQUIRED, "요구사항 분석 능력", "", criterion_id="Q-01", mode=SCENARIO)]
+    good = "만약 처리 규칙이 서로 충돌한다면, 어떤 자료를 확인해 우선순위를 정하시겠습니까?"
+    result = _validate(state, QuestionDraft(questions=[_DraftQuestion(gap_id="G1", question=good)]), [], False)
+    assert result["kept"]["G1"] == good
+    state["kept"], state["spare"] = {}, []
+    fallback = finalize(state)["result"]
+    assert any("두 요청자" in q for q in fallback)
+    assert not any("능력 업무에서 결과가 예상과" in q for q in fallback)
+
+
+@pytest.mark.parametrize(
+    "topic",
+    [
+        "요구사항 분석 능력",
+        "데이터 입출력 구현 능력",
+        "통합 구현 능력",
+        "정보시스템 이행 능력",
+        "서버 프로그램 개발 경험",
+    ],
+)
+def test_each_criterion_fallback_is_readable_and_specific(topic: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _criterion_question_problem, _criterion_task
+
+    gap = Gap("G1", REQUIRED, topic, "", criterion_id="Q-01", mode=SCENARIO)
+    task = _criterion_task(gap)
+    assert task is not None
+    assert _checked(task[1], SCENARIO, [])[0] == task[1]
+    assert _criterion_question_problem(gap, task[1]) is None
+
+
+def test_verified_completed_criterion_quote_preserves_experience_path(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _prepare_criterion_gap
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    original = state["applicant"]
+    performed = "연동 응답 형식이 바뀌었을 때 제가 파서를 직접 설계했습니다."
+    doc = original.documents[0].model_copy(update={"text": performed})
+    state["applicant"] = original.model_copy(update={"documents": [doc]})
+    gap = Gap("G1", REQUIRED, "통합 구현 능력", "미확인", [performed], criterion_id="Q-01")
+    _prepare_criterion_gap(gap, state)
+    assert gap.mode == ""  # 검증된 완료 수행은 경험 경로에 남는다. UNKNOWN 판정은 바꾸지 않는다.
+    future = "입사 후 연동 응답 파서를 직접 설계하겠습니다."
+    state["applicant"] = original.model_copy(update={"documents": [doc.model_copy(update={"text": future})]})
+    gap.evidence, gap.mode = [future], ""
+    _prepare_criterion_gap(gap, state)
+    assert gap.mode == SCENARIO
+
+
+def test_one_extra_repair_requires_two_kept_questions_and_a_verified_topic(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import route_after_write
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"], state["retry"] = True, 1
+    state["kept"] = {"G1": "첫 질문", "G2": "둘째 질문"}
+    state["gaps"] = [
+        Gap("G1", REQUIRED, "기준", ""),
+        Gap("G2", NOTABLE, "경험", ""),
+        Gap("G3", CONCEPT, "원리", "", mode=CONCEPT),
+    ]
+    state["reasoning_targets"] = {"G3": _DraftQuestion(gap_id="G3", question="검증된 원리 질문")}
+    assert route_after_write(state) == "retry"
+    state["retry"] = 2
+    assert route_after_write(state) == "retry"  # 마지막 기회는 기존 목표 수리가 아니라 새 근거 재계획이다.
+    state["retry"] = 3
+    assert route_after_write(state) == "finalize"
+    state["retry"], state["balanced"] = 1, False
+    assert route_after_write(state) == "finalize"
+    state["balanced"], state["reasoning_targets"] = True, {}
+    assert route_after_write(state) == "finalize"
+
+
+def test_criterion_specialization_does_not_remove_preference_fallback(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"], state["spare"] = True, []
+    state["gaps"] = [Gap("G1", PREFERRED, "금융 시스템 연동", "", criterion_id="P-03", mode=SCENARIO)]
+    assert any("금융 시스템 연동" in q for q in finalize(state)["result"])
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "캐시를 적용하셨을 때, 캐시 무효화 전략을 어떻게 설계해야 하는지 말해 주세요.",
+        "주문 요청이 동시에 도달할 때 어떤 메커니즘을 설계하시겠습니까?",
+        "캐시를 적용하셨을 때 캐시 무효화 전략을 어떻게 설계해야 하는지 설명해 주세요.",
+    ],
+)
+def test_experience_slot_cannot_hide_a_general_design_question_in_a_past_preface(question: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _experience_question_problem
+
+    assert _experience_question_problem(question) is not None
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "캐시를 적용했을 때, 무효화 전략을 어떤 근거로 선택하셨는지 말해 주세요.",
+        "주문 처리 프로젝트에서 본인이 맡은 역할과 직접 수행한 작업을 말해 주세요.",
+        "그때 어떤 방법들을 비교했고 왜 그 방법을 골랐는지 말해 주세요.",
+        "이 작업에서 당시 판단의 근거를 말해 주세요.",
+    ],
+)
+def test_experience_slot_keeps_actual_actions_and_past_decisions(question: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _experience_question_problem
+
+    assert _experience_question_problem(question) is None
+
+
+async def test_failed_goal_is_replanned_once_using_other_real_evidence(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import bump_retry, route_after_write, write
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"], state["retry"] = True, 2
+    state["kept"] = {
+        "G1": "만약 요구사항이 충돌한다면 우선순위를 어떻게 정하나요?",
+        "G2": "배치 작업에서 본인이 맡은 역할을 말해 주세요.",
+    }
+    state["gaps"] = [
+        Gap("G1", REQUIRED, "요구사항", ""),
+        Gap("G2", NOTABLE, "배치 작업", ""),
+        Gap("G3", CONCEPT, "직무 개념", "", mode=CONCEPT),
+    ]
+    state["sentences"] = {
+        "S1": "Kafka 파티션 키로 이벤트 순서를 보장했습니다.",
+        "S2": "Redis 캐시의 만료 시간을 조정했습니다.",
+    }
+    old = _DraftQuestion(
+        gap_id="G3",
+        source_id="S1",
+        anchor="Kafka 파티션 키",
+        question="Kafka 파티션 키로 순서를 보장하는 원리는 무엇인가요?",
+        purpose="Kafka 파티션 키 순서 보장",
+    )
+    state["reasoning_targets"], state["reasoning_defaults"] = {"G3": old}, {"G3": "이전 기본 질문"}
+    state["replan_candidates"] = {"G3": old}  # 확인 목적의 중복이 실제로 확인된 경우만 새 목표를 고른다.
+    before = dict(state["kept"])
+    assert route_after_write(state) == "retry"
+    reset = bump_retry(state)
+    state["retry"] = reset["retry"]
+    state["reasoning_targets"] = reset["reasoning_targets"]
+    state["reasoning_defaults"] = reset["reasoning_defaults"]
+    state["discarded_targets"] = reset["discarded_targets"]
+    assert state["kept"] == before and state["retry"] == 3
+    assert "G3" not in state["reasoning_targets"] and "G3" not in state["reasoning_defaults"]
+    assert state["discarded_targets"]["G3"] == old
+    new = _DraftQuestion(
+        gap_id="G3",
+        source_id="S2",
+        anchor="Redis 캐시",
+        question="Redis 캐시의 만료 시간을 정할 때 적용할 원칙은 무엇인가요?",
+        purpose="Redis 캐시 만료 시간 결정",
+    )
+    state["llm"] = FakeLlm(QuestionDraft(questions=[new]))
+    state["errors"] = []
+    result = await write(state)
+    state["kept"] = result["kept"]
+    state["reasoning_targets"] = result["reasoning_targets"]
+    assert state["kept"]["G3"] == new.question and all(state["kept"][key] == val for key, val in before.items())
+    assert 'kind="discarded_topics"' in state["llm"].calls[0].user
+    assert route_after_write(state) == "finalize"
+
+
+def test_replan_rejects_discarded_or_fabricated_sources_and_has_no_more_retries(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import route_after_write
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"], state["retry"] = True, 3
+    state["gaps"] = [Gap("G3", CONCEPT, "직무 개념", "", mode=CONCEPT)]
+    state["sentences"] = {"S1": "Kafka 파티션으로 순서를 보장했습니다."}
+    old = _DraftQuestion(
+        gap_id="G3",
+        source_id="S1",
+        anchor="Kafka 파티션",
+        question="Kafka 파티션의 순서 보장 원리는 무엇인가요?",
+        purpose="Kafka 파티션 순서 보장",
+    )
+    state["discarded_targets"] = {"G3": old}
+    result = _validate(state, QuestionDraft(questions=[old]), [], False)
+    assert "G3" not in result["kept"] and any("폐기한" in e for e in result["errors"])
+    same_source = old.model_copy(
+        update={
+            "source_id": " S1 ",
+            "question": "Kafka 파티션의 수를 늘릴 조건과 그 원리는 무엇인가요?",
+            "purpose": "Kafka 파티션 확장 조건",
+        }
+    )
+    result = _validate(state, QuestionDraft(questions=[same_source]), [], False)
+    assert "G3" not in result["kept"] and any("폐기한" in e for e in result["errors"])
+    fabricated = old.model_copy(update={"source_id": "S999"})
+    result = _validate(state, QuestionDraft(questions=[fabricated]), [], False)
+    assert "G3" not in result["kept"] and any("실제 있는 anchor" in e for e in result["errors"])
+    assert route_after_write(state) == "finalize"
+
+
+def test_experience_and_concept_with_different_answers_can_both_survive(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"] = True
+    state["sentences"] = {"S1": "Redis 캐시의 만료 시간을 조정했습니다."}
+    state["gaps"] = [
+        Gap("G1", NOTABLE, "캐시 만료", "", [state["sentences"]["S1"]]),
+        Gap("G2", CONCEPT, "원리", "", mode=CONCEPT),
+    ]
+    bad = _DraftQuestion(
+        gap_id="G1",
+        question="캐시를 적용했을 때, 캐시 무효화 전략을 어떻게 설계해야 하는지 말해 주세요.",
+        purpose="캐시 설계 원리",
+    )
+    assert "G1" not in _validate(state, QuestionDraft(questions=[bad]), [], False)["kept"]
+    good = _DraftQuestion(
+        gap_id="G1",
+        question="Redis 캐시의 만료 시간을 조정할 때 본인이 수행한 작업을 말해 주세요.",
+        purpose="본인 작업 범위와 수행 과정 확인",
+    )
+    concept = _DraftQuestion(
+        gap_id="G2",
+        source_id="S1",
+        anchor="Redis 캐시",
+        question="Redis 캐시의 만료 시간이 지나면 어떤 원리로 데이터를 처리하나요?",
+        purpose="Redis 캐시 만료 처리 원리",
+    )
+    result = _validate(state, QuestionDraft(questions=[good, concept]), [], False)
+    assert set(result["kept"]) == {"G1", "G2"}
+
+
+def test_concept_cannot_reask_personal_actions_under_a_theory_label(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"] = True
+    state["sentences"] = {"S1": "Redis 캐시의 만료 시간을 조정했습니다."}
+    state["gaps"] = [Gap("G1", CONCEPT, "원리", "", mode=CONCEPT)]
+    item = _DraftQuestion(
+        gap_id="G1",
+        source_id="S1",
+        anchor="Redis 캐시",
+        question="Redis 캐시의 원리를 적용하며 본인이 수행한 작업을 설명해 주세요.",
+        purpose="캐시 개념 확인",
+    )
+    result = _validate(state, QuestionDraft(questions=[item]), [], False)
+    assert "G1" not in result["kept"] and any("본인 수행" in e for e in result["errors"])
+
+
+@pytest.mark.parametrize("blocked", ["chat", "final", "insufficient", "criterion"])
+def test_replanning_never_expands_outside_the_verified_first_round_slot(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    blocked: str,
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _replan_gaps
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"] = True
+    state["kept"] = {"G1": "통과한 질문", "G2": "통과한 다른 질문"}
+    state["gaps"] = [Gap("G3", CONCEPT, "원리", "", mode=CONCEPT)]
+    state["reasoning_targets"] = {"G3": _DraftQuestion(gap_id="G3", question="검증한 목표")}
+    if blocked == "chat":
+        state["balanced"] = False
+    elif blocked == "final":
+        state["final"] = True
+    elif blocked == "insufficient":
+        state["kept"] = {"G1": "통과한 질문"}
+    else:
+        state["gaps"][0].criterion_id = "Q-01"
+    assert _replan_gaps(state) == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        (
+            "18개의 인가 우회 테스트를 작성하여 취약 경로 3개를 발견했을 때, Spring "
+            "Security의 검증 위치를 변경하여 차단한 구체적인 과정은 무엇인가요?"
+        ),
+        (
+            "인가 우회 테스트를 작성하여 취약 경로를 발견했을 때, Spring Security의 검증 "
+            "위치를 변경하여 차단한 구체적인 판단 과정은 무엇이었나요?"
+        ),
+        "해당 문제를 해결하는 과정에 대해 설명해 주세요.",
+    ],
+)
+def test_real_completed_actions_are_not_rejected_for_missing_allowlist_words(question: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _experience_question_problem
+
+    assert _experience_question_problem(question) is None
+
+
+@pytest.mark.parametrize("condition", ["재전송될 경우", "오류가 발생하는 경우", "요청이 중복된 경우"])
+def test_conditional_case_is_a_hypothetical_situation(condition: str) -> None:
+    question = f"같은 저장 요청이 {condition}, 중복 저장을 방지할 방법은 무엇인가요?"
+    assert _checked(question, SCENARIO, [])[0] == question
+    assert _checked("요청이 재전송된 경우, 본인이 어떤 역할을 수행하셨습니까?", SCENARIO, [])[0] is None
+
+
+async def test_style_repair_preserves_yang_material_and_accepts_the_fixed_fourth_response(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import bump_retry, route_after_write, write
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"], state["retry"], state["spare"] = True, 2, []
+    state["gaps"] = [
+        Gap("G1", NOTABLE, "원인 비교", ""),
+        Gap("G2", CONCEPT, "중복 응답", "", mode=CONCEPT),
+        Gap("G3", SCENARIO, "복구 판단", "", mode=SCENARIO),
+    ]
+    state["kept"] = {
+        "G1": "필드 형식 변경 원인을 찾기 위해 본인이 수행한 비교 분석을 설명해 주세요.",
+        "G2": "응답 중복을 구분하는 원리는 무엇인가요?",
+    }
+    state["sentences"] = {"S12": "기관의 응답 스키마 변경을 확인하고 이전 버전 파서를 임시 복구했습니다."}
+    initial = _DraftQuestion(
+        gap_id="G3",
+        source_id="S12",
+        anchor=state["sentences"]["S12"],
+        question=(
+            "외부 기관의 응답 스키마가 변경되었을 때, 이전 버전 파서를 임시 복구하는 "
+            "과정에서 어떤 판단 기준으로 복구 절차를 진행하셨습니까?"
+        ),
+        purpose="스키마 변경 시 파서 임시 복구 판단 기준",
+    )
+    state["reasoning_targets"] = {"G3": initial}
+    assert route_after_write(state) == "retry"
+    changed = bump_retry(state)
+    assert changed["reasoning_targets"]["G3"] == initial and changed["discarded_targets"] == {}
+    state["retry"] = changed["retry"]
+    fixed = initial.model_copy(
+        update={
+            "question": (
+                "외부 기관의 응답 스키마가 변경되었을 때, 이전 버전 파서를 임시 복구하는 상황에서 "
+                "어떤 판단 기준으로 복구 절차를 진행하시겠습니까?"
+            )
+        }
+    )
+    state["errors"] = ["G3: 가상 상황이라는 표시가 없음"]
+    state["llm"] = FakeLlm(QuestionDraft(questions=[fixed]))
+    result = await write(state)
+    state["kept"] = result["kept"]
+    assert set(state["kept"]) == {"G1", "G2", "G3"} and len(finalize(state)["result"]) == 4
+
+
+def test_retry_uses_valid_fallbacks_even_when_no_model_question_was_kept(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _usable_core_count, route_after_write
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"], state["retry"], state["spare"] = True, 1, []
+    state["gaps"] = [
+        Gap("G1", REQUIRED, "데이터 입출력 구현 능력", "", criterion_id="Q-02", mode=SCENARIO),
+        Gap("G2", NOTABLE, "인가 우회 테스트를 작성해 취약 경로를 발견했습니다", ""),
+        Gap("G3", CONCEPT, "원리", "", mode=CONCEPT),
+    ]
+    state["reasoning_targets"] = {
+        "G3": _DraftQuestion(
+            gap_id="G3",
+            source_id="S1",
+            anchor="토큰 검증",
+            question="토큰 검증에서 어떤 원리를 적용했나요?",
+            purpose="토큰 검증 실패 구분",
+        )
+    }
+    assert not state["kept"] and _usable_core_count(state) == 2
+    assert route_after_write(state) == "retry"
+    state["retry"] = 3
+    assert route_after_write(state) == "finalize"
+
+
+def test_same_source_can_support_a_distinct_goal_after_a_duplicate_is_discarded(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    state["balanced"] = True
+    state["gaps"] = [Gap("G1", CONCEPT, "원리", "", mode=CONCEPT)]
+    state["sentences"] = {"S1": "Redis 캐시의 만료 시간을 조정하고 장애 시 원본 조회로 전환했습니다."}
+    old = _DraftQuestion(
+        gap_id="G1",
+        source_id="S1",
+        anchor="Redis 캐시",
+        question="Redis 캐시의 만료 시간을 선택하는 원리는 무엇인가요?",
+        purpose="Redis 캐시 만료 시간 선택",
+    )
+    state["discarded_targets"] = {"G1": old}
+    new = old.model_copy(
+        update={
+            "question": "Redis 캐시 장애 시 원본 조회로 전환하는 조건은 무엇인가요?",
+            "purpose": "Redis 캐시 장애 원본 조회 전환 조건",
+        }
+    )
+    result = _validate(state, QuestionDraft(questions=[new]), [], False)
+    assert result["kept"]["G1"] == new.question
+
+
+def test_concept_about_necessity_is_not_mistaken_for_a_completed_action() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _asks_actual_performance
+
+    assert not _asks_actual_performance("메시지 순서 검증이 필요한 이유는 무엇인가요?")
+
+
+def test_comparing_alternatives_is_applied_reasoning_without_a_magic_concept_word() -> None:
+    question = (
+        "테스트 실패가 제품 결함인지 테스트 환경 문제인지 분리하기 위해 어떤 절차를 적용해야 하는지 설명해 주십시오."
+    )
+    assert _checked(question, CONCEPT, [])[0] == question
+    assert _checked("제품 결함인지 테스트 환경 문제인지 분리하는 절차를 설명합니다.", CONCEPT, [])[0] is None
+    assert (
+        _checked("제품 결함인지 테스트 환경 문제인지 분리하기 위해 어떤 절차를 수립하셨습니까?", CONCEPT, [])[0] is None
+    )
