@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import type { AiMessage } from '@/features/posting/AiRequestPanel'
-import { useCreateRecruitment, usePosting } from '@/features/posting/api'
+import { useCreateRecruitment, usePosting, useScreeningCriteria } from '@/features/posting/api'
 import { PostingEditor } from '@/features/posting/PostingEditor'
 import { errorMessage } from '@/lib/api/client'
 
@@ -37,14 +37,19 @@ function NewPosting() {
 
 function EditPosting({ recruitmentId }: { recruitmentId: string }) {
   const posting = usePosting(recruitmentId)
+  const criteria = useScreeningCriteria(recruitmentId)
   const [messages, setMessages] = useState<AiMessage[]>([])
-  if (posting.isError) return <EditorSkeleton title="공고 편집" message="공고를 찾지 못했어요." />
-  if (!posting.data) return <EditorSkeleton title="공고 편집" />
-  // 서버의 본문이 바뀌면(적용 · 되돌리기 · 저장) 편집 상태를 새로 연다
+  if (posting.isError || criteria.isError) {
+    return <EditorSkeleton title="공고 편집" message="공고를 찾지 못했어요." />
+  }
+  if (!posting.data || !criteria.data) return <EditorSkeleton title="공고 편집" />
+  // 편집기는 저장 · 적용 · 되돌리기 결과로 스스로 입력 상태를 맞춘다.
+  // 저장하는 동안 다시 열면 이어서 저장할 서류 평가 기준과 AI 초안 진행이 끊긴다
   return (
     <PostingEditor
-      key={JSON.stringify(posting.data.content)}
+      key={recruitmentId}
       posting={posting.data}
+      screening={criteria.data}
       messages={messages}
       setMessages={setMessages}
     />

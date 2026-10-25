@@ -16,8 +16,14 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useStageGuides } from '@/features/notice/api'
 import { STAGE_GUIDES_ID } from '@/features/notice/StageGuides'
-import { usePosting, usePublishPosting, type Posting } from '@/features/posting/api'
+import {
+  usePosting,
+  usePublishPosting,
+  useScreeningCriteria,
+  type Posting,
+} from '@/features/posting/api'
 import { CareersHeader, CareersPosting } from '@/features/posting/CareersPosting'
+import { SCREENING_ID } from '@/features/posting/criteria'
 import { ReceiptMailPreview } from '@/features/posting/ReceiptMail'
 import { careersPath } from '@/features/recruit/labels'
 import { errorMessage } from '@/lib/api/client'
@@ -62,6 +68,12 @@ function PublishForm({ posting }: { posting: Posting }) {
   )
   // 안내 칸이 빈 전형. 게시는 막지 않고 알린다 (일정은 게시 뒤에 정하기도 한다)
   const emptyGuides = (guides.data ?? []).filter((guide) => guide.missing.length > 0)
+  // 평가 기준이 없는 항목. 서류 평가는 공고 문장 그대로 충족 · 미충족만 판정해서 게시는 막지 않고 알린다
+  const criteria = useScreeningCriteria(posting.recruitmentId)
+  const noCriteria = (criteria.data?.items ?? []).filter((item) => !item.saved)
+  const noHireCount = criteria.data?.hireCount == null
+  const criteriaWarning = Boolean(criteria.data) && (noCriteria.length > 0 || noHireCount)
+  const warned = emptyGuides.length > 0 || criteriaWarning
   const url = `${window.location.origin}${careersPath(posting.postingId)}`
   const valid =
     Boolean(period.open && period.close) && new Date(period.close) > new Date(period.open)
@@ -249,8 +261,35 @@ function PublishForm({ posting }: { posting: Posting }) {
               <p className="text-xs">안내는 게시한 뒤에도 입력할 수 있어요.</p>
             </div>
           )}
+          {criteriaWarning && (
+            <div className="space-y-1 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+              <p className="font-semibold">서류 평가 기준이 비어 있는 곳이 있어요</p>
+              <ul className="space-y-0.5">
+                {noHireCount && <li>· 선발 인원</li>}
+                {noCriteria.map(({ criterion }) => (
+                  <li key={criterion.criterionId}>
+                    · {criterion.criterionId} {criterion.text}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs">
+                기준이 없는 항목은 공고 문장 그대로 충족 · 미충족만 판정해요. 평가 기준은 게시한
+                뒤에는 바꿀 수 없어요.
+              </p>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
+            {criteriaWarning && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  void navigate(`/hr/recruitments/${posting.recruitmentId}/posting#${SCREENING_ID}`)
+                }
+              >
+                평가 기준 입력
+              </Button>
+            )}
             {emptyGuides.length > 0 && (
               <Button
                 variant="outline"
@@ -260,7 +299,7 @@ function PublishForm({ posting }: { posting: Posting }) {
                   )
                 }
               >
-                입력하러 가기
+                안내 입력
               </Button>
             )}
             <AlertDialogAction
@@ -270,7 +309,7 @@ function PublishForm({ posting }: { posting: Posting }) {
               }}
               disabled={publish.isPending}
             >
-              {emptyGuides.length > 0 ? '그대로 게시' : '게시'}
+              {warned ? '그대로 게시' : '게시'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -16,11 +16,15 @@ import {
   useSaveReceipt,
   type Posting,
   type PostingContent,
+  type ScreeningCriteria,
 } from '@/features/posting/api'
 import { BulletListField } from '@/features/posting/BulletListField'
+import type { ListKey, RuleLists } from '@/features/posting/criteria'
 import type { Receipt } from '@/features/posting/receipt'
 import { ReceiptMailEditor } from '@/features/posting/ReceiptMail'
+import { RequirementList, ScreeningBox } from '@/features/posting/RequirementList'
 import { StageFlow } from '@/features/posting/StageFlow'
+import { filledCount, useRequirementCriteria } from '@/features/posting/useRequirementCriteria'
 import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 
@@ -46,14 +50,27 @@ const LISTS: { key: 'duties' | 'qualifications' | 'preferred' | 'benefits'; labe
   { key: 'preferred', label: '우대 사항' },
 ]
 
+/** 서류 평가 기준과 문장으로 짝을 맞추는 목록. 게시한 뒤에는 바꾸지 않는다 */
+const REQUIREMENTS = new Set(['qualifications', 'preferred'])
+
+function isRequirement(key: string): key is ListKey {
+  return REQUIREMENTS.has(key)
+}
+
+/** 저장한 본문과 그 줄 순서에 맞춘 서류 평가 기준 */
+type Saved = { content: PostingContent; rules: RuleLists }
+
 // PST-01 Job Posting Editor. HR이 직접 쓰거나 AI에게 말해 고치고, 바뀐 부분은 HR이 적용 여부를 정한다
 export function PostingEditor({
   posting,
+  screening,
   messages,
   setMessages,
 }: {
   posting: Posting
-  /** 저장 · 적용으로 편집 상태를 새로 열어도 대화는 남도록 화면이 들고 있다 */
+  /** 서버에 저장한 서류 평가 기준. 편집 중에는 화면의 입력값이 기준이다 */
+  screening: ScreeningCriteria
+  /** 대화는 화면이 들고 있어 편집기를 다시 열어도 남는다 */
   messages: AiMessage[]
   setMessages: Dispatch<SetStateAction<AiMessage[]>>
 }) {
@@ -72,42 +89,75 @@ export function PostingEditor({
   const ai = usePostingAiRequest(id)
   const apply = useApplySuggestion(id)
   const discard = useDiscardSuggestion(id)
+  const criteria = useRequirementCriteria(id, { content: posting.content, criteria: screening })
+  const saving = save.isPending || saveReceipt.isPending || criteria.busy
 
   const suggestion = posting.suggestion
   const changed = new Set(suggestion?.changedFields ?? [])
   const isDraft = posting.status === 'DRAFT'
   const editable = isDraft || posting.status === 'PUBLISHED'
   const shown = suggestion ? { ...draft, ...pick(suggestion.content, changed) } : draft
-  const locked = (field: string) => !editable || changed.has(field)
+  // 자격 요건 · 우대 사항은 서류 평가 기준과 짝을 맞춰서 게시한 뒤에는 바꾸지 않는다
+  const requirementLocked = (field: string) => !isDraft && REQUIREMENTS.has(field)
+  const locked = (field: string) => !editable || changed.has(field) || requirementLocked(field)
 
   const update = (patch: Partial<PostingContent>) => {
     setDraft((current) => ({ ...current, ...patch }))
     setDirty(true)
   }
 
-  const saveDraft = async (silent = false) => {
-    if (!dirty && !receiptDirty) return true
+  /**
+   * 접수 확인 메일, 본문, 서류 평가 기준을 차례로 저장한다. 기준은 저장한 문장과 짝을 맞춰서 본문 다음에 저장한다.
+   * 저장한 본문과 그에 맞춘 기준을 돌려주고, 저장하지 못하면 null이다.
+   */
+  const saveAll = async (silent = false): Promise<Saved | null> => {
+    if (!dirty && !receiptDirty && !criteria.dirty) return { content: draft, rules: criteria.rules }
     if (dirty && !draft.title.trim()) {
       toast.error('채용명을 입력해 주세요.')
-      return false
+      return null
     }
     if (receiptDirty && (!receipt.subject.trim() || !receipt.body.trim())) {
       toast.error('접수 확인 메일의 제목과 본문을 입력해 주세요.')
-      return false
+      return null
+    }
+    if (!criteria.validate(draft)) {
+      toast.error('서류 평가 기준에서 빨갛게 표시한 칸을 채워 주세요.')
+      return null
     }
     try {
-      // 본문을 저장하면 편집 화면을 새로 열어, 접수 확인 메일을 먼저 저장한다
       if (receiptDirty) await saveReceipt.mutateAsync(receipt)
+      let content = draft
+      let rules = criteria.rules
       if (dirty) {
-        await save.mutateAsync({ ...draft, title: draft.title.trim() })
+        const saved = await save.mutateAsync({ ...draft, title: draft.title.trim() })
+        // 저장하면 빈 줄이 빠져서 기준도 같은 줄을 빼 순서를 맞춘다
+        rules = criteria.compact(draft)
+        content = saved.content
+        setDraft(saved.content)
         setDirty(false)
       }
+      if (!(await criteria.save(content, rules))) return null
       if (!silent) toast.success('저장했어요.')
-      return true
+      return { content, rules }
     } catch (error) {
       toast.error(errorMessage(error))
-      return false
+      return null
     }
+  }
+
+  const saveDraft = async (silent = false) => (await saveAll(silent)) !== null
+
+  /** 저장한 공고의 한 줄에 평가 기준 AI 초안을 받는다. 저장하면 빈 줄이 빠져서 문장으로 줄을 다시 찾는다 */
+  const draftRow = async (key: ListKey, index: number) => {
+    const text = draft[key][index]
+    const saved = await saveAll(true)
+    const row = saved ? saved.content[key].indexOf(text.trim()) : -1
+    if (row >= 0) await criteria.fillOne(key, row, text)
+  }
+
+  const draftAll = async () => {
+    const saved = await saveAll(true)
+    if (saved) await criteria.fillAll(saved.content, saved.rules)
   }
 
   const sendRequest = async (message: string) => {
@@ -129,6 +179,8 @@ export function PostingEditor({
       onSuccess: (updated) => {
         setDraft(updated.content)
         setDirty(false)
+        // 문장이 바뀌었을 수 있어 저장한 기준으로 다시 짝짓는다
+        criteria.reset(updated.content, screening)
       },
       onError: (error) => toast.error(errorMessage(error)),
     })
@@ -152,7 +204,7 @@ export function PostingEditor({
             <Button
               variant="outline"
               onClick={() => void saveDraft()}
-              disabled={!(dirty || receiptDirty) || save.isPending || saveReceipt.isPending}
+              disabled={!(dirty || receiptDirty || criteria.dirty) || saving}
             >
               {isDraft ? '임시 저장' : '저장'}
             </Button>
@@ -161,7 +213,7 @@ export function PostingEditor({
             <Tooltip>
               <TooltipTrigger asChild>
                 <span>
-                  <Button onClick={() => void goPublish()} disabled={Boolean(suggestion)}>
+                  <Button onClick={() => void goPublish()} disabled={Boolean(suggestion) || saving}>
                     승인 및 게시
                   </Button>
                 </span>
@@ -242,20 +294,83 @@ export function PostingEditor({
                 rows={2}
               />
             </Section>
-            {LISTS.map((list) => (
-              <Section key={list.key} title={list.label} highlighted={changed.has(list.key)}>
-                <BulletListField
-                  label={list.label}
-                  items={shown[list.key]}
-                  disabled={locked(list.key)}
-                  highlight={
-                    changed.has(list.key) ? newLines(shown[list.key], draft[list.key]) : undefined
+            {LISTS.map((list) => {
+              // 자격 요건 · 우대 사항은 줄마다 평가 기준을 둔다. AI 수정안을 보는 동안에는 문장만 보여 준다
+              const requirement =
+                isRequirement(list.key) && !changed.has(list.key) ? list.key : null
+              return (
+                <Section
+                  key={list.key}
+                  title={list.label}
+                  highlighted={changed.has(list.key)}
+                  extra={
+                    requirementLocked(list.key) && (
+                      <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                        <Lock className="size-3" />
+                        게시한 뒤에는 서류 평가 기준과 맞추려고 바꿀 수 없어요
+                      </span>
+                    )
                   }
-                  onChange={(items) => update({ [list.key]: items })}
-                />
-                {actions(list.key)}
-              </Section>
-            ))}
+                >
+                  {requirement ? (
+                    <RequirementList
+                      label={list.label}
+                      texts={draft[requirement]}
+                      rules={criteria.rules[requirement]}
+                      onChange={(texts, rules) => {
+                        update({ [requirement]: texts })
+                        if (rules) criteria.moveRows(requirement, rules)
+                      }}
+                      onRuleChange={(index, rule) =>
+                        criteria.changeRule(
+                          requirement,
+                          index,
+                          rule,
+                          draft[requirement][index] ?? '',
+                        )
+                      }
+                      locked={locked(list.key)}
+                      problems={criteria.problems[requirement]}
+                      duties={criteria.duties[requirement]}
+                      drafting={
+                        criteria.drafting?.key === requirement ? criteria.drafting.index : null
+                      }
+                      busy={saving || ai.isPending}
+                      onDraft={(index) => void draftRow(requirement, index)}
+                    />
+                  ) : (
+                    <BulletListField
+                      label={list.label}
+                      items={shown[list.key]}
+                      disabled={locked(list.key)}
+                      highlight={
+                        changed.has(list.key)
+                          ? newLines(shown[list.key], draft[list.key])
+                          : undefined
+                      }
+                      onChange={(items) => update({ [list.key]: items })}
+                    />
+                  )}
+                  {actions(list.key)}
+                </Section>
+              )
+            })}
+            <ScreeningBox
+              hireCount={criteria.hireCount}
+              onHireCount={criteria.changeHireCount}
+              hireProblem={criteria.hireProblem}
+              filled={filledCount(draft, criteria.rules)}
+              total={
+                draft.qualifications.concat(draft.preferred).filter((text) => text.trim()).length
+              }
+              locked={!isDraft}
+              busy={
+                saving || ai.isPending || changed.has('qualifications') || changed.has('preferred')
+              }
+              progress={criteria.progress}
+              stub={criteria.stub}
+              onFillAll={() => void draftAll()}
+            />
             <FixedBox
               title="전형 절차"
               note={isDraft ? undefined : '게시한 뒤에는 전형 절차를 바꿀 수 없어요'}
@@ -339,7 +454,7 @@ export function PostingEditor({
         <AiRequestPanel
           messages={messages}
           examples={EXAMPLES}
-          pending={ai.isPending || save.isPending}
+          pending={ai.isPending || saving}
           disabled={!editable}
           onSend={(message) => void sendRequest(message)}
           onReset={() => setMessages([])}

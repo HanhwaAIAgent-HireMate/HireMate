@@ -148,6 +148,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/criteria": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["screeningCriteria"];
+        put: operations["changeScreeningCriteria"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/profile": {
         parameters: {
             query?: never;
@@ -532,6 +548,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/criteria/important": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["recommendImportant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recruitments/{recruitmentId}/posting/criteria/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["draftCriterion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/posting/close": {
         parameters: {
             query?: never;
@@ -724,6 +772,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/candidates/{applicationId}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["candidateProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates/{applicationId}/interview": {
         parameters: {
             query?: never;
@@ -780,22 +844,6 @@ export interface paths {
             cookie?: never;
         };
         get: operations["analysis"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/stages/{stageId}/candidates/{applicationId}/profile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["candidateProfile"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1217,6 +1265,52 @@ export interface components {
             subject: string;
             body: string;
         };
+        CriteriaRequest: {
+            /** Format: int32 */
+            hireCount: number;
+            criteria: components["schemas"]["CriterionInput"][];
+        };
+        CriterionInput: {
+            /** @enum {string} */
+            category: "QUALIFICATION" | "PREFERENCE";
+            text: string;
+            important: boolean;
+            /** @enum {string} */
+            criterionType: "CONDITION" | "SINGLE" | "COMPOSITE";
+            met: string;
+            partial: string;
+            unmet: string;
+            certificates: string[];
+            ncsUnitCode: string;
+        };
+        Criterion: {
+            criterionId: string;
+            /** @enum {string} */
+            category: "QUALIFICATION" | "PREFERENCE";
+            text: string;
+            important: boolean;
+            /** @enum {string} */
+            criterionType: "CONDITION" | "SINGLE" | "COMPOSITE";
+            evaluationRules: components["schemas"]["EvaluationRules"];
+            certificates: string[];
+            ncsUnitCode: string | null;
+        };
+        CriterionItem: {
+            saved: boolean;
+            criterion: components["schemas"]["Criterion"];
+        };
+        EvaluationRules: {
+            met: string;
+            partial: string | null;
+            unmet: string;
+        };
+        ScreeningCriteriaView: {
+            locked: boolean;
+            /** Format: int32 */
+            hireCount: number | null;
+            criteriaVersion: string | null;
+            items: components["schemas"]["CriterionItem"][];
+        };
         ProfileRequest: {
             intro: string;
             culture: string;
@@ -1368,6 +1462,36 @@ export interface components {
             /** Format: date-time */
             closeAt: string;
         };
+        ImportantAdvice: {
+            qualifications: components["schemas"]["ImportantItem"][];
+            preferred: components["schemas"]["ImportantItem"][];
+        };
+        ImportantAnswer: {
+            advice: components["schemas"]["ImportantAdvice"];
+            stub: boolean;
+        };
+        ImportantItem: {
+            /** Format: int32 */
+            index: number;
+            duty: string;
+        };
+        CriterionDraftRequest: {
+            /** @enum {string} */
+            category: "QUALIFICATION" | "PREFERENCE";
+            text: string;
+        };
+        CriterionDraft: {
+            /** @enum {string} */
+            criterionType: "CONDITION" | "SINGLE" | "COMPOSITE";
+            met: string;
+            partial: string | null;
+            unmet: string;
+            certificates: string[];
+        };
+        CriterionDraftAnswer: {
+            draft: components["schemas"]["CriterionDraft"];
+            stub: boolean;
+        };
         PostingAiRequest: {
             message: string;
         };
@@ -1512,6 +1636,25 @@ export interface components {
             documents: components["schemas"]["ApplicantDocument"][];
             memo: string;
         };
+        CandidateProfileView: {
+            /** Format: uuid */
+            applicationId: string;
+            /** @enum {string|null} */
+            status: "DONE" | "CHECK" | "FAILED" | null;
+            summary: string;
+            items: components["schemas"]["ProfileItemView"][];
+        };
+        ProfileItemView: {
+            category: string;
+            agent: string;
+            content: string;
+            evidence: string | null;
+            source: string;
+            /** @enum {string} */
+            verification: "CONFIRMED" | "EVIDENCED" | "UNCONFIRMED" | "CONFLICT";
+            /** Format: uuid */
+            stageId: string | null;
+        };
         PreparingView: {
             preparing: boolean;
         };
@@ -1552,46 +1695,10 @@ export interface components {
             agent: string;
             stub: boolean;
         };
-        CandidateProfileView: {
-            /** Format: uuid */
-            applicationId: string;
-            /** @enum {string|null} */
-            status: "DONE" | "CHECK" | "FAILED" | null;
-            summary: string;
-            items: components["schemas"]["ProfileItemView"][];
-        };
-        ProfileItemView: {
-            category: string;
-            agent: string;
-            content: string;
-            evidence: string | null;
-            source: string;
-            /** @enum {string} */
-            verification: "CONFIRMED" | "EVIDENCED" | "UNCONFIRMED" | "CONFLICT";
-            /** Format: uuid */
-            stageId: string | null;
-        };
         Condition: {
             label: string;
             met: boolean;
             requirement: string;
-        };
-        Evidence: {
-            /** @enum {string} */
-            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
-            sentence: string;
-        };
-        Finding: {
-            text: string;
-            source: string;
-        };
-        SummarySection: {
-            /** @enum {string} */
-            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
-            title: string;
-            summary: string;
-            points: string[];
-            evidence: components["schemas"]["Evidence"][];
         };
         CriterionLine: {
             criterionId: string;
@@ -1617,6 +1724,23 @@ export interface components {
             careerYears: number | null;
             /** @enum {string|null} */
             certificateStatus: "SELF_REPORTED" | "EVIDENCE_SUBMITTED" | "ISSUER_VERIFIED" | null;
+        };
+        Evidence: {
+            /** @enum {string} */
+            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            sentence: string;
+        };
+        Finding: {
+            text: string;
+            source: string;
+        };
+        SummarySection: {
+            /** @enum {string} */
+            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            title: string;
+            summary: string;
+            points: string[];
+            evidence: components["schemas"]["Evidence"][];
         };
         DashboardStep: {
             /** Format: uuid */
@@ -1732,9 +1856,9 @@ export interface components {
             type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
         };
         CsrfToken: {
-            headerName: string;
             parameterName: string;
             token: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -2029,6 +2153,54 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PostingView"];
+                };
+            };
+        };
+    };
+    screeningCriteria: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ScreeningCriteriaView"];
+                };
+            };
+        };
+    };
+    changeScreeningCriteria: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CriteriaRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ScreeningCriteriaView"];
                 };
             };
         };
@@ -2738,6 +2910,54 @@ export interface operations {
             };
         };
     };
+    recommendImportant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ImportantAnswer"];
+                };
+            };
+        };
+    };
+    draftCriterion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CriterionDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CriterionDraftAnswer"];
+                };
+            };
+        };
+    };
     close: {
         parameters: {
             query?: never;
@@ -3061,6 +3281,29 @@ export interface operations {
             };
         };
     };
+    candidateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CandidateProfileView"];
+                };
+            };
+        };
+    };
     view: {
         parameters: {
             query?: never;
@@ -3149,29 +3392,6 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CandidateAnalysis"];
-                };
-            };
-        };
-    };
-    candidateProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-                applicationId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["CandidateProfileView"];
                 };
             };
         };

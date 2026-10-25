@@ -6,9 +6,14 @@ export type Posting = Schemas['PostingView']
 export type PostingContent = Schemas['PostingContent']
 export type PublicPosting = Schemas['PublicPostingView']
 export type RequiredDocument = Schemas['RequiredDocument']
+export type ScreeningCriteria = Schemas['ScreeningCriteriaView']
+export type CriterionItem = Schemas['CriterionItem']
+export type CriteriaRequest = Schemas['CriteriaRequest']
+export type CriterionInput = Schemas['CriterionInput']
 
 export const postingKeys = {
   posting: (recruitmentId: string) => ['posting', recruitmentId] as const,
+  criteria: (recruitmentId: string) => ['posting-criteria', recruitmentId] as const,
   public: (postingId: string) => ['public-posting', postingId] as const,
 }
 
@@ -41,7 +46,66 @@ function usePostingMutation<T>(recruitmentId: string, request: (variables: T) =>
     onSuccess: (posting) => {
       queryClient.setQueryData(postingKeys.posting(recruitmentId), posting)
       void queryClient.invalidateQueries({ queryKey: ['recruitments'] })
+      // 평가 기준은 자격 요건 · 우대 사항 문장과 짝을 맞춰서, 문장이 바뀌면 다시 불러온다
+      void queryClient.invalidateQueries({ queryKey: postingKeys.criteria(recruitmentId) })
     },
+  })
+}
+
+/** 서류 평가 기준과 선발 인원. 자격 요건 · 우대 사항마다 저장한 기준을 짝지어 받는다 */
+export function useScreeningCriteria(recruitmentId: string) {
+  return useQuery({
+    queryKey: postingKeys.criteria(recruitmentId),
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/recruitments/{recruitmentId}/posting/criteria', {
+          params: { path: { recruitmentId } },
+        }),
+      ),
+  })
+}
+
+export type CriterionDraft = Schemas['CriterionDraft']
+export type ImportantAdvice = Schemas['ImportantAdvice']
+
+/** 평가 기준 항목 하나의 AI 초안. 저장하지 않고 입력 칸만 채운다 */
+export function useDraftCriterion(recruitmentId: string) {
+  return useMutation({
+    mutationFn: (body: Schemas['CriterionDraftRequest']) =>
+      unwrap(
+        api.POST('/api/recruitments/{recruitmentId}/posting/criteria/draft', {
+          params: { path: { recruitmentId } },
+          body,
+        }),
+      ),
+  })
+}
+
+/** 목록마다 '중요'로 추천할 항목 */
+export function useRecommendImportant(recruitmentId: string) {
+  return useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST('/api/recruitments/{recruitmentId}/posting/criteria/important', {
+          params: { path: { recruitmentId } },
+        }),
+      ),
+  })
+}
+
+/** 서류 평가 기준 저장. 게시 전에만 고칠 수 있다 */
+export function useSaveScreeningCriteria(recruitmentId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CriteriaRequest) =>
+      unwrap(
+        api.PUT('/api/recruitments/{recruitmentId}/posting/criteria', {
+          params: { path: { recruitmentId } },
+          body,
+        }),
+      ),
+    onSuccess: (criteria) =>
+      queryClient.setQueryData(postingKeys.criteria(recruitmentId), criteria),
   })
 }
 
