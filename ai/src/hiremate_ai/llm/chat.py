@@ -1,6 +1,8 @@
 import json
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import Any, Literal, NotRequired, cast
 
@@ -45,6 +47,43 @@ class LlmOutputError(RuntimeError):
     """모델 답이 요청한 형식에 맞지 않을 때."""
 
 
+@dataclass
+class _ModelCallBudget:
+    limit: int
+    remaining: int
+
+
+_MODEL_CALL_BUDGET: ContextVar[_ModelCallBudget | None] = ContextVar("model_call_budget", default=None)
+
+
+@contextmanager
+def model_call_budget(limit: int) -> Iterator[None]:
+    """요청의 모든 모델 호출이 예산을 공유한다. 병렬 도구도 같은 남은 횟수를 사용한다.
+
+    이미 예산이 있는 실행 안에서는 기존 예산을 이어 쓴다. 종료하면 호출자 context로 복원한다.
+    """
+    if limit < 0:
+        raise ValueError("모델 호출 예산은 0 이상이어야 한다")
+    if _MODEL_CALL_BUDGET.get() is not None:
+        yield
+        return
+    token = _MODEL_CALL_BUDGET.set(_ModelCallBudget(limit=limit, remaining=limit))
+    try:
+        yield
+    finally:
+        _MODEL_CALL_BUDGET.reset(token)
+
+
+def consume_model_call() -> None:
+    """실제 모델 호출 직전에 한 회를 사용한다. await 없이 차감해 병렬 task의 중복 사용을 막는다."""
+    budget = _MODEL_CALL_BUDGET.get()
+    if budget is None:
+        return
+    if budget.remaining <= 0:
+        raise LlmOutputError(f"요청의 모델 호출 상한을 넘었다 ({budget.limit}회)")
+    budget.remaining -= 1
+
+
 class _ToolState(AgentState[Any]):
     # 기본 private 필드는 그래프 재진입 입력에서 제외된다. 검증 후에도 같은 호출 예산을 이어받게 한다.
     thread_model_call_count: NotRequired[int]
@@ -78,6 +117,7 @@ class ChatLlm:
         try:
             for _ in range(PARSE_ATTEMPTS):
                 try:
+                    consume_model_call()
                     result = cast(dict[str, Any], await runnable.ainvoke(messages))
                 except (ValidationError, OutputParserException) as invalid:
                     # json_schema 방식은 형식 오류를 parsing_error 대신 예외로 알린다
@@ -210,6 +250,7 @@ def build_tool_agent[T: BaseModel](
             _ShorterWhenCut(_max_tokens(model)),
             _CallLogMiddleware(_Recorder(call_log, agent=agent, model=model_name)),
             ModelCallLimitMiddleware(run_limit=max_calls, exit_behavior="error"),
+            _ModelCallBudgetMiddleware(),
         ],
         response_format=ToolStrategy(output),
         state_schema=_ToolState,
@@ -369,7 +410,8 @@ class _LastCallAnswers(AgentMiddleware[Any, Any, Any]):
     ) -> ModelResponse[Any]:
         # 실행은 질문 하나로 시작하므로 앞선 AI 메시지 수가 이번 실행에서 부른 모델 호출 수다
         called = sum(isinstance(message, AIMessage) for message in request.messages)
-        if called + 1 >= self._max_calls:
+        budget = _MODEL_CALL_BUDGET.get()
+        if called + 1 >= self._max_calls or (budget is not None and budget.remaining <= 1):
             request = request.override(tools=[], messages=[*request.messages, HumanMessage(LAST_CALL)])
         return await handler(request)
 
@@ -447,6 +489,18 @@ class _CallLogMiddleware(AgentMiddleware[Any, Any, Any]):
             system, user, started, tokens, output={"content": message.text, "tool_calls": calls}
         )
         return response
+
+
+class _ModelCallBudgetMiddleware(AgentMiddleware[Any, Any, Any]):
+    """다른 미들웨어의 재시도와 중첩 호출까지 요청의 공유 예산에서 차감한다."""
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
+    ) -> ModelResponse[Any]:
+        consume_model_call()
+        return await handler(request)
 
 
 @dataclass(frozen=True)

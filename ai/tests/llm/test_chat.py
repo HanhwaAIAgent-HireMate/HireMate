@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any
 
@@ -13,7 +14,7 @@ from hiremate_ai.config import settings
 from hiremate_ai.db.llm_call import LlmCallLog
 from hiremate_ai.llm import client
 from hiremate_ai.llm.call_log import CallRecord, DbCallLog
-from hiremate_ai.llm.chat import LAST_CALL, SHORTER, ChatLlm, LlmOutputError
+from hiremate_ai.llm.chat import LAST_CALL, SHORTER, ChatLlm, LlmOutputError, model_call_budget
 
 
 class Summary(BaseModel):
@@ -113,6 +114,47 @@ async def test_asks_again_when_output_does_not_match() -> None:
     assert result.text == "두 번째 답"
     assert len(requests) == 2
     assert [record.status for record in call_log.records] == ["OK"]
+
+
+async def test_structured_parse_retries_consume_the_shared_budget() -> None:
+    requests: list[dict[str, Any]] = []
+    log = RecordingCallLog()
+    llm = chat_llm(['{"wrong": 1}', '{"text": "예산 밖 답"}'], log, requests)
+
+    with model_call_budget(1), pytest.raises(LlmOutputError, match="상한"):
+        await llm.structured(Summary, agent="root", system="", user="요약해")
+
+    assert len(requests) == 1
+    assert log.records[-1].status == "ERROR"
+
+
+async def test_parallel_requests_have_separate_model_budgets() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(['{"text": "첫 요청"}', '{"text": "다음 요청"}'], RecordingCallLog(), requests)
+
+    async def invoke() -> Summary:
+        with model_call_budget(1):
+            return await llm.structured(Summary, agent="root", system="", user="요약해")
+
+    results = await asyncio.gather(invoke(), invoke())
+
+    assert {result.text for result in results} == {"첫 요청", "다음 요청"}
+    assert len(requests) == 2
+
+
+async def test_nested_budget_does_not_replenish_the_request_allowance() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(['{"text": "첫 요청"}', '{"text": "다음 요청"}'], RecordingCallLog(), requests)
+
+    with model_call_budget(1):
+        await llm.structured(Summary, agent="root", system="", user="첫 요청")
+        with model_call_budget(100), pytest.raises(LlmOutputError, match="상한"):
+            await llm.structured(Summary, agent="root", system="", user="예산 밖 요청")
+    with model_call_budget(1):
+        result = await llm.structured(Summary, agent="root", system="", user="독립 요청")
+
+    assert result.text == "다음 요청"
+    assert len(requests) == 2
 
 
 async def test_records_error_when_output_never_matches() -> None:
@@ -268,6 +310,63 @@ async def test_tool_agent_last_call_can_only_answer() -> None:
     assert [tool["function"]["name"] for tool in requests[0]["tools"]] == ["career", "Summary"]
     assert [tool["function"]["name"] for tool in requests[1]["tools"]] == ["Summary"]
     assert requests[1]["messages"][-1] == {"role": "user", "content": LAST_CALL}
+
+
+async def test_shared_budget_last_call_can_only_answer() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        ['{"text": "앞선 판단"}', tool_completion(("Summary", {"text": "확인한 만큼 답"}))],
+        RecordingCallLog(),
+        requests,
+    )
+
+    with model_call_budget(2):
+        await llm.structured(Summary, agent="root", system="", user="자료 판단")
+        result = await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("요약해")
+
+    assert result.text == "확인한 만큼 답"
+    assert [entry["function"]["name"] for entry in requests[-1]["tools"]] == ["Summary"]
+    assert requests[-1]["messages"][-1] == {"role": "user", "content": LAST_CALL}
+
+
+async def test_tool_agent_cut_retry_consumes_shared_budget() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [cut(tool_completion(("Summary", {"text": "잘린 답"}))), tool_completion(("Summary", {"text": "예산 밖 답"}))],
+        RecordingCallLog(),
+        requests,
+    )
+
+    with model_call_budget(1), pytest.raises(LlmOutputError, match="상한"):
+        await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("요약해")
+
+    assert len(requests) == 1
+
+
+async def test_parallel_tool_judgments_share_the_callers_budget() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [
+            tool_completion(("judge", {"concept": "금융"}), ("judge", {"concept": "결제"})),
+            '{"text": "자료 판정"}',
+            '{"text": "예산 밖 판정"}',
+        ],
+        RecordingCallLog(),
+        requests,
+    )
+
+    @tool
+    async def judge(concept: str) -> str:
+        """요청 조건에 대한 자료를 모델로 판단한다."""
+        result = await llm.structured(Summary, agent="judge", system="판정해", user=concept)
+        return result.text
+
+    with model_call_budget(2), pytest.raises(LlmOutputError, match="상한"):
+        await llm.tool_agent(Summary, agent="root", system="", tools=[judge]).run("후보 확인")
+
+    assert len(requests) == 2
+    assert "tools" in requests[0]
+    assert "response_format" in requests[1]
 
 
 async def test_repeated_read_batch_switches_to_final_answer_before_limit() -> None:
