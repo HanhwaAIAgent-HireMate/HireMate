@@ -42,6 +42,15 @@ class InterviewAnalysisInput(ContractModel):
     previous: list[PreviousInterview]
 
 
+class InterviewReference(BaseModel):
+    """다른 분석 Agent의 앞선 결과. 이번 면접 답변과 비교할 맥락으로만 쓴다."""
+
+    content: str
+    evidence: str
+    source: str
+    verification: str
+
+
 class FindingDraft(BaseModel):
     """모델이 쓰는 면접 기록 정리 한 줄."""
 
