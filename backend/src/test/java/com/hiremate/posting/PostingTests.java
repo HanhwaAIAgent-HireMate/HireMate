@@ -8,11 +8,14 @@ import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
 import com.hiremate.TestMailConfiguration;
+import com.hiremate.recruit.StageDraft;
+import com.hiremate.recruit.StageType;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +25,9 @@ class PostingTests extends IntegrationTest {
 
     @Autowired
     private TestMailConfiguration.RecordingMailClient mail;
+
+    @Autowired
+    private PostingService postings;
 
     @Test
     @DisplayName("새 채용은 설정의 회사 소개 · 복지 · 필수 안내 문구로 공고 초안을 연다")
@@ -75,6 +81,43 @@ class PostingTests extends IntegrationTest {
         expect(hr.post(base + "/ai-requests", Map.of("message", "우대 사항에 결제·정산 경험을 더 구체적으로 써줘")), 200);
         JsonNode discarded = json(expect(hr.post(base + "/suggestion/discard", null), 200));
         assertThat(discarded.path("content").path("preferred").size()).isZero();
+    }
+
+    @Test
+    @DisplayName("수정안은 칸마다 적용하거나 되돌릴 수 있고, 남은 칸은 수정안으로 남는다")
+    void suggestionIsResolvedPerField() throws Exception {
+        TestApi hr = newHr();
+        UUID id = UUID.fromString(json(expect(hr.post("/api/recruitments", null), 201)).path("recruitmentId")
+                .asString());
+        String base = "/api/recruitments/" + id + "/posting";
+        PostingContent before = postings.draftContext(hr.companyId(), id).content();
+        PostingContent suggested = new PostingContent("결제 백엔드 개발자", before.jobCategory(),
+                before.employmentType(), before.career(), before.location(), before.intro(), List.of("결제 API 개발"),
+                List.of("Java 서버 개발 경력 3년 이상"), List.of("정산 시스템 경험"), before.benefits());
+        postings.suggest(hr.companyId(), id, new PostingSuggestion(suggested,
+                List.of(new StageDraft("서류 전형", StageType.DOCUMENT), new StageDraft("1차 면접", StageType.INTERVIEW)),
+                null, List.of("title", "duties", "qualifications", "preferred", "stages")));
+
+        JsonNode applied = json(expect(hr.post(base + "/suggestion/apply",
+                Map.of("fields", List.of("preferred", "stages"))), 200));
+        assertThat(applied.path("content").path("preferred").get(0).asString()).isEqualTo("정산 시스템 경험");
+        assertThat(applied.path("content").path("qualifications").size()).isZero();
+        assertThat(applied.path("stages").size()).isEqualTo(2);
+        assertThat(applied.path("suggestion").path("changedFields").toString())
+                .isEqualTo("[\"title\",\"duties\",\"qualifications\"]");
+        assertThat(applied.path("suggestion").path("stages").isNull()).isTrue();
+
+        JsonNode discarded = json(expect(hr.post(base + "/suggestion/discard",
+                Map.of("fields", List.of("qualifications"))), 200));
+        assertThat(discarded.path("suggestion").path("changedFields").toString()).isEqualTo("[\"title\",\"duties\"]");
+        assertThat(discarded.path("content").path("qualifications").size()).isZero();
+        expect(hr.post(base + "/suggestion/apply", Map.of("fields", List.of("benefits"))), 400);
+
+        JsonNode rest = json(expect(hr.post(base + "/suggestion/apply", null), 200));
+        assertThat(rest.path("content").path("title").asString()).isEqualTo("결제 백엔드 개발자");
+        assertThat(rest.path("content").path("duties").get(0).asString()).isEqualTo("결제 API 개발");
+        assertThat(rest.path("content").path("preferred").get(0).asString()).isEqualTo("정산 시스템 경험");
+        assertThat(rest.path("suggestion").isNull()).isTrue();
     }
 
     @Test

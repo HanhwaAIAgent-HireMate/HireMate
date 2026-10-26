@@ -81,21 +81,25 @@ export function useReceiptPreview(recruitmentId: string) {
   })
 }
 
+/** 수정안 적용. fields가 있으면 그 칸만 적용하고 나머지는 수정안으로 남긴다 */
 export function useApplySuggestion(recruitmentId: string) {
-  return usePostingMutation(recruitmentId, () =>
+  return usePostingMutation(recruitmentId, (fields?: string[]) =>
     unwrap(
       api.POST('/api/recruitments/{recruitmentId}/posting/suggestion/apply', {
         params: { path: { recruitmentId } },
+        body: fields ? { fields } : undefined,
       }),
     ),
   )
 }
 
+/** 수정안 되돌리기. fields가 있으면 그 칸만 되돌리고 나머지는 수정안으로 남긴다 */
 export function useDiscardSuggestion(recruitmentId: string) {
-  return usePostingMutation(recruitmentId, () =>
+  return usePostingMutation(recruitmentId, (fields?: string[]) =>
     unwrap(
       api.POST('/api/recruitments/{recruitmentId}/posting/suggestion/discard', {
         params: { path: { recruitmentId } },
+        body: fields ? { fields } : undefined,
       }),
     ),
   )

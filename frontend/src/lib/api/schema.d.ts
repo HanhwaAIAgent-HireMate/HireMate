@@ -1466,6 +1466,9 @@ export interface components {
             unmatched: string[];
             saved: boolean;
         };
+        SuggestionFieldsRequest: {
+            fields: string[];
+        };
         PublishRequest: {
             /** Format: date-time */
             openAt: string;
@@ -2854,7 +2857,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SuggestionFieldsRequest"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -2876,7 +2883,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SuggestionFieldsRequest"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
