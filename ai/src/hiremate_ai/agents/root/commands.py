@@ -1,10 +1,12 @@
 """Root의 최종 명령에서 조회 범위, 실행 가능 상태와 원문 근거를 검증한다."""
 
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, GetJsonSchemaHandler, model_validator
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.answer import (
@@ -33,26 +35,36 @@ class _Command(BaseModel):
 
 
 class AnswerCommand(_Command):
+    """자료에 근거한 분석과 업무 현황 답변. 특정 지원자는 candidates와 원문 근거 items를 작성한다."""
+
     kind: Literal["answer"] = "answer"
     candidates: list[str] = Field(default=[], description="답변 대상 지원자 번호. 전형 전체 질문이면 비운다")
 
 
 class ConversationCommand(_Command):
+    """인사, 감사, 말투 변경과 일반 기능 설명. 지원자 분석이나 선택 편집 요청에 대한 명령이 아니다."""
+
     kind: Literal["conversation"] = "conversation"
 
 
 class FindCommand(_Command):
+    """조건 검색으로 선택 목록을 교체, 추가, 좁힌다. 실제 검색 도구가 반환한 결과 번호만 참조한다."""
+
     kind: Literal["find"] = "find"
     result: str = Field(description="search_candidates가 반환한 검색 결과 식별자")
 
 
 class EditCommand(_Command):
+    """명확한 지원자를 선택 목록에 넣거나 뺀다. 미선택 지원자 전체 추가도 ADD와 대상 C번호로 실행한다."""
+
     kind: Literal["edit"] = "edit"
     action: EditAction
     candidates: list[str] = Field(default=[], description="편집할 지원자 번호. 비우기와 되돌리기에는 비운다")
 
 
 class QuestionsCommand(_Command):
+    """지원자별 면접 질문 생성 요청. 검증된 대상과 원문 근거 항목을 전달한다."""
+
     kind: Literal["questions"] = "questions"
     candidates: list[str] = Field(description="면접 질문을 만들 지원자 번호")
     focus: dict[str, str] = Field(
@@ -61,14 +73,20 @@ class QuestionsCommand(_Command):
 
 
 class ClarifyCommand(_Command):
+    """현재 화면과 앞 대화에도 없는 필수 정보만 되묻는다. 이미 알려준 조건을 다시 확인하지 않는다."""
+
     kind: Literal["clarify"] = "clarify"
 
 
 class BlockedCommand(_Command):
+    """차별 조건에 따른 탐색이나 선택 요청을 차단한다."""
+
     kind: Literal["blocked"] = "blocked"
 
 
 class DecisionCommand(_Command):
+    """합격, 불합격, 결과 확정, 게시, 발송은 담당자가 직접 실행하도록 안내한다."""
+
     kind: Literal["decision"] = "decision"
 
 
@@ -85,12 +103,71 @@ type RootCommand = Annotated[
 ]
 
 
+class _ModelReply(BaseModel):
+    """현재 요청의 최종 응답. 분석은 answer, 조건 검색은 find, 명시적 선택 편집은 edit으로 낸다."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"required": ["kind", "message", "items", "candidates", "action", "result", "focus"]},
+    )
+
+    kind: Literal["answer", "conversation", "find", "edit", "questions", "clarify", "blocked", "decision"] = Field(
+        description=(
+            "분석과 업무 현황은 answer, 인사와 말투 변경은 conversation, 검색 결과 선택은 find, "
+            "명시적 대상 선택 편집은 edit, 면접 질문 생성은 questions, 필수 정보 부족은 clarify, "
+            "차별 조건은 blocked, 담당자가 직접 해야 할 채용 결정은 decision"
+        )
+    )
+    message: str = Field(description="현재 요청에 대한 짧은 답. 분석 내용은 items에 적는다")
+    items: list[AnswerItem] = Field(default=[], description="지원자별 원문 근거 항목. 일반 대화와 선택 편집이면 []")
+    candidates: list[str] = Field(
+        default=[], description="answer, edit, questions의 대상 C번호. 전형 전체 답변과 다른 종류에서는 []"
+    )
+    action: EditAction | None = Field(default=None, description="edit의 ADD, REMOVE, CLEAR, RESTORE. 다른 종류는 null")
+    result: str | None = Field(default=None, description="find가 참조할 실제 검색 결과 번호(S1 등). 다른 종류는 null")
+    focus: dict[str, str] = Field(default={}, description="questions의 지원자별 확인할 점. 다른 종류는 {}")
+
+
 class RootReply(BaseModel):
+    """모델에는 평탄한 응답을 보여 주고 명시한 kind를 내부 명령으로 변환한다. 의도는 다시 추론하지 않는다."""
+
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(description="담당자에게 보여 줄 짧은 답")
     items: list[AnswerItem] = Field(default=[], description="지원자별 원문 근거 항목")
     command: RootCommand = Field(description="대화와 조회 결과에 근거한 최종 명령")
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler) -> JsonSchemaValue:
+        schema = handler.resolve_ref_schema(handler(_ModelReply.__pydantic_core_schema__))
+        return {**schema, "title": cls.__name__}
+
+    @model_validator(mode="before")
+    @classmethod
+    def from_model_response(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or "command" in value:
+            return value
+        response = _ModelReply.model_validate(value)
+        fields = {
+            "answer": ("candidates",),
+            "edit": ("action", "candidates"),
+            "find": ("result",),
+            "questions": ("candidates", "focus"),
+        }.get(response.kind, ())
+        arguments = {
+            "candidates": response.candidates,
+            "action": response.action,
+            "result": response.result,
+            "focus": response.focus,
+        }
+        unused = [name for name, argument in arguments.items() if name not in fields and argument not in (None, [], {})]
+        if unused:
+            raise ValueError(f"{response.kind}에서 사용하지 않는 필드가 있어요: {', '.join(unused)}")
+        return {
+            "message": response.message,
+            "items": response.items,
+            "command": {"kind": response.kind, **{name: arguments[name] for name in fields}},
+        }
 
 
 async def compile_reply(

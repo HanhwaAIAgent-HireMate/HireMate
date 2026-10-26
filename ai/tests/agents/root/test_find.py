@@ -2,6 +2,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import UUID
 
+import pytest
+from pydantic import ValidationError
 from root_context import Recorder, extra_row, make_context
 
 from hiremate_ai.agents.root.find import (
@@ -34,6 +36,21 @@ from hiremate_ai.tools.candidates import CandidateMatch, SourcedSentence
 from hiremate_ai.tools.scope import ToolScope
 
 type Applicants = dict[str, ApplicantDetail]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        {"conditions": ["금융 업종 재직 경력"]},
+        {"minimum_score": 80, "score_source": "assessment"},
+        {"selected": False},
+    ],
+)
+def test_search_rejects_unknown_conditions_instead_of_dropping_them(query: dict[str, object]) -> None:
+    with pytest.raises(ValidationError) as invalid:
+        SearchQuery.model_validate(query)
+
+    assert invalid.value.errors()[0]["type"] == "extra_forbidden"
 
 
 def adjust(context: ChatContext, **changes: dict[str, Any]) -> ChatContext:
