@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from hiremate_ai.agents.analysis.assessment.checks import NOTE_SOURCE, SUBMISSION_SOURCE
 from hiremate_ai.agents.analysis.assessment.checks import RESULT_SOURCE as SCORE_SOURCE
@@ -61,6 +61,8 @@ class AnswerEvidence(BaseModel):
 
 
 class AnswerItem(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"required": ["candidate", "label", "text", "status", "evidence"]})
+
     candidate: str | None = Field(default=None, description="지원자 번호(C1 같은). 전형 전체 항목이면 비운다")
     label: str = Field(description="항목 이름")
     text: str = Field(description="한 줄 설명")

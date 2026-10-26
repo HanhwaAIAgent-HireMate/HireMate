@@ -9,7 +9,7 @@ from hashlib import sha256
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.progress import SILENT, Progress
@@ -72,6 +72,8 @@ RECHECK_SYSTEM = """너는 채용 담당자의 지원자 찾기 요청에서, �
 - 두 부분이 다 있으면 둘 다 만족해야 met=true다.
 - 도메인 경험은 그 업계의 회사나 서비스에서 일한 경력이다.
   다른 업계에서 비슷한 기능을 만든 일, 개인, 학교 프로젝트, 데이터를 분석만 한 일은 그 도메인 경험이 아니다.
+- 금융 도메인에는 은행, 증권, 카드, 보험과 간편결제, PG의 결제 및 정산 서비스 재직 경험이 포함된다.
+  일반 쇼핑몰에서 외부 결제 API를 연동하거나 모의 결제를 만든 경험만으로 금융권 재직이라고 판정하지 않는다.
 - 후보는 블록의 번호(candidate_no)로, 근거는 블록 안 문장 번호(sentence_nos)로 답한다. 문장을 옮겨 쓰지 않는다.
   근거가 된 조건마다 문장 번호를 하나씩 적는다. met=false면 sentence_nos를 비운다."""
 
@@ -82,6 +84,8 @@ CRITERIA_SYSTEM = """너는 채용 담당자가 공고 항목을 기준으로 �
 - 항목마다 따로 판정한다. 충족한 항목만 met에 적고, 항목 번호(criterion_no)와 근거 문장 번호(sentence_no)를 하나 단다.
 - 도메인 경험은 그 업계의 회사나 서비스에서 일한 경력이다.
   다른 업계에서 비슷한 기능을 만든 일, 개인, 학교 프로젝트, 데이터를 분석만 한 일은 그 도메인 경험이 아니다.
+- 금융 도메인에는 은행, 증권, 카드, 보험과 간편결제, PG의 결제 및 정산 서비스 재직 경험이 포함된다.
+  일반 쇼핑몰에서 외부 결제 API를 연동하거나 모의 결제를 만든 경험만으로 금융권 재직이라고 판정하지 않는다.
 - 기간 조건("3년 이상")은 문장에 기간이 드러날 때만 충족으로 본다.
 - 후보는 블록의 번호(candidate_no)로 답하고 문장을 옮겨 쓰지 않는다. 충족한 항목이 없으면 met을 비운다."""
 
@@ -89,16 +93,47 @@ CRITERIA_SYSTEM = """너는 채용 담당자가 공고 항목을 기준으로 �
 class SearchQuery(BaseModel):
     """검색 도구의 실행 인자. 요청 문장의 의미를 다시 해석하거나 보정하지 않는다."""
 
-    mode: SelectionMode = SelectionMode.REPLACE
-    concepts: list[str] = Field(default_factory=list)
-    min_score: int | None = None
-    score_source: Literal["document", "assessment"] = "assessment"
-    without_score: bool = False
-    score_gap: bool = False
-    use_talents: bool = False
-    posting_criteria: Literal["none", "qualifications", "preferred", "both"] = "none"
-    criteria_match: Literal["any", "most", "all"] = "any"
-    decision: Decision = Decision.PENDING
+    # 모델은 조건이 없을 때도 []와 null을 직접 쓰게 한다. Python 호출의 기본값은 유지한다.
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"required": ["concepts", "min_score"]})
+
+    mode: SelectionMode = Field(
+        default=SelectionMode.REPLACE,
+        description="선택 방식. 새로 고르면 REPLACE, 기존 선택에 더하면 ADD, 그중 조건에 맞는 사람만 남기면 NARROW",
+    )
+    concepts: list[str] = Field(
+        default_factory=list,
+        description=(
+            "지원자가 모두 충족해야 할 직무나 경력 조건. '금융권 경력 있는 사람'은 ['금융 업종 재직 경력']처럼 적는다. "
+            "점수는 min_score와 score_source에, 지원자 범위는 pool에 적는다"
+        ),
+    )
+    min_score: int | None = Field(
+        default=None,
+        description="점수 하한으로 같은 점수도 포함한다. '80점 이상'이면 80. 점수 하한 조건이 없으면 null",
+    )
+    score_source: Literal["document", "assessment"] = Field(
+        default="assessment",
+        description="점수 출처. 서류 점수는 document, 현재 평가 전형의 점수나 직무역량 평가 점수는 assessment",
+    )
+    without_score: bool = Field(default=False, description="score_source의 점수가 입력되지 않은 지원자만 찾으면 true")
+    score_gap: bool = Field(
+        default=False, description="서류 점수와 현재 평가 점수의 차이가 15점 이상인 지원자를 찾으면 true"
+    )
+    use_talents: bool = Field(
+        default=False,
+        description="회사 인재상 가운데 하나 이상을 충족해야 하면 true. 별도 concepts도 모두 충족해야 한다",
+    )
+    posting_criteria: Literal["none", "qualifications", "preferred", "both"] = Field(
+        default="none",
+        description="공고 기준. 자격 요건은 qualifications, 우대 사항은 preferred, 둘 다는 both, 사용하지 않으면 none",
+    )
+    criteria_match: Literal["any", "most", "all"] = Field(
+        default="any", description="공고 기준 충족 방식. 하나 이상은 any, 가장 많이 충족하면 most, 모두 충족하면 all"
+    )
+    decision: Decision = Field(
+        default=Decision.PENDING,
+        description="검색할 결정 상태. 미결정 안에서 찾으면 PENDING, 합격자는 PASS, 불합격자는 FAIL",
+    )
 
 
 class RecheckItem(BaseModel):
