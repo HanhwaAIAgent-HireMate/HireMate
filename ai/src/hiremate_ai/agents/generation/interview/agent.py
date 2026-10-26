@@ -3,8 +3,8 @@
 질문 구성 (맨 앞 '1분 자기소개'는 별도 질문)
   1차 최초 생성: 자기소개 + 확인 사항 · 실제 경험 · 개념/상황 판단을 배분한 핵심 질문 3~5개
     4·5번째는 중요 표시된 별도 확인 사항이 있을 때만. 자료 부족·중복·검증 실패 시 개수를 강제로 채우지 않는다.
-    Chat 추가 요청은 개수 생략 시 최대 2개, 개수 지정 시 해당 개수를 목표로 한다.
-  최종면접    (이전 면접 기록 있음) : 1분 자기소개 + 자리 5개
+    Chat 추가 요청은 기존 범위와 질문을 존중하며 개수 생략 시 최대 2개, 지정 시 해당 개수를 목표로 한다.
+  최종면접 최초 생성 (이전 면접 기록 있음, 추가 요청 아님) : 1분 자기소개 + 자리 5개
       ① 1차 미확인   이전 면접 답변 분석(FR-28)에서 확인 안 된 질문을 이어서 (없으면 모델이 서류에서 골라 채움)
       ② 인성 · 가치관 ③ 조직 적응 ④ 리더십 ⑤ 진정성 · 커리어
          → 모델이 지원 문서에서 그 주제가 드러난 문장을 골라 묻고, 못 쓰면 자리별 기본 질문
@@ -373,7 +373,7 @@ class State(TypedDict, total=False):
     focus: str
     question_count: int | None  # Chat 추가 목표 개수. 최초 자동 생성은 None
     additional: bool
-    final: bool  # 이전 면접 기록이 있으면 최종면접 (자리 5개 구성)
+    final: bool  # 이전 면접 기록이 있는 최초 자동 생성만 최종면접 자리 5개 구성
     balanced: bool  # 최초 자동 생성만 3~5개 구성. Chat의 추가 요청은 기존 범위·중복 처리를 유지한다.
     company: CompanyProfile | None  # 회사 인재상 · 조직 문화 (없으면 None — 기준 없이 서류에서 찾음)
     slot_kept: dict[str, str]  # 최종면접 자리 → 통과한 질문
@@ -473,6 +473,8 @@ def _similar(a: str, b: str) -> bool:
 async def load_context(state: State) -> dict[str, Any]:
     """이전 면접 답변을 분석(FR-28)해 확인 안 된 질문을 모으고, 중복 검사용 질문과 지원 문서 문장을 준비한다."""
     interview = state["interview"]
+    # Chat 추가는 전형 종류와 무관하게 기존 질문을 존중하는 추가 경로를 쓴다.
+    # 이전 면접 기록만 보고 최종면접 전체 자리를 다시 만들면 한 요청에 최대 5개가 붙는다.
     additional = (
         state.get("question_count") is not None
         or bool((state.get("focus") or "").strip())
@@ -524,8 +526,7 @@ async def load_context(state: State) -> dict[str, Any]:
                 part for part in parts[max(0, index - 1) : index + 2] if not _FUTURE_ACTION.search(part)
             )
     return {
-        # backend가 추가 개수를 전달한 요청에는 최초 최종면접의 5자리 구성을 적용하지 않는다.
-        "final": bool(interview.previous) and state.get("question_count") is None,
+        "final": bool(interview.previous) and not additional,
         "additional": additional,
         "slot_kept": {},
         "slot_purposes": {},
@@ -2620,7 +2621,7 @@ async def generate_questions(
     company: 회사 인재상 · 조직 문화. 주면 최종면접 ② · ③ 자리의 기준으로 쓴다 (없어도 동작한다).
     review: 서류 전형 Agent의 상세 판정 (load_review로 읽는다). 있으면 1차 빈틈을 이것으로 고르고,
             없으면 analysis 요약으로 고른다.
-    question_count: Chat 추가 목표 개수. 생략 시 최대 2개이며 근거·중복 검사로 적게 반환할 수 있다.
+    question_count: Chat 추가 목표 개수. 생략하면 최대 2개이며 근거·중복 검사 때문에 적게 반환할 수 있다.
     """
     safe_focus = "" if focus is None or blocked_attribute(focus) else focus.strip()
     if question_count is not None and question_count < 1:

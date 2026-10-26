@@ -268,14 +268,14 @@ async def test_previous_unconfirmed_answer_becomes_follow_up(
         posting=sample_posting,
         analysis=newcomer_analysis,
         interview=view(first),
-        focus="1차에서 확인 안 된 부분 중심으로",
+        focus=None,
     )
 
     assert [call.output.__name__ for call in llm.calls] == ["AnswerReading", "QuestionDraft"]
     gap_lines = [line for line in llm.calls[1].user.splitlines() if "gap_id: " in line]
     assert "이전 면접에서 확인 안 됨" in gap_lines[0]
     assert "취소 API를 설계한 본인 판단" in gap_lines[0]
-    # 이전 면접 기록이 있으면 최종면접 구성: 자기소개 + ① 1차 미확인 + ②~⑤ 자리
+    # 최초 자동 생성은 최종면접 구성: 자기소개 + ① 1차 미확인 + ②~⑤ 자리
     assert len(questions) == 2 + len(FINAL_SLOTS)
     assert questions[0] == INTRO
     assert "slot_picks: 요청함" in llm.calls[1].user
@@ -2468,6 +2468,47 @@ async def test_final_display_ids_keep_the_actual_model_questions(
     assert len(llm.calls) == 1
     assert questions[2].startswith("일하면서 가장 중요하게")
     assert questions[2] != FINAL_SLOTS["VALUES"].fallback
+
+
+@pytest.mark.parametrize(
+    "has_existing,focus", [(True, ""), (True, "프로젝트 질문 추가"), (False, "프로젝트 질문 추가")]
+)
+async def test_final_chat_addition_uses_the_same_limited_path_as_first_interview(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    has_existing: bool,
+    focus: str,
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import DEFAULT_ADDITIONAL_QUESTIONS, FINAL_SYSTEM
+
+    previous = PreviousInterview(stage_id=uuid4(), stage_name="1차 실무면접", schedule=None, questions=[])
+    existing = (
+        [
+            InterviewQuestion(question_id=uuid4(), text=text, source=QuestionSource.AI, answer="")
+            for text in [INTRO, *[slot.fallback for slot in FINAL_SLOTS.values()]]
+        ]
+        if has_existing
+        else []
+    )
+    llm = FakeLlm(draft, draft)
+    result = await generate_questions(
+        llm,
+        applicant=sample_applicants["이도윤"],
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view(previous, questions=existing),
+        focus=focus,
+    )
+    assert llm.calls
+    assert all(call.system != FINAL_SYSTEM for call in llm.calls)
+    assert all("slot_picks: 요청하지 않음" in call.user for call in llm.calls)
+    assert 0 < len([question for question in result if question != INTRO]) <= DEFAULT_ADDITIONAL_QUESTIONS
+    assert not any(question in {slot.fallback for slot in FINAL_SLOTS.values()} for question in result)
+    if has_existing:
+        assert INTRO not in result
+    if focus:
+        assert all(f"hr_focus: {focus}" in call.user for call in llm.calls)
 
 
 async def test_final_retry_requests_only_the_failed_slot(
