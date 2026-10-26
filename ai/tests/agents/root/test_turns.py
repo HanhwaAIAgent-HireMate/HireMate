@@ -93,6 +93,25 @@ def test_answer_turn_preserves_explicit_target_order(
     assert turn["targets"] == [str(target) for target in targets]
 
 
+def test_clarify_turn_preserves_mentions_and_checked_separately_from_answered_targets(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="이 지원자를 어떤 기준으로 볼까?",
+        mentions=["김하늘"],
+        checked=["정유민"],
+    )
+
+    turn = turn_of(context, None, ChatPlan.answer(Intent.CLARIFY, "어떤 분석을 원하세요?"), "ANSWER")
+
+    assert turn.get("mentions") == [str(sample_applicants["김하늘"].info.application_id)]
+    assert turn.get("checked") == [str(sample_applicants["정유민"].info.application_id)]
+    assert turn["targets"] == []
+
+
 def test_find_turn_targets_are_only_found(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
