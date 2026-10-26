@@ -18,8 +18,11 @@ import pytest_asyncio
 from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context, save_sample_profiles
 
+from hiremate_ai.agents.root.agent import VALIDATION_FAILED, run_agent
+from hiremate_ai.agents.root.conversation import review_conversation
 from hiremate_ai.agents.root.graph import RootThread, run_plan
 from hiremate_ai.agents.root.toolkit import AgentEvidence, RootToolkit, default_toolkit, profile_toolkit, scope_of
+from hiremate_ai.agents.root.turns import turn_of
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
@@ -28,6 +31,7 @@ from hiremate_ai.db.profile_store import NewItem, save_profile
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.call_log import CallRecord
 from hiremate_ai.llm.client import build_llm
+from hiremate_ai.llm.fake import FakeLlm, ToolCall
 
 # langchain-openai는 HTTP 클라이언트를 이벤트 루프에 묶어 재사용하므로 평가 테스트는 한 루프에서 돈다
 pytestmark = [
@@ -126,7 +130,18 @@ def context_for(
         for row in rows
         if row.name in case.get("document_scores", {})
     }
-    return context.model_copy(update={"candidates": rows, "document_scores": document_scores})
+    stage_name = case.get("stage_name", context.stage_name)
+    return context.model_copy(
+        update={
+            "candidates": rows,
+            "document_scores": document_scores,
+            "stage_name": stage_name,
+            "stages": [
+                stage.model_copy(update={"name": stage_name}) if stage.id == context.stage_id else stage
+                for stage in context.stages
+            ],
+        }
+    )
 
 
 def mismatches(plan: ChatPlan, context: ChatContext, expect: dict[str, Any]) -> list[str]:
@@ -152,6 +167,169 @@ def mismatches(plan: ChatPlan, context: ChatContext, expect: dict[str, Any]) -> 
     if expect.get("non_mutating") and (plan.targets or plan.edit or plan.question_targets):
         problems.append("조회 요청에서 변경 명령을 만듦")
     return problems
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        {
+            "message": "직무역량 평가 점수 기준으로 80점 이상만 스테이지에 올려줘",
+            "expect": {"intent": "FIND", "targets": ["정유민", "김하늘", "박서준"]},
+        },
+        {
+            "message": "얘네들중에 금융권 경력 있는 애들만 남겨봐",
+            "selected": ["정유민", "김하늘", "박서준", "이도윤", "최지우", "한예린", "윤태오"],
+            "expect": {"intent": "FIND", "mode_when_find": "NARROW", "targets": ["정유민", "김하늘", "한예린"]},
+        },
+        {
+            "message": "선택 안된 애들 다 스테이지에 올려줘",
+            "selected": ["정유민", "김하늘"],
+            "expect": {
+                "intent": "EDIT",
+                "edit": "ADD",
+                "targets": ["박서준", "이도윤", "최지우", "한예린", "윤태오", "서민재"],
+            },
+        },
+        {
+            "message": "점수는 높은데, 우리 인재상에 적합해 ?",
+            "mentions": ["정유민"],
+            "expect": {"intent": "ANSWER", "non_mutating": True, "covers": ["정유민"]},
+        },
+    ],
+    ids=["score-selection", "finance-narrow", "add-unselected", "mentioned-talent-fit"],
+)
+async def test_reported_chat_requests(
+    case: dict[str, Any],
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    context = context_for(
+        {
+            **case,
+            "stage_type": "ASSESSMENT",
+            "stage_name": "직무역량 평가",
+            "previous_types": ["DOCUMENT"],
+            "scores": {"정유민": 97, "김하늘": 91, "박서준": 80, "이도윤": 79},
+        },
+        sample_applicants,
+        sample_company,
+        sample_posting,
+    )
+    plan = await run_plan(build_llm(MemoryCallLog()), context)
+
+    assert mismatches(plan, context, case["expect"]) == []
+    if case.get("mentions"):
+        assert {item.application_id for item in plan.items} == {sample_applicants["정유민"].info.application_id}
+        assert any(item.status == "OK" for item in plan.items)
+        assert not strangers(plan, context, ("정유민",))
+
+
+async def test_style_change_after_failed_business_request(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    previous = make_context(
+        sample_applicants, sample_company, sample_posting, message="우리 회사 인재상과 잘 맞는 사람을 찾아줘"
+    )
+    turn = turn_of(previous, None, ChatPlan.answer(Intent.CLARIFY, VALIDATION_FAILED))
+    context = previous.model_copy(update={"message": "말 편하게 해."})
+    log = MemoryCallLog()
+
+    result = await run_agent(build_llm(log), context, default_toolkit(), turns=[turn])
+
+    assert result.plan.intent is Intent.ANSWER
+    assert result.plan.targets == result.plan.items == result.plan.sources == []
+    assert len(log.records) <= 3
+    assert all(record.agent == "root" for record in log.records)
+    calls = [call for record in log.records if record.output for call in record.output.get("tool_calls", [])]
+    assert {call["name"] for call in calls} <= {"RootReply", "get_previous_turns"}
+    assert log.records[-1].output == {"allowed": True}
+
+
+@pytest.mark.parametrize(
+    "question,answer,allowed",
+    [
+        ("말 편하게 해.", "알겠어. 앞으로 편하게 말할게.", True),
+        (
+            "말 편하게 해.",
+            "회사 문화에 잘 맞는 사람을 찾으시는 거죠? 어떤 기준으로 찾아드릴까요?",
+            False,
+        ),
+        (
+            "@정유민 우리 회사 인재상에 적합해?",
+            "인재상 적합도를 확인해 보겠습니다. 원하시면 분석해 드릴게요.",
+            False,
+        ),
+    ],
+    ids=["style-acknowledged", "style-resumes-old-work", "analysis-promise"],
+)
+async def test_general_reply_must_address_the_current_request(question: str, answer: str, allowed: bool) -> None:
+    assert await review_conversation(build_llm(MemoryCallLog()), question, answer, []) is allowed
+
+
+@pytest.mark.parametrize("clarified", [False, True], ids=["score-then-finance", "clarification-then-finance"])
+async def test_finance_followup_keeps_the_selected_scope(
+    clarified: bool,
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    context = context_for(
+        {
+            "message": "얘네들중에 금융권 경력 있는 애들만 남겨봐" if clarified else "80점 이상만 스테이지에 올려줘",
+            "stage_type": "ASSESSMENT",
+            "stage_name": "직무역량 평가",
+            "scores": {
+                "정유민": 97,
+                "김하늘": 91,
+                "박서준": 90,
+                "이도윤": 89,
+                "최지우": 88,
+                "한예린": 87,
+                "윤태오": 83,
+                "서민재": 76,
+            },
+            "selected": ["정유민", "김하늘", "박서준", "이도윤", "최지우", "한예린", "윤태오"] if clarified else [],
+        },
+        sample_applicants,
+        sample_company,
+        sample_posting,
+    )
+    saver = InMemorySaver()
+    thread = RootThread(id=str(uuid4()), company_id=context.company.company_id, stage_id=context.stage_id)
+    llm = build_llm(MemoryCallLog())
+    initial = (
+        FakeLlm(
+            ToolCall(
+                "RootReply",
+                {"message": "금융권 경력은 어떤 자료와 기준으로 확인할까요?", "command": {"kind": "clarify"}},
+            )
+        )
+        if clarified
+        else llm
+    )
+    first = await run_plan(initial, context, saver=saver, thread=thread)
+    if not clarified:
+        assert first.intent is Intent.FIND
+        context = context.model_copy(
+            update={
+                "candidates": [
+                    row.model_copy(update={"selected": row.application_id in first.targets})
+                    for row in context.candidates
+                ]
+            }
+        )
+    followup = "이력서의 금융 업종 재직 경력으로" if clarified else "얘네들중에 금융권 경력 있는 애들만 남겨봐"
+
+    plan = await run_plan(llm, context.model_copy(update={"message": followup}), saver=saver, thread=thread)
+
+    assert plan.intent is Intent.FIND
+    assert plan.mode == "NARROW"
+    assert {row.application_id for row in context.candidates if row.name in ("정유민", "김하늘", "한예린")} == set(
+        plan.targets
+    )
 
 
 async def test_root_command_cases(
