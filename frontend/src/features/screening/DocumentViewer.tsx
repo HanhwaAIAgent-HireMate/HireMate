@@ -17,12 +17,12 @@ import { cn } from '@/lib/utils'
 type Tab = 'RESUME' | 'COVER_LETTER' | 'PORTFOLIO' | 'CERTIFICATE' | 'PROFILE'
 
 const TABS: { key: Tab; label: string }[] = [
+  // 제출 문서가 아니라 분석 Agent들이 쌓은 지원자 프로필 (AI 분석 + 확인 상태). 카드를 열면 먼저 보인다
+  { key: 'PROFILE', label: '프로필' },
   { key: 'RESUME', label: '이력서' },
   { key: 'COVER_LETTER', label: '자기소개서' },
   { key: 'PORTFOLIO', label: '포트폴리오' },
   { key: 'CERTIFICATE', label: '자격증' },
-  // 제출 문서가 아니라 분석 Agent들이 쌓은 지원자 프로필 (확인 상태 포함)
-  { key: 'PROFILE', label: '프로필' },
 ]
 const DOCUMENT_LABELS = Object.fromEntries(TABS.map((item) => [item.key, item.label])) as Record<
   Tab,
@@ -31,7 +31,7 @@ const DOCUMENT_LABELS = Object.fromEntries(TABS.map((item) => [item.key, item.la
 
 /**
  * 서류 전형의 문서 Viewer (STG-06). 제출 문서를 탭으로 보고, AI 분석의 근거 문장에 밑줄을 친다.
- * 프로필 탭은 분석 Agent들이 쌓은 항목을 확인 상태와 함께 보여 준다.
+ * 프로필 탭은 AI 분석 요약을 먼저 보여 주고, 그 아래에 분석 Agent들이 쌓은 항목을 확인 상태와 함께 보여 준다.
  */
 export function DocumentViewer({
   stageId,
@@ -42,7 +42,7 @@ export function DocumentViewer({
   recruitmentId: string
   detail: CandidateDetail
 }) {
-  const [tab, setTab] = useState<Tab>('RESUME')
+  const [tab, setTab] = useState<Tab>('PROFILE')
   // 자기소개서는 문항별 요약을 먼저 보여 주고, 원문은 눌러서 본다
   const [fullText, setFullText] = useState(false)
   const analysis = useCandidateAnalysis(
@@ -80,55 +80,69 @@ export function DocumentViewer({
           </button>
         ))}
       </div>
-      <div className="max-h-[360px] overflow-auto rounded-xl border p-4 text-sm leading-6">
-        {tab === 'PROFILE' ? (
-          <ProfilePanel stageId={stageId} applicationId={detail.row.applicationId} />
-        ) : tab === 'CERTIFICATE' ? (
-          <p className={cn(!detail.certificates && 'text-muted-foreground')}>
-            {detail.certificates ?? '자격증 정보가 없어요.'}
-          </p>
-        ) : !document ? (
-          <p className="text-muted-foreground">제출하지 않은 서류예요.</p>
-        ) : (
-          <>
-            <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
-              <span>{document.fileName}</span>
-              {sections.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setFullText((value) => !value)}
-                  className="mr-3 ml-auto hover:text-foreground"
-                >
-                  {fullText ? '문항별 요약 보기' : '원문 보기'}
-                </button>
-              )}
-              <a
-                href={`/api/recruitments/${recruitmentId}/applications/${detail.row.applicationId}/documents/${tab}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 hover:text-foreground"
-              >
-                <ExternalLink className="size-3" />
-                원본 PDF
-              </a>
-            </div>
-            {showSummary ? (
-              <SectionSummaries sections={sections} />
-            ) : document.text ? (
-              <p className="whitespace-pre-wrap">{highlight(document.text, highlights)}</p>
-            ) : (
-              <p className="text-muted-foreground">
-                PDF에서 글자를 읽지 못했어요. 원본 PDF를 확인해 주세요.
+      {tab === 'PROFILE' ? (
+        // 프로필 탭: 1) AI 분석 요약 → 2) 프로필 항목
+        <>
+          <AnalysisBox
+            status={detail.row.analysisStatus}
+            loading={analysis.isPending}
+            analysis={analysis.data}
+          />
+          <div className="rounded-xl border p-4 text-sm leading-6">
+            <ProfilePanel stageId={stageId} applicationId={detail.row.applicationId} />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="max-h-[360px] overflow-auto rounded-xl border p-4 text-sm leading-6">
+            {tab === 'CERTIFICATE' ? (
+              <p className={cn(!detail.certificates && 'text-muted-foreground')}>
+                {detail.certificates ?? '자격증 정보가 없어요.'}
               </p>
+            ) : !document ? (
+              <p className="text-muted-foreground">제출하지 않은 서류예요.</p>
+            ) : (
+              <>
+                <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{document.fileName}</span>
+                  {sections.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFullText((value) => !value)}
+                      className="mr-3 ml-auto hover:text-foreground"
+                    >
+                      {fullText ? '문항별 요약 보기' : '원문 보기'}
+                    </button>
+                  )}
+                  <a
+                    href={`/api/recruitments/${recruitmentId}/applications/${detail.row.applicationId}/documents/${tab}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 hover:text-foreground"
+                  >
+                    <ExternalLink className="size-3" />
+                    원본 PDF
+                  </a>
+                </div>
+                {showSummary ? (
+                  <SectionSummaries sections={sections} />
+                ) : document.text ? (
+                  <p className="whitespace-pre-wrap">{highlight(document.text, highlights)}</p>
+                ) : (
+                  <p className="text-muted-foreground">
+                    PDF에서 글자를 읽지 못했어요. 원본 PDF를 확인해 주세요.
+                  </p>
+                )}
+              </>
             )}
-          </>
-        )}
-      </div>
-      <AnalysisBox
-        status={detail.row.analysisStatus}
-        loading={analysis.isPending}
-        analysis={analysis.data}
-      />
+          </div>
+          <AnalysisBox
+            status={detail.row.analysisStatus}
+            loading={analysis.isPending}
+            analysis={analysis.data}
+          />
+        </>
+      )}
     </div>
   )
 }
