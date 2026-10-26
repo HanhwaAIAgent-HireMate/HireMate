@@ -20,6 +20,7 @@ from redis.exceptions import RedisError, ResponseError
 from redis.typing import StreamIdT
 
 from hiremate_ai.contract import Job, JobResult, JobStatus
+from hiremate_ai.worker.batch import ApplicationBatchJobs
 from hiremate_ai.worker.handlers import Handler, PermanentError
 
 log = logging.getLogger(__name__)
@@ -29,6 +30,17 @@ JOB_FIELD = "job"
 RESULT_FIELD = "result"
 
 Entry = tuple[str, dict[str, str]]
+
+# 지원서만 내부 배치 스트림으로 옮긴다. 이동과 원본 확인을 한 번에 처리해 응답 유실 때도 중복되지 않는다.
+_FORWARD_APPLICATION = """
+if #redis.call('XRANGE', KEYS[1], ARGV[1], ARGV[1], 'COUNT', 1) == 0 then
+    return false
+end
+local forwarded = redis.call('XADD', KEYS[2], '*', 'job', ARGV[3])
+redis.call('XACK', KEYS[1], ARGV[2], ARGV[1])
+redis.call('XDEL', KEYS[1], ARGV[1])
+return forwarded
+"""
 
 
 @dataclass(frozen=True)
@@ -56,19 +68,31 @@ def connect(url: str, options: WorkerOptions) -> Redis:
 class Worker:
     """작업 스트림의 소비자 하나. run으로 돌리고 stop을 켜면 처리 중인 작업을 마치고 멈춘다."""
 
-    def __init__(self, redis: Redis, handlers: Mapping[str, Handler], options: WorkerOptions) -> None:
+    def __init__(
+        self,
+        redis: Redis,
+        handlers: Mapping[str, Handler],
+        options: WorkerOptions,
+        *,
+        batch: ApplicationBatchJobs | None = None,
+        application_stream: str | None = None,
+    ) -> None:
         self._redis = redis
         self._handlers = handlers
         self._options = options
         self._slots = asyncio.Semaphore(options.concurrency)
         self._running: dict[str, asyncio.Task[None]] = {}
+        self._batch = batch
+        self._batch_messages: set[str] = set()
+        self._application_stream = application_stream
 
     async def run(self, stop: asyncio.Event) -> None:
         await self._ensure_group()
         heartbeat = asyncio.create_task(self._heartbeat())
         try:
             while not stop.is_set():
-                await self._slots.acquire()
+                if not await self._acquire(stop):
+                    break
                 entry = None
                 try:
                     if not stop.is_set():
@@ -80,12 +104,50 @@ class Worker:
                     self._slots.release()
                     continue
                 message_id, fields = entry
+                job = _job(fields)
+                if self._application_stream is not None and job is not None and job.type == "application/analyze":
+                    try:
+                        await self._redis.eval(
+                            _FORWARD_APPLICATION,
+                            2,
+                            self._options.job_stream,
+                            self._application_stream,
+                            message_id,
+                            self._options.group,
+                            fields[JOB_FIELD],
+                        )
+                    except RedisError:
+                        log.warning("지원서 작업을 배치 스트림으로 옮기지 못했다. 원본 작업을 유지한다", exc_info=True)
+                    finally:
+                        self._slots.release()
+                    continue
+                if self._batch is not None and job is not None and self._batch.handles(job):
+                    self._batch_messages.add(message_id)
                 self._running[message_id] = asyncio.create_task(self._process(message_id, fields))
         finally:
+            for message_id in list(self._batch_messages):
+                if task := self._running.get(message_id):
+                    task.cancel()
             await asyncio.gather(*self._running.values(), return_exceptions=True)
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat
+
+    async def _acquire(self, stop: asyncio.Event) -> bool:
+        """모든 자리를 배치가 쓰고 있어도 종료 신호를 받을 수 있게 한다."""
+        acquired = asyncio.create_task(self._slots.acquire())
+        stopped = asyncio.create_task(stop.wait())
+        try:
+            await asyncio.wait({acquired, stopped}, return_when=asyncio.FIRST_COMPLETED)
+            if stop.is_set():
+                if acquired.done() and not acquired.cancelled() and acquired.result():
+                    self._slots.release()
+                return False
+            return True
+        finally:
+            acquired.cancel()
+            stopped.cancel()
+            await asyncio.gather(acquired, stopped, return_exceptions=True)
 
     async def _ensure_group(self) -> None:
         try:
@@ -122,7 +184,14 @@ class Worker:
                 self._options.job_stream, self._options.group, self._options.consumer, idle, [entry["message_id"]]
             )
             for message_id, fields in claimed:
-                if entry["times_delivered"] >= self._options.attempts:
+                if message_id in self._running:
+                    continue
+                job = _job(fields)
+                resumable = job is not None and (
+                    (self._batch is not None and self._batch.handles(job))
+                    or (self._application_stream is not None and job.type == "application/analyze")
+                )
+                if entry["times_delivered"] >= self._options.attempts and not resumable:
                     log.error("여러 워커가 맡았지만 끝나지 않은 작업을 실패로 끝낸다: %s", message_id)
                     await self._finish(message_id, _failed(fields, "작업을 맡은 워커가 끝내지 못하고 여러 번 멈췄다"))
                     return None
@@ -157,6 +226,7 @@ class Worker:
             log.exception("작업을 마치지 못했다: %s", message_id)
         finally:
             self._running.pop(message_id, None)
+            self._batch_messages.discard(message_id)
             self._slots.release()
 
     async def _run(self, fields: dict[str, str]) -> JobResult | None:
@@ -167,6 +237,8 @@ class Worker:
         handler = self._handlers.get(job.type)
         if handler is None:
             return _result(job, JobStatus.FAILED, error=f"모르는 작업 유형: {job.type}")
+        if self._batch is not None and self._batch.handles(job):
+            return await self._batch.run(job, handler)
         attempt = 1
         while True:
             try:
@@ -186,6 +258,8 @@ class Worker:
             log.error("읽을 수 없는 작업을 버린다: %s", message_id)
         else:
             await self._redis.xadd(self._options.result_stream, {RESULT_FIELD: result.model_dump_json()})
+            if self._batch is not None and self._batch.handles(result):
+                await self._batch.finish(str(result.job_id))
         await self._redis.xack(self._options.job_stream, self._options.group, message_id)
         await self._redis.xdel(self._options.job_stream, message_id)
 

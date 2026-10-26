@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     ncs_api_key: SecretStr = SecretStr("")
     # Application Agent: 지원 접수 분석 한 번의 시간 한도. AI 워커가 대기열에서 꺼내 돌리므로 backend는 기다리지 않는다
     application_timeout_seconds: float = 150
+    # 워커의 지원서 분석만 OpenRouter Batch로 실행한다. Chat과 다른 작업은 기존 LLM 설정을 쓴다.
+    application_batch_enabled: bool = False
+    application_batch_model: str = "deepseek/deepseek-v4.1-flash"
+    application_batch_provider: str = "sail-research"
+    application_batch_collection_seconds: float = Field(default=5, ge=0)
+    application_batch_max_requests: int = Field(default=32, ge=1)
+    application_batch_poll_seconds: float = Field(default=60, gt=0)
+    application_batch_http_timeout_seconds: float = Field(default=30, gt=0)
+    # 여러 의존 단계를 합친 중단 한도다. 제공자가 이 시간 안에 완료한다고 보장하는 값은 아니다.
+    application_batch_timeout_seconds: float = Field(default=259200, gt=0)
+    application_batch_concurrency: int = Field(default=4, ge=1)
     # 카드를 열 때 저장된 결과가 없어 새로 분석하면 backend 기본 60초 안에 끝내야 한다
     application_card_timeout_seconds: float = 50
     # 동시에 부르는 모델 호출 수 (문서별 추출, 우대사항별 판정)

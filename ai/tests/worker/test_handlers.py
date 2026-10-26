@@ -60,6 +60,19 @@ async def test_application_analyze_returns_backend_summary(
     assert result == YUMIN_SUMMARY
 
 
+async def test_only_application_uses_the_dedicated_batch_model(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    instant = FakeLlm()
+    batch = scripted(yumin_script())
+    handle = job_handlers(instant, MemoryStore(), SESSIONS, application_llm=batch)["application/analyze"]
+
+    result = await handle(payload(sample_applicants["정유민"], sample_posting, make_rubric()))
+
+    assert result == YUMIN_SUMMARY
+    assert not instant.calls
+
+
 async def test_each_job_is_one_trace(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, langsmith: MagicMock
 ) -> None:
