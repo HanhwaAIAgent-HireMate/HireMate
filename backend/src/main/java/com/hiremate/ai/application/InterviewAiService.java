@@ -64,14 +64,14 @@ public class InterviewAiService {
 
     /** AI Chat 요청: 질문을 바로 만들어 카드에 넣는다. focus는 Root Agent가 정리한 확인할 점이다. */
     public InterviewView generate(UUID companyId, UUID stageId, UUID applicationId, String focus) {
-        return generate(companyId, stageId, applicationId, focus, Integer.MAX_VALUE);
+        return generate(companyId, stageId, applicationId, focus, 2);
     }
 
     /** Chat에서 요청한 문항 수까지만 추가한다. 기존 질문과 답변은 그대로 둔다. */
     public InterviewView generate(UUID companyId, UUID stageId, UUID applicationId, String focus, int limit) {
         Inputs in = inputs(companyId, stageId, applicationId, interviews.view(companyId, stageId, applicationId));
         return interviews.addQuestions(companyId, stageId, applicationId,
-                agent.questions(in.applicant(), in.posting(), in.analysis(), in.current(), in.company(), focus)
+                agent.questions(in.applicant(), in.posting(), in.analysis(), in.current(), in.company(), focus, limit)
                         .stream().filter(question -> !question.equals(InterviewService.INTRO)).limit(limit).toList(),
                 QuestionSource.AI);
     }

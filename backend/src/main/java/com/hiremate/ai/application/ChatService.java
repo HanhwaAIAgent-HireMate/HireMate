@@ -2,6 +2,7 @@ package com.hiremate.ai.application;
 
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.company.CompanyService;
+import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.posting.PostingService;
 import com.hiremate.recruit.RecruitService;
@@ -20,6 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 /**
@@ -29,7 +31,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class ChatService {
 
-    private static final Pattern QUESTION_COUNT = Pattern.compile("(?<!\\d)(\\d{1,2})\\s*(?:개|문항)");
+    private static final Pattern QUESTION_COUNT = Pattern.compile("(?<!\\d)(\\d+)\\s*(?:개|문항)");
 
     private final ScreeningService screening;
     private final RecruitService recruits;
@@ -118,23 +120,43 @@ public class ChatService {
     private ChatPlan withQuestions(UUID companyId, UUID stageId, ChatPlan plan, List<CandidateRow> candidates,
             String message, ChatProgress progress) {
         List<ChatItem> summaries = new ArrayList<>();
+        List<String> shortfalls = new ArrayList<>();
+        int limit = requestedQuestionCount(message);
         for (UUID applicationId : plan.questionTargets()) {
             String name = candidates.stream().filter(row -> row.applicationId().equals(applicationId))
                     .map(CandidateRow::name).findFirst().orElse("지원자");
             progress.status(name + " 면접 질문을 만들고 있어요");
             int before = interviews.count(companyId, stageId, applicationId);
             String focus = plan.questionFocus().getOrDefault(applicationId, message);
-            Matcher requested = QUESTION_COUNT.matcher(message);
-            int limit = requested.find() ? Integer.parseInt(requested.group(1)) : Integer.MAX_VALUE;
             InterviewView view = interviews.generate(companyId, stageId, applicationId, focus, limit);
             List<InterviewView.Question> added = view.questions().subList(Math.min(before, view.questions().size()),
                     view.questions().size());
+            if (added.size() < limit) {
+                shortfalls.add(name + ": 중복과 근거를 확인해 요청한 " + limit + "개 중 " + added.size() + "개를 추가했어요.");
+            }
             summaries.add(new ChatItem(applicationId, name, added.isEmpty() ? "새로 넣을 질문이 없어요"
                     : added.getFirst().text() + (added.size() > 1 ? " 외 " + (added.size() - 1) + "문항" : ""), null));
         }
         List<ChatItem> items = plan.items().isEmpty() ? summaries : plan.items();
-        return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), plan.message(), items,
+        String reply = plan.message() + (shortfalls.isEmpty() ? "" : "\n" + String.join("\n", shortfalls));
+        return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), reply, items,
                 plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus());
+    }
+
+    static int requestedQuestionCount(String message) {
+        Matcher requested = QUESTION_COUNT.matcher(message);
+        if (!requested.find()) {
+            return 2;
+        }
+        try {
+            int count = Integer.parseInt(requested.group(1));
+            if (count > 0) {
+                return count;
+            }
+        } catch (NumberFormatException invalid) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "질문 개수는 지원하는 양의 정수로 입력해 주세요.");
+        }
+        throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "질문 개수는 1개 이상으로 입력해 주세요.");
     }
 
     private int edit(UUID companyId, UUID stageId, ChatPlan plan) {

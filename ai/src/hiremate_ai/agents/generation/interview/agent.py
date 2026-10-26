@@ -3,7 +3,7 @@
 질문 구성 (맨 앞 '1분 자기소개'는 별도 질문)
   1차 최초 생성: 자기소개 + 확인 사항 · 실제 경험 · 개념/상황 판단을 배분한 핵심 질문 3~5개
     4·5번째는 중요 표시된 별도 확인 사항이 있을 때만. 자료 부족·중복·검증 실패 시 개수를 강제로 채우지 않는다.
-    Chat 추가 요청은 기존 범위 요청과 이미 물은 질문을 존중하며 최대 3개를 추가한다.
+    Chat 추가 요청은 개수 생략 시 최대 2개, 개수 지정 시 해당 개수를 목표로 한다.
   최종면접    (이전 면접 기록 있음) : 1분 자기소개 + 자리 5개
       ① 1차 미확인   이전 면접 답변 분석(FR-28)에서 확인 안 된 질문을 이어서 (없으면 모델이 서류에서 골라 채움)
       ② 인성 · 가치관 ③ 조직 적응 ④ 리더십 ⑤ 진정성 · 커리어
@@ -76,6 +76,7 @@ logger = logging.getLogger(__name__)
 AGENT_KEY = "interview"
 MAX_QUESTIONS = 5  # 1차 핵심 질문 상한. 자기소개는 별도이며, 추가할 중요한 소재가 있을 때만 늘린다.
 MIN_QUESTIONS = 3
+DEFAULT_ADDITIONAL_QUESTIONS = 2
 CODE_SLOTS = 2
 MAX_RETRY = 1
 MAX_QUESTION_LENGTH = 160
@@ -360,6 +361,8 @@ class State(TypedDict, total=False):
     review: Any  # ApplicationReview | None: 서류 전형 Agent의 상세 판정 (없으면 analysis 요약으로)
     interview: Any  # InterviewView (router.py에 있어 여기서 import하면 순환)
     focus: str
+    question_count: int | None  # Chat 추가 목표 개수. 최초 자동 생성은 None
+    additional: bool
     final: bool  # 이전 면접 기록이 있으면 최종면접 (자리 5개 구성)
     balanced: bool  # 최초 자동 생성만 3~5개 구성. Chat의 추가 요청은 기존 범위·중복 처리를 유지한다.
     company: CompanyProfile | None  # 회사 인재상 · 조직 문화 (없으면 None — 기준 없이 서류에서 찾음)
@@ -460,6 +463,11 @@ def _similar(a: str, b: str) -> bool:
 async def load_context(state: State) -> dict[str, Any]:
     """이전 면접 답변을 분석(FR-28)해 확인 안 된 질문을 모으고, 중복 검사용 질문과 지원 문서 문장을 준비한다."""
     interview = state["interview"]
+    additional = (
+        state.get("question_count") is not None
+        or bool((state.get("focus") or "").strip())
+        or any("자기소개" not in question.text for question in interview.questions)
+    )
     follow_ups: list[Gap] = []
     existing = [question.text for question in interview.questions]
     for previous in interview.previous:
@@ -506,7 +514,9 @@ async def load_context(state: State) -> dict[str, Any]:
                 part for part in parts[max(0, index - 1) : index + 2] if not _FUTURE_ACTION.search(part)
             )
     return {
-        "final": bool(interview.previous),
+        # backend가 추가 개수를 전달한 요청에는 최초 최종면접의 5자리 구성을 적용하지 않는다.
+        "final": bool(interview.previous) and state.get("question_count") is None,
+        "additional": additional,
         "slot_kept": {},
         "slot_purposes": {},
         "slot_sids": {},
@@ -620,6 +630,7 @@ def find_gaps(state: State) -> dict[str, Any]:
     if "확인 안" in focus or "아직" in focus:
         candidates = [gap for gap in candidates if gap.kind in (FOLLOW_UP, REQUIRED, CHECK, CLAIM)]
     candidates.sort(key=lambda gap: gap.priority)  # 같은 순위는 만든 순서 유지
+    gap_limit = _additional_count(state) if state.get("additional") else CODE_SLOTS
     gaps = []
     spare: list[Gap] = []
     seen: set[str] = set()
@@ -634,8 +645,12 @@ def find_gaps(state: State) -> dict[str, Any]:
             continue
         seen.add(key)
         gap.gap_id = f"G{len(gaps) + len(spare) + 1}"
-        (gaps if len(gaps) < CODE_SLOTS else spare).append(gap)
-    balanced = not focus and not any("자기소개" not in question.text for question in state["interview"].questions)
+        (gaps if len(gaps) < gap_limit else spare).append(gap)
+    balanced = (
+        not state.get("additional")
+        and not focus
+        and not any("자기소개" not in question.text for question in state["interview"].questions)
+    )
     if balanced:
         selected = _balanced_gaps(gaps + spare, state)
         for index, gap in enumerate(selected, 1):
@@ -643,6 +658,10 @@ def find_gaps(state: State) -> dict[str, Any]:
             _prepare_criterion_gap(gap, state)
         return {"gaps": selected, "spare": [], "balanced": True}
     return {"gaps": gaps, "spare": spare, "balanced": False}
+
+
+def _additional_count(state: State) -> int:
+    return state.get("question_count") or DEFAULT_ADDITIONAL_QUESTIONS
 
 
 def _same_goal(left: Gap, right: Gap) -> bool:
@@ -1013,6 +1032,7 @@ async def write(state: State) -> dict[str, Any]:
         and state["pick"] is None
         and bool(state["sentences"])
         and not (final and state["gaps"])
+        and (not state.get("additional") or len(state["gaps"]) < _additional_count(state))
     )
     slots = [key for key in FINAL_SLOTS if key not in state.get("slot_kept", {})] if final else []
     # (줄여 쓰면) slot_lines = [f"- {key} ({…label}): {…hint}" for key in slots]
@@ -2265,6 +2285,7 @@ def route_after_write(state: State) -> str:
         or state["pick"] is not None
         or not state["sentences"]
         or (state.get("final") and bool(state["gaps"]))
+        or (state.get("additional") and len(state["gaps"]) >= _additional_count(state))
     )
     slots_done = not state.get("final") or len(state.get("slot_kept", {})) >= len(FINAL_SLOTS)
     done = len(state["kept"]) + len(state.get("redundant", [])) >= len(state["gaps"]) and pick_done and slots_done
@@ -2437,7 +2458,7 @@ def finalize(state: State) -> dict[str, Any]:
             questions.append(state["pick"])
         elif state["spare"]:
             questions.append(_template(state["spare"][0]))
-        limit = MAX_QUESTIONS if state.get("balanced") else MIN_QUESTIONS
+        limit = MAX_QUESTIONS if state.get("balanced") else _additional_count(state)
     result: list[str] = []
     for text in questions:
         if state.get("balanced"):
@@ -2558,6 +2579,7 @@ async def generate_questions(
     focus: str | None,
     company: CompanyProfile | None = None,
     review: ApplicationReview | None = None,
+    question_count: int | None = None,
 ) -> list[str]:
     """맞춤 면접 질문을 만든다 (1차 최초: 자기소개 + 3~5개 목표, 최종면접: 자기소개 + 자리 5개).
 
@@ -2565,8 +2587,11 @@ async def generate_questions(
     company: 회사 인재상 · 조직 문화. 주면 최종면접 ② · ③ 자리의 기준으로 쓴다 (없어도 동작한다).
     review: 서류 전형 Agent의 상세 판정 (load_review로 읽는다). 있으면 1차 빈틈을 이것으로 고르고,
             없으면 analysis 요약으로 고른다.
+    question_count: Chat 추가 목표 개수. 생략 시 최대 2개이며 근거·중복 검사로 적게 반환할 수 있다.
     """
     safe_focus = "" if focus is None or blocked_attribute(focus) else focus.strip()
+    if question_count is not None and question_count < 1:
+        raise ValueError("추가 질문 개수는 1개 이상이어야 합니다.")
     state: State = {
         "llm": llm,
         "applicant": applicant,
@@ -2575,6 +2600,7 @@ async def generate_questions(
         "review": review,
         "interview": interview,
         "focus": safe_focus,
+        "question_count": question_count,
         "company": company,
     }
     out = await interview_graph.ainvoke(state)

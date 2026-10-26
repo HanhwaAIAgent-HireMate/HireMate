@@ -293,6 +293,7 @@ async def test_invalid_free_pick_falls_back_to_next_gap(
         analysis=newcomer_analysis,
         interview=view(),
         focus="프로젝트 질문 추가",
+        question_count=5,
     )
 
     assert len(questions) == 4
@@ -2938,3 +2939,61 @@ async def test_final_only_recovers_format_errors_after_shared_error_classificati
         )
     assert raised.value.reason == LlmFailureReason(reason)
     assert len(llm.calls) == 1
+
+
+@pytest.mark.parametrize("final", [False, True])
+@pytest.mark.parametrize("requested", [None, 1, 2, 5])
+async def test_chat_question_count_controls_planned_and_returned_questions(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    final: bool,
+    requested: int | None,
+) -> None:
+    topics = ["트랜잭션 격리", "캐시 만료 정책", "메시지 재처리", "외부 API 연동", "테스트 자동화"]
+    criteria = [
+        _result(f"Q-{index:02d}", CriterionCategory.QUALIFICATION, topic, Verdict.UNKNOWN, "확인 필요")
+        for index, topic in enumerate(topics, 1)
+    ]
+    review = newcomer_review(sample_applicants["이도윤"]).model_copy(update={"criteria": criteria})
+    analysis = newcomer_analysis.model_copy(
+        update={
+            "criteria": criterion_lines(review),
+            "conditions": [],
+            "checks": [],
+            "notable": [],
+        }
+    )
+    existing = [InterviewQuestion(question_id=uuid4(), text=INTRO, source=QuestionSource.AI, answer="")]
+    previous = PreviousInterview(stage_id=uuid4(), stage_name="1차", schedule=None, questions=[])
+    texts = dict(
+        zip(
+            topics,
+            [
+                "트랜잭션 격리를 적용한 경험이 있다면, 격리 수준을 고른 이유를 설명해 주세요.",
+                "캐시 만료 정책을 정한 경험이 있다면, 오래된 조회 결과를 다룬 방식을 설명해 주세요.",
+                "메시지 재처리를 구현한 경험이 있다면, 중복 소비를 구별한 기준을 설명해 주세요.",
+                "외부 API 연동을 맡은 경험이 있다면, 응답 지연을 처리한 절차를 설명해 주세요.",
+                "테스트 자동화를 해 본 경험이 있다면, 실패한 검증을 재현한 방법을 설명해 주세요.",
+            ],
+            strict=True,
+        )
+    )
+
+    def reply(call: LlmCall) -> QuestionDraft:
+        entries = re.findall(r"gap_id: (G\d+).*?topic: (.*?) \| note:", call.user)
+        return QuestionDraft(questions=[_DraftQuestion(gap_id=key, question=texts[topic]) for key, topic in entries])
+
+    llm = FakeLlm(reply)
+    result = await generate_questions(
+        llm,
+        applicant=sample_applicants["이도윤"],
+        posting=sample_posting,
+        analysis=analysis,
+        interview=view(*([previous] if final else []), questions=existing),
+        focus="미확인 기준의 경험 확인 질문 추가" if requested is None else "",
+        question_count=requested if requested is not None else 2,
+    )
+    assert len(result) == (requested if requested is not None else 2)
+    assert all("free_pick: 요청하지 않음" in call.user for call in llm.calls)
+    assert INTRO not in result

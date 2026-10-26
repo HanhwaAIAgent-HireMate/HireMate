@@ -16,5 +16,9 @@ backend와 ai 서버가 주고받는 JSON의 샘플이다. 파일 하나가 타�
 `Job` · `JobResult`는 Redis 작업 대기열로 오가는 메시지다. `type`은 ai 서버 경로(`{agent}/{method}`)와 같고,
 `payload` · `result`는 그 경로의 요청 · 응답 본문과 같다.
 
+`InterviewQuestionsRequest`는 면접 질문 생성 요청이다. `questionCount`는 Chat에서 추가할 목표 개수이며,
+개수를 생략한 Chat 요청은 backend가 2를 전달한다. 최초 자동 생성은 `null`로 기존 전형 구성을 사용한다.
+중복·근거 검사로 유효한 후보가 부족하면 요청 수보다 적게 반환할 수 있고, Chat은 실제 추가 수를 안내한다.
+
 `ChatStatus`는 Root `plan` SSE의 `status` 이벤트 data다. `item` 이벤트 data는 `ChatPlan.items`의 한 항목,
 `done` 이벤트 data는 `ChatPlan`이다.

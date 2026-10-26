@@ -27,7 +27,7 @@ class StubInterviewAgent implements InterviewAgent {
 
     @Override
     public List<String> questions(ApplicantDetail applicant, PostingContent posting, CandidateAnalysis analysis,
-            InterviewView interview, CompanyProfile company, String focus) {
+            InterviewView interview, CompanyProfile company, String focus, Integer questionCount) {
         Set<String> questions = new LinkedHashSet<>();
         String scope = focus == null ? "" : focus;
         boolean onlyUnchecked = scope.contains("확인 안") || scope.contains("아직");
@@ -66,13 +66,13 @@ class StubInterviewAgent implements InterviewAgent {
                 .map(InterviewView.Question::text).toList());
         List<String> fresh = new ArrayList<>(questions);
         fresh.removeAll(existing);
-        return fresh.stream().limit(3).toList();
+        return fresh.stream().limit(questionCount == null ? 3 : questionCount).toList();
     }
 
     @Override
     public Optional<List<String>> prepare(String target, ApplicantDetail applicant, PostingContent posting,
             CandidateAnalysis analysis, InterviewView interview, CompanyProfile company) {
-        return Optional.of(questions(applicant, posting, analysis, interview, company, null));
+        return Optional.of(questions(applicant, posting, analysis, interview, company, null, null));
     }
 
     private static String shorten(String text) {
