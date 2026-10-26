@@ -144,7 +144,7 @@ def draft(call: LlmCall, *, bad: bool = False, sid: str = "S1") -> QuestionDraft
     # 최종면접이면 프롬프트에 적힌 자리(- VALUES (…)…)마다 그 주제의 열린 질문을 하나씩 쓴다
     slot_texts = {
         "VALUES": "일하면서 가장 중요하게 지켜 온 원칙이 드러났던 경험이 있다면, 그때 한 선택을 말해 주세요.",
-        "CULTURE": "동료와 일하는 방식이 달랐던 경험이 있다면, 어떻게 소통하며 맞춰 갔는지 말해 주세요.",
+        "CULTURE": "동료의 피드백을 받아 본인의 업무 방식을 바꾼 경험이 있다면, 어떻게 반영했는지 말해 주세요.",
         "LEADERSHIP": "여러 사람의 의견을 모아 결정을 이끈 경험이 있다면, 그때 맡은 역할을 말해 주세요.",
         "MOTIVE": "결제 플랫폼 개발 직무에 지원하게 된 계기를 실제 경험과 함께 말해 주세요.",
     }
@@ -786,7 +786,8 @@ async def test_final_follow_up_quoting_the_first_question_is_kept(
         focus=None,
     )
 
-    assert questions[1].startswith("지난 면접에서")
+    assert questions[1].startswith("지난 면접 질문과 관련해")
+    assert "본인이 맡은 역할" in questions[1]
     assert len(questions) == 2 + len(FINAL_SLOTS)
 
 
@@ -2388,3 +2389,553 @@ def test_comparing_alternatives_is_applied_reasoning_without_a_magic_concept_wor
     assert (
         _checked("제품 결함인지 테스트 환경 문제인지 분리하기 위해 어떤 절차를 수립하셨습니까?", CONCEPT, [])[0] is None
     )
+
+
+@pytest.mark.parametrize("key", list(FINAL_SLOTS))
+def test_final_slot_accepts_only_its_known_display_label(key: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _resolve_slot
+
+    assert _resolve_slot(key.lower()) == key
+    assert _resolve_slot(f" {key} ({FINAL_SLOTS[key].label}) ") == key
+    assert _resolve_slot(f"{key} (다른 설명)") is None
+    assert _resolve_slot(f"{key}2") is None
+
+
+def test_final_slot_conflicts_are_not_overwritten() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _slot_answers
+
+    first = {"slot": "VALUES", "question": "어떤 원칙을 중요하게 생각하십니까?"}
+    second = {"slot": "VALUES (인성 · 가치관)", "question": "가장 어려웠던 선택은 무엇입니까?"}
+    for entries in ([first, second, first], [second, first, second]):
+        errors: list[str] = []
+        indexed = _slot_answers(
+            QuestionDraft.model_validate({"questions": [], "slot_picks": entries}), ["VALUES"], errors
+        )
+        assert indexed["VALUES"] is None
+        assert any("서로 다름" in error for error in errors)
+
+
+async def test_final_display_ids_keep_the_actual_model_questions(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    def displayed(call: LlmCall) -> QuestionDraft:
+        made = draft(call)
+        for item in made.slot_picks:
+            item.slot += f" ({FINAL_SLOTS[item.slot].label})"
+        return made
+
+    first = PreviousInterview(stage_id=uuid4(), stage_name="1차 실무면접", schedule=None, questions=[])
+    llm = FakeLlm(displayed)
+    questions = await generate_questions(
+        llm,
+        applicant=sample_applicants["이도윤"],
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view(first),
+        focus=None,
+    )
+    assert len(llm.calls) == 1
+    assert questions[2].startswith("일하면서 가장 중요하게")
+    assert questions[2] != FINAL_SLOTS["VALUES"].fallback
+
+
+async def test_final_retry_requests_only_the_failed_slot(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import FINAL_SYSTEM
+
+    def first_reply(call: LlmCall) -> QuestionDraft:
+        made = draft(call)
+        made.slot_picks = [p for p in made.slot_picks if p.slot != "LEADERSHIP"]
+        return made
+
+    llm = FakeLlm(first_reply, draft)
+    previous = PreviousInterview(stage_id=uuid4(), stage_name="1차", schedule=None, questions=[])
+    result = await generate_questions(
+        llm,
+        applicant=sample_applicants["이도윤"],
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view(previous),
+        focus=None,
+    )
+    assert len(result) == 6 and len(llm.calls) == 2
+    assert all(call.system == FINAL_SYSTEM for call in llm.calls)
+    retry = llm.calls[1].user
+    assert "- LEADERSHIP (리더십)" in retry
+    assert "- VALUES (인성" not in retry
+    assert "free_pick: 요청하지 않음" in retry
+    assert "reasoning_sources" not in retry
+    assert "아직 채택되지 않은 자리" in retry
+
+
+@pytest.mark.parametrize("recovers", [True, False])
+async def test_final_output_error_has_bounded_recovery(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    recovers: bool,
+) -> None:
+    from hiremate_ai.llm.chat import LlmOutputError
+
+    def cut(call: LlmCall) -> QuestionDraft:
+        raise LlmOutputError("출력 길이 상한에서 잘렸다")
+
+    llm = FakeLlm(cut, draft if recovers else cut)
+    previous = PreviousInterview(stage_id=uuid4(), stage_name="1차", schedule=None, questions=[])
+    result = await generate_questions(
+        llm,
+        applicant=sample_applicants["이도윤"],
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view(previous),
+        focus=None,
+    )
+    assert len(llm.calls) == 2
+    assert "출력 형식·길이 오류" in llm.calls[1].user
+    assert len(result) == 6 and result[0] == INTRO
+
+
+async def test_final_does_not_hide_connection_errors(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    def disconnected(call: LlmCall) -> QuestionDraft:
+        raise ConnectionError("connection failed")
+
+    previous = PreviousInterview(stage_id=uuid4(), stage_name="1차", schedule=None, questions=[])
+    with pytest.raises(ConnectionError):
+        await generate_questions(
+            FakeLlm(disconnected),
+            applicant=sample_applicants["이도윤"],
+            posting=sample_posting,
+            analysis=newcomer_analysis,
+            interview=view(previous),
+            focus=None,
+        )
+
+
+def final_validation_state() -> State:
+    return State(
+        final=True,
+        existing=[],
+        gaps=[],
+        kept={},
+        purposes={},
+        pick=None,
+        pick_sid=None,
+        sentences={},
+        slot_kept={},
+        slot_purposes={},
+        slot_sids={},
+    )
+
+
+def test_final_free_pick_and_value_slot_cannot_share_the_same_purpose() -> None:
+    state = final_validation_state()
+    state.update(
+        {"pick": "원칙에 따라 어려운 선택을 했던 경험을 말해 주세요.", "pick_purpose": "일정 압박 품질 원칙 선택"}
+    )
+    made = QuestionDraft.model_validate(
+        {
+            "questions": [],
+            "slot_picks": [
+                {
+                    "slot": "VALUES",
+                    "question": "일정 압박 속에서 품질 원칙을 지킨 경험이 있다면 설명해 주세요.",
+                    "purpose": "품질 원칙 일정 압박 선택",
+                }
+            ],
+        }
+    )
+    result = _validate(state, made, [], False, ["VALUES"])
+    assert not result["slot_kept"]
+    assert any("확인 목적이 같음" in error for error in result["errors"])
+
+
+def test_final_different_purposes_are_kept() -> None:
+    state = final_validation_state()
+    state.update({"pick": "기술 대안을 비교한 과정을 설명해 주세요.", "pick_purpose": "기술 대안 비교 근거"})
+    made = QuestionDraft.model_validate(
+        {
+            "questions": [],
+            "slot_picks": [
+                {
+                    "slot": "CULTURE",
+                    "question": "동료의 피드백을 받아 일하는 방식을 바꾼 경험이 있다면 설명해 주세요.",
+                    "purpose": "동료 피드백 수용 방식 변화",
+                }
+            ],
+        }
+    )
+    result = _validate(state, made, [], False, ["CULTURE"])
+    assert "CULTURE" in result["slot_kept"]
+
+
+@pytest.mark.parametrize("sid", [None, "S999"])
+def test_final_slot_cannot_invent_a_personal_past_without_a_source(sid: str | None) -> None:
+    state = final_validation_state()
+    made = QuestionDraft.model_validate(
+        {
+            "questions": [],
+            "slot_picks": [
+                {
+                    "slot": "LEADERSHIP",
+                    "sid": sid,
+                    "question": "팀장으로 갈등을 조율하셨는데, 의견을 모은 과정을 말해 주세요.",
+                }
+            ],
+        }
+    )
+    result = _validate(state, made, [], False, ["LEADERSHIP"])
+    assert not result["slot_kept"] and result["errors"]
+
+
+def test_company_talent_does_not_waive_other_slot_topics(sample_company: CompanyProfile) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _final_slot_checked
+
+    state = final_validation_state()
+    state["company"] = sample_company
+    text = f"'{sample_company.talents[0].title}'를 중요하게 생각하는 이유를 말해 주세요."
+    assert _final_slot_checked(state, "VALUES", text, [])[0] is not None
+    assert _final_slot_checked(state, "LEADERSHIP", text, [])[0] is None
+
+
+async def test_final_invalid_company_fallback_is_checked_and_uses_safe_question(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    sample_company: CompanyProfile,
+) -> None:
+    # 회사 설정 역시 검증하지 않고 그대로 질문으로 붙일 수 있는 신뢰된 지시가 아니다.
+    company = sample_company.model_copy(update={"culture": "결혼 계획을 확인한다"})
+    llm = FakeLlm(lambda call: draft(call, bad=True), lambda call: draft(call, bad=True))
+    previous = PreviousInterview(stage_id=uuid4(), stage_name="1차", schedule=None, questions=[])
+    result = await generate_questions(
+        llm,
+        applicant=sample_applicants["이도윤"],
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view(previous),
+        focus=None,
+        company=company,
+    )
+    assert len(result) == 6
+    assert all("결혼" not in text for text in result)
+    for text in result[2:]:
+        assert _checked(text, next(key for key in FINAL_SLOTS if FINAL_SLOTS[key].topic.search(text)), [])[0]
+
+
+async def test_final_future_plan_is_not_a_past_experience_source(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _final_source_problem
+
+    applicant = sample_applicants["이도윤"]
+    document = applicant.documents[0].model_copy(update={"text": "앞으로 팀의 의견을 조율하는 역할을 맡겠습니다."})
+    applicant = applicant.model_copy(update={"documents": [document]})
+    state = final_validation_state()
+    state.update({"applicant": applicant, "sentences": {"S1": document.text}})
+    assert _final_source_problem(state, "의견을 조율한 과정을 말해 주세요.", "S1", "LEADERSHIP")
+
+
+async def test_final_no_answer_fallback_never_claims_an_answer_was_given(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    from hiremate_ai.agents.analysis.interview.agent import NO_ANSWER
+
+    applicant = sample_applicants["이도윤"]
+    interview = view(PreviousInterview(stage_id=uuid4(), stage_name="1차", schedule=None, questions=[]))
+    state: State = {
+        "applicant": applicant,
+        "interview": interview,
+        "posting": sample_posting,
+        "analysis": newcomer_analysis,
+        "llm": FakeLlm(),
+    }
+    state = {**state, **final_validation_state()}
+    state["gaps"] = [Gap("G1", "FOLLOW_UP", "이전 경험 질문", "", detail="본인이 맡은 역할", status=NO_ANSWER)]
+    state["spare"] = []
+    result = finalize(state)["result"]
+    assert "본인이 맡은 역할" in result[1]
+    assert not any("답해 주셨" in question for question in result)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "어려운 선택에서 중요하게 생각한 원칙에 따라 어떤 결정을 내리셨는지 구체적인 경험을 말해 주세요.",
+        "동료와 업무 방식의 차이가 있었을 때, 그 차이를 맞춘 경험을 말해 주세요.",
+        "여러 사람의 의견을 모으는 과정에서 그때 맡은 역할을 말해 주세요.",
+    ],
+)
+def test_final_open_experience_question_does_not_need_an_invented_source(question: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _final_source_problem
+
+    assert _final_source_problem(final_validation_state(), question, None, "VALUES") is None
+
+
+def test_final_unknown_slot_is_a_repair_error() -> None:
+    state = final_validation_state()
+    made = QuestionDraft.model_validate(
+        {"questions": [], "slot_picks": [{"slot": "VALUE", "question": "중요하게 생각하는 원칙을 말해 주세요."}]}
+    )
+    result = _validate(state, made, [], False, ["VALUES"])
+    assert result["slot_kept"] == {}
+    assert any("알 수 없는 자리" in error for error in result["errors"])
+
+
+@pytest.mark.parametrize(
+    ("original", "expected"),
+    [
+        ("귀사 및 본 직무에 지원하신 계기를 말해 주세요.", "저희 회사 및 이 직무에 지원하신 계기를 말해 주세요."),
+        ("책임감의 발현 사례를 말해 주세요.", "책임감을 갖고 행동했던 경험을 말해 주세요."),
+        (
+            "현재 기술 전환을 동반하고 계신데, 지원하신 이유는 무엇인가요?",
+            "현재 기술 전환을 준비하고 계신데, 지원하신 이유는 무엇인가요?",
+        ),
+        ("그 선택을 어떻게 정당화하셨습니까?", "그 선택을 한 이유는 무엇입니까?"),
+    ],
+)
+def test_final_interviewer_wording_is_natural(original: str, expected: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _natural_final_question
+
+    assert _natural_final_question(original) == expected
+
+
+def test_final_wording_does_not_rewrite_document_quotes() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _natural_final_question
+
+    question = "'귀사의 기술 전환'이라고 적은 이유와 귀사에 지원하신 계기를 말해 주세요."
+    assert (
+        _natural_final_question(question)
+        == "'귀사의 기술 전환'이라고 적은 이유와 저희 회사에 지원하신 계기를 말해 주세요."
+    )
+
+
+@pytest.mark.parametrize(
+    ("material", "question", "blocked"),
+    [
+        (
+            "마감 전 점검 27개 항목을 자동화했습니다.",
+            "자동화 과정에서 발생한 예상치 못한 문제와 해결 과정을 설명해 주세요.",
+            True,
+        ),
+        (
+            "정책의 적용 범위를 확인하고 거부 테스트를 준비했습니다.",
+            "보안 취약점을 발견하고 해결하기 위해 어떤 방식으로 접근하셨는지 말해 주세요.",
+            True,
+        ),
+        (
+            "한 달간 수동 결과와 병행 비교한 뒤 운영 절차를 전환했습니다.",
+            "운영 절차를 전환할 때 예상치 못한 문제가 있었다면, 그런 경험이 있다면 설명해 주세요.",
+            False,
+        ),
+        (
+            "예상치 못한 데이터 누락 문제가 발생해 재처리 구간을 수정했습니다.",
+            "예상치 못한 문제를 겪었을 때, 재처리 구간을 수정한 이유를 설명해 주세요.",
+            False,
+        ),
+        (
+            "인가 우회 취약 경로 3개를 발견하고 검증 위치를 변경했습니다.",
+            "취약점을 발견한 뒤 검증 위치를 변경한 이유를 설명해 주세요.",
+            False,
+        ),
+        ("취약점을 발견한 적은 없습니다.", "취약점을 발견한 뒤 조치한 과정을 설명해 주세요.", True),
+        ("점검 항목을 자동화했습니다.", "예상치 못한 문제를 해결하셨는데, 갈등 경험이 있다면 설명해 주세요.", True),
+        (
+            "한 달간 수동 결과와 병행 비교했습니다.",
+            "수동 결과와 병행 비교하는 방법을 선택한 이유를 설명해 주세요.",
+            False,
+        ),
+    ],
+)
+def test_final_events_require_support_or_an_open_question(material: str, question: str, blocked: bool) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _final_event_problem
+
+    assert bool(_final_event_problem(question, material)) is blocked
+
+
+def test_final_actual_source_does_not_license_an_invented_problem(
+    sample_applicants: dict[str, ApplicantDetail],
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _final_source_problem
+
+    applicant = sample_applicants["이도윤"]
+    document = applicant.documents[0].model_copy(update={"text": "마감 전 점검 27개 항목을 자동화했습니다."})
+    applicant = applicant.model_copy(update={"documents": [document]})
+    state = final_validation_state()
+    state.update({"applicant": applicant, "sentences": {"S1": document.text}})
+    question = "점검을 자동화하셨을 때, 발생한 예상치 못한 문제를 해결한 과정을 설명해 주세요."
+    assert _final_source_problem(state, question, "S1", "PICK")
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "동료와 의견 차이가 있었을 때, 조율하여 합의점을 도출한 경험을 말해 주세요.",
+        "업무 방식이나 소통 방식에 차이가 있었을 때, 어떻게 조율하고 협력했는지 말해 주세요.",
+    ],
+)
+def test_final_culture_does_not_repeat_leadership_consensus(question: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _final_slot_checked
+
+    result, reason = _final_slot_checked(final_validation_state(), "CULTURE", question, [])
+    assert result is None and reason and "리더십" in reason
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "동료와 의견 차이가 있었을 때, 피드백을 반영해 본인의 방식을 바꾼 경험이 있다면 설명해 주세요.",
+        "공동 작업에서 필요한 정보를 공유하는 방식을 개선한 경험이 있다면 설명해 주세요.",
+        "새로운 협업 규칙에 적응한 경험이 있다면, 본인이 바꾼 행동을 설명해 주세요.",
+    ],
+)
+def test_final_culture_preserves_adaptation_and_information_sharing(question: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _final_slot_checked
+
+    assert _final_slot_checked(final_validation_state(), "CULTURE", question, [])[0] is not None
+
+
+async def test_final_bad_experience_premise_is_repaired_using_the_actual_source(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    applicant = sample_applicants["이도윤"]
+    document = applicant.documents[0].model_copy(
+        update={"text": "점검 27개 항목을 자동화하고 한 달간 수동 결과와 병행 비교했습니다."}
+    )
+    applicant = applicant.model_copy(update={"documents": [document]})
+    previous = PreviousInterview(stage_id=uuid4(), stage_name="1차", schedule=None, questions=[])
+
+    def bad(call: LlmCall) -> QuestionDraft:
+        made = draft(call)
+        assert made.free_pick is not None
+        made.free_pick.sid = "S1"
+        made.free_pick.question = "점검 자동화 과정에서 발생한 예상치 못한 문제를 어떻게 해결하셨는지 말해 주세요."
+        return made
+
+    def repaired(call: LlmCall) -> QuestionDraft:
+        made = draft(call)
+        assert made.free_pick is not None
+        made.free_pick.sid = "S1"
+        made.free_pick.question = "점검 자동화 시 한 달간 수동 결과와 병행 비교하는 방법을 선택한 이유를 말해 주세요."
+        made.free_pick.purpose = "수동 결과 병행 비교 방법 선택"
+        return made
+
+    llm = FakeLlm(bad, repaired)
+    result = await generate_questions(
+        llm,
+        applicant=applicant,
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view(previous),
+        focus=None,
+    )
+    assert len(llm.calls) == 2
+    assert "원문에 없는" in llm.calls[1].user
+    assert any("한 달간 수동 결과와 병행 비교" in question for question in result)
+    assert all("예상치 못한" not in question for question in result)
+
+
+@pytest.mark.parametrize(
+    ("material", "question", "blocked"),
+    [
+        (
+            "한 달간 수동 결과와 병행 비교한 뒤 운영 절차를 전환했습니다.",
+            "병행 비교 과정에서 얻은 피드백을 어떻게 업무 방식에 반영하셨는지 말해 주세요.",
+            True,
+        ),
+        (
+            "팀원에게 받은 피드백을 반영해 점검 결과를 공유하는 양식을 바꿨습니다.",
+            "받은 피드백을 업무 방식에 반영한 이유를 말해 주세요.",
+            False,
+        ),
+        (
+            "허용 지연시간을 미리 고정하는 규칙을 만들었습니다.",
+            "이 규칙을 팀 내에 어떻게 공유하고 정착시키셨습니까?",
+            True,
+        ),
+        (
+            "허용 지연시간을 미리 고정하는 규칙을 만들었습니다.",
+            "이 규칙을 팀에 공유한 경험이 있다면, 공유 방식을 설명해 주세요.",
+            False,
+        ),
+        (
+            "팀 내에 규칙을 공유하고 회의 때 함께 점검했습니다.",
+            "규칙을 팀 내에 공유할 때 선택한 방법을 설명해 주세요.",
+            False,
+        ),
+    ],
+)
+def test_final_does_not_invent_collaboration_from_individual_work(material: str, question: str, blocked: bool) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _final_event_problem
+
+    assert bool(_final_event_problem(question, material)) is blocked
+
+
+def test_final_choice_reason_wording_handles_an_embedded_question() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _natural_final_question
+
+    question = "어려운 선택을 하셨던 경험이 있다면, 그 선택을 어떻게 정당화하셨는지 말해 주세요."
+    assert (
+        _natural_final_question(question)
+        == "어려운 선택을 하셨던 경험이 있다면, 그 선택을 한 이유가 무엇인지 말해 주세요."
+    )
+
+
+@pytest.mark.parametrize(
+    ("material", "question", "blocked"),
+    [
+        (
+            "수동 결과와 병행 비교한 뒤 운영 절차를 전환했습니다.",
+            "운영 절차를 전환할 때 동료들의 기존 방식에 맞춰 업무 방식을 어떻게 조정하셨나요?",
+            True,
+        ),
+        (
+            "애플리케이션별 적용은 각 서비스팀이 수행했습니다.",
+            "팀원들을 어떻게 설득하고 업무 조율을 이끌어내셨나요?",
+            True,
+        ),
+        (
+            "동료들의 의견을 듣고 운영 절차 변경을 함께 논의했습니다.",
+            "운영 절차를 전환할 때 동료들의 기존 방식에 맞춰 업무 방식을 어떻게 조정하셨나요?",
+            False,
+        ),
+        (
+            "애플리케이션별 적용은 각 서비스팀이 수행했습니다.",
+            "서비스팀과 업무를 조율한 경험이 있다면, 본인이 한 일을 설명해 주세요.",
+            False,
+        ),
+    ],
+)
+def test_final_other_teams_presence_is_not_collaboration_evidence(material: str, question: str, blocked: bool) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _final_event_problem
+
+    assert bool(_final_event_problem(question, material)) is blocked
+
+
+@pytest.mark.parametrize("reason", ["BUDGET", "VALIDATION"])
+async def test_final_only_recovers_format_errors_after_shared_error_classification(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    reason: str,
+) -> None:
+    from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
+
+    def stopped(call: LlmCall) -> QuestionDraft:
+        raise LlmOutputError("모델 호출을 완료하지 못함", reason=LlmFailureReason(reason))
+
+    llm = FakeLlm(stopped)
+    previous = PreviousInterview(stage_id=uuid4(), stage_name="1차", schedule=None, questions=[])
+    with pytest.raises(LlmOutputError) as raised:
+        await generate_questions(
+            llm,
+            applicant=sample_applicants["이도윤"],
+            posting=sample_posting,
+            analysis=newcomer_analysis,
+            interview=view(previous),
+            focus=None,
+        )
+    assert raised.value.reason == LlmFailureReason(reason)
+    assert len(llm.calls) == 1

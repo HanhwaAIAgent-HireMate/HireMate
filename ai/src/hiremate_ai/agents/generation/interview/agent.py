@@ -64,6 +64,7 @@ from hiremate_ai.contract import (
     PostingContent,
     Verdict,
 )
+from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 if TYPE_CHECKING:
@@ -100,14 +101,13 @@ FINAL_SLOTS: dict[str, Slot] = {
         "인성 · 가치관",
         "일할 때 지켜 온 원칙 · 가치 · 책임감이 드러난 경험과 그때의 선택",
         re.compile(r"가치|원칙|신뢰|책임|선택|판단|태도|중요하게|지켜|기준"),
-        "일할 때 가장 중요하게 지켜 온 원칙 하나와, 그 원칙 때문에 어려운 선택을 했던 경험을 말해 주세요.",
+        "일할 때 중요하게 지키는 원칙이 있다면, 그 원칙에 따라 어려운 선택을 했던 경험을 말해 주세요.",
     ),
     CULTURE: Slot(
         "조직 적응",
-        "동료와 협업 · 소통하고 일하는 방식을 맞춰 간 경험",
+        "피드백을 받아 자신의 업무 방식을 바꾸거나 협업 규칙에 적응한 행동 (합의·설득은 리더십과 분리)",
         re.compile(r"협업|소통|동료|팀|의견|문화|방식|함께|조율|회고|리뷰"),
-        "지금까지 일했던 팀의 일하는 방식 중 본인과 잘 맞았던 것과 맞지 않았던 것을, "
-        "그때 어떻게 했는지와 함께 말해 주세요.",
+        "함께 일하며 받은 피드백을 반영해 자신의 일하는 방식을 바꾼 경험이 있다면, 무엇을 바꿨는지 말해 주세요.",
     ),
     LEADERSHIP: Slot(
         "리더십",
@@ -266,6 +266,43 @@ BALANCED_SYSTEM = f"""현재 채용의 1차 면접 핵심 질문을 작성한다
 {UNTRUSTED_RULE}"""
 
 
+FINAL_SYSTEM = f"""현재 채용의 최종면접 핵심 질문만 작성한다. 모든 질문은 한국어 존댓말로 쓴다.
+출력은 questions, free_pick, slot_picks다. 요청하지 않은 질문·설명·자기소개를 추가하지 않는다.
+1. question_plan에 gap_id가 있으면 questions에 그 번호의 후속 질문 하나만 쓴다. 없으면 questions는 빈 목록이다.
+   이전 질문·실제 답변과 still_unconfirmed를 보고 남은 내용만 확인한다. 이미 확인한 답을 되묻지 않는다.
+   답변이 없으면 답했다고 전제하지 않는다. 확인 안 됨은 경험이 없거나 능력이 부족하다는 판정이 아니다.
+2. free_pick이 요청되면 현재 서류에서 아직 묻지 않은 실제 수행 문장 sid를 고른다.
+   회사에서 어떻게 일할지를 이해할 수 있는 선택·책임·협력의 구체적 경험을 묻되 다른 자리와 목적을 나눈다.
+   계획·희망을 완료 경험으로 묻지 않는다. 요청하지 않았으면 null이다.
+3. slot_picks는 요청된 자리만 하나씩 작성한다. slot에는 VALUES, CULTURE, LEADERSHIP, MOTIVE 중
+   요청한 ID만 정확히 쓴다. 괄호 설명을 붙이지 않는다. 이미 채택된 자리를 다시 쓰지 않는다.
+4. VALUES는 어려운 선택에서 지킨 원칙·책임, CULTURE는 다른 일하는 방식과 협력·피드백을 맞춘 과정,
+   LEADERSHIP은 직책과 관계없이 설득·조율해 결정을 이끈 행동, MOTIVE는 회사·직무 선택 이유와 향후 방향이다.
+   같은 갈등 해결 과정을 CULTURE와 LEADERSHIP에서 반복 요구하지 않는다.
+5. 서류 경험을 인용하면 실제 문장 sid를 붙이고 그 문장에 있는 내용만 전제한다.
+   맞는 문장이 없으면 sid는 null, '경험이 있다면'처럼 열린 질문을 쓴다. 리더 직책·회사 경력을 전제하지 않는다.
+   원문 번호 S1 등은 sid에만 쓰고 questions의 gap_id로 사용하지 않는다.
+   회사 인재상은 VALUES, 조직 문화는 CULTURE의 자료다. 없는 회사 가치·문화·실적을 만들어 넣지 않는다.
+6. 모든 질문의 purpose에 답변에서 확인할 행동·판단을 짧게 쓴다. accepted_purposes 및 다른 질문과
+   같은 답을 요구하면 다른 목적을 고른다. 같은 프로젝트라도 역할·원칙·협력의 확인 내용은 분리한다.
+7. 질문당 최대 140자, 핵심 질문 한 개. 예/아니오 질문·꼬리질문·번호·NCS·점수·평가 판단·내부 메모를 쓰지 않는다.
+   성별·나이·출신 지역·결혼·종교·신체 조건 등 직무와 무관한 조건을 묻지 않는다.
+8. fix_errors가 있으면 요청된 실패 자리만 짧게 고친다. 유효한 출처·확인 목적을 임의로 바꾸지 않는다.
+   출력 형식·길이 오류이면 문장을 간결하게 하고 요청한 항목만 반환한다.
+9. 면접관이 자기 회사를 말하므로 '귀사' 대신 '저희 회사'를 쓴다. '책임감의 발현 사례',
+   '기술 전환을 동반하고 계신데', '선택을 정당화' 대신 일상적인 면접 표현으로 짧게 묻는다.
+10. 원문에 자동화·검증 경험만 있다고 해서 그 과정에서 예상치 못한 문제·취약점·반대 의견을
+    겪고 해결했다고 덧붙이지 않는다. 원문에 있는 선택 이유·검증 방법을 묻는다.
+    새로운 어려움을 확인하려면 '그런 경험이 있다면'으로 열어 둔다. 없는 문제 해결을 전제하지 않는다.
+    개인이 규칙을 만든 사실만으로 팀에 공유·정착시켰다거나 피드백을 받았다고 덧붙이지 않는다.
+    원문에 없는 피드백·협업 행동은 경험이 있다면으로 질문하며 실제로 있었다고 인용하지 않는다.
+11. CULTURE는 받은 피드백을 어떻게 반영했는지, 자신의 방식을 무엇에 맞춰 바꿨는지,
+    정보 공유·인수인계·협업 규칙을 어떻게 익혔는지 중 하나를 묻는다.
+    갈등에서 의견을 모아 합의한 과정만 물으면 LEADERSHIP과 겹친다. LEADERSHIP은 다른 사람의
+    참여를 이끌거나 설득·업무 조정을 통해 공동의 결정을 이끈 행동을 묻는다.
+{UNTRUSTED_RULE}"""
+
+
 class _FreePick(BaseModel):
     sid: str
     question: str
@@ -327,6 +364,9 @@ class State(TypedDict, total=False):
     balanced: bool  # 최초 자동 생성만 3~5개 구성. Chat의 추가 요청은 기존 범위·중복 처리를 유지한다.
     company: CompanyProfile | None  # 회사 인재상 · 조직 문화 (없으면 None — 기준 없이 서류에서 찾음)
     slot_kept: dict[str, str]  # 최종면접 자리 → 통과한 질문
+    slot_purposes: dict[str, str]
+    slot_sids: dict[str, str]
+    pick_purpose: str
     follow_ups: list[Gap]
     existing: list[str]
     sentences: dict[str, str]
@@ -437,7 +477,7 @@ async def load_context(state: State) -> dict[str, Any]:
                 Gap(
                     gap_id="",
                     kind=FOLLOW_UP,
-                    topic=_short(question.text, 30),
+                    topic=question.text,
                     note=f"{previous.stage_name} 답변 분석: {finding.status} — 아직 확인 안 된 점: "
                     + ", ".join(finding.unconfirmed),
                     evidence=[f"[{previous.stage_name} 질문] {question.text}", f"[답변] {question.answer or '(없음)'}"],
@@ -468,6 +508,9 @@ async def load_context(state: State) -> dict[str, Any]:
     return {
         "final": bool(interview.previous),
         "slot_kept": {},
+        "slot_purposes": {},
+        "slot_sids": {},
+        "pick_purpose": "",
         "follow_ups": follow_ups,
         "existing": existing,
         "sentences": sentences,
@@ -857,8 +900,83 @@ def review_gaps(review: ApplicationReview) -> list[Gap]:
     return candidates
 
 
+async def _write_final(state: State) -> dict[str, Any]:
+    """최종면접에 필요한 미확인·자리만 요청한다. 출력 오류는 기존 재작성 상한 안에서 복구한다."""
+    gaps = [gap for gap in state["gaps"] if gap.gap_id not in state["kept"]]
+    avoid = [
+        sid
+        for sid, text in state["sentences"].items()
+        if _FUTURE_ACTION.search(text) or any(text in line for gap in state["gaps"] for line in gap.evidence)
+    ]
+    want_pick = state["pick"] is None and not state["gaps"] and bool(state["sentences"])
+    slots = [key for key in FINAL_SLOTS if key not in state.get("slot_kept", {})]
+    plan: list[str] = []
+    for gap in gaps:
+        plan.append(
+            f"- gap_id: {gap.gap_id} | type: {gap.label} | topic: {_display_topic(gap.topic)}"
+            f" | still_unconfirmed: {gap.detail} | status: {gap.status}"
+        )
+        plan.extend(data_block("previous_evidence", evidence) for evidence in gap.evidence)
+    company = state.get("company")
+    company_lines: list[str] = []
+    if company is not None:
+        if company.talents and "VALUES" in slots:
+            company_lines.append(
+                data_block(
+                    "company_talents", "\n".join(f"{talent.title}: {talent.description}" for talent in company.talents)
+                )
+            )
+        if company.culture.strip() and "CULTURE" in slots:
+            company_lines.append(data_block("company_culture", company.culture.strip()))
+    accepted = [*state["kept"].values(), *state.get("slot_kept", {}).values()]
+    if state["pick"]:
+        accepted.append(state["pick"])
+    user = "\n".join(
+        [
+            "question_plan:",
+            data_block("question_plan", "\n".join(plan) or "(없음)"),
+            "free_pick: " + ("요청함" if want_pick else "요청하지 않음 (free_pick은 null)"),
+            "slot_picks: " + ("요청함" if slots else "요청하지 않음 (slot_picks는 빈 목록)"),
+            *[f"- {key} ({FINAL_SLOTS[key].label}): {FINAL_SLOTS[key].hint}" for key in slots],
+            *company_lines,
+            "sentences:",
+            data_block("documents", "\n".join(f"{sid} {text}" for sid, text in state["sentences"].items())),
+            data_block("job_context", " / ".join(state["posting"].duties)),
+            "avoid_sids: " + (", ".join(avoid) or "-"),
+            data_block("existing_questions", "\n".join(state["existing"] + accepted) or "(없음)"),
+            data_block(
+                "accepted_purposes",
+                "\n".join(
+                    [
+                        *state.get("purposes", {}).values(),
+                        *state.get("slot_purposes", {}).values(),
+                        state.get("pick_purpose", ""),
+                    ]
+                )
+                or "(없음)",
+            ),
+            data_block("hr_focus", state.get("focus") or "(없음)"),
+            "fix_errors: " + (" / ".join(state["errors"]) or "-"),
+        ]
+    )
+    try:
+        draft = await state["llm"].structured(QuestionDraft, agent=AGENT_KEY, system=FINAL_SYSTEM, user=user)
+    except LlmOutputError as error:
+        # 연결 실패·권한 오류 등은 숨기지 않는다. 형식·출력 잘림만 한정해 처리한다.
+        if error.reason != LlmFailureReason.FORMAT:
+            raise
+        return {"errors": ["최종면접 출력 형식·길이 오류: 요청한 자리만 짧게 다시 작성해야 함"]}
+    result = _validate(state, draft, avoid, want_pick, slots)
+    for key in slots:
+        if key not in result["slot_kept"]:
+            result["errors"].append(f"{key}: 아직 채택되지 않은 자리 하나만 다시 작성")
+    return result
+
+
 async def write(state: State) -> dict[str, Any]:
     """모델에게 빈틈 질문과 free_pick 질문을 한 번에 쓰게 한다."""
+    if state.get("final"):
+        return await _write_final(state)
     gaps = [
         gap for gap in state["gaps"] if gap.gap_id not in state["kept"] and gap.gap_id not in state.get("redundant", [])
     ]
@@ -1708,6 +1826,179 @@ def _experience_question_problem(text: str) -> str | None:
     return None
 
 
+def _resolve_slot(value: str) -> str | None:
+    """요청한 자리와 알려진 표시용 설명만 인정한다. 임의의 접두사·번역은 추측하지 않는다."""
+    value = value.strip().upper()
+    for key, slot in FINAL_SLOTS.items():
+        if value == key or re.fullmatch(rf"{key}\s*\(\s*{re.escape(slot.label)}\s*\)", value):
+            return key
+    return None
+
+
+def _slot_answers(draft: QuestionDraft, slots: list[str], errors: list[str]) -> dict[str, _SlotPick | None]:
+    indexed: dict[str, _SlotPick | None] = {}
+    for item in draft.slot_picks:
+        key = _resolve_slot(item.slot)
+        if key is None or key not in slots:
+            errors.append(f"slot: 요청하지 않았거나 알 수 없는 자리 '{item.slot}'")
+            continue
+        canonical = item.model_copy(update={"slot": key, "sid": item.sid.strip().upper() if item.sid else None})
+        if key not in indexed:
+            indexed[key] = canonical
+        elif indexed[key] != canonical:
+            indexed[key] = None
+    for key, answer in indexed.items():
+        if answer is None:
+            errors.append(f"{key}: 같은 자리의 응답이 서로 다름 (하나의 질문으로 다시 작성)")
+    return indexed
+
+
+def _final_purpose_problem(purpose: str, others: list[str]) -> str | None:
+    if purpose.strip() and any(other.strip() and _overlapping_purpose(purpose, other) for other in others):
+        return "다른 자리와 확인 목적이 같음 (서로 다른 행동·판단을 확인하도록)"
+    return None
+
+
+def _natural_final_question(text: str) -> str:
+    """면접관의 표현만 정리한다. 서류에서 직접 인용한 문구는 바꾸지 않는다."""
+    replacements = (
+        ("귀사", "저희 회사"),
+        ("본 직무", "이 직무"),
+        ("원칙이나 책임감의 발현 사례", "원칙을 지키거나 책임감을 갖고 행동했던 경험"),
+        ("책임감의 발현 사례", "책임감을 갖고 행동했던 경험"),
+        ("책임감의 순간", "책임감을 느꼈던 순간"),
+        ("기술 전환을 동반하고 계신데", "기술 전환을 준비하고 계신데"),
+        ("그 선택을 어떻게 정당화하셨습니까", "그 선택을 한 이유는 무엇입니까"),
+    )
+    parts = re.split(r"('[^']*'|\"[^\"]*\")", text)
+    for index in range(0, len(parts), 2):
+        for before, after in replacements:
+            parts[index] = parts[index].replace(before, after)
+        parts[index] = re.sub(r"그\s*선택을\s*어떻게\s*정당화하셨는지", "그 선택을 한 이유가 무엇인지", parts[index])
+        parts[index] = re.sub(
+            r"(행동했던 경험)([를가]|는)",
+            lambda match: match[1] + {"를": "을", "가": "이", "는": "은"}[match[2]],
+            parts[index],
+        )
+    return "".join(parts)
+
+
+def _final_checked(
+    text: str, kind: str, others: list[str], evidence: list[str] | None = None
+) -> tuple[str | None, str | None]:
+    return _checked(_natural_final_question(text), kind, others, evidence)
+
+
+# 특정 사건의 발생·해결을 원문에 덧붙이지 않도록 확인하는 보조 규칙이다.
+# 선택·검증을 했다는 사실만으로 예기치 않은 문제나 갈등을 겪었다고 인정하지 않는다.
+_FINAL_EVENTS = (
+    (
+        r"(?:동료|팀원|팀\s*내|부서|이해관계자).{0,35}(?:맞춰|맞추|조정|설득|조율|합의|소통|협력|협업|공유|정착)|"
+        r"(?:설득|조율|합의|소통|협력|협업).{0,30}(?:하셨|했|이끌|해\s*나가)",
+        r"피드백|조언|협의|회의|논의|조율|설득|합의|소통|협력|협업|공유|의견|"
+        r"팀.{0,15}(?:함께|공동)|(?:함께|공동).{0,15}팀",
+    ),
+    (
+        r"(?:받은|받으신|얻은|반영한|반영하신).{0,10}(?:피드백|조언)|"
+        r"(?:피드백|조언).{0,18}(?:받|얻|반영하셨|반영했|반영한)",
+        r"피드백|조언|의견.{0,12}(?:받|반영)|(?:받|반영).{0,12}의견",
+    ),
+    (
+        r"팀(?:원|\s*내|에서|에).{0,20}(?:공유|정착|전파)",
+        r"팀(?:원|\s*내|에서|에).{0,20}(?:공유|정착|전파)|(?:공유|정착|전파).{0,20}(?:동료|팀)",
+    ),
+    (
+        r"예상치\s*못|예상하지\s*못|예기치\s*않|예기치\s*못|뜻밖",
+        r"예상치\s*못|예상하지\s*못|예기치\s*않|예기치\s*못|뜻밖",
+    ),
+    (
+        r"(?:문제|오류|장애|난관|어려움).{0,18}(?:겪|직면|부딪|극복)|"
+        r"(?:발생한|겪은|겪으신|겪었|부딪힌|직면한|발생했던).{0,18}(?:문제|오류|장애|난관|어려움)",
+        r"(?:문제|오류|장애|난관|어려움).{0,25}(?:발생|있었|겪|해결|원인)|"
+        r"(?:발생|발견|겪|부딪|실패했).{0,25}(?:문제|오류|장애|난관|어려움)",
+    ),
+    (
+        r"취약점.{0,20}(?:발견|해결|수정)|(?:발견|해결|수정).{0,20}취약점",
+        r"취약|보안\s*(?:문제|오류)|인가\s*우회|권한\s*우회",
+    ),
+    (
+        r"(?:이견|갈등|의견\s*차이|반대|저항).{0,25}(?:발생|있었|겪|해결|조율|설득|부딪)|"
+        r"(?:발생한|겪은|부딪힌).{0,18}(?:이견|갈등|반대|저항)",
+        r"이견|갈등|반대|저항|의견.{0,15}(?:달|갈|다르|차이)|협의|조율|설득|합의",
+    ),
+)
+
+
+def _final_event_problem(text: str, material: str) -> str | None:
+    for question_pattern, evidence_pattern in _FINAL_EVENTS:
+        for match in re.finditer(question_pattern, text):
+            start = max(text.rfind(",", 0, match.start()), text.rfind(".", 0, match.start())) + 1
+            ends = [index for stop in (",", ".", "?") if (index := text.find(stop, match.end())) >= 0]
+            clause = text[start : min(ends) if ends else len(text)]
+            # 새 경험을 질문하는 것은 가능하다. 사건을 단정한 앞 절은 뒤의 조건문으로 면제하지 않는다.
+            if re.search(
+                r"(?:경험|사례|적)(?:이|가)?\s*(?:있다면|있으시다면|있었다면)|있었다면|발생했다면|겪었다면",
+                clause,
+            ):
+                continue
+            support = any(
+                re.search(evidence_pattern, part)
+                and not re.search(
+                    r"(?:경험|사례|적)(?:은|이|도)?\s*없|(?:겪|발견|발생|해결).{0,8}(?:않았|못했|않습)", part
+                )
+                for part in _SENTENCE.split(material)
+            )
+            if not support:
+                return "원문에 없는 어려움·갈등·발견을 전제함 (적힌 선택·검증을 묻거나 경험이 있다면으로 질문)"
+    return None
+
+
+def _culture_focus_problem(text: str) -> str | None:
+    conflict = re.search(r"갈등|충돌|이견|차이|합의|설득|의견|조율", text)
+    adaptation = re.search(
+        r"피드백|수용|적응|인수인계|정보.{0,8}공유|공유.{0,8}방식|협업.{0,8}규칙|"
+        r"(?:본인|자신|스스로).{0,20}(?:바꾸|바꿨|맞추|맞췄|변경|수정|조정)",
+        text,
+    )
+    if conflict and not adaptation:
+        return "협업과 리더십이 같은 합의·설득을 요구함 (피드백 반영·자신의 방식 수정·정보 공유를 확인)"
+    return None
+
+
+def _final_source_problem(state: State, text: str, sid: str | None, key: str) -> str | None:
+    if sid:
+        sentence = state["sentences"].get(sid.strip().upper())
+        if sentence is None or evidence_source(sentence, state["applicant"].documents) is None:
+            return "지원 문서에 없는 출처 번호·문장"
+        if key != MOTIVE and _FUTURE_ACTION.search(sentence):
+            return "미래 계획을 완료 경험의 근거로 사용함"
+        material = state.get("sentence_contexts", {}).get(sid.strip().upper(), sentence)
+        if event_problem := _final_event_problem(text, material):
+            return event_problem
+    elif re.search(r"셨(?:는데|을\s*때|습니다|다고)|적어\s*주셨|기재하셨|경험이\s*(?:있으셨|있었다)", text) and not any(
+        word in text for word in _OPEN_WORDS
+    ):
+        # '어려운 선택을 했던 경험을 말해 주세요'는 경험을 묻는 열린 질문이다.
+        # '프로젝트를 이끄셨는데'처럼 특정 과거 수행을 사실로 놓는 표현만 출처를 요구한다.
+        return "출처 없이 개인의 과거 경험을 전제함 ('경험이 있다면'으로 열어서 질문)"
+    return None
+
+
+def _final_slot_checked(
+    state: State, key: str, text: str, others: list[str], sentence: str | None = None
+) -> tuple[str | None, str | None]:
+    checked, problem = _final_checked(text, key, others, [sentence] if sentence else None)
+    if checked is not None and key == CULTURE and (focus_problem := _culture_focus_problem(checked)):
+        return None, focus_problem
+    if (
+        checked is not None
+        and not FINAL_SLOTS[key].topic.search(checked)
+        and (key != VALUES or not _names_talent(checked, state.get("company")))
+    ):
+        return None, f"'{FINAL_SLOTS[key].label}' 자리인데 그 주제를 묻지 않음"
+    return checked, problem
+
+
 def _validate(
     state: State, draft: QuestionDraft, avoid: list[str], want_pick: bool, slots: list[str] | None = None
 ) -> dict[str, Any]:
@@ -1724,6 +2015,8 @@ def _validate(
     # 경험·확인 질문을 먼저 보존한다. 모델의 응답 순서 때문에 경험 자리가 추론 질문에 밀리지 않게 한다.
     gap_modes = {gap.gap_id: gap.mode for gap in state["gaps"]}
     for item in sorted(draft.questions, key=lambda item: gap_modes.get(item.gap_id) in (CONCEPT, SCENARIO)):
+        if state.get("final"):
+            item = item.model_copy(update={"question": _natural_final_question(item.question)})
         gap_id = _resolve_gap_id(item.gap_id, state["gaps"], open_ids)
         if gap_id is None:
             errors.append(f"없는 gap_id 또는 중복 '{item.gap_id}'")
@@ -1817,19 +2110,34 @@ def _validate(
         if text is None:
             errors.append(f"{gap_id}: {problem}")
             continue
+        if state.get("final") and (event_problem := _final_event_problem(text, "\n".join(gap.evidence))):
+            errors.append(f"{gap_id}: {event_problem}")
+            continue
+        if state.get("final") and (
+            purpose_problem := _final_purpose_problem(
+                item.purpose or text, [*purposes.values(), *state.get("slot_purposes", {}).values()]
+            )
+        ):
+            errors.append(f"{gap_id}: {purpose_problem}")
+            continue
         kept[gap_id] = text
         replan_candidates.pop(gap_id, None)
-        purposes[gap_id] = item.purpose.strip()
+        purposes[gap_id] = (item.purpose or text).strip() if state.get("final") else item.purpose.strip()
         open_ids.discard(gap_id)
     pick, pick_sid = state["pick"], state["pick_sid"]
+    pick_purpose = state.get("pick_purpose", "")
     if want_pick:
         if draft.free_pick is None:
             errors.append("free_pick이 없음")
         else:
             sid = draft.free_pick.sid.strip().upper()
             sentence = state["sentences"].get(sid)
-            checked, problem = _checked(
-                draft.free_pick.question.strip(), "PICK", state["existing"] + list(kept.values())
+            checker = _final_checked if state.get("final") else _checked
+            checked, problem = checker(
+                draft.free_pick.question.strip(),
+                "PICK",
+                state["existing"] + list(kept.values()) + list(state.get("slot_kept", {}).values()),
+                [sentence] if sentence and state.get("final") else None,
             )
             if sentence is None or sid in avoid:
                 errors.append(f"free_pick: 쓸 수 없는 문장 번호 '{sid}'")
@@ -1837,25 +2145,45 @@ def _validate(
                 errors.append("free_pick: 지원 문서에 없는 문장")
             elif checked is None:
                 errors.append(f"free_pick: {problem}")
+            elif state.get("final") and (
+                source_problem := _final_source_problem(state, draft.free_pick.question, sid, "PICK")
+            ):
+                errors.append(f"free_pick: {source_problem}")
+            elif state.get("final") and (
+                purpose_problem := _final_purpose_problem(
+                    draft.free_pick.purpose or checked,
+                    [*purposes.values(), *state.get("slot_purposes", {}).values()],
+                )
+            ):
+                errors.append(f"free_pick: {purpose_problem}")
             else:
                 pick, pick_sid = checked, sid
+                pick_purpose = draft.free_pick.purpose or checked
     slot_kept = dict(state.get("slot_kept", {}))
-    for slot_pick in draft.slot_picks:
-        key = slot_pick.slot.strip().upper()
-        if key not in (slots or []) or key in slot_kept:
-            continue  # 요청하지 않은 자리 · 이미 채운 자리
+    slot_purposes = dict(state.get("slot_purposes", {}))
+    slot_sids = dict(state.get("slot_sids", {}))
+    for key, slot_pick in _slot_answers(draft, slots or [], errors).items():
+        if slot_pick is None or key in slot_kept:
+            continue
         sentence = state["sentences"].get((slot_pick.sid or "").strip().upper()) if slot_pick.sid else None
         if slot_pick.sid and sentence is None:
             errors.append(f"{key}: 쓸 수 없는 문장 번호 '{slot_pick.sid}'")
             continue
         others = state["existing"] + list(kept.values()) + list(slot_kept.values()) + ([pick] if pick else [])
-        checked, problem = _checked(slot_pick.question.strip(), key, others, [sentence] if sentence else None)
+        checked, problem = _final_slot_checked(state, key, slot_pick.question.strip(), others, sentence)
         if checked is None:
             errors.append(f"{key}: {problem}")
-        elif not FINAL_SLOTS[key].topic.search(checked) and not _names_talent(checked, state.get("company")):
-            errors.append(f"{key}: '{FINAL_SLOTS[key].label}' 자리인데 그 주제를 묻지 않음")
+        elif source_problem := _final_source_problem(state, checked, slot_pick.sid, key):
+            errors.append(f"{key}: {source_problem}")
+        elif purpose_problem := _final_purpose_problem(
+            slot_pick.purpose or checked, [*purposes.values(), *slot_purposes.values(), pick_purpose]
+        ):
+            errors.append(f"{key}: {purpose_problem}")
         else:
             slot_kept[key] = checked
+            slot_purposes[key] = slot_pick.purpose or checked
+            if slot_pick.sid:
+                slot_sids[key] = slot_pick.sid.strip().upper()
     return {
         "kept": kept,
         "purposes": purposes,
@@ -1865,8 +2193,11 @@ def _validate(
         "replan_candidates": replan_candidates,
         "pick": pick,
         "pick_sid": pick_sid,
+        "pick_purpose": pick_purpose,
         "errors": errors,
         "slot_kept": slot_kept,
+        "slot_purposes": slot_purposes,
+        "slot_sids": slot_sids,
     }
 
 
@@ -1989,17 +2320,77 @@ def _slot_fallback(key: str, company: CompanyProfile | None) -> str:
     if company is not None and key == VALUES:
         titles = [talent.title.strip() for talent in company.talents if talent.title.strip()]
         if titles:
-            question = (
-                f"'{titles[0]}'와 관련해 기억에 남는 경험을 하나 골라, 그때 본인이 한 선택과 그 이유를 말해 주세요."
-            )
+            question = f"'{titles[0]}'와 관련한 경험이 있다면, 본인이 한 선택과 그 이유를 말해 주세요."
             return _fix_josa(question)
     if company is not None and key == CULTURE and company.culture.strip():
-        culture = _short(company.culture.strip().rstrip("."), 40)
+        culture = _question_topic(company.culture.strip().rstrip("."), 40)
         return (
-            f"저희는 '{culture}'라는 방식으로 일하는데, 이와 비슷하게 일해 본 경험이나 맞지 않았던 경험과 "
-            "그때 어떻게 했는지 말해 주세요."
+            f"저희는 '{culture}'라는 방식으로 일합니다. 이와 비슷한 협업 경험이 있다면, "
+            "방식을 맞춰 간 과정을 말해 주세요."
         )
     return FINAL_SLOTS[key].fallback
+
+
+_FINAL_ALTERNATIVES = {
+    VALUES: "스스로 한 판단이 잘못됐음을 알게 된 경험이 있다면, 책임을 다하기 위해 취한 행동을 말해 주세요.",
+    CULTURE: "공동 작업에서 동료에게 필요한 정보를 공유하는 방식을 개선한 경험이 있다면, 무엇을 바꿨는지 말해 주세요.",
+    LEADERSHIP: "공동 목표를 위해 다른 사람의 참여를 이끈 경험이 있다면, 참여를 이끌어 낸 행동을 말해 주세요.",
+    MOTIVE: "이 직무에서 앞으로 가장 먼저 발전시키고 싶은 역량과 그 이유를 말해 주세요.",
+}
+
+
+def _finalize_final(state: State) -> dict[str, Any]:
+    """기본 질문도 생성 질문과 같은 검사를 거친다. 부적절한 문장을 개수 때문에 복원하지 않는다."""
+    result: list[str] = []
+    purposes: list[str] = []
+    follow_up = state["gaps"][0] if state["gaps"] else None
+    if follow_up is not None:
+        first = state["kept"].get(follow_up.gap_id)
+        # 답변이 없더라도 답했다고 전제하지 않는다. 미확인 내용만 좁혀서 확인한다.
+        fallback = _fix_josa(
+            f"지난 면접 질문과 관련해, {_question_topic(follow_up.detail, 55)}을 구체적으로 설명해 주세요."
+        )
+        purpose = state.get("purposes", {}).get(follow_up.gap_id, follow_up.detail)
+        kind, others = FOLLOW_UP, _compare_with(state, FOLLOW_UP)
+    else:
+        first = state["pick"]
+        fallback = (
+            PICK_FALLBACK
+            if state["sentences"]
+            else ("직무와 관련해 배운 내용을 적용해 본 경험이 있다면, 본인이 한 일을 설명해 주세요.")
+        )
+        purpose = state.get("pick_purpose", "") or first or fallback
+        kind, others = "PICK", state["existing"]
+    for candidate in dict.fromkeys([first or "", fallback]):
+        if not candidate:
+            continue
+        checked, _ = _final_checked(candidate, kind, others)
+        if checked is not None:
+            result.append(checked)
+            purposes.append(purpose)
+            break
+    for key in FINAL_SLOTS:
+        kept = state.get("slot_kept", {}).get(key)
+        for candidate in dict.fromkeys(
+            [kept or "", _slot_fallback(key, state.get("company")), FINAL_SLOTS[key].fallback, _FINAL_ALTERNATIVES[key]]
+        ):
+            if not candidate:
+                continue
+            purpose = state.get("slot_purposes", {}).get(key, candidate) if candidate == kept else candidate
+            if _final_purpose_problem(purpose, purposes):
+                continue
+            sid = state.get("slot_sids", {}).get(key) if candidate == kept else None
+            checked, _ = _final_slot_checked(
+                state, key, candidate, state["existing"] + result, state["sentences"].get(sid) if sid else None
+            )
+            if checked is None:
+                continue
+            result.append(checked)
+            purposes.append(purpose)
+            break
+    if not any("자기소개" in question.text for question in state["interview"].questions):
+        result.insert(0, INTRO)
+    return {"result": result}
 
 
 def finalize(state: State) -> dict[str, Any]:
@@ -2012,15 +2403,7 @@ def finalize(state: State) -> dict[str, Any]:
     questions: list[str] = []
     follow_up = ""  # 최종면접 ① 1차 미확인 질문 (중복 검사를 이번 카드 질문하고만 한다)
     if state.get("final"):
-        if state["gaps"]:
-            gap = state["gaps"][0]
-            follow_up = state["kept"].get(gap.gap_id) or _template(gap)
-            questions.append(follow_up)
-        else:
-            questions.append(state["pick"] or PICK_FALLBACK)
-        for key in FINAL_SLOTS:
-            questions.append(state.get("slot_kept", {}).get(key) or _slot_fallback(key, state.get("company")))
-        limit = 1 + len(FINAL_SLOTS)
+        return _finalize_final(state)
     else:
         accepted: dict[str, str] = {}
         for gap in state["gaps"]:
