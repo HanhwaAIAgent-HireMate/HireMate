@@ -9,6 +9,8 @@
   "preferenceScore": 40.0,
   "preferenceMax": 50,
   "documentScore": 73.3,
+  "documentScoreLow": 73.3,
+  "qualificationScoreLow": 33.3,
   "passed": true,
   "held": false,
   "shortfalls": [

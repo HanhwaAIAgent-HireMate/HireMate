@@ -15,7 +15,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.analysis.application.present import to_profile
-from hiremate_ai.agents.analysis.application.score import Weights
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.contract import ApplicantDetail, PostingContent
 from hiremate_ai.db.application_review import ApplicationReviewRecord
@@ -98,12 +97,10 @@ class DbReviewStore:
             await session.commit()
 
 
-def input_hash(
-    applicant: ApplicantDetail, posting: PostingContent, rubric: ScreeningRubric, weights: Weights, version: str
-) -> str:
+def input_hash(applicant: ApplicantDetail, posting: PostingContent, rubric: ScreeningRubric, version: str) -> str:
     """분석 결과를 바꿀 수 있는 입력만 묶어 해시한다. 공고 제목이나 복지가 바뀌어도 다시 분석하지 않는다.
 
-    평가 기준(항목 · 유형 · 중요 표시 · 판정 기준 · 버전)이나 중요도 계수가 바뀌면 저장된 결과를 쓰지 않는다.
+    평가 기준(항목 · 유형 · 판정 기준 · 버전)이 바뀌면 저장된 결과를 쓰지 않는다.
     """
     payload = {
         "version": version,
@@ -113,7 +110,6 @@ def input_hash(
         "preferred": posting.preferred,
         "criteria_version": rubric.criteria_version,
         "criteria": [criterion.model_dump(mode="json") for criterion in rubric.criteria],
-        "weights": [weights.normal, weights.important],
     }
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 

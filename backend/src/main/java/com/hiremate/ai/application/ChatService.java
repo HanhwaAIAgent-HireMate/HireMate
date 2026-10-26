@@ -10,6 +10,7 @@ import com.hiremate.recruit.StageInfo;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.CandidateRow;
+import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.ScreeningService;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -57,7 +58,8 @@ public class ChatService {
             List<UUID> checked) {
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         StageInfo stage = recruitment.stage(stageId).orElseThrow();
-        List<CandidateRow> candidates = screening.candidates(companyId, stageId, null, 0, 1000).items();
+        List<CandidateRow> candidates = screening
+                .candidates(companyId, stageId, null, CandidateSort.QUALIFICATION, 0, 1000).items();
         List<ChatContext.Stage> stages = recruitment.stages().stream()
                 .map(other -> new ChatContext.Stage(other.id(), other.name(), other.type(), other.status()))
                 .toList();

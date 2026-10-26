@@ -57,9 +57,6 @@ class Settings(BaseSettings):
     application_rechecks: int = 2
     # 분석 예산이 이만큼 남지 않으면 재확인을 더 하지 않는다 (저장 · 응답에 쓸 여유)
     application_recheck_reserve_seconds: float = 20
-    # 서류 점수의 중요도 계수. 중요 표시 항목은 important, 나머지는 normal
-    criterion_weight_normal: float = 1.0
-    criterion_weight_important: float = 1.5
     # AI 워커: backend job 모듈이 작업을 넣는 Redis 스트림과 결과를 돌려주는 스트림 (hiremate.jobs.*와 같은 이름)
     worker_job_stream: str = "hiremate:jobs"
     worker_result_stream: str = "hiremate:job-results"

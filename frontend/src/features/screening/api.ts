@@ -11,6 +11,8 @@ export type ProfileItemView = Schemas['ProfileItemView']
 export type CriterionLine = Schemas['CriterionLine']
 export type SummarySection = Schemas['SummarySection']
 export type Decision = CandidateRow['decision']
+/** 서류 전형 전체 지원자 정렬: 자격요건 순(처음) · 총점 순 */
+export type CandidateSort = 'QUALIFICATION' | 'TOTAL'
 
 const PAGE_SIZE = 30
 /** 분석 중인 지원자가 있으면 이 간격으로 다시 불러온다. 분석은 AI 워커가 대기열에서 하나씩 처리해 몇 분 걸린다 */
@@ -24,7 +26,8 @@ export function hasPendingAnalysis(rows: Pick<CandidateRow, 'analysisStatus'>[])
 export const stageKeys = {
   all: (stageId: string) => ['stage', stageId] as const,
   overview: (stageId: string) => ['stage', stageId, 'overview'] as const,
-  candidates: (stageId: string, query: string) => ['stage', stageId, 'candidates', query] as const,
+  candidates: (stageId: string, query: string, sort: CandidateSort) =>
+    ['stage', stageId, 'candidates', query, sort] as const,
   selection: (stageId: string) => ['stage', stageId, 'selection'] as const,
   detail: (stageId: string, applicationId: string) =>
     ['stage', stageId, 'detail', applicationId] as const,
@@ -43,17 +46,17 @@ export function useStageOverview(stageId: string) {
   })
 }
 
-/** 전체 지원자. 스크롤하면 이어서 불러온다. */
-export function useCandidates(stageId: string, query: string) {
+/** 전체 지원자. 스크롤하면 이어서 불러온다. sort는 서류 전형에서만 쓰고 다른 전형은 점수 높은 순이다. */
+export function useCandidates(stageId: string, query: string, sort: CandidateSort) {
   return useInfiniteQuery({
-    queryKey: stageKeys.candidates(stageId, query),
+    queryKey: stageKeys.candidates(stageId, query, sort),
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       unwrap(
         api.GET('/api/stages/{stageId}/candidates', {
           params: {
             path: { stageId },
-            query: { query: query || undefined, page: pageParam, size: PAGE_SIZE },
+            query: { query: query || undefined, sort, page: pageParam, size: PAGE_SIZE },
           },
         }),
       ),
@@ -220,6 +223,11 @@ export function useSaveMemo(stageId: string, applicationId: string) {
 /** 서류 평가 점수 같은 소수 첫째 자리 점수 (예: 73.3) */
 export function formatScore(value: number) {
   return value.toFixed(1)
+}
+
+/** 보류 점수: 확인 필요를 0점으로 넣어 계산한 점수. 서류를 읽지 못해 계산할 판정이 없으면 0점이다 */
+export function heldScore(low: number | null) {
+  return formatScore(low ?? 0)
 }
 
 /** "자격 33.3 · 우대 40.0" (영역 만점 50). 한 영역만 있으면 "자격 77.8/100". 확인 필요가 남은 영역은 "확인 필요" */

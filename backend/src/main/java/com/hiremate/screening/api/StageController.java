@@ -3,6 +3,7 @@ package com.hiremate.screening.api;
 import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.screening.CandidateDetail;
 import com.hiremate.screening.CandidatePage;
+import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.StageCandidateView;
@@ -42,9 +43,10 @@ public class StageController {
 
     @GetMapping("/candidates")
     public CandidatePage candidates(AuthenticatedMember member, @PathVariable UUID stageId,
-            @RequestParam(required = false) String query, @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "30") int size) {
-        return screening.candidates(member.companyId(), stageId, query, page, size);
+            @RequestParam(required = false) String query,
+            @RequestParam(defaultValue = "QUALIFICATION") CandidateSort sort,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "30") int size) {
+        return screening.candidates(member.companyId(), stageId, query, sort, page, size);
     }
 
     @GetMapping("/selection")

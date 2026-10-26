@@ -16,6 +16,7 @@ import com.hiremate.recruit.StageInfo;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.CandidateRow;
+import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.ScreeningService;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -156,7 +157,8 @@ public class AssessmentService {
     }
 
     private Map<String, UUID> keys(UUID companyId, Stage stage, IdentifierType type) {
-        Set<UUID> inStage = screening.candidates(companyId, stage.stageId(), null, 0, 10_000).items().stream()
+        Set<UUID> inStage = screening
+                .candidates(companyId, stage.stageId(), null, CandidateSort.QUALIFICATION, 0, 10_000).items().stream()
                 .map(CandidateRow::applicationId)
                 .collect(Collectors.toSet());
         return applications.applicants(companyId, stage.recruitmentId()).stream()

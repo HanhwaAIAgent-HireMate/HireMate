@@ -14,7 +14,7 @@ from uuid import UUID, uuid5
 import pytest
 
 from hiremate_ai.agents.analysis.application.graph import ReviewInput, run_review
-from hiremate_ai.agents.analysis.application.service import match_criteria, weights
+from hiremate_ai.agents.analysis.application.service import match_criteria
 from hiremate_ai.agents.analysis.application.types import (
     VERDICT_LABEL,
     Criterion,
@@ -46,12 +46,11 @@ RECRUITMENT = UUID("00000000-0000-4000-8000-0000000000aa")
 MIN_ACCURACY = 0.8
 C, S, X = CriterionType.CONDITION, CriterionType.SINGLE, CriterionType.COMPOSITE
 
-# backend application.yml의 hiremate.dummy.screening-rubric과 같다: (id, 문장, 중요, 유형, 충족, 부분 충족, 미충족)
-ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
+# backend application.yml의 hiremate.dummy.screening-rubric과 같다: (id, 문장, 유형, 충족, 부분 충족, 미충족)
+ROWS: list[tuple[str, str, CriterionType, str, str | None, str]] = [
     (
         "Q-01",
         "Java 또는 Kotlin 기반 서버 개발 경력 3년 이상",
-        True,
         C,
         "Java · Kotlin으로 서버를 개발한 재직 경력이 3년 이상이다 (기간은 경력표로 계산한다).",
         None,
@@ -60,7 +59,6 @@ ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
     (
         "Q-02",
         "Spring Boot로 REST API를 개발 · 운영한 경험",
-        True,
         S,
         "Spring Boot로 REST API를 본인이 개발하거나 운영했다.",
         None,
@@ -69,7 +67,6 @@ ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
     (
         "Q-03",
         "MySQL · PostgreSQL 등 RDBMS 스키마 설계와 SQL 작성 경험",
-        False,
         X,
         "RDBMS 스키마(테이블 · 인덱스)를 본인이 설계하고 SQL을 작성했다.",
         "SQL 작성이나 쿼리 튜닝은 했지만 스키마 설계는 드러나지 않는다 (또는 그 반대).",
@@ -78,7 +75,6 @@ ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
     (
         "Q-04",
         "Git 기반 코드 리뷰와 협업 경험",
-        False,
         X,
         "Git으로 협업하며 코드 리뷰(PR 리뷰 등)를 주고받았다.",
         "Git으로 협업한 기록은 있지만 코드 리뷰는 드러나지 않는다.",
@@ -87,7 +83,6 @@ ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
     (
         "Q-05",
         "JUnit 등으로 테스트 코드를 작성한 경험",
-        False,
         S,
         "JUnit 등 테스트 도구로 테스트 코드를 본인이 작성했다.",
         None,
@@ -96,7 +91,6 @@ ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
     (
         "P-01",
         "외부 시스템 연동 인터페이스를 설계한 경험",
-        True,
         X,
         "외부 · 내부 시스템 간 연동 인터페이스를 본인이 설계했다. 연동 대상과 송수신 데이터를 정하고, "
         "송수신 방식(API · 메시지 명세)과 오류 시 처리 방안까지 명세한 근거가 있다.",
@@ -107,7 +101,6 @@ ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
     (
         "P-02",
         "연동 API를 구현하고 오류 · 보안 처리를 적용한 경험",
-        True,
         X,
         "외부 · 내부 모듈과의 연동 기능을 본인이 구현했고, 실패 시 예외 처리(재시도 · 타임아웃 · 보상 처리 등)와 "
         "보안 처리(인증 · 암호화 · 서명 검증 등)를 모두 적용했다.",
@@ -117,7 +110,6 @@ ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
     (
         "P-03",
         "요구사항을 분석 · 확인해 개발 범위를 정한 경험",
-        False,
         X,
         "현행 시스템이나 업무 요구사항을 본인이 분석 · 검토해 개발 범위나 목표 시스템을 정했다 "
         "(예: 요구사항 정의서 작성, 범위 협의를 이끎).",
@@ -127,7 +119,6 @@ ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
     (
         "P-04",
         "빌드 · 배포 자동화(CI/CD)를 구성한 경험",
-        False,
         X,
         "빌드 · 배포 파이프라인(도구 · 스크립트 · 환경 설정)을 본인이 구성해 운영 환경에 배포했고, "
         "배포 후 확인이나 실패 시 이전 버전으로 되돌리는 절차까지 있다.",
@@ -138,7 +129,6 @@ ROWS: list[tuple[str, str, bool, CriterionType, str, str | None, str]] = [
     (
         "P-05",
         "클래스 · 데이터 모델 등 정적 모델을 설계한 경험",
-        False,
         X,
         "클래스 · 엔티티 · 데이터 모델(ERD 등)을 본인이 상세 설계하고 설계서나 다이어그램으로 남겼다.",
         "엔티티 · 테이블 설계를 본인이 했지만 설계서나 다이어그램 같은 결과물은 드러나지 않는다.",
@@ -150,11 +140,11 @@ CRITERIA = [
         criterion_id=criterion_id,
         category=CriterionCategory.QUALIFICATION if criterion_id.startswith("Q") else CriterionCategory.PREFERENCE,
         text=text,
-        important=important,
+        important=False,
         criterion_type=kind,
         evaluation_rules=EvaluationRules(met=met, partial=partial, unmet=unmet),
     )
-    for criterion_id, text, important, kind, met, partial, unmet in ROWS
+    for criterion_id, text, kind, met, partial, unmet in ROWS
 ]
 
 P, F, U = QualificationStatus.PASSED, QualificationStatus.FAILED, QualificationStatus.UNDETERMINED
@@ -237,7 +227,6 @@ async def test_demo_applicants_match_expected_outcomes(sample_posting: PostingCo
             criteria=criteria,
             criteria_version=rubric.criteria_version,
             notes=notes,
-            weights=weights(),
             input_hash="eval",
             today=date(2026, 10, 21),
         )

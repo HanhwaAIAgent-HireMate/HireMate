@@ -6,7 +6,6 @@ import pytest
 
 from hiremate_ai.agents.analysis.application.present import criterion_lines
 from hiremate_ai.agents.analysis.application.router import get_store
-from hiremate_ai.agents.analysis.application.score import Weights
 from hiremate_ai.agents.analysis.application.types import (
     Actor,
     ApplicationReview,
@@ -1146,7 +1145,7 @@ def test_new_verdict_parts_take_precedence_over_legacy_boolean(
     )
     analysis = newcomer_analysis.model_copy(
         update={
-            "criteria": criterion_lines(review, Weights(normal=1.0, important=2.0)),
+            "criteria": criterion_lines(review),
             "conditions": [Condition(label="API", requirement=item.text, met=False)],
             "notable": [],
             "checks": [Finding(text=review.checks[0].text, source="자격 요건")],

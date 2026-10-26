@@ -1,5 +1,5 @@
 import { ListFilter, Search } from 'lucide-react'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -14,11 +14,13 @@ import {
   useCandidates,
   useSelectionActions,
   type CandidateRow,
+  type CandidateSort,
   type StageOverview,
 } from '@/features/screening/api'
 import { CandidateItem, RowButton } from '@/features/screening/CandidateItem'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
+import { cn } from '@/lib/utils'
 
 type Filter = 'ALL' | 'PENDING' | 'PASS' | 'FAIL'
 
@@ -29,7 +31,13 @@ const FILTERS: Record<Filter, string> = {
   FAIL: '불합격',
 }
 
-// 왼쪽 전체 지원자. 서류 전형은 점수 높은 순, 기준을 넘은 지원자는 굵게, 못 미친 지원자는 선 아래 회색이다
+const SORTS: Record<CandidateSort, string> = {
+  QUALIFICATION: '자격요건 순',
+  TOTAL: '총점 순',
+}
+
+// 왼쪽 전체 지원자. 서류 전형은 자격요건 순(같으면 총점 순)으로 한 줄로 서고 총점 순으로도 볼 수 있다.
+// AI 추천(선발 인원 10배수)은 굵게, 추천 밖은 회색이다
 export function CandidateList({
   overview,
   editable,
@@ -41,7 +49,8 @@ export function CandidateList({
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [filter, setFilter] = useState<Filter>('ALL')
-  const candidates = useCandidates(stageId, debounced)
+  const [sort, setSort] = useState<CandidateSort>('QUALIFICATION')
+  const candidates = useCandidates(stageId, debounced, sort)
   const actions = useSelectionActions(stageId)
   const { openId, open } = useStageUi()
   const sentinel = useRef<HTMLDivElement>(null)
@@ -67,7 +76,6 @@ export function CandidateList({
     (row) => filter === 'ALL' || row.decision === filter,
   )
   const total = candidates.data?.pages[0]?.total ?? overview.counts.total
-  const firstBelow = documentStage ? rows.findIndex((row) => !row.aboveLine) : -1
   const fail = (error: unknown) => toast.error(errorMessage(error))
 
   const action = (row: CandidateRow) => {
@@ -76,7 +84,7 @@ export function CandidateList({
       return (
         <RowButton
           kind="up"
-          label={`${row.name} 선 위로 올리기`}
+          label={`${row.name} AI 추천으로 올리기`}
           onClick={() => actions.promote.mutate(row.applicationId, { onError: fail })}
         />
       )
@@ -127,6 +135,31 @@ export function CandidateList({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {documentStage && (
+        <div
+          role="tablist"
+          aria-label="정렬"
+          className="mx-4 mb-2 flex rounded-lg bg-muted p-0.5 text-xs"
+        >
+          {(Object.keys(SORTS) as CandidateSort[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={sort === key}
+              onClick={() => setSort(key)}
+              className={cn(
+                'h-7 flex-1 rounded-md',
+                sort === key
+                  ? 'bg-background font-semibold shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {SORTS[key]}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="px-4 pb-3">
         <label className="flex h-10 items-center gap-2 rounded-lg border px-3 text-sm">
           <Search className="size-4 text-muted-foreground" />
@@ -147,18 +180,16 @@ export function CandidateList({
             {debounced ? '조건에 맞는 지원자가 없어요.' : '아직 지원자가 없어요.'}
           </p>
         )}
-        {rows.map((row, index) => (
-          <Fragment key={row.applicationId}>
-            {index === firstBelow && index > 0 && <hr className="mx-1 my-2 border-border" />}
-            <CandidateItem
-              row={row}
-              documentStage={documentStage}
-              scoreStage={overview.type === 'ASSESSMENT'}
-              active={openId === row.applicationId}
-              action={action(row)}
-              onOpen={() => open({ applicationId: row.applicationId, name: row.name })}
-            />
-          </Fragment>
+        {rows.map((row) => (
+          <CandidateItem
+            key={row.applicationId}
+            row={row}
+            documentStage={documentStage}
+            scoreStage={overview.type === 'ASSESSMENT'}
+            active={openId === row.applicationId}
+            action={action(row)}
+            onOpen={() => open({ applicationId: row.applicationId, name: row.name })}
+          />
         ))}
         <div ref={sentinel} className="h-4" />
       </div>

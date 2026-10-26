@@ -5,6 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   careerLabel,
   formatScore,
+  heldScore,
   scoreBreakdown,
   type CandidateRow,
 } from '@/features/screening/api'
@@ -12,8 +13,10 @@ import { cn } from '@/lib/utils'
 
 /**
  * 지원자 한 줄 (COM-02 표시 규칙). AI 선택은 보라 테두리, HR 결정은 배경색, 서류 기준은 굵기와 회색이다.
- * 서류 전형에서는 AI 추천(서류 평가 총점 상위, 선발 인원 10배수)이 선 위에 굵게 서고, 오른쪽 끝에 총점을, 경력 아래에
- * 영역 점수(자격요건 · 우대사항)를 소수 첫째 자리까지 붙인다. 점수가 높아도 미충족 표시는 숨기지 않는다. 점수를 보류한 지원자는 연한 회색 배경이고, 못 채운 자격요건은 이름 옆에 작게 ✕로 붙인다.
+ * 서류 전형에서는 AI 추천(자격요건 · 총점 상위, 선발 인원 10배수)이 굵게 보이고, 오른쪽 끝에 총점을, 경력 아래에
+ * 영역 점수(자격요건 · 우대사항)를 소수 첫째 자리까지 붙인다. 점수가 높아도 미충족 표시는 숨기지 않는다.
+ * 점수를 보류한 지원자는 연한 회색 배경에 확인 필요를 0점으로 계산한 점수를 회색으로 보여 주고 '보류'를 붙인다.
+ * 못 채운 자격요건은 이름 옆에 작게 ✕로 붙인다.
  * 행을 누르면 지원자 카드가 열리므로 넣기 · 빼기는 오른쪽 버튼으로 한다.
  */
 export function CandidateItem({
@@ -99,6 +102,15 @@ export function CandidateItem({
           )}
         >
           {formatScore(row.documentScore)}
+        </span>
+      )}
+      {held && (
+        <span
+          title="점수 보류: 확인 필요 항목을 0점으로 계산한 점수예요"
+          className="flex items-baseline gap-1 rounded-md bg-background px-1.5 py-0.5 text-xs text-muted-foreground tabular-nums"
+        >
+          <span className="text-[10px]">보류</span>
+          {heldScore(row.documentScoreLow)}
         </span>
       )}
       {scoreStage &&

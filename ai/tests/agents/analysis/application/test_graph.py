@@ -22,7 +22,6 @@ from hiremate_ai.agents.analysis.application.graph import ReviewInput, run_revie
 from hiremate_ai.agents.analysis.application.judge import CriteriaJudgement
 from hiremate_ai.agents.analysis.application.present import to_analysis, to_candidate_analysis
 from hiremate_ai.agents.analysis.application.review import ReviewJudgement
-from hiremate_ai.agents.analysis.application.score import Weights
 from hiremate_ai.agents.analysis.application.service import match_criteria
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, CriterionResult, ScreeningRubric
 from hiremate_ai.contract import (
@@ -41,7 +40,6 @@ LATENCY = "하루 120만 건 승인 트랜잭션을 처리하는 승인 서버�
 PARTITION = "MySQL 정산 테이블을 파티셔닝해 월말 정산 배치 시간을 40% 줄였습니다."
 PERIOD = "한빛카드 결제플랫폼팀 2022.03 ~ 현재"
 MADE_UP = "결제 시스템 전체 아키텍처 설계를 혼자 주도했습니다."
-WEIGHTS = Weights(normal=1.0, important=1.5)
 
 YUMIN_EXTRACT = ExtractedFacts(
     facts=[
@@ -71,7 +69,6 @@ def context(applicant: ApplicantDetail, posting: PostingContent, rubric: Screeni
         criteria=criteria,
         criteria_version=CRITERIA_VERSION,
         notes=notes,
-        weights=WEIGHTS,
         input_hash="hash",
         today=TODAY,
     )
@@ -91,29 +88,33 @@ def judging(llm: FakeLlm) -> list[str]:
     return [call.user for call in llm.calls if call.output is CriteriaJudgement]
 
 
-async def test_two_areas_of_50_points_with_importance(
+async def test_two_areas_of_50_points_with_equal_items(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
     script = Script(extract={"결제플랫폼팀": YUMIN_EXTRACT}, verdicts=YUMIN)
 
     review = await review_of(scripted(script), sample_applicants["정유민"], sample_posting)
 
-    # 자격요건: 계수 1.5 · 1 · 1 · 1, 충족도 1 · 1 · 1 · 0 → 50 × 3.5 ÷ 4.5 = 38.89
-    # 우대사항: 계수 1.5 · 1 · 1, 충족도 0.5 · 0 · 0 (자격증 없음) → 50 × 0.75 ÷ 3.5 = 10.71
-    assert (review.qualification_score, review.preference_score) == (38.9, 10.7)
+    # 중요 표시(Q-01 · P-01)가 있어도 모든 항목이 같은 비중이다
+    # 자격요건: 충족도 1 · 1 · 1 · 0 → 50 × 3 ÷ 4 = 37.5
+    # 우대사항: 충족도 0.5 · 0 · 0 (자격증 없음) → 50 × 0.5 ÷ 3 = 8.33
+    assert (review.qualification_score, review.preference_score) == (37.5, 8.3)
     assert (review.qualification_max, review.preference_max) == (50, 50)
-    assert review.document_score == 49.6  # 38.888… + 10.714… 를 합친 뒤 반올림한다
+    assert review.document_score == 45.8  # 37.5 + 8.333… 를 합친 뒤 반올림한다
     assert review.score_status == ScoreStatus.CONFIRMED
-    # 75% 통과는 계수 없이 센다: 4개 중 3개 = 75%
+    # 4개 중 3개 = 75%
     assert (review.qualification_status, review.qualification_rate) == (QualificationStatus.PASSED, 75.0)
-    assert to_analysis(review).shortfalls == ["Git 근거 없음"]  # 점수와 따로 미충족 표시를 남긴다
+    analysis = to_analysis(review)
+    assert analysis.shortfalls == ["Git 근거 없음"]  # 점수와 따로 미충족 표시를 남긴다
+    # 확인 필요가 없으면 0점으로 넣어 계산한 점수도 확정 점수와 같다
+    assert (analysis.document_score_low, analysis.qualification_score_low) == (45.8, 37.5)
     assert result(review, "Q-01").career_months == 55  # 2022.03 ~ 2026.10
-    card = to_candidate_analysis(review, sample_applicants["정유민"].documents, WEIGHTS)
+    card = to_candidate_analysis(review, sample_applicants["정유민"].documents)
     lines = {line.criterion_id: line for line in card.criteria}
-    assert (lines["Q-01"].allotted, lines["Q-01"].earned, lines["Q-01"].career_years) == (16.7, 16.7, 4)
-    assert (lines["P-01"].allotted, lines["P-01"].earned, lines["P-01"].fulfillment) == (21.4, 10.7, 0.5)
+    assert (lines["Q-01"].allotted, lines["Q-01"].earned, lines["Q-01"].career_years) == (12.5, 12.5, 4)
+    assert (lines["P-01"].allotted, lines["P-01"].earned, lines["P-01"].fulfillment) == (16.7, 8.3, 0.5)
     assert lines["P-01"].satisfied_parts and lines["P-01"].unsatisfied_parts
-    assert card.document_score == 49.6 and card.criteria_version == CRITERIA_VERSION
+    assert card.document_score == 45.8 and card.criteria_version == CRITERIA_VERSION
 
 
 async def test_unknown_is_rechecked_and_holds_the_total(
@@ -128,8 +129,11 @@ async def test_unknown_is_rechecked_and_holds_the_total(
     assert (unknown.verdict, unknown.recheck_count, unknown.fulfillment) == (Verdict.UNKNOWN, 2, None)
     # 확인 필요를 0이나 0.5로 바꾸지 않고, 분모에서 빼 점수를 부풀리지도 않는다
     assert review.document_score is None and review.preference_score is None
-    assert review.qualification_score == 38.9
+    assert review.qualification_score == 37.5
     assert review.score_status == ScoreStatus.HELD and "P-02" in review.holds[0].text
+    # 보류 지원자는 확인 필요를 0점으로 넣어 계산한 점수로 보여 준다: 37.5 + 8.3
+    analysis = to_analysis(review)
+    assert (analysis.document_score, analysis.document_score_low) == (None, 45.8)
     rounds = [user for user in judging(llm) if "재확인" in user]
     assert any("1차 재확인" in user for user in rounds) and any("2차 재확인" in user for user in rounds)
     assert len(rounds) == 2  # 확인 필요인 항목만 다시 묻는다
@@ -293,7 +297,6 @@ async def test_no_preferences_scale_qualifications_to_100(
         criteria=criteria,
         criteria_version=CRITERIA_VERSION,
         notes=notes,
-        weights=WEIGHTS,
         input_hash="hash",
         today=TODAY,
     )
@@ -301,7 +304,7 @@ async def test_no_preferences_scale_qualifications_to_100(
     review = await run_review(scripted(script), context_)
 
     assert (review.qualification_max, review.preference_max) == (100, 0)
-    assert review.document_score == 77.8  # 100 × 3.5 ÷ 4.5
+    assert review.document_score == 75.0  # 100 × 3 ÷ 4
 
 
 async def test_recheck_stops_when_time_runs_out(
@@ -343,7 +346,7 @@ async def test_unreadable_documents_are_held_without_model_calls(
     assert not review.readable and review.held
     analysis = to_analysis(review)
     assert (analysis.career_years, analysis.document_score, analysis.held) == (None, None, True)
-    assert to_candidate_analysis(review, [], WEIGHTS).criteria == []
+    assert to_candidate_analysis(review, []).criteria == []
 
 
 async def test_instructions_in_documents_stay_inside_data_blocks(
@@ -378,5 +381,5 @@ async def test_cover_letter_sections_are_summarized_with_checked_quotes(
     assert [section.title for section in review.sections] == ["지원 동기", "협업"]
     assert [len(section.quotes) for section in review.sections] == [1, 0]
     assert sum(call.output is LetterSummary for call in llm.calls) == 1
-    card = to_candidate_analysis(review, sample_applicants["정유민"].documents, WEIGHTS)
+    card = to_candidate_analysis(review, sample_applicants["정유민"].documents)
     assert card.summaries[0].evidence[0].document.value == "COVER_LETTER"

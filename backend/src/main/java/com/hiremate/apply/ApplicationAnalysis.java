@@ -15,6 +15,9 @@ import java.util.List;
  * @param qualificationScore 자격요건 점수. 확인 필요 항목이 있으면 null
  * @param qualificationMax 자격요건 만점 (50, 우대사항이 없으면 100)
  * @param documentScore 총점(0~100, 소수 첫째 자리). 보류면 null
+ * @param documentScoreLow 확인 필요를 0점으로 넣어 계산한 총점(보류 점수). 보류 지원자의 점수 표시와 정렬에 쓴다.
+ *         확인 필요가 없으면 documentScore와 같고, 평가하지 못했으면 null
+ * @param qualificationScoreLow 확인 필요를 0점으로 넣어 계산한 자격요건 점수. 자격요건 순 정렬에 쓴다
  * @param passed qualificationStatus가 PASSED인가
  * @param held 총점을 보류했는가 (서류를 읽지 못함 · 확인 필요가 남음). 보류한 지원자는 AI 추천 순위에서 빠진다
  * @param shortfalls 채우지 못했거나 확인이 필요한 자격요건의 짧은 표시 (예: 신입, 경력 확인 필요). 이름 옆에 붙는다
@@ -24,7 +27,9 @@ public record ApplicationAnalysis(@Schema(nullable = true) Integer careerYears,
         QualificationStatus qualificationStatus, @Schema(nullable = true) BigDecimal qualificationRate,
         @Schema(nullable = true) BigDecimal qualificationScore, int qualificationMax,
         @Schema(nullable = true) BigDecimal preferenceScore, int preferenceMax,
-        @Schema(nullable = true) BigDecimal documentScore, boolean passed, boolean held, List<String> shortfalls) {
+        @Schema(nullable = true) BigDecimal documentScore, @Schema(nullable = true) BigDecimal documentScoreLow,
+        @Schema(nullable = true) BigDecimal qualificationScoreLow, boolean passed, boolean held,
+        List<String> shortfalls) {
 
     public ApplicationAnalysis {
         shortfalls = shortfalls == null ? List.of() : List.copyOf(shortfalls);
@@ -35,6 +40,6 @@ public record ApplicationAnalysis(@Schema(nullable = true) Integer careerYears,
             boolean passed, boolean held, List<String> shortfalls) {
         return new ApplicationAnalysis(careerYears, lastCompany, null,
                 passed ? QualificationStatus.PASSED : QualificationStatus.FAILED, null, null, 50, null, 50,
-                documentScore, passed, held, shortfalls);
+                documentScore, documentScore, null, passed, held, shortfalls);
     }
 }

@@ -27,11 +27,14 @@
   "criteriaVersion": "dummy-2026-10-22",
   "scoreStatus": "CONFIRMED",
   "documentScore": 73.3,
+  "documentScoreLow": 73.3,
   "qualificationStatus": "PASSED",
   "qualificationRate": 75.0,
   "qualificationScore": 33.3,
+  "qualificationScoreLow": 33.3,
   "qualificationMax": 50,
   "preferenceScore": 40.0,
+  "preferenceScoreLow": 40.0,
   "preferenceMax": 50,
   "criteria": [
     {

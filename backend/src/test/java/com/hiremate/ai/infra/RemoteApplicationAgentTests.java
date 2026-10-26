@@ -30,8 +30,8 @@ class RemoteApplicationAgentTests {
 
     private static final UUID RECRUITMENT = UUID.randomUUID();
     private static final ApplicantDetail APPLICANT = new ApplicantDetail(new ApplicantInfo(UUID.randomUUID(),
-            RECRUITMENT, 1, "정유민", "yumin@example.com", null, null, null, false, false, List.of(),
-            QualificationStatus.UNDETERMINED, null, 0, null, 0, AnalysisStatus.PENDING,
+            RECRUITMENT, 1, "정유민", "yumin@example.com", null, null, null, null, false, false, List.of(),
+            QualificationStatus.UNDETERMINED, null, null, 0, null, 0, AnalysisStatus.PENDING,
             Instant.parse("2026-10-21T00:00:00Z")), "010-0000-0000", null, List.of());
     private static final PostingContent POSTING = new PostingContent("응용 소프트웨어 엔지니어", "백엔드 개발", "정규직",
             "경력 3년 이상", "서울", "", List.of(), List.of("Git 기반 협업 경험"), List.of("외부 시스템 연동 인터페이스를 설계한 경험"),
@@ -59,8 +59,8 @@ class RemoteApplicationAgentTests {
     void analyzesCandidateThroughAiServer() {
         CandidateAnalysis answer = new CandidateAnalysis(List.of(), List.of(), List.of(),
                 List.of(new CandidateAnalysis.Finding("보류 이유", "이력서")), "test-1", CandidateAnalysis.ScoreStatus.HELD,
-                null, QualificationStatus.UNDETERMINED, null, null, 50, null, 50, List.of(), List.of(), List.of(),
-                "Application Agent", false);
+                null, null, QualificationStatus.UNDETERMINED, null, null, null, 50, null, null, 50, List.of(),
+                List.of(), List.of(), "Application Agent", false);
         RecordingClient client = new RecordingClient(answer);
 
         CandidateAnalysis result = new RemoteCandidateAnalyst(client).analyze(APPLICANT, POSTING, RUBRIC);

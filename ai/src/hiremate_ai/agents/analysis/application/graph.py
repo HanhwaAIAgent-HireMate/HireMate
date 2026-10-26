@@ -28,7 +28,7 @@ from hiremate_ai.agents.analysis.application.judge import (
     verification_claims,
 )
 from hiremate_ai.agents.analysis.application.review import apply_to_facts, fact_claims, review_claims
-from hiremate_ai.agents.analysis.application.score import Weights, qualification_pass, scores
+from hiremate_ai.agents.analysis.application.score import qualification_pass, scores
 from hiremate_ai.agents.analysis.application.types import (
     VERDICT_LABEL,
     Actor,
@@ -44,7 +44,7 @@ from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CriterionCategory, PostingContent, ScoreStatus, Verdict
 from hiremate_ai.llm.client import LlmClient
 
-REVIEW_VERSION = "2026-10-25.1"
+REVIEW_VERSION = "2026-10-26.1"
 # 카드의 '눈여겨볼 점' 후보로 검토하는 사실 수
 NOTABLE_CANDIDATES = 6
 NOTABLE_KINDS = ("ACHIEVEMENT", "PROJECT", "EXPERIENCE")
@@ -64,7 +64,6 @@ class ReviewInput:
     criteria: tuple[Criterion, ...]
     criteria_version: str
     notes: tuple[Note, ...]
-    weights: Weights
     input_hash: str
     today: date
     deadline: float | None = None
@@ -208,7 +207,7 @@ def _finalize(state: ReviewState, context: ReviewInput) -> ApplicationReview:
         )
     periods = state.get("periods") or []
     results = state.get("results") or []
-    computed = scores(results, context.weights)
+    computed = scores(results)
     status, rate = qualification_pass(results)
     holds = [
         Note(

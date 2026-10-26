@@ -116,6 +116,7 @@ class ApplicantInfo(ContractModel):
 
     passed는 자격요건 75% 통과가 확정됐는지, held는 총점을 보류했는지다. 보류면 document_score가 None이다.
     document_score는 서류 평가 총점(자격요건 50 + 우대사항 50, 소수 첫째 자리)이다.
+    *_low는 확인 필요를 0점으로 넣어 계산한 점수다. 보류 지원자의 점수 표시와 정렬에 쓴다.
     """
 
     application_id: UUID
@@ -126,11 +127,13 @@ class ApplicantInfo(ContractModel):
     career_years: int | None
     last_company: str | None
     document_score: float | None
+    document_score_low: float | None = None
     passed: bool
     held: bool = False
     shortfalls: list[str] = []  # 채우지 못한 자격요건의 짧은 표시 (예: 신입, 경력 확인 필요)
     qualification_status: QualificationStatus = QualificationStatus.UNDETERMINED
     qualification_score: float | None = None
+    qualification_score_low: float | None = None
     qualification_max: int = 0
     preference_score: float | None = None
     preference_max: int = 0
@@ -215,14 +218,14 @@ class Evidence(ContractModel):
 class CriterionLine(ContractModel):
     """평가 항목 하나의 판정 (CandidateAnalysis.CriterionLine).
 
-    fulfillment는 1 · 0.5 · 0이고 확인 필요면 None이다. allotted는 배점(영역 만점 × 계수 ÷ 영역 계수 합),
+    fulfillment는 1 · 0.5 · 0이고 확인 필요면 None이다. allotted는 배점(영역 만점 ÷ 영역 항목 수),
     earned는 획득 점수이고 확인 필요면 None이다. career_years는 경력 기간 조건에서 코드가 계산한 관련 경력이다.
     """
 
     criterion_id: str
     category: CriterionCategory
     text: str
-    important: bool
+    important: bool  # 평가 기준의 중요 표시. 점수에는 쓰지 않는다
     criterion_type: CriterionType
     verdict: Verdict
     fulfillment: float | None
@@ -253,6 +256,7 @@ class CandidateAnalysis(ContractModel):
 
     holds는 총점을 보류한 이유다. 보류가 아니면 비어 있다.
     document_score는 총점(자격요건 + 우대사항, 0~100)이고 보류면 None이다. 영역 점수는 확인 필요가 있으면 None이다.
+    *_low는 확인 필요를 0점으로 넣어 계산한 점수이고(보류 점수), 평가하지 못했거나 영역이 없으면 None이다.
     criteria는 항목별 판정이다. 분석 전이거나 서류를 읽지 못했으면 비어 있다.
     summaries는 자기소개서 문항별 요약이다. 판단 없이 무엇을 썼는지만 담는다.
     """
@@ -264,11 +268,14 @@ class CandidateAnalysis(ContractModel):
     criteria_version: str | None
     score_status: ScoreStatus
     document_score: float | None
+    document_score_low: float | None = None
     qualification_status: QualificationStatus
     qualification_rate: float | None
     qualification_score: float | None
+    qualification_score_low: float | None = None
     qualification_max: int
     preference_score: float | None
+    preference_score_low: float | None = None
     preference_max: int
     criteria: list[CriterionLine]
     summaries: list[SummarySection]

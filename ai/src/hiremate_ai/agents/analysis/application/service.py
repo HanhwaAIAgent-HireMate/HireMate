@@ -9,7 +9,6 @@ from hiremate_ai.agents.analysis.application.context import readable
 from hiremate_ai.agents.analysis.application.extract import extract_documents, merge
 from hiremate_ai.agents.analysis.application.graph import REVIEW_VERSION, ReviewInput, run_review
 from hiremate_ai.agents.analysis.application.review import fact_claims, review_claims
-from hiremate_ai.agents.analysis.application.score import Weights
 from hiremate_ai.agents.analysis.application.store import ReviewStore, input_hash
 from hiremate_ai.agents.analysis.application.types import (
     ApplicationReview,
@@ -29,10 +28,6 @@ CRITERIA_SOURCE = "공고 · 평가 기준"
 
 class RubricScopeError(ValueError):
     """평가 기준의 채용과 지원서의 채용이 다를 때. 다른 채용의 기준으로 평가하지 않는다 (아키텍처 규칙 4)."""
-
-
-def weights() -> Weights:
-    return Weights(normal=settings.criterion_weight_normal, important=settings.criterion_weight_important)
 
 
 async def review_application_documents(llm: LlmClient, documents: Sequence[ApplicantDocument]) -> list[Fact]:
@@ -69,8 +64,7 @@ async def analyze_application(
     """
     if rubric.recruitment_id != applicant.info.recruitment_id:
         raise RubricScopeError("평가 기준과 지원서의 채용이 다르다")
-    current = weights()
-    digest = input_hash(applicant, posting, rubric, current, REVIEW_VERSION)
+    digest = input_hash(applicant, posting, rubric, REVIEW_VERSION)
     stored = await store.find(applicant.info.application_id, digest)
     if stored is not None:
         return stored
@@ -81,7 +75,6 @@ async def analyze_application(
         criteria=criteria,
         criteria_version=rubric.criteria_version,
         notes=notes,
-        weights=current,
         input_hash=digest,
         today=today or date.today(),
         deadline=asyncio.get_running_loop().time() + budget_seconds,

@@ -4,7 +4,7 @@ import re
 from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
 
-from hiremate_ai.agents.analysis.application.score import Weights, allotted
+from hiremate_ai.agents.analysis.application.score import allotted, zeroed_scores
 from hiremate_ai.agents.analysis.application.types import (
     VERDICT_LABEL,
     ApplicationAnalysis,
@@ -37,6 +37,7 @@ _LABEL_STOP = {"경험", "있으신", "있는", "이상", "관련", "기반", "�
 
 
 def to_analysis(review: ApplicationReview) -> ApplicationAnalysis:
+    zeroed = zeroed_scores(review.criteria)
     return ApplicationAnalysis(
         career_years=review.career_years if review.readable else None,
         last_company=review.last_company,
@@ -48,6 +49,8 @@ def to_analysis(review: ApplicationReview) -> ApplicationAnalysis:
         preference_score=review.preference_score,
         preference_max=review.preference_max,
         document_score=None if review.held else review.document_score,
+        document_score_low=zeroed.total,
+        qualification_score_low=zeroed.qualification_score,
         passed=review.passed,
         held=review.held,
         shortfalls=shortfalls(review),
@@ -59,9 +62,7 @@ def shortfalls(review: ApplicationReview) -> list[str]:
     return [result.shortfall for result in review.qualifications if result.shortfall and result.verdict != Verdict.MET]
 
 
-def to_candidate_analysis(
-    review: ApplicationReview, documents: Sequence[ApplicantDocument], weights: Weights
-) -> CandidateAnalysis:
+def to_candidate_analysis(review: ApplicationReview, documents: Sequence[ApplicantDocument]) -> CandidateAnalysis:
     conditions = [
         Condition(label=label(result.text), met=result.verdict == Verdict.MET, requirement=result.text)
         for result in review.qualifications
@@ -75,6 +76,7 @@ def to_candidate_analysis(
     highlights = verified_evidence(
         dict.fromkeys(Evidence(document=quote.document, sentence=quote.sentence) for quote in quotes), list(documents)
     )
+    zeroed = zeroed_scores(review.criteria)
     return CandidateAnalysis(
         conditions=conditions,
         notable=notable[:NOTABLE_LIMIT],
@@ -83,13 +85,16 @@ def to_candidate_analysis(
         criteria_version=review.criteria_version or None,
         score_status=review.score_status,
         document_score=None if review.held else review.document_score,
+        document_score_low=zeroed.total,
         qualification_status=review.qualification_status,
         qualification_rate=review.qualification_rate,
         qualification_score=review.qualification_score,
+        qualification_score_low=zeroed.qualification_score,
         qualification_max=review.qualification_max,
         preference_score=review.preference_score,
+        preference_score_low=zeroed.preference_score,
         preference_max=review.preference_max,
-        criteria=criterion_lines(review, weights),
+        criteria=criterion_lines(review),
         summaries=[
             SummarySection(
                 document=section.document,
@@ -106,13 +111,13 @@ def to_candidate_analysis(
     )
 
 
-def criterion_lines(review: ApplicationReview, weights: Weights) -> list[CriterionLine]:
+def criterion_lines(review: ApplicationReview) -> list[CriterionLine]:
     """항목별 판정: 충족도 · 배점 · 획득 점수 · 이유 · 충족 / 미충족 / 확인되지 않은 부분 · 근거 · 재확인 횟수."""
     if not review.readable:
         return []
     lines = []
     for result in review.criteria:
-        share = allotted(result, review.criteria, weights)
+        share = allotted(result, review.criteria)
         fulfillment = result.fulfillment
         lines.append(
             CriterionLine(
@@ -157,8 +162,7 @@ def to_profile(review: ApplicationReview) -> tuple[ProfileFields, list[NewItem]]
     items = [
         NewItem(
             category=ItemCategory.QUALIFICATION if result.verdict != Verdict.UNKNOWN else ItemCategory.CHECK,
-            content=f"{CATEGORY_LABEL[result.category]} {result.text}: {VERDICT_LABEL[result.verdict]}"
-            + (" (중요)" if result.important else ""),
+            content=f"{CATEGORY_LABEL[result.category]} {result.text}: {VERDICT_LABEL[result.verdict]}",
             evidence=result.quotes[0].sentence if result.quotes else None,
             source=result.quotes[0].document.label if result.quotes else f"공고 · {CATEGORY_LABEL[result.category]}",
         )

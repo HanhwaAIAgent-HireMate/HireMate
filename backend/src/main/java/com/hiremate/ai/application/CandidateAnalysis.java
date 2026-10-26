@@ -16,6 +16,7 @@ import java.util.List;
  * @param holds 총점을 보류한 이유. 보류가 아니면 비어 있다
  * @param criteriaVersion 평가에 쓴 평가 기준 버전
  * @param documentScore 총점(자격요건 + 우대사항, 0~100). 보류면 null
+ * @param documentScoreLow 확인 필요를 0점으로 넣어 계산한 총점(보류 점수). 평가하지 못했으면 null. 영역 점수의 *Low도 같다
  * @param qualificationRate 자격요건 충족률(%). 확인 필요가 있으면 null
  * @param qualificationScore 자격요건 점수. 확인 필요가 있으면 null
  * @param preferenceScore 우대사항 점수. 확인 필요가 있으면 null
@@ -25,9 +26,12 @@ import java.util.List;
  */
 public record CandidateAnalysis(List<Condition> conditions, List<Finding> notable, List<Finding> checks,
         List<Finding> holds, @Schema(nullable = true) String criteriaVersion, ScoreStatus scoreStatus,
-        @Schema(nullable = true) BigDecimal documentScore, QualificationStatus qualificationStatus,
-        @Schema(nullable = true) BigDecimal qualificationRate, @Schema(nullable = true) BigDecimal qualificationScore,
-        int qualificationMax, @Schema(nullable = true) BigDecimal preferenceScore, int preferenceMax,
+        @Schema(nullable = true) BigDecimal documentScore, @Schema(nullable = true) BigDecimal documentScoreLow,
+        QualificationStatus qualificationStatus, @Schema(nullable = true) BigDecimal qualificationRate,
+        @Schema(nullable = true) BigDecimal qualificationScore,
+        @Schema(nullable = true) BigDecimal qualificationScoreLow, int qualificationMax,
+        @Schema(nullable = true) BigDecimal preferenceScore, @Schema(nullable = true) BigDecimal preferenceScoreLow,
+        int preferenceMax,
         List<CriterionLine> criteria, List<SummarySection> summaries, List<Evidence> highlights, String agent,
         boolean stub) {
 
@@ -50,7 +54,7 @@ public record CandidateAnalysis(List<Condition> conditions, List<Finding> notabl
      * 항목 하나의 판정.
      *
      * @param fulfillment 1 · 0.5 · 0. 확인 필요면 null
-     * @param allotted 배점 = 영역 만점 × 항목 계수 ÷ 영역 계수 합
+     * @param allotted 배점 = 영역 만점 ÷ 영역 항목 수
      * @param earned 획득 점수. 확인 필요면 null
      * @param careerYears 경력 기간 조건이면 요건과 관련된 확인 경력(년)
      * @param certificateStatus 자격증 조건이면 확인 상태
