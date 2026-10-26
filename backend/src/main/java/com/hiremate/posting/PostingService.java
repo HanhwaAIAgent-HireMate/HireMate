@@ -3,6 +3,8 @@ package com.hiremate.posting;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.company.CompanyService;
 import com.hiremate.company.MailStyleService;
+import com.hiremate.company.ReceiptTemplate;
+import com.hiremate.company.ReceiptTemplateService;
 import com.hiremate.global.ApiException;
 import com.hiremate.global.JsonText;
 import com.hiremate.mail.MailPreview;
@@ -40,15 +42,18 @@ public class PostingService {
     private final RecruitService recruits;
     private final CompanyService companies;
     private final MailStyleService mailStyles;
+    private final ReceiptTemplateService receiptTemplates;
     private final ApplicationEventPublisher events;
     private final DummyScreeningRubric dummyRubric;
 
     public PostingService(JobPostingRepository postings, RecruitService recruits, CompanyService companies,
-            MailStyleService mailStyles, ApplicationEventPublisher events, DummyScreeningRubric dummyRubric) {
+            MailStyleService mailStyles, ReceiptTemplateService receiptTemplates, ApplicationEventPublisher events,
+            DummyScreeningRubric dummyRubric) {
         this.postings = postings;
         this.recruits = recruits;
         this.companies = companies;
         this.mailStyles = mailStyles;
+        this.receiptTemplates = receiptTemplates;
         this.events = events;
         this.dummyRubric = dummyRubric;
     }
@@ -221,27 +226,18 @@ public class PostingService {
         return fields.contains(name) ? suggested : current;
     }
 
-    /** 접수 확인 메일은 게시 전에만 고칠 수 있다. 게시한 뒤에는 모든 지원자가 같은 메일을 받는다. */
-    @Transactional
-    public PostingView changeReceipt(UUID companyId, UUID recruitmentId, ReceiptTemplate receipt) {
-        JobPosting posting = posting(companyId, recruitmentId);
-        if (recruits.get(companyId, recruitmentId).status() != RecruitmentStatus.DRAFT) {
-            throw new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_LOCKED",
-                    "The receipt mail cannot change after publishing.");
-        }
-        posting.changeReceipt(receipt);
-        return view(companyId, recruitmentId);
-    }
-
-    /** 지원자에게 보낼 접수 확인 메일. 공고의 템플릿에 지원자 값을 채우고 필수 문구를 붙인다. */
+    /** 지원자에게 보낼 접수 확인 메일. 보내는 때의 설정 › 안내 메일 양식에 지원자 값을 채우고 필수 문구를 붙인다. */
     @Transactional(readOnly = true)
     public ReceiptMail receiptMail(UUID companyId, UUID recruitmentId, String applicantName, int applicationNo) {
         JobPosting posting = posting(companyId, recruitmentId);
-        return posting.receipt().fill(companies.profile(companyId).name(), posting.getTitle(), applicantName,
-                applicationNo, mailStyles.brand(companyId));
+        String companyName = companies.profile(companyId).name();
+        ReceiptTemplate filled = receiptTemplates.template(companyId).fill(companyName, posting.getTitle(),
+                applicantName, applicationNo);
+        return new ReceiptMail(filled.subject(), filled.toMail(companyName, posting.getTitle()),
+                mailStyles.brand(companyId));
     }
 
-    /** 게시 전에 보여 줄 접수 확인 메일. 저장한 템플릿으로 만들고 지원자 이름과 지원번호는 예시다. */
+    /** 게시 화면에 보여 줄 접수 확인 메일. 지금 설정의 양식으로 만들고 지원자 이름과 지원번호는 예시다. */
     @Transactional(readOnly = true)
     public MailPreview receiptPreview(UUID companyId, UUID recruitmentId) {
         ReceiptMail receipt = receiptMail(companyId, recruitmentId, "홍길동", 1);
@@ -359,7 +355,6 @@ public class PostingService {
         return new PostingView(posting.getId(), recruitment.id(), companyName, recruitment.status(),
                 posting.content(), List.copyOf(posting.getNotices()), stages, documents(requiredExtras(posting)),
                 posting.getOpenAt(), posting.getCloseAt(), posting.getPublishedAt(), posting.getClosedAt(),
-                suggestionView, new PostingView.ReceiptView(posting.receipt().subject(), posting.receipt().body(),
-                        ReceiptTemplate.REQUIRED_TEXT));
+                suggestionView);
     }
 }

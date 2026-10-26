@@ -196,22 +196,26 @@ class PostingTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("접수 확인 메일은 기본 문장으로 시작해 게시 전에만 고칠 수 있고, 지원하면 지원자 값을 채워 보낸다")
-    void receiptMailIsCheckedBeforePublishing() throws Exception {
+    @DisplayName("접수 확인 메일은 설정의 양식 하나로 모든 공고에 쓰고, 보내는 때의 양식에 지원자 값을 채워 보낸다")
+    void receiptMailFollowsCompanySettings() throws Exception {
         TestApi hr = newHr();
+        String settings = "/api/companies/me/receipt-template";
+        JsonNode template = json(expect(hr.get(settings), 200));
+        assertThat(template.path("subject").asString()).isEqualTo("[{회사명}] {공고명} 지원이 접수되었습니다");
+        assertThat(template.path("body").asString()).contains("{지원자명}님", "지원번호 {지원번호}번");
+        assertThat(template.path("requiredText").asString()).startsWith("본 메일은 발신 전용입니다.");
+        assertThat(json(expect(hr.get(settings + "/preview"), 200)).path("html").asString())
+                .contains("홍길동님, 테스트 기업 예시 공고 채용에 지원해 주셔서 감사합니다.");
+
+        expect(hr.put(settings, Map.of("subject", " ", "body", "본문")), 400);
+        expect(hr.put(settings, Map.of("subject", "[{회사명}] 지원 확인",
+                "body", "{지원자명}님, {공고명} 지원번호는 {지원번호}번입니다.")), 200);
         JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
         String base = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
-        assertThat(draft.path("receipt").path("subject").asString()).isEqualTo("[{회사명}] {공고명} 지원이 접수되었습니다");
-        assertThat(draft.path("receipt").path("body").asString()).contains("{지원자명}님", "지원번호 {지원번호}번");
-        assertThat(draft.path("receipt").path("requiredText").asString()).startsWith("본 메일은 발신 전용입니다.");
-
+        assertThat(draft.has("receipt")).isFalse();
         expect(hr.put(base, Map.of("title", "결제 백엔드 개발자", "jobCategory", "", "employmentType", "", "career", "",
                 "location", "", "intro", "", "duties", List.of(), "qualifications", List.of(), "preferred", List.of(),
                 "benefits", List.of())), 200);
-        expect(hr.put(base + "/receipt", Map.of("subject", " ", "body", "본문")), 400);
-        JsonNode changed = json(expect(hr.put(base + "/receipt", Map.of("subject", "[{회사명}] 지원 확인",
-                "body", "{지원자명}님, {공고명} 지원번호는 {지원번호}번입니다.")), 200));
-        assertThat(changed.path("receipt").path("subject").asString()).isEqualTo("[{회사명}] 지원 확인");
         JsonNode preview = json(expect(hr.get(base + "/receipt/preview"), 200));
         assertThat(preview.path("subject").asString()).isEqualTo("[테스트 기업] 지원 확인");
         assertThat(preview.path("html").asString()).contains(">지원 확인</div>",
@@ -220,16 +224,18 @@ class PostingTests extends IntegrationTest {
         Instant now = Instant.now();
         expect(hr.post(base + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
                 "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
-        expect(hr.put(base + "/receipt", Map.of("subject", "바꾼 제목", "body", "바꾼 본문")), 409);
+        expect(hr.put(settings, Map.of("subject", "[{회사명}] {지원자명}님 지원 확인",
+                "body", "{지원자명}님, {공고명}에 지원해 주셔서 감사합니다.")), 200);
 
         Map<String, Object> form = TestFixtures.form("receipt@example.com", false);
         form.put("name", "김하늘");
         expect(anonymous().multipart("/api/public/postings/" + draft.path("postingId").asString() + "/applications",
                 form), 201);
-        assertThat(awaitMail("receipt@example.com")).isEqualTo("receipt@example.com|[테스트 기업] 지원 확인|"
-                + "김하늘님, 결제 백엔드 개발자 지원번호는 1번입니다.\n\n본 메일은 발신 전용입니다. 지원자 정보는 채용 목적으로만 이용됩니다.");
+        assertThat(awaitMail("receipt@example.com")).isEqualTo("receipt@example.com|[테스트 기업] 김하늘님 지원 확인|"
+                + "김하늘님, 결제 백엔드 개발자에 지원해 주셔서 감사합니다.\n\n본 메일은 발신 전용입니다. 지원자 정보는 채용 목적으로만 이용됩니다.");
         assertThat(mail.html).anySatisfy(html -> assertThat(html).contains(">테스트 기업</td>",
-                "김하늘님, 결제 백엔드 개발자 지원번호는 1번입니다."));
+                "김하늘님, 결제 백엔드 개발자에 지원해 주셔서 감사합니다."));
+        expect(newHr().get(settings), 200);
     }
 
     /** 접수 확인 메일은 접수가 끝난 뒤 따로 보내져 잠깐 기다린다. */

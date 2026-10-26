@@ -9,6 +9,7 @@ export type NoticeTemplateType = NoticeTemplate['type']
 export type CompanyFile = Schemas['CompanyFileInfo']
 export type FileCategory = CompanyFile['category']
 export type MailStyle = Schemas['MailStyle']
+export type ReceiptTemplate = Schemas['ReceiptTemplateView']
 
 export const companyKeys = {
   profile: ['company', 'profile'] as const,
@@ -16,6 +17,7 @@ export const companyKeys = {
   noticeTemplates: ['company', 'notice-templates'] as const,
   files: (category: FileCategory) => ['company', 'files', category] as const,
   mailStyle: ['company', 'mail-style'] as const,
+  receiptTemplate: ['company', 'receipt-template'] as const,
 }
 
 export function useCompanyProfile() {
@@ -119,7 +121,10 @@ export function useSaveMailColor() {
   return useMutation({
     mutationFn: (color: string) =>
       unwrap(api.PUT('/api/companies/me/mail-style', { body: { color } })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle })
+      void queryClient.invalidateQueries({ queryKey: companyKeys.receiptTemplate })
+    },
   })
 }
 
@@ -136,7 +141,10 @@ export function useUploadMailLogo() {
         }),
       )
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle })
+      void queryClient.invalidateQueries({ queryKey: companyKeys.receiptTemplate })
+    },
   })
 }
 
@@ -144,7 +152,10 @@ export function useDeleteMailLogo() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => unwrap(api.DELETE('/api/companies/me/mail-style/logo')),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle })
+      void queryClient.invalidateQueries({ queryKey: companyKeys.receiptTemplate })
+    },
   })
 }
 
@@ -160,5 +171,30 @@ export function useMailStylePreview(color: string | null) {
           params: { query: { color: color ?? undefined } },
         }),
       ),
+  })
+}
+
+/** 접수 확인 메일 양식. 지원서를 내면 바로 가는 메일이라 AI는 쓰지 않고, 모든 공고에 같이 쓴다 */
+export function useReceiptTemplate() {
+  return useQuery({
+    queryKey: companyKeys.receiptTemplate,
+    queryFn: () => unwrap(api.GET('/api/companies/me/receipt-template')),
+  })
+}
+
+export function useSaveReceiptTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { subject: string; body: string }) =>
+      unwrap(api.PUT('/api/companies/me/receipt-template', { body })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: companyKeys.receiptTemplate }),
+  })
+}
+
+/** 저장한 접수 확인 메일 양식으로 만든 예시 메일. 메일 색 · 로고를 바꾸면 새로 받는다 */
+export function useReceiptTemplatePreview() {
+  return useQuery({
+    queryKey: [...companyKeys.receiptTemplate, 'preview'],
+    queryFn: () => unwrap(api.GET('/api/companies/me/receipt-template/preview')),
   })
 }

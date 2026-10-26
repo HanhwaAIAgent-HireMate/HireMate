@@ -43,7 +43,7 @@ export function SettingsPage() {
             >
               {item.label}
               {item.key === 'mail' ? (
-                <span className="text-xs text-muted-foreground">4종</span>
+                <span className="text-xs text-muted-foreground">5종</span>
               ) : (
                 done[item.key] && <Check className="size-3.5 text-muted-foreground" />
               )}
