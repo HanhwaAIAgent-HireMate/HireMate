@@ -23,9 +23,10 @@ public interface InterviewAgent {
     /**
      * @param company 회사 소개 설정의 조직 문화 · 인재상. 최종면접의 인성 · 조직 적응 질문 기준으로 쓴다
      * @param focus HR이 정한 범위 (예: "기술은 확인했으니 확인 안 된 부분 중심으로"). 없으면 null
+     * @param questionCount Chat 추가 목표 개수. 최초 자동 생성은 null
      */
     List<String> questions(ApplicantDetail applicant, PostingContent posting, CandidateAnalysis analysis,
-            InterviewView interview, CompanyProfile company, String focus);
+            InterviewView interview, CompanyProfile company, String focus, Integer questionCount);
 
     /** 앞 전형 결과를 확정할 때 질문을 미리 만든다. 매개변수는 {@link #questions}와 같고 범위(focus)는 없다. */
     Optional<List<String>> prepare(String target, ApplicantDetail applicant, PostingContent posting,

@@ -115,6 +115,7 @@ def job_handlers(
             analysis=request.analysis,
             interview=request.interview,
             focus=request.focus,
+            question_count=request.question_count,
             company=request.company,
             review=review,
         )

@@ -4,14 +4,13 @@ import com.hiremate.ai.application.AiAgent;
 import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.InterviewAgent;
+import com.hiremate.ai.application.InterviewQuestionsRequest;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.job.JobQueue;
 import com.hiremate.posting.PostingContent;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
@@ -37,28 +36,18 @@ class RemoteInterviewAgent implements InterviewAgent {
 
     @Override
     public List<String> questions(ApplicantDetail applicant, PostingContent posting, CandidateAnalysis analysis,
-            InterviewView interview, CompanyProfile company, String focus) {
-        Map<String, Object> body = body(applicant, posting, analysis, interview, company, focus);
+            InterviewView interview, CompanyProfile company, String focus, Integer questionCount) {
+        InterviewQuestionsRequest body = new InterviewQuestionsRequest(applicant, posting, analysis, interview, company,
+                focus, questionCount);
         return client.post(AiAgent.INTERVIEW, "questions", body, QUESTIONS);
     }
 
     @Override
     public Optional<List<String>> prepare(String target, ApplicantDetail applicant, PostingContent posting,
             CandidateAnalysis analysis, InterviewView interview, CompanyProfile company) {
-        jobs.enqueue(QUESTIONS_JOB, target, body(applicant, posting, analysis, interview, company, null));
+        jobs.enqueue(QUESTIONS_JOB, target,
+                new InterviewQuestionsRequest(applicant, posting, analysis, interview, company, null, null));
         return Optional.empty();
     }
 
-    /** 요청 본문. 키는 InterviewAgent.questions의 매개변수 이름이다. focus는 null일 수 있어 null을 받는 Map을 쓴다. */
-    private static Map<String, Object> body(ApplicantDetail applicant, PostingContent posting,
-            CandidateAnalysis analysis, InterviewView interview, CompanyProfile company, String focus) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("applicant", applicant);
-        body.put("posting", posting);
-        body.put("analysis", analysis);
-        body.put("interview", interview);
-        body.put("company", company);
-        body.put("focus", focus);
-        return body;
-    }
 }
