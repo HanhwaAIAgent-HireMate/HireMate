@@ -4,9 +4,13 @@ from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 from hiremate_ai.contract import Job, JobResult, JobStatus
+from hiremate_ai.worker.batch import ApplicationBatchJobs
+from hiremate_ai.worker.batch_store import RedisBatchStore
 from hiremate_ai.worker.handlers import Handler, PermanentError
 from hiremate_ai.worker.runner import Worker, WorkerOptions, connect
 
@@ -187,3 +191,132 @@ async def test_waiting_for_new_jobs_does_not_hit_the_read_timeout(redis: Redis, 
         await client.aclose()
 
     assert not found
+
+
+def batch_jobs(redis: Redis) -> ApplicationBatchJobs:
+    return ApplicationBatchJobs(
+        RedisBatchStore(redis, "runner:batch"),
+        timeout_seconds=259200,
+        model="deepseek/deepseek-v4.1-flash",
+        provider="sail-research",
+        max_tokens=2048,
+        temperature=0,
+        reasoning_effort="none",
+        retry_delay_seconds=0,
+    )
+
+
+async def test_batch_job_is_resumed_after_multiple_worker_restarts(redis: Redis) -> None:
+    handler, calls = counting(echo)
+    job = make_job("application/analyze")
+    message_id = await put(redis, job)
+    await deliver_to(redis, "stopped-worker")
+    await redis.xclaim(OPTIONS.job_stream, OPTIONS.group, "another-stopped-worker", 0, [message_id])
+
+    [result] = await run_until(redis, Worker(redis, {job.type: handler}, OPTIONS, batch=batch_jobs(redis)))
+
+    assert result.status is JobStatus.DONE
+    assert len(calls) == 1
+
+
+async def test_stop_leaves_waiting_batch_job_for_the_next_worker(redis: Redis) -> None:
+    entered = asyncio.Event()
+
+    async def waiting(payload: dict[str, Any]) -> dict[str, Any]:
+        entered.set()
+        await asyncio.Event().wait()
+        return {}
+
+    job = make_job("application/analyze")
+    await put(redis, job)
+    stop = asyncio.Event()
+    worker = Worker(redis, {job.type: waiting}, OPTIONS, batch=batch_jobs(redis))
+    task = asyncio.create_task(worker.run(stop))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        stop.set()
+        await asyncio.wait_for(task, timeout=2)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    assert await results(redis) == []
+    assert (await redis.xpending(OPTIONS.job_stream, OPTIONS.group))["pending"] == 1
+    [result] = await run_until(
+        redis,
+        Worker(redis, {job.type: echo}, replace(OPTIONS, consumer="resumed"), batch=batch_jobs(redis)),
+    )
+    assert result.status is JobStatus.DONE
+
+
+async def test_batch_result_delivery_failure_reuses_the_saved_result(
+    redis: Redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, calls = counting(echo)
+    job = make_job("application/analyze")
+    await put(redis, job)
+    original = redis.xadd
+    failed = False
+
+    async def xadd(name: str, fields: dict[Any, Any], **kwargs: Any) -> Any:
+        nonlocal failed
+        if name == OPTIONS.result_stream and not failed:
+            failed = True
+            raise RedisError("결과 전달이 잠시 끊겼다")
+        return await original(name, fields, **kwargs)
+
+    monkeypatch.setattr(redis, "xadd", xadd)
+
+    [result] = await run_until(redis, Worker(redis, {job.type: handler}, OPTIONS, batch=batch_jobs(redis)))
+
+    assert result.status is JobStatus.DONE
+    assert failed and len(calls) == 1
+    assert await redis.xlen(OPTIONS.job_stream) == 0
+
+
+async def test_waiting_applications_do_not_block_other_job_types(redis: Redis) -> None:
+    entered = asyncio.Event()
+
+    async def waiting(payload: dict[str, Any]) -> dict[str, Any]:
+        entered.set()
+        await asyncio.Event().wait()
+        return {}
+
+    application = make_job("application/analyze")
+    ordinary = make_job()
+    await put(redis, application)
+    batch_options = replace(OPTIONS, job_stream="applications", group="batch-workers", consumer="batch-worker")
+    router = Worker(redis, {"echo/run": echo}, OPTIONS, application_stream=batch_options.job_stream)
+    batch_worker = Worker(redis, {application.type: waiting}, batch_options, batch=batch_jobs(redis))
+
+    async def submit_ordinary() -> None:
+        await entered.wait()
+        await put(redis, ordinary)
+
+    producer = asyncio.create_task(submit_ordinary())
+    try:
+        [result] = await run_until(redis, router, batch_worker)
+    finally:
+        producer.cancel()
+        await asyncio.gather(producer, return_exceptions=True)
+
+    assert result.job_id == ordinary.job_id
+    assert result.status is JobStatus.DONE
+    assert (await redis.xpending(batch_options.job_stream, batch_options.group))["pending"] == 1
+
+
+async def test_forwarded_application_returns_the_existing_backend_contract(redis: Redis) -> None:
+    job = make_job("application/analyze")
+    await put(redis, job)
+    batch_options = replace(OPTIONS, job_stream="applications", group="batch-workers", consumer="batch-worker")
+
+    [result] = await run_until(
+        redis,
+        Worker(redis, {}, OPTIONS, application_stream=batch_options.job_stream),
+        Worker(redis, {job.type: echo}, batch_options, batch=batch_jobs(redis)),
+    )
+
+    assert result.job_id == job.job_id and result.target == job.target
+    assert result.type == job.type and result.result == {"echo": "지원서"}
+    assert await redis.xlen(OPTIONS.job_stream) == 0
+    assert await redis.xlen(batch_options.job_stream) == 0

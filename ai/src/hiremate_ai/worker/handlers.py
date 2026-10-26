@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
@@ -20,6 +21,7 @@ from hiremate_ai.agents.generation.report import load_profiles, write_report
 from hiremate_ai.api import assessment, interview, report
 from hiremate_ai.config import settings
 from hiremate_ai.db.profile_store import ProfileScopeError
+from hiremate_ai.llm.batch_state import current_batch_job
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.tracing import traced
 
@@ -31,7 +33,11 @@ class PermanentError(Exception):
 
 
 def job_handlers(
-    llm: LlmClient, store: ReviewStore, sessions: async_sessionmaker[AsyncSession]
+    llm: LlmClient,
+    store: ReviewStore,
+    sessions: async_sessionmaker[AsyncSession],
+    *,
+    application_llm: LlmClient | None = None,
 ) -> Mapping[str, Handler]:
     """워커가 처리하는 작업 유형. 자료가 들어오거나 전형이 시작될 때 미리 돌리는 분석 · 생성만 둔다.
 
@@ -45,12 +51,23 @@ def job_handlers(
         request = AnalyzeRequest.model_validate(payload)
         key = str(request.applicant.info.application_id)
         now = asyncio.get_running_loop().time()
-        remaining = settings.application_timeout_seconds - (now - started.setdefault(key, now))
+        batch = current_batch_job()
+        remaining = (
+            batch.deadline - time.time()
+            if batch is not None
+            else settings.application_timeout_seconds - (now - started.setdefault(key, now))
+        )
         try:
             if remaining <= 0:
                 raise PermanentError("지원서 분석 시간 한도를 다 썼다")
             review = await analyze_application(
-                llm, store, request.applicant, request.posting, request.rubric, budget_seconds=remaining
+                application_llm if application_llm is not None else llm,
+                store,
+                request.applicant,
+                request.posting,
+                request.rubric,
+                budget_seconds=remaining,
+                today=batch.today if batch is not None else None,
             )
         except RubricScopeError as error:
             started.pop(key, None)
