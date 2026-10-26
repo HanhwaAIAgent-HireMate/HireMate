@@ -21,7 +21,7 @@ from hiremate_ai.agents.root.answer import (
 )
 from hiremate_ai.agents.root.edit import plan_edit
 from hiremate_ai.agents.root.stages import blames_later_stage
-from hiremate_ai.agents.root.toolkit import RootToolkit, resolve_ref, scope_of
+from hiremate_ai.agents.root.toolkit import RootToolkit, candidate_ref, resolve_ref, scope_of
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem, ChatPlan, EditAction, Intent
 from hiremate_ai.contract import StageType
 
@@ -262,18 +262,26 @@ def _message(text: str, context: ChatContext) -> str:
 def _check_message_subjects(text: str, context: ChatContext, items: Sequence[ChatItem]) -> None:
     """지원자 사실을 본문에만 써서 근거 항목 검증을 우회하지 못하게 한다."""
     present = {item.application_id for item in items if item.application_id is not None}
+    missing: list[str] = []
     for match in _REF.finditer(text):
         row = resolve_ref(context, match.group(1))
         if row is None or row.application_id not in present:
-            raise ValueError("본문에서 언급한 지원자는 대상과 근거 항목에 명시하세요.")
+            missing.append(candidate_ref(context, row.application_id) if row else f"C{match.group(1)}")
     remaining = readable(text, context)
     for name in sorted({row.name for row in context.candidates if row.name}, key=len, reverse=True):
         if name not in remaining:
             continue
         same_name = {row.application_id for row in context.candidates if row.name == name}
         if not same_name & present:
-            raise ValueError("본문에서 언급한 지원자는 대상과 근거 항목에 명시하세요.")
+            missing.extend(candidate_ref(context, row.application_id) for row in context.candidates if row.name == name)
         remaining = remaining.replace(name, "\0")
+    if missing:
+        raise ValueError(
+            f"본문에서 언급한 지원자 {', '.join(dict.fromkeys(missing))}의 검증된 항목이 없어요. "
+            "대상과 근거가 연결된 항목이 필요해요. "
+            "candidates에 번호만 추가해도 해결되지 않아요. 해당 지원자의 근거를 확인한 items를 작성하거나 "
+            "본문에서 그 지원자에 관한 언급을 삭제하세요. 자료에서 확인하지 못한 내용을 없다고 단정하지 마세요."
+        )
 
 
 async def _items(

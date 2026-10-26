@@ -11,12 +11,54 @@ from hiremate_ai.agents.root.commands import EditCommand, RootReply
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import run_plan
 from hiremate_ai.agents.root.types import EditAction, Intent
+from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.call_log import CallRecord
 from hiremate_ai.llm.chat import ChatLlm
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
+
+
+async def test_portfolio_questions_can_handoff_without_spending_calls_on_document_analysis(
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 1)
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="@한예린 포트폴리오에서 질문 여러개 생성해봐",
+        mentions=["한예린"],
+        stage_type=StageType.INTERVIEW,
+        previous_types=[StageType.DOCUMENT],
+    )
+    target = next(row for row in context.candidates if row.name == "한예린")
+    candidate = f"C{context.candidates.index(target) + 1}"
+    llm = FakeLlm(
+        ToolCall(
+            "RootReply",
+            {
+                "kind": "questions",
+                "message": "포트폴리오를 바탕으로 질문을 만들게요.",
+                "candidates": [candidate],
+                "items": [],
+                "focus": {},
+                "action": None,
+                "result": None,
+            },
+        )
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.ANSWER
+    assert plan.question_targets == [target.application_id]
+    assert plan.question_focus == {} and plan.items == []
+    assert len(llm.calls) == 1
 
 
 async def test_model_receives_required_search_conditions_and_answer_evidence(

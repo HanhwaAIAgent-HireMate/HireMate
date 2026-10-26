@@ -25,7 +25,7 @@ from hiremate_ai.agents.root.toolkit import AgentEvidence, RootToolkit, default_
 from hiremate_ai.agents.root.turns import turn_of
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, Intent
 from hiremate_ai.config import settings
-from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.contract import ApplicantDetail, CompanyProfile, DocumentType, PostingContent, StageType
 from hiremate_ai.db.profile import ItemAgent, ItemCategory
 from hiremate_ai.db.profile_store import NewItem, save_profile
 from hiremate_ai.db.session import session_factory
@@ -51,6 +51,79 @@ class MemoryCallLog:
 
     async def record(self, record: CallRecord) -> None:
         self.records.append(record)
+
+
+async def test_portfolio_question_request_keeps_generation_handoff(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """문서 종류를 지정한 질문 생성에 전체 서류 재분석을 필수로 수행하지 않는다."""
+    source = sample_applicants["한예린"]
+    applicant = source.model_copy(update={"info": source.info.model_copy(update={"name": "김준혁"})})
+    context = make_context(
+        {"김준혁": applicant},
+        sample_company,
+        sample_posting,
+        message="**@김준혁**포트폴리오에서 질문 여러개 생성해봐",
+        mentions=["김준혁"],
+        stage_type=StageType.INTERVIEW,
+        previous_types=[StageType.DOCUMENT],
+    )
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 8)
+    calls = MemoryCallLog()
+
+    plan = await run_plan(build_llm(calls), context, default_toolkit())
+
+    tools = [tool["name"] for record in calls.records for tool in (record.output or {}).get("tool_calls", [])]
+    print(f"portfolio questions: intent={plan.intent}, calls={len(calls.records)}, tools={tools}")
+    assert plan.intent is Intent.ANSWER
+    assert plan.question_targets == [applicant.info.application_id]
+    assert all(record.agent == "root" for record in calls.records)
+    assert "consult_application" not in tools and "consult_interview" not in tools
+
+
+async def test_portfolio_candidate_lookup_succeeds_on_independent_first_requests(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """이전 실패 답변이나 검색 캐시 없이도 포트폴리오 조건을 찾는다."""
+    names = ["정유민", "김하늘", "박서준", "이도윤"]
+    applicants: dict[str, ApplicantDetail] = {}
+    for index, name in enumerate(names):
+        original = sample_applicants[name]
+        text = (
+            "Spring Boot와 PostgreSQL로 재고 관리 API를 개발했습니다."
+            if index == 1
+            else "가계부 웹앱을 PWA로 만들고 서비스 워커와 IndexedDB로 오프라인 저장을 구현했습니다."
+        )
+        document = original.documents[0].model_copy(
+            update={"type": DocumentType.PORTFOLIO, "file_name": f"{name}_포트폴리오.pdf", "text": text}
+        )
+        applicants[name] = original.model_copy(update={"documents": [document]})
+    expected = {applicant.info.application_id for name, applicant in applicants.items() if name != "김하늘"}
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 8)
+    for run in range(3):
+        context = make_context(
+            applicants,
+            sample_company,
+            sample_posting,
+            message="pwa 관련 포트폴리오 있는 지원자가 누구야 ?",
+            stage_type=StageType.INTERVIEW,
+            previous_types=[StageType.DOCUMENT],
+        )
+        calls = MemoryCallLog()
+
+        plan = await run_plan(build_llm(calls), context, default_toolkit())
+
+        print(f"portfolio lookup {run + 1}: intent={plan.intent}, calls={len(calls.records)}")
+        assert plan.intent in {Intent.FIND, Intent.ANSWER}
+        covered = set(plan.targets) if plan.intent is Intent.FIND else {item.application_id for item in plan.items}
+        assert covered == expected
+        assert "포트폴리오" in plan.sources
 
 
 # Assessment Agent가 평가 결과 등록 때 저장했을 항목. 평가 자료 원문은 ChatContext에 없어 프로필로만 읽힌다
@@ -413,7 +486,7 @@ ANSWER_CASES: list[dict[str, Any]] = [
     },
     {
         "id": "answer-interview-focus",
-        "message": "@정유민 서류 기준으로 기술 심화 질문 만들어줘",
+        "message": "@정유민 서류를 분석해 면접에서 확인할 점을 정리하고 그 근거로 기술 심화 질문 만들어줘",
         "mentions": ["정유민"],
         "stage_type": "INTERVIEW",
         "previous_types": ["DOCUMENT"],
