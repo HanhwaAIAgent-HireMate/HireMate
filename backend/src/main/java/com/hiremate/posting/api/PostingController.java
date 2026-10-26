@@ -44,6 +44,13 @@ public class PostingController {
         return postings.updateContent(member.companyId(), recruitmentId, request.toContent());
     }
 
+    /** HR이 전형 절차를 직접 정한다. 게시 전에만 바꿀 수 있고, 이름이 같은 전형은 입력해 둔 안내를 이어 받는다. */
+    @PutMapping("/api/recruitments/{recruitmentId}/posting/stages")
+    public PostingView changeStages(AuthenticatedMember member, @PathVariable UUID recruitmentId,
+            @Valid @RequestBody StagesRequest request) {
+        return postings.changeStages(member.companyId(), recruitmentId, request.toDrafts());
+    }
+
     /** 본문 없이 부르면 수정안 전체를, fields가 있으면 그 칸만 적용한다. */
     @PostMapping("/api/recruitments/{recruitmentId}/posting/suggestion/apply")
     public PostingView applySuggestion(AuthenticatedMember member, @PathVariable UUID recruitmentId,

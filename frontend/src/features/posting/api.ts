@@ -81,6 +81,18 @@ export function useReceiptPreview(recruitmentId: string) {
   })
 }
 
+/** HR이 직접 정한 전형 절차. 게시 전에만 바꿀 수 있고, 이름이 같은 전형은 입력해 둔 안내를 이어 받는다 */
+export function useSaveStages(recruitmentId: string) {
+  return usePostingMutation(recruitmentId, (stages: Schemas['StageItem'][]) =>
+    unwrap(
+      api.PUT('/api/recruitments/{recruitmentId}/posting/stages', {
+        params: { path: { recruitmentId } },
+        body: { stages },
+      }),
+    ),
+  )
+}
+
 /** 수정안 적용. fields가 있으면 그 칸만 적용하고 나머지는 수정안으로 남긴다 */
 export function useApplySuggestion(recruitmentId: string) {
   return usePostingMutation(recruitmentId, (fields?: string[]) =>

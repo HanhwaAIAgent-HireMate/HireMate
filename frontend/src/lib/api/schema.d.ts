@@ -132,6 +132,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/stages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["changeStages"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/posting/receipt": {
         parameters: {
             query?: never;
@@ -1310,6 +1326,14 @@ export interface components {
             format: string;
             required: boolean;
         };
+        StageItem: {
+            name: string;
+            /** @enum {string} */
+            type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
+        };
+        StagesRequest: {
+            stages: components["schemas"]["StageItem"][];
+        };
         ReceiptRequest: {
             subject: string;
             body: string;
@@ -2108,6 +2132,32 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PostingContentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PostingView"];
+                };
+            };
+        };
+    };
+    changeStages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StagesRequest"];
             };
         };
         responses: {
