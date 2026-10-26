@@ -4,7 +4,7 @@
 """
 
 from collections.abc import Sequence
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 from uuid import UUID
 
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent, SelectionMode
@@ -18,6 +18,8 @@ class TurnItem(TypedDict):
 
 class Turn(TypedDict):
     message: str
+    mentions: NotRequired[list[str]]  # 그때 멘션한 지원자. 답변 대상이 없는 되묻기에도 남긴다
+    checked: NotRequired[list[str]]  # 그때 체크한 지원자. 예전 체크포인트에는 두 필드가 없다
     kind: str  # 분류한 요청 종류 (FIND, EDIT, ANSWER 등). 차단하거나 분류하지 못했으면 빈 값
     intent: str
     targets: list[str]  # 이 턴이 다룬 지원자 순서. 찾기 결과, 편집 대상, 면접 질문 대상, 답의 지원자 순
@@ -41,6 +43,8 @@ def turn_of(context: ChatContext, targets: Sequence[UUID] | None, plan: ChatPlan
         subject = list(targets)
     return Turn(
         message=context.message,
+        mentions=[str(application_id) for application_id in context.mentions],
+        checked=[str(application_id) for application_id in context.checked],
         kind=kind,
         intent=plan.intent.value,
         targets=[str(application_id) for application_id in subject],

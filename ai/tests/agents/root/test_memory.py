@@ -6,6 +6,7 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context
 
+from hiremate_ai.agents.root.agent import run_agent
 from hiremate_ai.agents.root.answer import AnswerEvidence, AnswerItem
 from hiremate_ai.agents.root.commands import (
     AnswerCommand,
@@ -17,8 +18,9 @@ from hiremate_ai.agents.root.commands import (
 )
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import RootThread, run_plan
-from hiremate_ai.agents.root.turns import Turn
-from hiremate_ai.agents.root.types import ChatContext, EditAction, Intent
+from hiremate_ai.agents.root.toolkit import default_toolkit
+from hiremate_ai.agents.root.turns import Turn, turn_of
+from hiremate_ai.agents.root.types import ChatContext, ChatPlan, EditAction, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.fake import FakeLlm, FakeReply, LlmCall, ToolCall
@@ -405,3 +407,67 @@ async def test_previous_subject_is_remapped_after_candidate_order_changes(contex
 
     assert plan.targets == ids(context, "김하늘")
     assert screen_of(llm.calls[-1])["직전 대상"] == ["C1"]
+
+
+async def test_clarified_screen_targets_survive_cleared_chips_and_candidate_reordering(context: ChatContext) -> None:
+    saver, thread = InMemorySaver(), thread_of(context)
+    llm = FakeLlm(
+        RootReply(message="어떤 기준으로 검토할까요?", command=ClarifyCommand()),
+        ToolCall("get_previous_turns"),
+        answer("C1"),
+    )
+    await run_plan(
+        llm,
+        ask(context, "우리 회사와 잘 맞아?", mentions=("김하늘",), checked=("정유민",)),
+        saver=saver,
+        thread=thread,
+    )
+    rows = [context.candidates[1], context.candidates[0], *context.candidates[2:]]
+    followup = ask(context, "등록한 인재상을 기준으로 봐줘").model_copy(update={"candidates": rows})
+
+    await run_plan(llm, followup, saver=saver, thread=thread)
+
+    read = llm.calls[-1].user.split('<data kind="tool" name="get_previous_turns">', 1)[1]
+    assert "멘션한 지원자: C1 김하늘" in read
+    assert "체크한 지원자: C2 정유민" in read
+    history = json.loads(llm.calls[1].user.split('<data kind="history">', 1)[1].split("</data>", 1)[0])
+    assert history[0]["멘션한 지원자"] == ["C1"]
+    assert history[0]["체크한 지원자"] == ["C2"]
+    assert screen_of(llm.calls[1])["멘션한 지원자"] == []
+    assert screen_of(llm.calls[1])["체크한 지원자"] == []
+    assert (await saved_turns(saver, thread))[0]["targets"] == []
+
+
+async def test_previous_turns_omit_screen_targets_outside_the_current_stage(context: ChatContext) -> None:
+    prior = turn_of(
+        ask(context, "우리 회사와 잘 맞아?", mentions=("김하늘",), checked=("정유민",)),
+        None,
+        ChatPlan.answer(Intent.CLARIFY, "어떤 기준으로 검토할까요?"),
+        "ANSWER",
+    )
+    kim = ids(context, "김하늘")[0]
+    followup = ask(context, "등록한 인재상을 기준으로 봐줘").model_copy(
+        update={"candidates": [row for row in context.candidates if row.application_id != kim]}
+    )
+    llm = FakeLlm(ToolCall("get_previous_turns"), answer("C1"))
+
+    await run_agent(llm, followup, default_toolkit(), turns=[prior])
+
+    read = llm.calls[-1].user.split('<data kind="tool" name="get_previous_turns">', 1)[1]
+    assert "멘션한 지원자:" not in read
+    assert "체크한 지원자: C1 정유민" in read
+    assert "김하늘" not in read and str(kim) not in read
+
+
+async def test_previous_turns_can_read_legacy_turns_without_screen_targets(context: ChatContext) -> None:
+    prior = turn_of(ask(context, "기존 질문"), None, ChatPlan.answer(Intent.CLARIFY, "기존 답변"), "ANSWER")
+    prior.pop("mentions", None)
+    prior.pop("checked", None)
+    llm = FakeLlm(ToolCall("get_previous_turns"), answer("C1"))
+
+    await run_agent(llm, ask(context, "아까 무슨 말을 했지?"), default_toolkit(), turns=[prior])
+
+    read = llm.calls[-1].user.split('<data kind="tool" name="get_previous_turns">', 1)[1]
+    assert '담당자: "기존 질문"' in read
+    assert "Root 답: 기존 답변" in read
+    assert "멘션한 지원자:" not in read and "체크한 지원자:" not in read

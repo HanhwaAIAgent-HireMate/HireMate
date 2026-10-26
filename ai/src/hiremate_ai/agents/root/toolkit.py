@@ -384,6 +384,7 @@ async def get_stage_summary(runtime: ToolRuntime[RootToolContext]) -> str:
 async def get_previous_turns(runtime: ToolRuntime[RootToolContext]) -> str:
     """앞 대화 기록을 읽는다. 담당자 질문, Root 답, 다룬 지원자, 면접 질문을 만들 때 정리한 확인할 점과 이유가 있다.
 
+    질문할 때 멘션하거나 체크한 지원자는 그때의 화면 범위로 구별해 보여 준다.
     이전에 만든 질문의 이유나 앞에서 한 이야기를 물으면 이 기록으로 답한다.
     """
     context = _used(runtime, "get_previous_turns")
@@ -399,6 +400,12 @@ async def get_previous_turns(runtime: ToolRuntime[RootToolContext]) -> str:
     sections = []
     for number, turn in enumerate(context.turns, start=1):
         lines = [f'[{number}] 담당자: "{turn["message"]}"', f"Root 답: {turn['answer']}"]
+        mentions = [who(value) for value in turn.get("mentions", []) if value in by_id]
+        checked = [who(value) for value in turn.get("checked", []) if value in by_id]
+        if mentions:
+            lines.append("멘션한 지원자: " + ", ".join(mentions))
+        if checked:
+            lines.append("체크한 지원자: " + ", ".join(checked))
         if turn["targets"]:
             lines.append("다룬 지원자: " + ", ".join(who(target) for target in turn["targets"]))
         lines += [f"확인할 점 ({who(application_id)}): {focus}" for application_id, focus in turn["focus"].items()]
