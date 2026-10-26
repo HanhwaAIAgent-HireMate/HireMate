@@ -20,6 +20,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,9 @@ public class PostingService {
 
     static final String DEFAULT_TITLE = "새 채용";
     static final List<StageDraft> DEFAULT_STAGES = List.of(new StageDraft("서류 전형", StageType.DOCUMENT));
+    /** 수정안의 changedFields에서 전형 절차와 필수 제출 서류의 이름. 나머지는 PostingContent의 JSON 이름이다. */
+    static final String STAGES_FIELD = "stages";
+    static final String DOCUMENTS_FIELD = "requiredDocuments";
 
     private final JobPostingRepository postings;
     private final RecruitService recruits;
@@ -102,36 +106,101 @@ public class PostingService {
         return view(companyId, recruitmentId);
     }
 
+    /**
+     * 수정안을 적용한다. 고른 칸만 수정안으로 바꾸고, 나머지 바뀐 칸은 수정안으로 남긴다.
+     *
+     * @param fields 적용할 칸 이름(changedFields의 이름). 비어 있으면 바뀐 칸을 모두 적용한다
+     */
     @Transactional
-    public PostingView applySuggestion(UUID companyId, UUID recruitmentId) {
+    public PostingView applySuggestion(UUID companyId, UUID recruitmentId, List<String> fields) {
         JobPosting posting = posting(companyId, recruitmentId);
         PostingSuggestion suggestion = JsonText.read(posting.getPendingSuggestion(), PostingSuggestion.class);
         if (suggestion == null) {
             throw new ApiException(HttpStatus.CONFLICT, "NO_SUGGESTION", "There is no suggestion to apply.");
         }
+        Set<String> chosen = chosenFields(suggestion, fields);
         RecruitmentInfo recruitment = recruits.get(companyId, recruitmentId);
         requireEditable(recruitment);
-        boolean changesProcess = suggestion.stages() != null || suggestion.requiredExtras() != null;
-        if (changesProcess && recruitment.status() != RecruitmentStatus.DRAFT) {
+        boolean stages = chosen.contains(STAGES_FIELD) && suggestion.stages() != null;
+        boolean documents = chosen.contains(DOCUMENTS_FIELD) && suggestion.requiredExtras() != null;
+        if ((stages || documents) && recruitment.status() != RecruitmentStatus.DRAFT) {
             throw new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_LOCKED",
                     "Stages and required documents cannot change after publishing.");
         }
-        posting.update(suggestion.content());
-        recruits.rename(companyId, recruitmentId, suggestion.content().title());
-        if (suggestion.stages() != null) {
+        PostingContent merged = merge(posting.content(), suggestion.content(), chosen);
+        posting.update(merged);
+        recruits.rename(companyId, recruitmentId, merged.title());
+        if (stages) {
             recruits.replaceStages(companyId, recruitmentId, suggestion.stages());
         }
-        if (suggestion.requiredExtras() != null) {
+        if (documents) {
             posting.changeRequiredExtras(suggestion.requiredExtras().stream().map(Enum::name).sorted().toList());
         }
-        posting.clearSuggestion();
+        keepRest(posting, suggestion, chosen);
         return view(companyId, recruitmentId);
     }
 
+    /**
+     * 수정안을 되돌린다. 고른 칸만 수정안에서 빼고 나머지는 남긴다.
+     *
+     * @param fields 되돌릴 칸 이름. 비어 있으면 수정안 전체를 되돌린다
+     */
     @Transactional
-    public PostingView discardSuggestion(UUID companyId, UUID recruitmentId) {
-        posting(companyId, recruitmentId).clearSuggestion();
+    public PostingView discardSuggestion(UUID companyId, UUID recruitmentId, List<String> fields) {
+        JobPosting posting = posting(companyId, recruitmentId);
+        PostingSuggestion suggestion = JsonText.read(posting.getPendingSuggestion(), PostingSuggestion.class);
+        if (suggestion != null) {
+            keepRest(posting, suggestion, chosenFields(suggestion, fields));
+        }
         return view(companyId, recruitmentId);
+    }
+
+    /** 처리할 칸. 수정안이 바꾸지 않은 칸만 골랐으면 400이다. */
+    private static Set<String> chosenFields(PostingSuggestion suggestion, List<String> fields) {
+        if (fields == null || fields.isEmpty()) {
+            return Set.copyOf(suggestion.changedFields());
+        }
+        Set<String> chosen = fields.stream().filter(suggestion.changedFields()::contains).collect(Collectors.toSet());
+        if (chosen.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "NOT_IN_SUGGESTION",
+                    "The suggestion does not change these fields.");
+        }
+        return chosen;
+    }
+
+    /**
+     * 처리한 칸을 뺀 수정안을 남긴다. 남은 칸이 없으면 수정안을 지운다.
+     * 남은 수정안의 본문은 지금 공고에서 남은 칸만 수정안으로 바꾼 것이다. 그 사이 HR이 고친 칸을 덮지 않는다.
+     */
+    private static void keepRest(JobPosting posting, PostingSuggestion suggestion, Set<String> done) {
+        List<String> rest = suggestion.changedFields().stream().filter(field -> !done.contains(field)).toList();
+        if (rest.isEmpty()) {
+            posting.clearSuggestion();
+            return;
+        }
+        Set<String> restFields = Set.copyOf(rest);
+        posting.suggest(JsonText.write(new PostingSuggestion(merge(posting.content(), suggestion.content(), restFields),
+                restFields.contains(STAGES_FIELD) ? suggestion.stages() : null,
+                restFields.contains(DOCUMENTS_FIELD) ? suggestion.requiredExtras() : null, rest)));
+    }
+
+    /** fields에 있는 칸만 suggested에서, 나머지는 current에서 가져온다. 칸 이름은 PostingContent의 JSON 이름이다. */
+    private static PostingContent merge(PostingContent current, PostingContent suggested, Set<String> fields) {
+        return new PostingContent(
+                pick(fields, "title", current.title(), suggested.title()),
+                pick(fields, "jobCategory", current.jobCategory(), suggested.jobCategory()),
+                pick(fields, "employmentType", current.employmentType(), suggested.employmentType()),
+                pick(fields, "career", current.career(), suggested.career()),
+                pick(fields, "location", current.location(), suggested.location()),
+                pick(fields, "intro", current.intro(), suggested.intro()),
+                pick(fields, "duties", current.duties(), suggested.duties()),
+                pick(fields, "qualifications", current.qualifications(), suggested.qualifications()),
+                pick(fields, "preferred", current.preferred(), suggested.preferred()),
+                pick(fields, "benefits", current.benefits(), suggested.benefits()));
+    }
+
+    private static <T> T pick(Set<String> fields, String name, T current, T suggested) {
+        return fields.contains(name) ? suggested : current;
     }
 
     /** 접수 확인 메일은 게시 전에만 고칠 수 있다. 게시한 뒤에는 모든 지원자가 같은 메일을 받는다. */

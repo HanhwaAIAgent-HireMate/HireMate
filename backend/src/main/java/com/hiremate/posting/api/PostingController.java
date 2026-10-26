@@ -44,9 +44,11 @@ public class PostingController {
         return postings.updateContent(member.companyId(), recruitmentId, request.toContent());
     }
 
+    /** 본문 없이 부르면 수정안 전체를, fields가 있으면 그 칸만 적용한다. */
     @PostMapping("/api/recruitments/{recruitmentId}/posting/suggestion/apply")
-    public PostingView applySuggestion(AuthenticatedMember member, @PathVariable UUID recruitmentId) {
-        return postings.applySuggestion(member.companyId(), recruitmentId);
+    public PostingView applySuggestion(AuthenticatedMember member, @PathVariable UUID recruitmentId,
+            @Valid @RequestBody(required = false) SuggestionFieldsRequest request) {
+        return postings.applySuggestion(member.companyId(), recruitmentId, SuggestionFieldsRequest.fields(request));
     }
 
     @PostMapping("/api/recruitments/{recruitmentId}/posting/publish")
@@ -67,9 +69,11 @@ public class PostingController {
         return postings.publicView(postingId);
     }
 
+    /** 본문 없이 부르면 수정안 전체를, fields가 있으면 그 칸만 되돌린다. */
     @PostMapping("/api/recruitments/{recruitmentId}/posting/suggestion/discard")
-    public PostingView discardSuggestion(AuthenticatedMember member, @PathVariable UUID recruitmentId) {
-        return postings.discardSuggestion(member.companyId(), recruitmentId);
+    public PostingView discardSuggestion(AuthenticatedMember member, @PathVariable UUID recruitmentId,
+            @Valid @RequestBody(required = false) SuggestionFieldsRequest request) {
+        return postings.discardSuggestion(member.companyId(), recruitmentId, SuggestionFieldsRequest.fields(request));
     }
 
     /** 접수 확인 메일. 게시 전에만 고칠 수 있다. */

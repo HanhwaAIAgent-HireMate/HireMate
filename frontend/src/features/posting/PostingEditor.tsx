@@ -46,6 +46,9 @@ const LISTS: { key: 'duties' | 'qualifications' | 'preferred' | 'benefits'; labe
   { key: 'preferred', label: '우대 사항' },
 ]
 
+/** 수정안을 한 덩어리로 처리하는 기본 정보 칸 */
+const BASIC_FIELDS = ['title', 'jobCategory', 'employmentType', 'career', 'location']
+
 // PST-01 Job Posting Editor. HR이 직접 쓰거나 AI에게 말해 고치고, 바뀐 부분은 HR이 적용 여부를 정한다
 export function PostingEditor({
   posting,
@@ -124,23 +127,36 @@ export function PostingEditor({
     }
   }
 
-  const resolve = (accept: boolean) =>
-    (accept ? apply : discard).mutate(undefined, {
+  /**
+   * 수정안을 적용하거나 되돌린다. fields가 있으면 그 덩어리만 처리하고 나머지는 수정안으로 남긴다.
+   * 처리한 칸만 서버 값으로 바꿔, 다른 칸에서 고치던 내용은 그대로 둔다
+   */
+  const resolve = (accept: boolean, fields?: string[]) => {
+    const targets = new Set(fields ? fields.filter((field) => changed.has(field)) : changed)
+    ;(accept ? apply : discard).mutate(fields && [...targets], {
       onSuccess: (updated) => {
-        setDraft(updated.content)
-        setDirty(false)
+        setDraft({ ...draft, ...pick(updated.content, targets) })
       },
       onError: (error) => toast.error(errorMessage(error)),
     })
+  }
 
   const goPublish = async () => {
     if (await saveDraft(true)) await navigate(`/hr/recruitments/${id}/posting/publish`)
   }
 
-  const actions = (field: string) =>
-    changed.has(field) && (
-      <SuggestionActions onApply={() => resolve(true)} onDiscard={() => resolve(false)} />
+  /** 덩어리마다 [적용] [되돌리기]. 기본 정보는 채용명 · 직무 · 고용 형태 · 경력 · 근무지를 한 덩어리로 처리한다 */
+  const actions = (field: string) => {
+    const fields = BASIC_FIELDS.includes(field) ? BASIC_FIELDS : [field]
+    return (
+      fields.some((name) => changed.has(name)) && (
+        <SuggestionActions
+          onApply={() => resolve(true, fields)}
+          onDiscard={() => resolve(false, fields)}
+        />
+      )
     )
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -180,6 +196,19 @@ export function PostingEditor({
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-auto">
           <div className="mx-auto max-w-[760px] space-y-6 px-6 py-6">
+            {suggestion && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg bg-pass px-3 py-2 text-sm">
+                <span>AI 수정안이 있어요. 초록색 칸마다 적용하거나 되돌릴 수 있어요.</span>
+                <div className="ml-auto flex gap-2">
+                  <Button size="sm" onClick={() => resolve(true)}>
+                    모두 적용
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => resolve(false)}>
+                    모두 되돌리기
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="space-y-3">
               <div
                 className={cn(
@@ -217,9 +246,7 @@ export function PostingEditor({
                   />
                 ))}
               </div>
-              {['title', 'jobCategory', 'employmentType', 'career', 'location'].some((field) =>
-                changed.has(field),
-              ) && actions('title')}
+              {actions('title')}
             </div>
             <Section
               title="회사 소개"
