@@ -1481,6 +1481,7 @@ export interface components {
             held: boolean;
             shortfalls: string[];
             documentScore: number | null;
+            documentScoreLow: number | null;
             qualificationScore: number | null;
             /** Format: int32 */
             qualificationMax: number;
@@ -1537,13 +1538,16 @@ export interface components {
             /** @enum {string} */
             scoreStatus: "CONFIRMED" | "HELD";
             documentScore: number | null;
+            documentScoreLow: number | null;
             /** @enum {string} */
             qualificationStatus: "PASSED" | "FAILED" | "UNDETERMINED";
             qualificationRate: number | null;
             qualificationScore: number | null;
+            qualificationScoreLow: number | null;
             /** Format: int32 */
             qualificationMax: number;
             preferenceScore: number | null;
+            preferenceScoreLow: number | null;
             /** Format: int32 */
             preferenceMax: number;
             criteria: components["schemas"]["CriterionLine"][];
@@ -3016,6 +3020,7 @@ export interface operations {
         parameters: {
             query?: {
                 query?: string;
+                sort?: "QUALIFICATION" | "TOTAL";
                 page?: number;
                 size?: number;
             };

@@ -21,6 +21,7 @@ import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.global.ApiException;
 import com.hiremate.screening.CandidateRow;
+import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.SelectionMode;
 import java.io.IOException;
@@ -132,7 +133,8 @@ class ChatStreamTests extends IntegrationTest {
 
         assertThatThrownBy(() -> chat.run(input, gone)).isInstanceOf(UncheckedIOException.class);
 
-        assertThat(screening.candidates(hr.companyId(), setup.stageId(), null, 0, 10).items())
+        assertThat(screening.candidates(hr.companyId(), setup.stageId(), null, CandidateSort.QUALIFICATION, 0, 10)
+                .items())
                 .noneMatch(CandidateRow::selected);
     }
 

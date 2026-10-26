@@ -6,14 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.analysis.application.graph import REVIEW_VERSION
-from hiremate_ai.agents.analysis.application.score import Weights
 from hiremate_ai.agents.analysis.application.store import DbReviewStore, Sessions, input_hash
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, Note, ScreeningRubric
-from hiremate_ai.contract import ApplicantDetail, PostingContent, QualificationStatus, ScoreStatus
+from hiremate_ai.contract import ApplicantDetail, CriterionType, PostingContent, QualificationStatus, ScoreStatus
 from hiremate_ai.db.application_review import ApplicationReviewRecord
 from hiremate_ai.db.profile import CandidateProfile, ProfileStatus
-
-WEIGHTS = Weights(normal=1.0, important=1.5)
 
 
 def sessions_of(session: AsyncSession) -> Sessions:
@@ -36,23 +33,21 @@ def test_input_hash_changes_only_with_inputs_that_change_results(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
     applicant, posting, rubric = sample_applicants["정유민"], make_posting(sample_posting), make_rubric()
-    digest = input_hash(applicant, posting, rubric, WEIGHTS, REVIEW_VERSION)
+    digest = input_hash(applicant, posting, rubric, REVIEW_VERSION)
 
     def other(
         posting: PostingContent = posting,
         rubric: ScreeningRubric = rubric,
-        weights: Weights = WEIGHTS,
         version: str = REVIEW_VERSION,
     ) -> str:
-        return input_hash(applicant, posting, rubric, weights, version)
+        return input_hash(applicant, posting, rubric, version)
 
     assert other(posting=posting.model_copy(update={"title": "새 제목"})) == digest
     assert other(posting=posting.model_copy(update={"qualifications": ["Git"]})) != digest
-    # 평가 기준(버전 · 중요 표시)이나 계수가 바뀌면 저장된 결과를 다시 쓰지 않는다
+    # 평가 기준(버전 · 유형)이 바뀌면 저장된 결과를 다시 쓰지 않는다
     assert other(rubric=rubric.model_copy(update={"criteria_version": "test-2"})) != digest
-    important = [criterion.model_copy(update={"important": True}) for criterion in rubric.criteria]
-    assert other(rubric=rubric.model_copy(update={"criteria": important})) != digest
-    assert other(weights=Weights(normal=1.0, important=2.0)) != digest
+    single = [criterion.model_copy(update={"criterion_type": CriterionType.SINGLE}) for criterion in rubric.criteria]
+    assert other(rubric=rubric.model_copy(update={"criteria": single})) != digest
     assert other(version="다음 버전") != digest
 
 

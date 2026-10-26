@@ -71,6 +71,10 @@ public class JobApplication {
     @Column(precision = 4, scale = 1)
     private BigDecimal documentScore;
 
+    /** 확인 필요를 0점으로 넣어 계산한 총점(보류 점수). 확인 필요가 없으면 documentScore와 같다. */
+    @Column(precision = 4, scale = 1)
+    private BigDecimal documentScoreLow;
+
     /** 자격요건 75% 통과가 확정됐는가 (qualificationStatus가 PASSED). */
     @Column(nullable = false)
     private boolean scorePassed;
@@ -89,6 +93,10 @@ public class JobApplication {
 
     @Column(precision = 4, scale = 1)
     private BigDecimal qualificationScore;
+
+    /** 확인 필요를 0점으로 넣어 계산한 자격요건 점수. 자격요건 순 정렬에 쓴다. */
+    @Column(precision = 4, scale = 1)
+    private BigDecimal qualificationScoreLow;
 
     @Column(nullable = false)
     private int qualificationMax;
@@ -129,11 +137,13 @@ public class JobApplication {
         this.careerYears = analysis.careerYears();
         this.lastCompany = analysis.lastCompany();
         this.documentScore = analysis.held() ? null : analysis.documentScore();
+        this.documentScoreLow = analysis.documentScoreLow();
         this.scorePassed = analysis.passed();
         this.scoreHeld = analysis.held();
         this.qualificationStatus = analysis.qualificationStatus();
         this.qualificationRate = analysis.qualificationRate();
         this.qualificationScore = analysis.qualificationScore();
+        this.qualificationScoreLow = analysis.qualificationScoreLow();
         this.qualificationMax = analysis.qualificationMax();
         this.preferenceScore = analysis.preferenceScore();
         this.preferenceMax = analysis.preferenceMax();

@@ -72,6 +72,7 @@ class CandidateRow(ContractModel):
     held: bool = False  # 서류 점수 보류
     shortfalls: list[str] = []  # 채우지 못한 자격요건의 짧은 표시
     document_score: float | None = None  # 서류 전형의 총점. 다른 전형이면 null
+    document_score_low: float | None = None  # 확인 필요를 0점으로 넣어 계산한 서류 전형 총점 (보류 점수)
     qualification_score: float | None = None  # 서류 전형의 자격요건 점수
     qualification_max: int = 0
     preference_score: float | None = None  # 서류 전형의 우대사항 점수

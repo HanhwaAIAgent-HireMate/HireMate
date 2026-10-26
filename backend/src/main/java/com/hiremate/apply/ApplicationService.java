@@ -228,9 +228,10 @@ public class ApplicationService {
     private static ApplicantInfo toInfo(JobApplication application) {
         return new ApplicantInfo(application.getId(), application.getRecruitmentId(), application.getApplicationNo(),
                 application.getName(), application.getEmail(), application.getCareerYears(),
-                application.getLastCompany(), application.getDocumentScore(), application.isScorePassed(),
-                application.isScoreHeld(), application.shortfalls(), application.getQualificationStatus(),
-                application.getQualificationScore(), application.getQualificationMax(),
+                application.getLastCompany(), application.getDocumentScore(), application.getDocumentScoreLow(),
+                application.isScorePassed(), application.isScoreHeld(),
+                application.shortfalls(), application.getQualificationStatus(), application.getQualificationScore(),
+                application.getQualificationScoreLow(), application.getQualificationMax(),
                 application.getPreferenceScore(), application.getPreferenceMax(), application.getAnalysisStatus(),
                 application.getSubmittedAt());
     }

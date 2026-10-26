@@ -17,8 +17,10 @@ import java.util.UUID;
  */
 public record ApplicantInfo(UUID applicationId, UUID recruitmentId, int applicationNo, String name, String email,
         @Schema(nullable = true) Integer careerYears, @Schema(nullable = true) String lastCompany,
-        @Schema(nullable = true) BigDecimal documentScore, boolean passed, boolean held, List<String> shortfalls,
+        @Schema(nullable = true) BigDecimal documentScore, @Schema(nullable = true) BigDecimal documentScoreLow,
+        boolean passed, boolean held, List<String> shortfalls,
         QualificationStatus qualificationStatus, @Schema(nullable = true) BigDecimal qualificationScore,
-        int qualificationMax, @Schema(nullable = true) BigDecimal preferenceScore, int preferenceMax,
+        @Schema(nullable = true) BigDecimal qualificationScoreLow, int qualificationMax,
+        @Schema(nullable = true) BigDecimal preferenceScore, int preferenceMax,
         AnalysisStatus analysisStatus, Instant submittedAt) {
 }

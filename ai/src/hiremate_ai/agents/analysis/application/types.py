@@ -37,6 +37,7 @@ class Criterion(ContractModel):
     """평가 항목 하나 (posting.ScreeningRubric.Criterion). 사람이 정해 저장하고 Agent는 바꾸지 않는다.
 
     text는 공고의 자격요건 · 우대사항 문장과 같아야 짝이 맞는다. 유형과 중요 표시는 지원자마다 바뀌지 않는다.
+    important는 면접 질문을 정리할 때만 참고하고 서류 점수에는 쓰지 않는다 (모든 항목이 같은 비중이다).
     """
 
     criterion_id: str  # 예: Q-01, P-01
@@ -86,6 +87,9 @@ class ApplicationAnalysis(ContractModel):
     preference_score: float | None
     preference_max: int
     document_score: float | None  # 총점 (0~100, 소수 첫째 자리). 보류면 None
+    # 확인 필요를 0점으로 넣어 계산한 점수. 보류 지원자의 점수 표시와 정렬에 쓴다. 평가하지 못했으면 None
+    document_score_low: float | None
+    qualification_score_low: float | None
     passed: bool  # qualification_status가 PASSED인가
     held: bool  # 총점을 확정하지 못했다 (서류를 읽지 못함 · 확인 필요 남음)
     shortfalls: list[str]  # 채우지 못했거나 확인이 필요한 자격요건의 짧은 표시 (예: 신입, 경력 확인 필요)
@@ -141,7 +145,7 @@ class CriterionResult(_Record):
     criterion_id: str
     category: CriterionCategory
     text: str
-    important: bool
+    important: bool  # 평가 기준의 중요 표시. 점수에는 쓰지 않는다
     criterion_type: CriterionType
     verdict: Verdict
     reason: str

@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import {
   formatScore,
+  heldScore,
   useCandidateAnalysis,
   type CandidateAnalysis,
   type CandidateDetail,
@@ -164,7 +165,16 @@ function SectionSummaries({ sections }: { sections: SummarySection[] }) {
   )
 }
 
-/** AI 분석 요약: 공고 조건 충족 · 눈여겨볼 점 · 확인 필요를 출처와 함께 */
+type AnalysisView = 'SUMMARY' | 'DETAIL'
+
+const ANALYSIS_VIEWS: Record<AnalysisView, string> = { SUMMARY: '요약', DETAIL: '자세히' }
+/** 요약에서 눈여겨볼 점 · 확인 필요를 이만큼까지 보여 준다. 나머지는 자세히에서 본다 */
+const SUMMARY_FINDINGS = 2
+
+/**
+ * AI 분석. 요약은 점수 · 항목별 판정 칩 · 눈여겨볼 점 · 확인 필요를 한눈에, 자세히는 항목마다 판정 이유 · 근거 출처까지
+ * 보여 준다. 처음에는 요약이다.
+ */
 function AnalysisBox({
   status,
   loading,
@@ -174,12 +184,39 @@ function AnalysisBox({
   loading: boolean
   analysis?: ReturnType<typeof useCandidateAnalysis>['data']
 }) {
+  const [view, setView] = useState<AnalysisView>('SUMMARY')
+  const ready = status === 'DONE' && !loading && analysis
   return (
     <div className="space-y-3 rounded-xl border border-ai/30 bg-ai-soft/50 p-4 text-sm">
       <div className="flex items-center gap-2 font-semibold">
         <Sparkles className="size-4 text-ai" />
         AI 분석
         {analysis && <AgentChip name={analysis.agent} stub={analysis.stub} />}
+        {ready && (
+          <div
+            role="tablist"
+            aria-label="AI 분석 보기"
+            className="ml-auto flex rounded-md bg-background/70 p-0.5 text-xs font-normal"
+          >
+            {(Object.keys(ANALYSIS_VIEWS) as AnalysisView[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={view === key}
+                onClick={() => setView(key)}
+                className={cn(
+                  'h-6 rounded px-2.5',
+                  view === key
+                    ? 'bg-background font-semibold shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {ANALYSIS_VIEWS[key]}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {status !== 'DONE' ? (
         <p className="text-muted-foreground">
@@ -189,6 +226,8 @@ function AnalysisBox({
         </p>
       ) : loading || !analysis ? (
         <Skeleton className="h-16 w-full" />
+      ) : view === 'SUMMARY' ? (
+        <AnalysisSummary analysis={analysis} />
       ) : (
         <dl className="space-y-2.5">
           {analysis.holds.length > 0 && (
@@ -238,6 +277,105 @@ function AnalysisBox({
   )
 }
 
+/** 요약: 총점(보류면 확인 필요를 0점으로 계산한 점수) · 영역 점수, 항목별 판정 칩, 눈여겨볼 점 · 확인 필요 몇 개 */
+function AnalysisSummary({ analysis }: { analysis: CandidateAnalysis }) {
+  const checks = [...analysis.holds, ...analysis.checks]
+  return (
+    <dl className="space-y-2.5">
+      {analysis.criteria.length > 0 && (
+        <Row label="서류 평가">
+          <div className="space-y-1.5">
+            <ScoreHeadline analysis={analysis} />
+            <ul className="flex flex-wrap gap-1">
+              {analysis.criteria.map((line) => (
+                <li
+                  key={line.criterionId}
+                  title={`${line.text} · ${VERDICTS[line.verdict].label}`}
+                  className={cn(
+                    'max-w-[11rem] truncate rounded px-1.5 py-0.5 text-[11px] font-medium',
+                    VERDICTS[line.verdict].className,
+                  )}
+                >
+                  {line.criterionId} {shortText(line.text)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Row>
+      )}
+      <Row label="눈여겨볼 점">
+        <Findings
+          items={analysis.notable.slice(0, SUMMARY_FINDINGS)}
+          empty="찾은 내용이 없어요."
+          more={analysis.notable.length - SUMMARY_FINDINGS}
+        />
+      </Row>
+      <Row label="확인 필요">
+        <Findings
+          items={checks.slice(0, SUMMARY_FINDINGS)}
+          empty="없어요."
+          more={checks.length - SUMMARY_FINDINGS}
+        />
+      </Row>
+    </dl>
+  )
+}
+
+/** "45.8 / 100점 · 자격 37.5 · 우대 8.3". 보류면 "보류 45.8 / 100점" (확인 필요는 0점) */
+function ScoreHeadline({ analysis }: { analysis: CandidateAnalysis }) {
+  const areas = [
+    ['자격', analysis.qualificationScore, analysis.qualificationMax],
+    ['우대', analysis.preferenceScore, analysis.preferenceMax],
+  ] as const
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2">
+      {analysis.documentScore !== null ? (
+        <span className="font-semibold">
+          {formatScore(analysis.documentScore)}
+          <span className="text-xs font-normal text-muted-foreground"> / 100점</span>
+        </span>
+      ) : (
+        <HeldScore score={analysis.documentScoreLow} />
+      )}
+      <span className="text-xs text-muted-foreground">
+        {areas
+          .filter(([, , max]) => max > 0)
+          .map(([label, score, max]) =>
+            score === null
+              ? `${label} 확인 필요`
+              : `${label} ${formatScore(score)}${max === 50 ? '' : `/${max}`}`,
+          )
+          .join(' · ')}
+      </span>
+      {analysis.qualificationStatus !== 'PASSED' && (
+        <span className="text-xs text-muted-foreground">
+          자격요건 75% {analysis.qualificationStatus === 'FAILED' ? '미달' : '판단 보류'}
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** 보류 점수: 확인 필요를 0점으로 계산한 점수를 회색으로, '보류'를 붙여 보여 준다 */
+function HeldScore({ score }: { score: number | null }) {
+  return (
+    <span
+      title="점수 보류: 확인 필요 항목을 0점으로 계산한 점수예요"
+      className="font-semibold text-muted-foreground"
+    >
+      <span className="mr-1 rounded bg-muted px-1 text-[11px] font-medium">보류</span>
+      {heldScore(score)}
+      <span className="text-xs font-normal"> / 100점</span>
+    </span>
+  )
+}
+
+/** 판정 칩에 넣을 짧은 항목 이름. 앞쪽 낱말 몇 개만 쓴다 */
+function shortText(text: string) {
+  const words = text.split(/\s+/)
+  return words.length > 3 ? `${words.slice(0, 3).join(' ')}…` : text
+}
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[72px_1fr] gap-3">
@@ -261,20 +399,37 @@ const CERTIFICATE_STATUS: Record<NonNullable<CriterionLine['certificateStatus']>
 }
 
 /**
- * 서류 평가 점수(자격요건 + 우대사항)와 항목별 판정. 배점은 영역 만점 × 계수 ÷ 영역 계수 합이다(일반 1, 중요 1.5).
+ * 서류 평가 점수(자격요건 + 우대사항)와 항목별 판정. 영역 안의 항목은 모두 같은 비중이라 배점은 영역 만점 ÷ 항목 수다.
+ * 점수를 보류했으면 확인 필요를 0점으로 계산한 점수를 회색으로 보여 준다.
  * 공고 조건에 대한 서류 평가일 뿐 합격 여부나 전체 역량을 뜻하지 않는다.
  */
 function CriteriaScore({ analysis }: { analysis: CandidateAnalysis }) {
   const areas = [
-    ['QUALIFICATION', '자격요건', analysis.qualificationScore, analysis.qualificationMax],
-    ['PREFERENCE', '우대사항', analysis.preferenceScore, analysis.preferenceMax],
+    [
+      'QUALIFICATION',
+      '자격요건',
+      analysis.qualificationScore,
+      analysis.qualificationMax,
+      analysis.qualificationScoreLow,
+    ],
+    [
+      'PREFERENCE',
+      '우대사항',
+      analysis.preferenceScore,
+      analysis.preferenceMax,
+      analysis.preferenceScoreLow,
+    ],
   ] as const
   return (
     <div className="space-y-2">
       <div className="font-semibold">
-        {analysis.documentScore === null ? '점수 보류' : formatScore(analysis.documentScore)}
-        {analysis.documentScore !== null && (
-          <span className="text-xs font-normal text-muted-foreground"> / 100점</span>
+        {analysis.documentScore === null ? (
+          <HeldScore score={analysis.documentScoreLow} />
+        ) : (
+          <>
+            {formatScore(analysis.documentScore)}
+            <span className="text-xs font-normal text-muted-foreground"> / 100점</span>
+          </>
         )}
         {analysis.qualificationStatus !== 'PASSED' && (
           <span className="ml-2 text-xs font-normal text-muted-foreground">
@@ -284,10 +439,17 @@ function CriteriaScore({ analysis }: { analysis: CandidateAnalysis }) {
       </div>
       {areas
         .filter(([, , , max]) => max > 0)
-        .map(([category, label, score, max]) => (
+        .map(([category, label, score, max, zeroed]) => (
           <div key={category} className="space-y-1">
             <div className="text-xs font-medium">
-              {label} {score === null ? '확인 필요' : `${formatScore(score)}/${max}`}
+              {label}{' '}
+              {score !== null ? (
+                `${formatScore(score)}/${max}`
+              ) : (
+                <span className="text-muted-foreground">
+                  보류 {heldScore(zeroed)}/{max}
+                </span>
+              )}
             </div>
             <ul className="space-y-1.5">
               {analysis.criteria
@@ -327,9 +489,6 @@ function CriterionItem({ line }: { line: CriterionLine }) {
         >
           {VERDICTS[line.verdict].label}
         </span>
-        {line.important && (
-          <span className="mr-1 text-[11px] font-semibold text-foreground">중요</span>
-        )}
         {line.text}
       </span>
       <span className="text-xs font-medium tabular-nums">
@@ -344,7 +503,16 @@ function CriterionItem({ line }: { line: CriterionLine }) {
   )
 }
 
-function Findings({ items, empty }: { items: { text: string; source: string }[]; empty: string }) {
+function Findings({
+  items,
+  empty,
+  more = 0,
+}: {
+  items: { text: string; source: string }[]
+  empty: string
+  /** 요약에서 줄인 나머지 개수. 자세히에서 볼 수 있다 */
+  more?: number
+}) {
   if (items.length === 0) return <span className="text-muted-foreground">{empty}</span>
   return (
     <ul className="space-y-1">
@@ -353,6 +521,9 @@ function Findings({ items, empty }: { items: { text: string; source: string }[];
           {item.text} <span className="text-xs text-muted-foreground">· 출처 {item.source}</span>
         </li>
       ))}
+      {more > 0 && (
+        <li className="text-xs text-muted-foreground">외 {more}개 · 자세히에서 볼 수 있어요</li>
+      )}
     </ul>
   )
 }
