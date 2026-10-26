@@ -427,6 +427,37 @@ def test_filler_is_removed_before_the_length_check() -> None:
     assert kept.endswith("말해 주세요.")
 
 
+def test_request_tone_preserves_quoted_question_and_hypothetical_condition() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _request_tone
+
+    text = "문서에 '중복 처리란 무엇입니까?'라고 적혀 있다면, 중복 요청을 어떻게 검증하시겠습니까?"
+    result = _request_tone(text)
+    assert "'중복 처리란 무엇입니까?'" in result
+    assert "적혀 있다면" in result
+    assert result.endswith("어떻게 검증하실지 설명해 주세요.")
+    assert _request_tone(result) == result
+
+
+def test_request_tone_preserves_actual_experience_and_optional_experience() -> None:
+    from hiremate_ai.agents.generation.interview.agent import _request_tone
+
+    assert _request_tone("검증을 맡았을 때 어떤 역할을 수행하셨습니까?") == (
+        "검증을 맡았을 때 어떤 역할을 수행하셨는지 설명해 주세요."
+    )
+    assert _request_tone("갈등을 조율한 경험이 있다면, 반영한 내용을 설명해 주십시오.") == (
+        "갈등을 조율한 경험이 있다면, 반영한 내용을 설명해 주세요."
+    )
+
+
+def test_request_tone_is_checked_against_question_length_limit() -> None:
+    from hiremate_ai.agents.generation.interview.agent import CONCEPT, MAX_QUESTION_LENGTH, _checked
+
+    text = "가" * (MAX_QUESTION_LENGTH - len("무엇입니까?")) + "무엇입니까?"
+    kept, problem = _checked(text, CONCEPT, [])
+    assert kept is None
+    assert problem is not None
+
+
 def test_same_quote_or_same_numbers_count_as_repeat() -> None:
     """다른 질문이 이미 인용한 문장, 또는 같은 숫자 성과를 다른 말로 인용하면 중복으로 본다."""
     from hiremate_ai.agents.generation.interview.agent import _problem
@@ -1790,7 +1821,7 @@ def test_equivalent_purpose_words_do_not_discard_a_question(
         gap_id="G1",
         source_id="S1",
         anchor="파티션 키를 거래 계좌 기준으로 재설계하고 순번 검증을 추가했습니다.",
-        question="Kafka 파티션 키가 거래 계좌별 처리 순서를 보장하는 원리는 무엇인가요?",
+        question="Kafka 파티션 키가 거래 계좌별 처리 순서를 보장하는 원리를 설명해 주세요.",
         purpose="Kafka 이벤트 순서 보장 원리 확인",
     )
     result = _validate(state, QuestionDraft(questions=[item]), [], False)
@@ -1923,7 +1954,7 @@ def test_completed_question_drops_appended_internal_memo_but_keeps_a_question_ab
     question = "거래 이벤트의 유실을 방지하는 원칙을 설명해 주세요."
     assert _checked(question + " 목적은 이벤트 유실 방지 원리 확인입니다.", CONCEPT, [])[0] == question
     legitimate = "Redis 캐시의 목적은 무엇인가요?"
-    assert _checked(legitimate, CONCEPT, [])[0] == legitimate
+    assert _checked(legitimate, CONCEPT, [])[0] == "Redis 캐시의 목적은 무엇인지 설명해 주세요."
 
 
 def test_broad_criterion_is_a_concrete_situation_but_specific_targets_and_facts_stay_unchanged() -> None:
@@ -1965,7 +1996,7 @@ def test_concrete_criterion_question_survives_even_without_literal_criterion_tit
     state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
     state["balanced"] = True
     state["gaps"] = [Gap("G1", REQUIRED, "요구사항 분석 능력", "", criterion_id="Q-01", mode=SCENARIO)]
-    good = "만약 처리 규칙이 서로 충돌한다면, 어떤 자료를 확인해 우선순위를 정하시겠습니까?"
+    good = "만약 처리 규칙이 서로 충돌한다면, 어떤 자료를 확인해 우선순위를 정하실지 설명해 주세요."
     result = _validate(state, QuestionDraft(questions=[_DraftQuestion(gap_id="G1", question=good)]), [], False)
     assert result["kept"]["G1"] == good
     state["kept"], state["spare"] = {}, []
@@ -2126,7 +2157,7 @@ async def test_failed_goal_is_replanned_once_using_other_real_evidence(
         gap_id="G3",
         source_id="S2",
         anchor="Redis 캐시",
-        question="Redis 캐시의 만료 시간을 정할 때 적용할 원칙은 무엇인가요?",
+        question="Redis 캐시의 만료 시간을 정할 때 적용할 원칙을 설명해 주세요.",
         purpose="Redis 캐시 만료 시간 결정",
     )
     state["llm"] = FakeLlm(QuestionDraft(questions=[new]))
@@ -2270,7 +2301,7 @@ def test_real_completed_actions_are_not_rejected_for_missing_allowlist_words(que
 
 @pytest.mark.parametrize("condition", ["재전송될 경우", "오류가 발생하는 경우", "요청이 중복된 경우"])
 def test_conditional_case_is_a_hypothetical_situation(condition: str) -> None:
-    question = f"같은 저장 요청이 {condition}, 중복 저장을 방지할 방법은 무엇인가요?"
+    question = f"같은 저장 요청이 {condition}, 중복 저장을 방지할 방법을 설명해 주세요."
     assert _checked(question, SCENARIO, [])[0] == question
     assert _checked("요청이 재전송된 경우, 본인이 어떤 역할을 수행하셨습니까?", SCENARIO, [])[0] is None
 
@@ -2366,7 +2397,7 @@ def test_same_source_can_support_a_distinct_goal_after_a_duplicate_is_discarded(
     state["discarded_targets"] = {"G1": old}
     new = old.model_copy(
         update={
-            "question": "Redis 캐시 장애 시 원본 조회로 전환하는 조건은 무엇인가요?",
+            "question": "Redis 캐시 장애 시 원본 조회로 전환하는 조건을 설명해 주세요.",
             "purpose": "Redis 캐시 장애 원본 조회 전환 조건",
         }
     )
@@ -2382,7 +2413,7 @@ def test_concept_about_necessity_is_not_mistaken_for_a_completed_action() -> Non
 
 def test_comparing_alternatives_is_applied_reasoning_without_a_magic_concept_word() -> None:
     question = (
-        "테스트 실패가 제품 결함인지 테스트 환경 문제인지 분리하기 위해 어떤 절차를 적용해야 하는지 설명해 주십시오."
+        "테스트 실패가 제품 결함인지 테스트 환경 문제인지 분리하기 위해 어떤 절차를 적용해야 하는지 설명해 주세요."
     )
     assert _checked(question, CONCEPT, [])[0] == question
     assert _checked("제품 결함인지 테스트 환경 문제인지 분리하는 절차를 설명합니다.", CONCEPT, [])[0] is None
