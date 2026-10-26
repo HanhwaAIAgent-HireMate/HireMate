@@ -14,13 +14,16 @@ import {
   usePostingAiRequest,
   useSavePosting,
   useSaveReceipt,
+  useSaveStages,
   type Posting,
   type PostingContent,
 } from '@/features/posting/api'
 import { BulletListField } from '@/features/posting/BulletListField'
 import type { Receipt } from '@/features/posting/receipt'
 import { ReceiptMailEditor } from '@/features/posting/ReceiptMail'
+import { StageEditor } from '@/features/posting/StageEditor'
 import { StageFlow } from '@/features/posting/StageFlow'
+import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/stages'
 import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 
@@ -68,13 +71,19 @@ export function PostingEditor({
     subject: posting.receipt.subject,
     body: posting.receipt.body,
   })
+  // 전형 절차는 게시 전에 HR이 직접 고친다. 저장하면 전형이 새로 만들어져 안내는 이름으로 이어 받는다
+  const [stages, setStages] = useState<StageForm[]>(() => toStageForms(posting.stages))
+  const [stagesDirty, setStagesDirty] = useState(false)
+  const [stagesError, setStagesError] = useState<string | null>(null)
   const save = useSavePosting(id)
   const saveReceipt = useSaveReceipt(id)
+  const saveStages = useSaveStages(id)
   const receiptDirty =
     receipt.subject !== posting.receipt.subject || receipt.body !== posting.receipt.body
   const ai = usePostingAiRequest(id)
   const apply = useApplySuggestion(id)
   const discard = useDiscardSuggestion(id)
+  const saving = save.isPending || saveReceipt.isPending || saveStages.isPending
 
   const suggestion = posting.suggestion
   const changed = new Set(suggestion?.changedFields ?? [])
@@ -88,8 +97,14 @@ export function PostingEditor({
     setDirty(true)
   }
 
+  const changeStages = (next: StageForm[]) => {
+    setStages(next)
+    setStagesDirty(true)
+    setStagesError(null)
+  }
+
   const saveDraft = async (silent = false) => {
-    if (!dirty && !receiptDirty) return true
+    if (!dirty && !receiptDirty && !stagesDirty) return true
     if (dirty && !draft.title.trim()) {
       toast.error('채용명을 입력해 주세요.')
       return false
@@ -98,8 +113,21 @@ export function PostingEditor({
       toast.error('접수 확인 메일의 제목과 본문을 입력해 주세요.')
       return false
     }
+    const stageProblem = stagesDirty ? stagesProblem(stages) : null
+    if (stageProblem) {
+      setStagesError(stageProblem)
+      toast.error(stageProblem)
+      return false
+    }
     try {
-      // 본문을 저장하면 편집 화면을 새로 열어, 접수 확인 메일을 먼저 저장한다
+      // 본문을 저장하면 편집 화면을 새로 열어, 전형 절차와 접수 확인 메일을 먼저 저장한다
+      if (stagesDirty) {
+        const saved = await saveStages.mutateAsync(
+          stages.map((stage) => ({ name: stage.name.trim(), type: stage.type })),
+        )
+        setStages(toStageForms(saved.stages))
+        setStagesDirty(false)
+      }
       if (receiptDirty) await saveReceipt.mutateAsync(receipt)
       if (dirty) {
         await save.mutateAsync({ ...draft, title: draft.title.trim() })
@@ -136,6 +164,10 @@ export function PostingEditor({
     ;(accept ? apply : discard).mutate(fields && [...targets], {
       onSuccess: (updated) => {
         setDraft({ ...draft, ...pick(updated.content, targets) })
+        if (accept && targets.has('stages')) {
+          setStages(toStageForms(updated.stages))
+          setStagesDirty(false)
+        }
       },
       onError: (error) => toast.error(errorMessage(error)),
     })
@@ -168,7 +200,7 @@ export function PostingEditor({
             <Button
               variant="outline"
               onClick={() => void saveDraft()}
-              disabled={!(dirty || receiptDirty) || save.isPending || saveReceipt.isPending}
+              disabled={!(dirty || receiptDirty || stagesDirty) || saving}
             >
               {isDraft ? '임시 저장' : '저장'}
             </Button>
@@ -283,16 +315,28 @@ export function PostingEditor({
                 {actions(list.key)}
               </Section>
             ))}
-            <FixedBox
+            <Section
               title="전형 절차"
-              note={isDraft ? undefined : '게시한 뒤에는 전형 절차를 바꿀 수 없어요'}
+              highlighted={changed.has('stages')}
+              extra={
+                !isDraft && (
+                  <span className="text-xs font-normal text-muted-foreground">
+                    게시한 뒤에는 전형 절차를 바꿀 수 없어요
+                  </span>
+                )
+              }
             >
-              <StageFlow
-                stages={suggestion?.stages ?? posting.stages}
-                highlight={changed.has('stages')}
-              />
-              {actions('stages')}
-            </FixedBox>
+              {changed.has('stages') && suggestion?.stages ? (
+                <>
+                  <StageFlow stages={suggestion.stages} highlight />
+                  {actions('stages')}
+                </>
+              ) : isDraft ? (
+                <StageEditor stages={stages} onChange={changeStages} problem={stagesError} />
+              ) : (
+                <StageFlow stages={posting.stages} />
+              )}
+            </Section>
             <StageGuides
               recruitmentId={id}
               stageIds={posting.stages.map((stage) => stage.id).join()}
@@ -411,7 +455,7 @@ function Section({
   )
 }
 
-/** 전형 절차 · 필수 제출 서류 · 유의사항처럼 HR 요청으로만 바뀌는 고정 칸 */
+/** 필수 제출 서류 · 유의사항처럼 HR 요청으로만 바뀌는 고정 칸 */
 function FixedBox({
   title,
   note,

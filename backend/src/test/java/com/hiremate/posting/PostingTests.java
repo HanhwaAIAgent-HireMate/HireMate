@@ -121,6 +121,44 @@ class PostingTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("HR이 전형 절차를 직접 정하면 그 순서와 종류로 저장하고 안내는 이름으로 이어 받으며, 게시하면 잠긴다")
+    void hrEditsStagesDirectly() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String id = draft.path("recruitmentId").asString();
+        String base = "/api/recruitments/" + id + "/posting";
+        JsonNode saved = json(expect(hr.put(base + "/stages", Map.of("stages", List.of(
+                stage(" 서류 전형 ", "DOCUMENT"), stage("코딩테스트", "ASSESSMENT"), stage("1차 면접", "INTERVIEW")))), 200));
+        assertThat(saved.path("stages").get(0).path("name").asString()).isEqualTo("서류 전형");
+        assertThat(saved.path("stages").get(1).path("type").asString()).isEqualTo("ASSESSMENT");
+        String coding = saved.path("stages").get(1).path("id").asString();
+        expect(hr.put("/api/stages/" + coding + "/guide", Map.of("schedule", "11월 5일", "method", "온라인",
+                "place", "", "preparation", "", "note", "")), 200);
+
+        JsonNode moved = json(expect(hr.put(base + "/stages", Map.of("stages", List.of(stage("서류 전형", "DOCUMENT"),
+                stage("1차 면접", "INTERVIEW"), stage("코딩테스트", "ASSESSMENT")))), 200));
+        assertThat(moved.path("stages").get(2).path("name").asString()).isEqualTo("코딩테스트");
+        JsonNode guides = json(expect(hr.get("/api/recruitments/" + id + "/stage-guides"), 200));
+        assertThat(guides.get(1).path("name").asString()).isEqualTo("코딩테스트");
+        assertThat(guides.get(1).path("guide").path("schedule").asString()).isEqualTo("11월 5일");
+
+        assertThat(json(expect(hr.put(base + "/stages", Map.of("stages", List.of(stage("면접", "INTERVIEW"),
+                stage("면접", "INTERVIEW")))), 400)).path("code").asString()).isEqualTo("DUPLICATE_STAGE_NAME");
+        expect(hr.put(base + "/stages", Map.of("stages", List.of())), 400);
+        expect(hr.put(base + "/stages", Map.of("stages", List.of(stage(" ", "DOCUMENT")))), 400);
+        expect(newHr().put(base + "/stages", Map.of("stages", List.of(stage("서류", "DOCUMENT")))), 404);
+
+        Instant now = Instant.now();
+        expect(hr.post(base + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
+                "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
+        expect(hr.put(base + "/stages", Map.of("stages", List.of(stage("서류 전형", "DOCUMENT")))), 409);
+    }
+
+    private static Map<String, String> stage(String name, String type) {
+        return Map.of("name", name, "type", type);
+    }
+
+    @Test
     @DisplayName("전형별 안내는 첫 전형을 빼고 보여 주고, AI로 전형 절차를 바꿔도 이름이 같은 전형은 안내를 이어 받는다")
     void stageGuidesSurviveStageChanges() throws Exception {
         TestApi hr = newHr();

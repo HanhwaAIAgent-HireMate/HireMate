@@ -107,6 +107,24 @@ public class PostingService {
     }
 
     /**
+     * HR이 공고 작성 화면에서 전형 절차를 직접 정한다. 이름이 같은 전형이 둘이면 안내가 섞여 400이다.
+     * 수정안에 전형 절차가 있으면 HR이 직접 정한 것을 따르고 수정안에서 뺀다. 게시한 뒤에는 바꿀 수 없다(409).
+     */
+    @Transactional
+    public PostingView changeStages(UUID companyId, UUID recruitmentId, List<StageDraft> plan) {
+        JobPosting posting = posting(companyId, recruitmentId);
+        if (plan.stream().map(StageDraft::name).distinct().count() < plan.size()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "DUPLICATE_STAGE_NAME", "Stage names must be unique.");
+        }
+        recruits.replaceStages(companyId, recruitmentId, plan);
+        PostingSuggestion suggestion = JsonText.read(posting.getPendingSuggestion(), PostingSuggestion.class);
+        if (suggestion != null && suggestion.changedFields().contains(STAGES_FIELD)) {
+            keepRest(posting, suggestion, Set.of(STAGES_FIELD));
+        }
+        return view(companyId, recruitmentId);
+    }
+
+    /**
      * 수정안을 적용한다. 고른 칸만 수정안으로 바꾸고, 나머지 바뀐 칸은 수정안으로 남긴다.
      *
      * @param fields 적용할 칸 이름(changedFields의 이름). 비어 있으면 바뀐 칸을 모두 적용한다
