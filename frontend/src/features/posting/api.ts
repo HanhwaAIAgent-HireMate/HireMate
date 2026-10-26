@@ -56,18 +56,6 @@ export function useSavePosting(recruitmentId: string) {
   )
 }
 
-/** 접수 확인 메일. 게시 전에만 고칠 수 있다 */
-export function useSaveReceipt(recruitmentId: string) {
-  return usePostingMutation(recruitmentId, (body: { subject: string; body: string }) =>
-    unwrap(
-      api.PUT('/api/recruitments/{recruitmentId}/posting/receipt', {
-        params: { path: { recruitmentId } },
-        body,
-      }),
-    ),
-  )
-}
-
 /** 지원자가 받을 접수 확인 메일. 저장한 템플릿으로 backend가 보낼 때와 같은 HTML을 만든다 */
 export function useReceiptPreview(recruitmentId: string) {
   return useQuery({

@@ -4,6 +4,9 @@ import type { NoticeTemplateType } from '@/features/company/api'
 
 export const NOTICE_VARIABLES = ['{지원자명}', '{회사명}', '{공고명}', '{전형명}'] as const
 
+/** 접수 확인 메일에 쓸 수 있는 변수. 보낼 때 backend가 실제 값으로 바꾼다 */
+export const RECEIPT_VARIABLES = ['{지원자명}', '{회사명}', '{공고명}', '{지원번호}'] as const
+
 export const NOTICE_TYPE_LABELS: Record<NoticeTemplateType, string> = {
   NEXT_STAGE: '다음 전형 안내',
   REJECT: '불합격 안내',

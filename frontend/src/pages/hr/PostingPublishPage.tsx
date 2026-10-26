@@ -209,10 +209,14 @@ function PublishForm({ posting }: { posting: Posting }) {
           </Field>
           <Field label="접수 확인 메일">
             <div className="space-y-2">
-              <MailFrame preview={receipt.data} title="접수 확인 메일 미리보기" styleLink />
+              <MailFrame
+                preview={receipt.data}
+                title="접수 확인 메일 미리보기"
+                settingsLink="메일 문장 · 색 · 로고 바꾸기"
+              />
               <p className="text-xs text-muted-foreground">
-                지원서를 내면 바로 이 메일이 가요. 게시하면 바꿀 수 없어요. 지원자 이름과 지원번호는
-                예시예요.
+                지원서를 내면 바로 이 메일이 가요. 문장은 설정 › 안내 메일에서 모든 공고에 같이
+                정하고, 보내는 때의 문장이 나가요. 지원자 이름과 지원번호는 예시예요.
               </p>
             </div>
           </Field>

@@ -13,14 +13,11 @@ import {
   useDiscardSuggestion,
   usePostingAiRequest,
   useSavePosting,
-  useSaveReceipt,
   useSaveStages,
   type Posting,
   type PostingContent,
 } from '@/features/posting/api'
 import { BulletListField } from '@/features/posting/BulletListField'
-import type { Receipt } from '@/features/posting/receipt'
-import { ReceiptMailEditor } from '@/features/posting/ReceiptMail'
 import { StageEditor } from '@/features/posting/StageEditor'
 import { StageFlow } from '@/features/posting/StageFlow'
 import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/stages'
@@ -67,23 +64,16 @@ export function PostingEditor({
   const id = posting.recruitmentId
   const [draft, setDraft] = useState<PostingContent>(posting.content)
   const [dirty, setDirty] = useState(false)
-  const [receipt, setReceipt] = useState<Receipt>({
-    subject: posting.receipt.subject,
-    body: posting.receipt.body,
-  })
   // 전형 절차는 게시 전에 HR이 직접 고친다. 저장하면 전형이 새로 만들어져 안내는 이름으로 이어 받는다
   const [stages, setStages] = useState<StageForm[]>(() => toStageForms(posting.stages))
   const [stagesDirty, setStagesDirty] = useState(false)
   const [stagesError, setStagesError] = useState<string | null>(null)
   const save = useSavePosting(id)
-  const saveReceipt = useSaveReceipt(id)
   const saveStages = useSaveStages(id)
-  const receiptDirty =
-    receipt.subject !== posting.receipt.subject || receipt.body !== posting.receipt.body
   const ai = usePostingAiRequest(id)
   const apply = useApplySuggestion(id)
   const discard = useDiscardSuggestion(id)
-  const saving = save.isPending || saveReceipt.isPending || saveStages.isPending
+  const saving = save.isPending || saveStages.isPending
 
   const suggestion = posting.suggestion
   const changed = new Set(suggestion?.changedFields ?? [])
@@ -104,13 +94,9 @@ export function PostingEditor({
   }
 
   const saveDraft = async (silent = false) => {
-    if (!dirty && !receiptDirty && !stagesDirty) return true
+    if (!dirty && !stagesDirty) return true
     if (dirty && !draft.title.trim()) {
       toast.error('채용명을 입력해 주세요.')
-      return false
-    }
-    if (receiptDirty && (!receipt.subject.trim() || !receipt.body.trim())) {
-      toast.error('접수 확인 메일의 제목과 본문을 입력해 주세요.')
       return false
     }
     const stageProblem = stagesDirty ? stagesProblem(stages) : null
@@ -120,7 +106,7 @@ export function PostingEditor({
       return false
     }
     try {
-      // 본문을 저장하면 편집 화면을 새로 열어, 전형 절차와 접수 확인 메일을 먼저 저장한다
+      // 본문을 저장하면 편집 화면을 새로 열어, 전형 절차를 먼저 저장한다
       if (stagesDirty) {
         const saved = await saveStages.mutateAsync(
           stages.map((stage) => ({ name: stage.name.trim(), type: stage.type })),
@@ -128,7 +114,6 @@ export function PostingEditor({
         setStages(toStageForms(saved.stages))
         setStagesDirty(false)
       }
-      if (receiptDirty) await saveReceipt.mutateAsync(receipt)
       if (dirty) {
         await save.mutateAsync({ ...draft, title: draft.title.trim() })
         setDirty(false)
@@ -200,7 +185,7 @@ export function PostingEditor({
             <Button
               variant="outline"
               onClick={() => void saveDraft()}
-              disabled={!(dirty || receiptDirty || stagesDirty) || saving}
+              disabled={!(dirty || stagesDirty) || saving}
             >
               {isDraft ? '임시 저장' : '저장'}
             </Button>
@@ -388,23 +373,6 @@ export function PostingEditor({
                 </ul>
               )}
             </FixedBox>
-            <section className="space-y-2">
-              <h2 className="flex flex-wrap items-center gap-2 text-sm font-bold">
-                접수 확인 메일
-                {!isDraft && <Lock className="size-3.5 text-muted-foreground" />}
-                <span className="text-xs font-normal text-muted-foreground">
-                  {isDraft
-                    ? '지원서를 내면 바로 이 메일이 가요. 게시한 뒤에는 바꿀 수 없어요'
-                    : '게시한 뒤에는 바꿀 수 없어요'}
-                </span>
-              </h2>
-              <ReceiptMailEditor
-                value={receipt}
-                requiredText={posting.receipt.requiredText}
-                locked={!isDraft}
-                onChange={setReceipt}
-              />
-            </section>
           </div>
         </div>
         <AiRequestPanel

@@ -9,18 +9,26 @@ import {
   type NoticeTemplate,
   type NoticeTemplateType,
 } from '@/features/company/api'
+import { ReceiptTemplateFields } from '@/features/company/ReceiptTemplateFields'
 import { SettingsSection } from '@/features/company/SettingsSection'
+import { useReceiptTemplateEditor } from '@/features/company/useReceiptTemplateEditor'
 import { NOTICE_TYPE_LABELS, NOTICE_VARIABLES } from '@/features/company/variables'
 import { VariableField } from '@/features/company/VariableField'
 import { errorMessage } from '@/lib/api/client'
 
 type Field = 'subject' | 'greeting' | 'closing'
+/** 탭. 접수 확인 메일은 지원자가 가장 먼저 받는 메일이라 맨 앞에 둔다 */
+type Tab = 'RECEIPT' | NoticeTemplateType
+const TAB_LABELS: Record<Tab, string> = { RECEIPT: '접수 확인', ...NOTICE_TYPE_LABELS }
 
-// CMP-03. 안내 초안은 이 양식으로 만들어지고, Communication Agent는 AI 작성 영역만 쓴다
+// CMP-03. 안내 초안은 이 양식으로 만들어지고, Communication Agent는 AI 작성 영역만 쓴다.
+// 접수 확인 메일은 AI 없이 양식 그대로 나가고, 편집은 ReceiptTemplateFields가 맡는다
 export function NoticeTemplateForm() {
   const templates = useNoticeTemplates()
   const save = useSaveNoticeTemplate()
-  const [type, setType] = useState<NoticeTemplateType>('NEXT_STAGE')
+  const receipt = useReceiptTemplateEditor()
+  const [tab, setTab] = useState<Tab>('RECEIPT')
+  const type: NoticeTemplateType = tab === 'RECEIPT' ? 'NEXT_STAGE' : tab
   // 저장 전 고친 내용. 저장하면 지우고 서버 값을 다시 쓴다
   const [edits, setEdits] = useState<Partial<Record<NoticeTemplateType, NoticeTemplate>>>({})
   // 변수 칩을 누르면 마지막으로 입력하던 칸의 커서 위치에 넣는다
@@ -48,6 +56,10 @@ export function NoticeTemplateForm() {
   }
 
   const onSave = () => {
+    if (tab === 'RECEIPT') {
+      receipt.onSave()
+      return
+    }
     if (!draft) return
     if (!draft.subject.trim()) {
       toast.error('제목을 입력해 주세요.')
@@ -73,26 +85,31 @@ export function NoticeTemplateForm() {
   })
 
   return (
-    <SettingsSection title="안내 메일" saving={save.isPending} onSave={onSave}>
-      <div role="tablist" className="inline-flex gap-1 rounded-lg border p-1">
-        {(Object.keys(NOTICE_TYPE_LABELS) as NoticeTemplateType[]).map((key) => (
+    <SettingsSection
+      title="안내 메일"
+      saving={tab === 'RECEIPT' ? receipt.saving : save.isPending}
+      onSave={onSave}
+    >
+      <div role="tablist" className="inline-flex flex-wrap gap-1 rounded-lg border p-1">
+        {(Object.keys(TAB_LABELS) as Tab[]).map((key) => (
           <button
             key={key}
             role="tab"
-            aria-selected={key === type}
-            onClick={() => setType(key)}
+            aria-selected={key === tab}
+            onClick={() => setTab(key)}
             className={cn(
               'rounded-md px-3 py-1 text-sm',
-              key === type
+              key === tab
                 ? 'bg-foreground font-medium text-background'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            {NOTICE_TYPE_LABELS[key]}
+            {TAB_LABELS[key]}
           </button>
         ))}
       </div>
-      {draft && (
+      {tab === 'RECEIPT' && <ReceiptTemplateFields editor={receipt} />}
+      {tab !== 'RECEIPT' && draft && (
         <>
           <div className="space-y-1.5">
             <div className="text-sm font-medium text-muted-foreground">제목</div>

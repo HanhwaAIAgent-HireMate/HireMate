@@ -83,14 +83,7 @@ public class PostingController {
         return postings.discardSuggestion(member.companyId(), recruitmentId, SuggestionFieldsRequest.fields(request));
     }
 
-    /** 접수 확인 메일. 게시 전에만 고칠 수 있다. */
-    @PutMapping("/api/recruitments/{recruitmentId}/posting/receipt")
-    public PostingView changeReceipt(AuthenticatedMember member, @PathVariable UUID recruitmentId,
-            @Valid @RequestBody ReceiptRequest request) {
-        return postings.changeReceipt(member.companyId(), recruitmentId, request.toTemplate());
-    }
-
-    /** 지원자가 받을 접수 확인 메일의 모습. 저장한 템플릿으로 만들고 지원자 값은 예시다. */
+    /** 지원자가 받을 접수 확인 메일의 모습. 지금 설정 › 안내 메일의 양식으로 만들고 지원자 값은 예시다. */
     @GetMapping("/api/recruitments/{recruitmentId}/posting/receipt/preview")
     public MailPreview receiptPreview(AuthenticatedMember member, @PathVariable UUID recruitmentId) {
         return postings.receiptPreview(member.companyId(), recruitmentId);

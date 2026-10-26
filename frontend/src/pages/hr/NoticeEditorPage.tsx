@@ -303,7 +303,11 @@ function Editor({
           </Tabs>
           {view === 'preview' ? (
             <div className="mx-auto max-w-[640px]">
-              <MailFrame preview={preview.data} title={`${notice.label} 미리보기`} styleLink />
+              <MailFrame
+                preview={preview.data}
+                title={`${notice.label} 미리보기`}
+                settingsLink="메일 색 · 로고 바꾸기"
+              />
             </div>
           ) : (
             <div className="mx-auto max-w-[560px] rounded-xl border bg-background p-5 text-sm">

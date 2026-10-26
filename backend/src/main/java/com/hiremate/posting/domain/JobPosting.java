@@ -2,7 +2,6 @@ package com.hiremate.posting.domain;
 
 import com.hiremate.global.StringListConverter;
 import com.hiremate.posting.PostingContent;
-import com.hiremate.posting.ReceiptTemplate;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -91,12 +90,6 @@ public class JobPosting {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    @Column(nullable = false, length = 200)
-    private String receiptSubject = "";
-
-    @Column(nullable = false, length = 5000)
-    private String receiptBody = "";
-
     public JobPosting(UUID recruitmentId, UUID companyId, String title, String intro, List<String> benefits,
             List<String> notices) {
         this.id = UUID.randomUUID();
@@ -106,20 +99,6 @@ public class JobPosting {
         this.intro = intro;
         this.benefits = new ArrayList<>(benefits);
         this.notices = new ArrayList<>(notices);
-        this.updatedAt = Instant.now();
-        changeReceipt(ReceiptTemplate.DEFAULT);
-    }
-
-    /** 접수 확인 메일. 이 칸을 더하기 전에 만든 공고는 비어 있어 기본 문장을 쓴다. */
-    public ReceiptTemplate receipt() {
-        return receiptSubject.isBlank() || receiptBody.isBlank()
-                ? ReceiptTemplate.DEFAULT
-                : new ReceiptTemplate(receiptSubject, receiptBody);
-    }
-
-    public void changeReceipt(ReceiptTemplate receipt) {
-        this.receiptSubject = receipt.subject();
-        this.receiptBody = receipt.body();
         this.updatedAt = Instant.now();
     }
 

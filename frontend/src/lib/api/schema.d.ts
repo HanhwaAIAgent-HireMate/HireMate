@@ -148,15 +148,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/recruitments/{recruitmentId}/posting/receipt": {
+    "/api/companies/me/receipt-template": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put: operations["changeReceipt"];
+        get: operations["template"];
+        put: operations["change"];
         post?: never;
         delete?: never;
         options?: never;
@@ -980,6 +980,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/companies/me/receipt-template/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["preview_2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/notice-templates": {
         parameters: {
             query?: never;
@@ -1003,7 +1019,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["preview_2"];
+        get: operations["preview_3"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1312,12 +1328,6 @@ export interface components {
             /** Format: date-time */
             closedAt: string | null;
             suggestion: components["schemas"]["PostingSuggestionView"] | null;
-            receipt: components["schemas"]["ReceiptView"];
-        };
-        ReceiptView: {
-            subject: string;
-            body: string;
-            requiredText: string;
         };
         RequiredDocument: {
             /** @enum {string} */
@@ -1334,9 +1344,14 @@ export interface components {
         StagesRequest: {
             stages: components["schemas"]["StageItem"][];
         };
-        ReceiptRequest: {
+        ReceiptTemplateRequest: {
             subject: string;
             body: string;
+        };
+        ReceiptTemplateView: {
+            subject: string;
+            body: string;
+            requiredText: string;
         };
         ProfileRequest: {
             intro: string;
@@ -2172,18 +2187,36 @@ export interface operations {
             };
         };
     };
-    changeReceipt: {
+    template: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                recruitmentId: string;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ReceiptTemplateView"];
+                };
             };
+        };
+    };
+    change: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReceiptRequest"];
+                "application/json": components["schemas"]["ReceiptTemplateRequest"];
             };
         };
         responses: {
@@ -2193,7 +2226,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["PostingView"];
+                    "*/*": components["schemas"]["ReceiptTemplateView"];
                 };
             };
         };
@@ -3642,6 +3675,26 @@ export interface operations {
             };
         };
     };
+    preview_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["MailPreview"];
+                };
+            };
+        };
+    };
     noticeTemplates: {
         parameters: {
             query?: never;
@@ -3662,7 +3715,7 @@ export interface operations {
             };
         };
     };
-    preview_2: {
+    preview_3: {
         parameters: {
             query?: {
                 color?: string;
