@@ -20,7 +20,7 @@ from hiremate_ai.agents.root.commands import (
 )
 from hiremate_ai.agents.root.toolkit import default_toolkit
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, EditAction, Intent, SelectionMode
-from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.contract import ApplicantDetail, CompanyProfile, DocumentType, PostingContent, StageType
 
 type Applicants = dict[str, ApplicantDetail]
 BATCH = "MySQL 정산 테이블을 파티셔닝해 월말 정산 배치 시간을 40% 줄였습니다."
@@ -425,6 +425,53 @@ def test_command_schema_forbids_unrelated_action_parameters() -> None:
 async def test_candidate_claim_cannot_bypass_validation_by_omitting_candidates(context: ChatContext) -> None:
     with pytest.raises(ValueError, match="지원자|항목"):
         await answer(context, candidates=[], items=[], message="정유민은 증권사에서 20년 일한 전문가입니다.")
+
+
+@pytest.mark.parametrize("mention", ["C2", "김하늘"])
+@pytest.mark.parametrize("candidates", [[], ["C1", "C3"]])
+async def test_message_feedback_identifies_an_unsupported_negative_candidate_claim(
+    context: ChatContext, mention: str, candidates: list[str]
+) -> None:
+    sentence = "PWA 프로젝트에서 오프라인 동작을 구현했습니다."
+    documents = dict(context.documents)
+    items = []
+    for ref, row in [("C1", context.candidates[0]), ("C3", context.candidates[2])]:
+        document = documents[row.application_id][0]
+        documents[row.application_id] = [document.model_copy(update={"type": DocumentType.PORTFOLIO, "text": sentence})]
+        items.append(
+            AnswerItem(
+                candidate=ref,
+                label="포트폴리오",
+                text="PWA 프로젝트 경험을 확인했어요.",
+                status="OK",
+                evidence=[AnswerEvidence(sentence=sentence, source="포트폴리오")],
+            )
+        )
+    context = context.model_copy(update={"documents": documents})
+
+    with pytest.raises(ValueError) as invalid:
+        await answer(
+            context,
+            candidates=candidates,
+            items=items,
+            message=f"C1과 C3에게 PWA 프로젝트가 있어요. {mention}에게는 PWA 포트폴리오가 없어요.",
+        )
+
+    feedback = str(invalid.value)
+    assert "지원자 C2의" in feedback
+    assert "C1" not in feedback and "C3" not in feedback
+    assert "candidates에 번호만 추가해도 해결되지 않아요" in feedback
+    assert "근거를 확인한 items를 작성하거나" in feedback
+    assert "언급을 삭제하세요" in feedback
+    assert "확인하지 못한 내용을 없다고 단정하지 마세요" in feedback
+
+    repaired = await answer(context, candidates=["C1", "C3"], items=items, message="C1과 C3의 경험을 확인했어요.")
+
+    assert [entry.application_id for entry in repaired.items] == [
+        context.candidates[0].application_id,
+        context.candidates[2].application_id,
+    ]
+    assert all(entry.status == "OK" for entry in repaired.items)
 
 
 async def test_question_focus_cannot_add_an_unverified_fact(context: ChatContext) -> None:
