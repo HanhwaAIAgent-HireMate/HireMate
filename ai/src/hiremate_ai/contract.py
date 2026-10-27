@@ -169,7 +169,11 @@ class ApplicantDetail(ContractModel):
 
 
 class PostingContent(ContractModel):
-    """공고 본문 (posting.PostingContent)."""
+    """공고 본문 (posting.PostingContent).
+
+    headcount부터는 모집 조건이다. 채용 인원은 정하지 않았으면 None이고, 나머지는 비어 있으면 빈 문자열이다.
+    모집 조건이 없던 때 만든 본문도 읽을 수 있게 기본값을 둔다.
+    """
 
     title: str
     job_category: str
@@ -181,6 +185,11 @@ class PostingContent(ContractModel):
     qualifications: list[str]
     preferred: list[str]
     benefits: list[str]
+    headcount: int | None = None
+    position: str = ""
+    education: str = ""
+    work_hours: str = ""
+    salary: str = ""
 
 
 class Talent(ContractModel):

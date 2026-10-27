@@ -22,6 +22,12 @@ import { focusLabel, hasLine, toServerFocus, type LineFocus } from '@/features/p
 import { StageEditor } from '@/features/posting/StageEditor'
 import { StageFlow } from '@/features/posting/StageFlow'
 import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/stages'
+import {
+  CONDITION_FIELDS,
+  CONDITION_KEYS,
+  MAX_HEADCOUNT,
+  toHeadcount,
+} from '@/features/posting/conditions'
 import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 
@@ -196,9 +202,16 @@ export function PostingEditor({
     if (await saveDraft(true)) await navigate(`/hr/recruitments/${id}/posting/publish`)
   }
 
-  /** 덩어리마다 [적용] [되돌리기]. 기본 정보는 채용명 · 직무 · 고용 형태 · 경력 · 근무지를 한 덩어리로 처리한다 */
+  /**
+   * 덩어리마다 [적용] [되돌리기]. 기본 정보(채용명 · 직무 · 고용 형태 · 경력 · 근무지)와
+   * 모집 조건(채용 인원 · 직급 · 학력 · 급여 · 근무 일시)은 각각 한 덩어리로 처리한다
+   */
   const actions = (field: string) => {
-    const fields = BASIC_FIELDS.includes(field) ? BASIC_FIELDS : [field]
+    const fields = BASIC_FIELDS.includes(field)
+      ? BASIC_FIELDS
+      : CONDITION_KEYS.includes(field)
+        ? CONDITION_KEYS
+        : [field]
     return (
       fields.some((name) => changed.has(name)) && (
         <SuggestionActions
@@ -306,6 +319,45 @@ export function PostingEditor({
               </div>
               {actions('title')}
             </div>
+            <Section title="모집 조건">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                {CONDITION_FIELDS.map((field) => (
+                  <label
+                    key={field.key}
+                    className={cn('flex items-center gap-2 text-sm', field.wide && 'col-span-2')}
+                  >
+                    <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                      {field.label}
+                    </span>
+                    <input
+                      aria-label={field.label}
+                      type={field.key === 'headcount' ? 'number' : 'text'}
+                      min={field.key === 'headcount' ? 1 : undefined}
+                      max={field.key === 'headcount' ? MAX_HEADCOUNT : undefined}
+                      value={field.key === 'headcount' ? (shown.headcount ?? '') : shown[field.key]}
+                      placeholder={field.placeholder}
+                      maxLength={field.maxLength}
+                      disabled={locked(field.key)}
+                      onChange={(event) =>
+                        update({
+                          [field.key]:
+                            field.key === 'headcount'
+                              ? toHeadcount(event.target.value)
+                              : event.target.value,
+                        })
+                      }
+                      className={cn(
+                        'h-8 min-w-0 flex-1 rounded-md bg-muted px-2 outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring',
+                        field.key === 'headcount' && 'max-w-24 flex-none',
+                        changed.has(field.key) && 'bg-pass',
+                      )}
+                    />
+                    {field.key === 'headcount' && <span className="text-xs">명</span>}
+                  </label>
+                ))}
+              </div>
+              {actions('headcount')}
+            </Section>
             <Section
               title="회사 소개"
               extra={

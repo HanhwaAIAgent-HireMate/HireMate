@@ -25,6 +25,11 @@ CONTENT = {
     "qualifications": ["Java · Spring Boot 기반 서버 개발 경력 3년 이상"],
     "preferred": ["금융 도메인 경험"],
     "benefits": ["유연 근무"],
+    "headcount": 2,
+    "position": "",
+    "education": "학력 무관",
+    "workHours": "",
+    "salary": "",
 }
 
 
@@ -53,7 +58,7 @@ def client(llm: FakeLlm) -> TestClient:
 
 def test_revise_returns_backend_result_shape() -> None:
     llm = FakeLlm(
-        Route(targets=["CONTENT"], question=None),
+        Route(targets=["CONTENT"], question=None, writes_posting=False),
         ContentChanges(
             changes=[
                 FieldChange(field="우대 사항", text=None, items=["금융 도메인 경험", "결제 · 정산 시스템 운영 경험"])
@@ -92,7 +97,7 @@ def test_revise_changes_only_the_line_hr_picked() -> None:
 
 
 def test_revise_returns_null_suggestion_when_nothing_changes() -> None:
-    llm = FakeLlm(Route(targets=[], question=None))
+    llm = FakeLlm(Route(targets=[], question=None, writes_posting=False))
 
     response = client(llm).post("/agents/posting/revise", json=body("음"))
 

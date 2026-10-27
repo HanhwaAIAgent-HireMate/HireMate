@@ -64,6 +64,21 @@ public class JobPosting {
     @Column(nullable = false)
     private List<String> benefits = new ArrayList<>();
 
+    /** 모집 조건. 채용 인원은 정하지 않았으면 null이다. */
+    private Integer headcount;
+
+    @Column(nullable = false, length = 50)
+    private String position = "";
+
+    @Column(nullable = false, length = 50)
+    private String education = "";
+
+    @Column(nullable = false, length = 100)
+    private String workHours = "";
+
+    @Column(nullable = false, length = 100)
+    private String salary = "";
+
     /** 설정의 필수 안내 문구. 공고를 만들 때 채우고 HR 요청으로만 바뀐다. */
     @Convert(converter = StringListConverter.class)
     @Column(nullable = false)
@@ -104,7 +119,8 @@ public class JobPosting {
 
     public PostingContent content() {
         return new PostingContent(title, jobCategory, employmentType, career, location, intro, List.copyOf(duties),
-                List.copyOf(qualifications), List.copyOf(preferred), List.copyOf(benefits));
+                List.copyOf(qualifications), List.copyOf(preferred), List.copyOf(benefits), headcount, position,
+                education, workHours, salary);
     }
 
     public void update(PostingContent content) {
@@ -118,6 +134,11 @@ public class JobPosting {
         this.qualifications = new ArrayList<>(content.qualifications());
         this.preferred = new ArrayList<>(content.preferred());
         this.benefits = new ArrayList<>(content.benefits());
+        this.headcount = content.headcount();
+        this.position = content.position();
+        this.education = content.education();
+        this.workHours = content.workHours();
+        this.salary = content.salary();
         this.updatedAt = Instant.now();
     }
 

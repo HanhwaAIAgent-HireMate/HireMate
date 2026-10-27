@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { LogoMark } from '@/app/LogoMark'
 import { Button } from '@/components/ui/button'
 import type { PublicPosting } from '@/features/posting/api'
+import { conditionRows } from '@/features/posting/conditions'
 import { StageFlow } from '@/features/posting/StageFlow'
 import { dDay, formatDateTime, formatMonthDay } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -55,6 +56,7 @@ export function CareersPosting({
   const { content } = posting
   const open = posting.state === 'OPEN'
   const tags = [content.employmentType, content.career, content.location].filter(Boolean)
+  const conditions = conditionRows(content)
   const category = content.jobCategory.split('›')[0]?.trim()
 
   const share = async () => {
@@ -91,6 +93,15 @@ export function CareersPosting({
         <Lines title="주요 업무" lines={content.duties} />
         <Lines title="자격 요건" lines={content.qualifications} />
         <Lines title="우대 사항" lines={content.preferred} />
+        {conditions.length > 0 && (
+          <Block title="모집 조건">
+            <dl className="space-y-1.5 text-sm">
+              {conditions.map((row) => (
+                <Row key={row.label} label={row.label} value={row.value} />
+              ))}
+            </dl>
+          </Block>
+        )}
         <Block title="전형 절차">
           <StageFlow stages={posting.stages} showType={false} />
         </Block>

@@ -13,6 +13,7 @@ import com.hiremate.recruit.StageType;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -118,6 +119,46 @@ class PostingTests extends IntegrationTest {
         assertThat(rest.path("content").path("duties").get(0).asString()).isEqualTo("결제 API 개발");
         assertThat(rest.path("content").path("preferred").get(0).asString()).isEqualTo("정산 시스템 경험");
         assertThat(rest.path("suggestion").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("모집 조건(채용 인원 · 직급 · 학력 · 근무 일시 · 급여)을 저장하고 AI 수정안으로 고치며, 지원자 화면에 보여 준다")
+    void recruitmentConditionsAreSavedAndShown() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        UUID id = UUID.fromString(draft.path("recruitmentId").asString());
+        String base = "/api/recruitments/" + id + "/posting";
+        assertThat(draft.path("content").path("headcount").isNull()).isTrue();
+        assertThat(draft.path("content").path("salary").asString()).isEmpty();
+
+        Map<String, Object> content = new HashMap<>(Map.of("title", "결제 백엔드 개발자", "jobCategory", "",
+                "employmentType", "", "career", "", "location", "", "intro", "", "duties", List.of(),
+                "qualifications", List.of(), "preferred", List.of(), "benefits", List.of()));
+        content.putAll(Map.of("headcount", 3, "position", " 사원~대리 ", "education", "학력 무관",
+                "workHours", "주 5일(월~금) 10:00~19:00", "salary", "회사 내규에 따름"));
+        JsonNode saved = json(expect(hr.put(base, content), 200)).path("content");
+        assertThat(saved.path("headcount").asInt()).isEqualTo(3);
+        assertThat(saved.path("position").asString()).isEqualTo("사원~대리");
+        content.put("headcount", 0);
+        expect(hr.put(base, content), 400);
+
+        PostingContent current = postings.draftContext(hr.companyId(), id).content();
+        PostingContent suggested = new PostingContent(current.title(), current.jobCategory(),
+                current.employmentType(), current.career(), current.location(), current.intro(), current.duties(),
+                current.qualifications(), current.preferred(), current.benefits(), 5, current.position(),
+                current.education(), current.workHours(), current.salary());
+        postings.suggest(hr.companyId(), id, new PostingSuggestion(suggested, null, null, List.of("headcount")));
+        JsonNode applied = json(expect(hr.post(base + "/suggestion/apply", null), 200)).path("content");
+        assertThat(applied.path("headcount").asInt()).isEqualTo(5);
+        assertThat(applied.path("salary").asString()).isEqualTo("회사 내규에 따름");
+
+        Instant now = Instant.now();
+        expect(hr.post(base + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
+                "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
+        JsonNode careers = json(expect(anonymous().get("/api/public/postings/" + draft.path("postingId").asString()),
+                200)).path("content");
+        assertThat(careers.path("headcount").asInt()).isEqualTo(5);
+        assertThat(careers.path("workHours").asString()).isEqualTo("주 5일(월~금) 10:00~19:00");
     }
 
     @Test

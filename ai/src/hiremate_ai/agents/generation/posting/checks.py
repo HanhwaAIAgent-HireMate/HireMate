@@ -9,7 +9,18 @@ from hiremate_ai.agents.generation.posting.types import StageDraft
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.contract import PostingContent
 
-TEXT_LIMITS = {"title": 200, "job_category": 100, "employment_type": 50, "career": 50, "location": 100, "intro": 5000}
+TEXT_LIMITS = {
+    "title": 200,
+    "job_category": 100,
+    "employment_type": 50,
+    "career": 50,
+    "location": 100,
+    "position": 50,
+    "education": 50,
+    "work_hours": 100,
+    "salary": 100,
+    "intro": 5000,
+}
 ITEM_LIMITS = {"duties": 300, "qualifications": 300, "preferred": 300, "benefits": 100}
 MAX_ITEMS = 30
 STAGE_NAME_LIMIT = 50
@@ -44,6 +55,8 @@ def problems(
     for name in changed:
         label = labels[name]
         value = getattr(content, name)
+        if value is None or isinstance(value, int):
+            continue  # 채용 인원은 숫자로 읽을 때 한도를 본다
         if isinstance(value, str):
             if len(value) > TEXT_LIMITS[name]:
                 found.append(f"{label} 칸이 {TEXT_LIMITS[name]}자를 넘는다")
