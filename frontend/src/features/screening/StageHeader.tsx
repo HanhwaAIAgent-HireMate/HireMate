@@ -1,8 +1,16 @@
+import type { ReactNode } from 'react'
+
 import type { StageOverview } from '@/features/screening/api'
 import { WorkflowStepper, type StepItem } from '@/features/recruit/WorkflowStepper'
 
-/** 공고에서 정한 전형 순서와 대상 인원. 누르면 그 전형으로 간다. */
-export function StageStepper({ overview }: { overview: StageOverview }) {
+/** 공고에서 정한 전형 순서와 대상 인원. 누르면 그 전형으로 간다. actions는 같은 줄 오른쪽에 둔다. */
+export function StageStepper({
+  overview,
+  actions,
+}: {
+  overview: StageOverview
+  actions?: ReactNode
+}) {
   const base = `/hr/recruitments/${overview.recruitmentId}`
   const items: StepItem[] = [
     {
@@ -27,5 +35,5 @@ export function StageStepper({ overview }: { overview: StageOverview }) {
       to: `${base}/stages/${step.stageId}`,
     })),
   ]
-  return <WorkflowStepper items={items} />
+  return <WorkflowStepper items={items} actions={actions} />
 }

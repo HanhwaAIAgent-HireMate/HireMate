@@ -15,7 +15,7 @@ import { RegisterDialog } from '@/features/assessment/RegisterDialog'
 import { useDecisionActions, type StageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
 
-/** Stage 바 (COM-01): 전형 이름 · 종류 · 결정 현황 · [전형 결과 확정] */
+/** Stage 바 (COM-01): 결정 현황 · [전형 결과 확정]. 전형 단계 줄 오른쪽에 들어간다 */
 export function StageBar({ overview }: { overview: StageOverview }) {
   const [confirming, setConfirming] = useState(false)
   const [registering, setRegistering] = useState(false)
@@ -25,35 +25,29 @@ export function StageBar({ overview }: { overview: StageOverview }) {
   const closePath = `/hr/recruitments/${overview.recruitmentId}/stages/${overview.stageId}/close`
 
   return (
-    <div className="flex items-center gap-3 border-b px-5 py-3">
-      <h1 className="text-lg font-bold">{overview.name}</h1>
-      <span className="rounded-md border px-1.5 py-0.5 text-[11px] font-semibold tracking-wide text-muted-foreground">
-        {overview.type}
-      </span>
-      <div className="ml-auto flex items-center gap-4 text-sm">
-        <Count color="bg-muted-foreground/40" label="미결정" value={counts.pending} />
-        <Count color="bg-pass-foreground" label="합격" value={counts.pass} />
-        <Count color="bg-fail-foreground" label="불합격" value={counts.fail} />
-        {overview.status === 'ACTIVE' && assessment && (
-          <Button
-            variant={overview.hasScores ? 'outline' : 'default'}
-            onClick={() => setRegistering(true)}
-          >
-            평가 결과 등록
-          </Button>
-        )}
-        {overview.status === 'ACTIVE' && (!assessment || overview.hasScores) && (
-          <Button onClick={() => setConfirming(true)}>전형 결과 확정</Button>
-        )}
-        {overview.status === 'CONFIRMED' && (
-          <Button asChild>
-            <Link to={closePath}>안내 · 전형 종료</Link>
-          </Button>
-        )}
-        {overview.status === 'DONE' && (
-          <span className="text-sm text-muted-foreground">종료된 전형</span>
-        )}
-      </div>
+    <>
+      <Count color="bg-muted-foreground/40" label="미결정" value={counts.pending} />
+      <Count color="bg-pass-foreground" label="합격" value={counts.pass} />
+      <Count color="bg-fail-foreground" label="불합격" value={counts.fail} />
+      {overview.status === 'ACTIVE' && assessment && (
+        <Button
+          variant={overview.hasScores ? 'outline' : 'default'}
+          onClick={() => setRegistering(true)}
+        >
+          평가 결과 등록
+        </Button>
+      )}
+      {overview.status === 'ACTIVE' && (!assessment || overview.hasScores) && (
+        <Button onClick={() => setConfirming(true)}>전형 결과 확정</Button>
+      )}
+      {overview.status === 'CONFIRMED' && (
+        <Button asChild>
+          <Link to={closePath}>안내 · 전형 종료</Link>
+        </Button>
+      )}
+      {overview.status === 'DONE' && (
+        <span className="text-sm text-muted-foreground">종료된 전형</span>
+      )}
       <ConfirmDialog
         overview={overview}
         open={confirming}
@@ -63,7 +57,7 @@ export function StageBar({ overview }: { overview: StageOverview }) {
       {assessment && (
         <RegisterDialog overview={overview} open={registering} onOpenChange={setRegistering} />
       )}
-    </div>
+    </>
   )
 }
 

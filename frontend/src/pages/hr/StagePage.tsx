@@ -78,8 +78,8 @@ export function StagePage() {
 
   return (
     <div className="flex h-full flex-col">
-      <StageStepper overview={data} />
-      <StageBar overview={data} />
+      <h1 className="sr-only">{data.name}</h1>
+      <StageStepper overview={data} actions={<StageBar overview={data} />} />
       {/* 칸 사이 경계선으로 너비를 바꾼다. 최소 너비가 있어 칸이 겹치거나 사라지지 않고,
           창 크기가 바뀌면 양옆은 너비를 유지하고 가운데가 늘고 준다 */}
       <ResizablePanelGroup
