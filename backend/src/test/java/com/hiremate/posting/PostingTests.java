@@ -154,6 +154,32 @@ class PostingTests extends IntegrationTest {
         expect(hr.put(base + "/stages", Map.of("stages", List.of(stage("서류 전형", "DOCUMENT")))), 409);
     }
 
+    @Test
+    @DisplayName("게시한 공고는 본문과 수정안을 바꿀 수 없고 AI 요청에는 바로 안내하며, 전형별 안내만 고칠 수 있다")
+    void publishedPostingIsLocked() throws Exception {
+        TestApi hr = newHr();
+        String id = json(expect(hr.post("/api/recruitments", null), 201)).path("recruitmentId").asString();
+        String base = "/api/recruitments/" + id + "/posting";
+        Map<String, Object> content = Map.of("title", "결제 백엔드 개발자", "jobCategory", "", "employmentType", "",
+                "career", "", "location", "", "intro", "", "duties", List.of(), "qualifications", List.of("SQL 경험"),
+                "preferred", List.of(), "benefits", List.of());
+        expect(hr.put(base, content), 200);
+        expect(hr.put(base + "/stages", Map.of("stages", List.of(stage("서류 전형", "DOCUMENT"),
+                stage("1차 면접", "INTERVIEW")))), 200);
+        Instant now = Instant.now();
+        expect(hr.post(base + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
+                "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
+
+        assertThat(json(expect(hr.put(base, content), 409)).path("code").asString()).isEqualTo("RECRUITMENT_LOCKED");
+        JsonNode answer = json(expect(hr.post(base + "/ai-requests", Map.of("message", "우대 사항 써 줘")), 200));
+        assertThat(answer.path("reply").asString()).startsWith("게시한 공고는 바꿀 수 없어요.");
+        assertThat(answer.path("posting").path("suggestion").isNull()).isTrue();
+        String guide = "/api/stages/" + json(expect(hr.get("/api/recruitments/" + id + "/stage-guides"), 200))
+                .get(0).path("stageId").asString() + "/guide";
+        expect(hr.put(guide, Map.of("schedule", "11월 12일 오후 2시", "method", "대면", "place", "본사 5층",
+                "preparation", "", "note", "")), 200);
+    }
+
     private static Map<String, String> stage(String name, String type) {
         return Map.of("name", name, "type", type);
     }

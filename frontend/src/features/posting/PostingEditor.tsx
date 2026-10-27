@@ -78,7 +78,8 @@ export function PostingEditor({
   const suggestion = posting.suggestion
   const changed = new Set(suggestion?.changedFields ?? [])
   const isDraft = posting.status === 'DRAFT'
-  const editable = isDraft || posting.status === 'PUBLISHED'
+  // 게시한 공고는 모든 지원자가 같은 공고를 보도록 바꿀 수 없다. 전형별 안내(일정 · 장소)만 고칠 수 있다
+  const editable = isDraft
   const shown = suggestion ? { ...draft, ...pick(suggestion.content, changed) } : draft
   const locked = (field: string) => !editable || changed.has(field)
 
@@ -178,7 +179,7 @@ export function PostingEditor({
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 border-b px-6 py-4">
-        <h1 className="text-xl font-bold">{isDraft ? '공고 작성' : '공고 수정'}</h1>
+        <h1 className="text-xl font-bold">{isDraft ? '공고 작성' : '게시한 공고'}</h1>
         <span className="text-sm text-muted-foreground">기본 Template</span>
         <div className="ml-auto flex gap-2">
           {editable && (
@@ -213,6 +214,13 @@ export function PostingEditor({
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-auto">
           <div className="mx-auto max-w-[760px] space-y-6 px-6 py-6">
+            {!isDraft && (
+              <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+                <Lock className="size-4 shrink-0" />
+                게시한 공고는 바꿀 수 없어요. 전형 일정 · 장소는 아래 전형별 안내에서 고칠 수
+                있어요.
+              </div>
+            )}
             {suggestion && (
               <div className="flex flex-wrap items-center gap-2 rounded-lg bg-pass px-3 py-2 text-sm">
                 <span>AI 수정안이 있어요. 초록색 칸마다 적용하거나 되돌릴 수 있어요.</span>
@@ -300,17 +308,7 @@ export function PostingEditor({
                 {actions(list.key)}
               </Section>
             ))}
-            <Section
-              title="전형 절차"
-              highlighted={changed.has('stages')}
-              extra={
-                !isDraft && (
-                  <span className="text-xs font-normal text-muted-foreground">
-                    게시한 뒤에는 전형 절차를 바꿀 수 없어요
-                  </span>
-                )
-              }
-            >
+            <Section title="전형 절차" highlighted={changed.has('stages')}>
               {changed.has('stages') && suggestion?.stages ? (
                 <>
                   <StageFlow stages={suggestion.stages} highlight />
