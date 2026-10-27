@@ -93,7 +93,7 @@ class ChatSelectionTests extends IntegrationTest {
 
         JsonNode answer = ask(setup);
 
-        assertThat(answer.path("selectionChanged").asBoolean()).isEqualTo(!alreadySelected);
+        assertThat(answer.path("selectionChanged").asBoolean()).isTrue();
         assertThat(answer.path("message").asString()).contains(reason);
         if (alreadySelected) {
             assertThat(answer.path("message").asString()).contains("이미 선택").doesNotContain("넣었어요");
@@ -104,10 +104,12 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(applied.get().plan().targets()).hasSize(alreadySelected ? 0 : 1);
         assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
                 .extracting(row -> row.applicationId()).containsExactly(target);
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+                .allMatch(row -> row.aiSelected());
     }
 
     @Test
-    @DisplayName("좁히기 결과는 신규 추가 수 대신 유지한 두 명을 알려 주고 기존 선택 표시를 유지한다")
+    @DisplayName("좁히기 결과는 신규 추가 수 대신 유지한 두 명을 알려 주고 직접 넣은 지원자도 AI 선택으로 표시한다")
     void narrowingReportsRetainedApplicants() throws Exception {
         Setup setup = documentStage();
         screening.add(setup.hr().companyId(), setup.stageId(), setup.ids());
@@ -117,9 +119,9 @@ class ChatSelectionTests extends IntegrationTest {
 
         assertThat(answer.path("message").asString()).contains("2명 중", "2명").doesNotContain("0명");
         assertThat(answer.path("items").size()).isEqualTo(2);
-        assertThat(answer.path("selectionChanged").asBoolean()).isFalse();
+        assertThat(answer.path("selectionChanged").asBoolean()).isTrue();
         assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
-                .allMatch(row -> !row.aiSelected());
+                .hasSize(2).allMatch(row -> row.aiSelected());
     }
 
     @Test
@@ -167,19 +169,19 @@ class ChatSelectionTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("찾기 추가의 중복 결과는 새로 추가했다고 알리지 않고 기존 수동 선택 표시를 유지한다")
-    void duplicateFindAdditionKeepsManualSelection() throws Exception {
+    @DisplayName("찾기 추가의 중복 결과는 새로 추가했다고 알리지 않고 이미 있던 지원자를 AI 선택으로 표시한다")
+    void duplicateFindAdditionMarksExistingSelection() throws Exception {
         Setup setup = documentStage();
         screening.add(setup.hr().companyId(), setup.stageId(), setup.ids());
         when(root.plan(any(), any())).thenReturn(find(setup, SelectionMode.ADD));
 
         JsonNode answer = ask(setup);
 
-        assertThat(answer.path("selectionChanged").asBoolean()).isFalse();
+        assertThat(answer.path("selectionChanged").asBoolean()).isTrue();
         assertThat(answer.path("message").asString()).contains("이미", "2명").doesNotContain("더했어요");
         assertThat(answer.path("items").isEmpty()).isTrue();
         assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
-                .allMatch(row -> !row.aiSelected());
+                .hasSize(2).allMatch(row -> row.aiSelected());
     }
 
     @Test
@@ -197,8 +199,7 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(answer.path("items").get(0).path("applicationId").asString())
                 .isEqualTo(setup.ids().get(1).toString());
         assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
-                .filteredOn(row -> row.applicationId().equals(setup.ids().getFirst()))
-                .allMatch(row -> !row.aiSelected());
+                .hasSize(2).allMatch(row -> row.aiSelected());
     }
 
     @Test
@@ -348,6 +349,8 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(answer.path("message").asString()).contains("**1명**으로 좁혔어요");
         assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
                 .extracting(row -> row.applicationId()).containsExactly(retained);
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+                .allMatch(row -> row.aiSelected());
         screening.restore(setup.hr().companyId(), setup.stageId());
         assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
                 .hasSize(2).allMatch(row -> !row.aiSelected());

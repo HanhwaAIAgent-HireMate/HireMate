@@ -292,7 +292,7 @@ public class ChatService {
 
     private void edit(UUID companyId, UUID stageId, ChatPlan plan) {
         switch (plan.edit()) {
-            case ADD -> screening.add(companyId, stageId, plan.targets());
+            case ADD -> screening.addByAi(companyId, stageId, plan.targets());
             case REMOVE -> screening.remove(companyId, stageId, plan.targets());
             case CLEAR -> screening.clear(companyId, stageId);
             case RESTORE -> screening.restore(companyId, stageId);

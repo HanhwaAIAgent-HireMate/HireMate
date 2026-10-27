@@ -146,13 +146,23 @@ public class ScreeningService {
     /** HR이 직접 넣는다. 테두리 없이 들어가고, 서류 전형의 기준 미달 지원자는 ↑로 올린 뒤에만 넣는다. */
     @Transactional
     public void add(UUID companyId, UUID stageId, Collection<UUID> applicationIds) {
+        add(companyId, stageId, applicationIds, false);
+    }
+
+    private void add(UUID companyId, UUID stageId, Collection<UUID> applicationIds, boolean byAi) {
         StageContext context = activeContext(companyId, stageId);
         for (StageCandidate candidate : targets(companyId, stageId, applicationIds)) {
             requireSelectable(context, candidate);
-            if (!candidate.isSelected()) {
-                candidate.select(false);
+            if (byAi || !candidate.isSelected()) {
+                candidate.select(byAi);
             }
         }
+    }
+
+    /** Chat으로 넣는다. 이미 선택 지원자에 있던 지원자까지 테두리를 붙이고, 넣을 수 있는 조건은 직접 넣기와 같다. */
+    @Transactional
+    public void addByAi(UUID companyId, UUID stageId, Collection<UUID> applicationIds) {
+        add(companyId, stageId, applicationIds, true);
     }
 
     /** 빼기는 결정이 아니다. 뺀 지원자는 결정 전 상태 그대로 리스트에 남는다. */
@@ -192,6 +202,7 @@ public class ScreeningService {
 
     /**
      * AI 탐색 결과를 선택 지원자에 반영한다. AI는 결정하지 않은 지원자만, 서류 전형에서는 기준을 넘은 지원자만 고를 수 있다.
+     * AI가 고른 지원자는 이미 선택 지원자에 있었어도 테두리를 붙인다.
      * 조건에 맞지 않는 대상은 빼고 반영한 지원자 ID를 돌려준다. 추가는 신규 대상만, 교체와 좁히기는 최종 대상을 돌려준다.
      */
     @Transactional
@@ -208,11 +219,14 @@ public class ScreeningService {
                 .filter(candidate -> candidate.getDecision() == Decision.PENDING)
                 .filter(candidate -> aboveLine(context.type(), candidate, recommended))
                 .filter(candidate -> mode != SelectionMode.NARROW || candidate.isSelected())
-                .filter(candidate -> mode != SelectionMode.ADD || !candidate.isSelected())
                 .toList();
         if (chosen.isEmpty()) {
             return List.of();
         }
+        List<UUID> applied = chosen.stream()
+                .filter(candidate -> mode != SelectionMode.ADD || !candidate.isSelected())
+                .map(StageCandidate::getApplicationId)
+                .toList();
         if (mode != SelectionMode.ADD) {
             Set<UUID> retained = chosen.stream().map(StageCandidate::getApplicationId).collect(Collectors.toSet());
             boolean changed = all.stream().anyMatch(candidate -> candidate.isSelected()
@@ -224,8 +238,8 @@ public class ScreeningService {
                         .forEach(StageCandidate::unselect);
             }
         }
-        chosen.stream().filter(candidate -> !candidate.isSelected()).forEach(candidate -> candidate.select(true));
-        return chosen.stream().map(StageCandidate::getApplicationId).toList();
+        chosen.forEach(candidate -> candidate.select(true));
+        return applied;
     }
 
     /** 회색(기준 미달) 지원자를 선 위로 올린다. 선택 지원자에 넣거나 합격 처리하지 않는다. */
