@@ -96,6 +96,9 @@ class RemoteRootAgentTests {
 
         assertThat(history).hasSize(1);
         assertThat(history.getFirst().total()).isEqualTo(2);
+        assertThat(history.getFirst().mentions()).hasSize(1);
+        assertThat(history.getFirst().steps()).startsWith("요청을 확인하고 있어요");
+        assertThat(history.getFirst().seconds()).isEqualTo(6);
         assertThat(sent).extracting(request -> request.url().getPath())
                 .containsExactly("/agents/root/history", "/agents/root/forget", "/agents/root/forgetStage");
         assertThat(MAPPER.readTree(bodyOf(sent.get(0))).path("threadId").asString()).isEqualTo("c:s:m");

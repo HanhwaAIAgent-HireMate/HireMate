@@ -61,12 +61,27 @@ class RootMemoryChatTests extends IntegrationTest {
 
         ChatPlan found = new ChatPlan(ChatPlan.Intent.FIND, SelectionMode.REPLACE, null, List.of(setup.applicant()),
                 "지원자 {total}명 중 조건에 맞는 **{count}명**을 선택했어요.", List.of(), List.of(), List.of(), List.of());
-        when(root.history(threadId)).thenReturn(List.of(new ChatHistoryTurn("금융 경험 찾아줘", found, 3)));
+        when(root.history(threadId)).thenReturn(List.of(new ChatHistoryTurn("금융 경험 찾아줘", found, 3),
+                new ChatHistoryTurn("경력 알려줘", ChatPlan.answer(ChatPlan.Intent.ANSWER, "3년이에요.", List.of(),
+                        List.of(), List.of()), 3, List.of(setup.applicant(), UUID.randomUUID()),
+                        List.of("요청을 확인하고 있어요", "지원자 자료를 확인하고 있어요"), 4)));
         JsonNode history = json(expect(setup.hr().get(setup.path() + "/chat"), 200));
         assertThat(history.get(0).path("message").asString()).isEqualTo("금융 경험 찾아줘");
         assertThat(history.get(0).path("answer").path("intent").asString()).isEqualTo("FIND");
         assertThat(history.get(0).path("answer").path("message").asString())
                 .isEqualTo("지원자 3명 중 조건에 맞는 **1명**을 선택했어요.");
+        assertThat(history.get(0).path("mentions")).isEmpty();
+        assertThat(history.get(0).path("steps")).isEmpty();
+        assertThat(history.get(0).path("seconds").isNull()).isTrue();
+        // 멘션은 지금 전형의 지원자 이름으로 돌려주고, 전형에 없는 지원자는 뺀다
+        JsonNode mentioned = history.get(1);
+        assertThat(mentioned.path("mentions")).hasSize(1);
+        assertThat(mentioned.path("mentions").get(0).path("applicationId").asString())
+                .isEqualTo(setup.applicant().toString());
+        assertThat(mentioned.path("mentions").get(0).path("name").asString()).isEqualTo("지원자1");
+        assertThat(mentioned.path("steps")).extracting(JsonNode::asString)
+                .containsExactly("요청을 확인하고 있어요", "지원자 자료를 확인하고 있어요");
+        assertThat(mentioned.path("seconds").asInt()).isEqualTo(4);
 
         expect(setup.hr().delete(setup.path() + "/chat"), 204);
         verify(root).forget(threadId);
