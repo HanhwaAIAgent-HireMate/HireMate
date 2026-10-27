@@ -308,6 +308,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/notices/{group}/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["prepareGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/notices/{group}/ai-requests": {
         parameters: {
             query?: never;
@@ -2518,6 +2534,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["NoticeView"];
+                };
+            };
+        };
+    };
+    prepareGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                group: "PASS" | "FAIL";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NoticeView"][];
                 };
             };
         };

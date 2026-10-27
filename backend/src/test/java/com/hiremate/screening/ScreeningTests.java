@@ -221,6 +221,30 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("전형 종료 화면은 AI를 기다리지 않고 양식 초안을 받고, 안내 초안 화면이 그룹 하나씩 AI 초안을 쓴다")
+    void noticeDraftsAreWrittenPerGroup() throws Exception {
+        Stage stage = startDocumentStage(2);
+        TestApi hr = stage.hr();
+        expect(hr.post(stage.path() + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
+        expect(hr.post(stage.path() + "/decisions",
+                Map.of("applicationIds", stage.ids().subList(0, 1), "decision", "PASS")), 204);
+        expect(hr.post(stage.path() + "/confirm", null), 200);
+
+        JsonNode listed = json(expect(hr.get(stage.path() + "/notices"), 200));
+        assertThat(listed.get(0).path("group").asString()).isEqualTo("PASS");
+        assertThat(listed.get(0).path("content").asString()).isEmpty();
+        assertThat(listed.get(1).path("content").asString()).isEmpty();
+
+        JsonNode prepared = json(expect(hr.post(stage.path() + "/notices/PASS/prepare", null), 200));
+        String written = prepared.get(0).path("content").asString();
+        assertThat(written).isNotBlank();
+        assertThat(prepared.get(1).path("content").asString()).isEmpty();
+        JsonNode again = json(expect(hr.post(stage.path() + "/notices/PASS/prepare", null), 200));
+        assertThat(again.get(0).path("content").asString()).isEqualTo(written);
+        expect(newHr().post(stage.path() + "/notices/PASS/prepare", null), 404);
+    }
+
+    @Test
     @DisplayName("다음 전형 안내에는 보내는 때의 다음 전형 안내가 붙고, 공고 화면은 안내를 받은 지원자 수를 알려 준다")
     void nextStageNoticeCarriesStageGuide() throws Exception {
         Stage stage = startDocumentStage(2);

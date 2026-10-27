@@ -1,4 +1,4 @@
-import { Lock, Send } from 'lucide-react'
+import { LoaderCircle, Lock, Send } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -20,11 +20,13 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { VariableField } from '@/features/company/VariableField'
 import {
-  NOTICE_STATUS,
+  needsDraft,
+  noticeBadge,
   useEditNotice,
   useNoticeAiRequest,
   useNoticePreview,
   useNotices,
+  usePrepareNotice,
   useSaveOnboarding,
   useSendNotice,
   type Notice,
@@ -88,6 +90,9 @@ export function NoticeEditorPage() {
     },
   )
   const notice = notices.data?.find((item) => item.group === group)
+  // AI 초안은 이 화면에서 그룹마다 쓴다. 전형 종료 화면은 기다리지 않는다
+  const drafting = Boolean(notice && needsDraft(notice))
+  const prepare = usePrepareNotice(stageId, group === 'FAIL' ? 'FAIL' : 'PASS', drafting)
   if (!overview.data || !notice) {
     return (
       <div className="p-6">
@@ -96,15 +101,78 @@ export function NoticeEditorPage() {
       </div>
     )
   }
+  const closePath = `/hr/recruitments/${overview.data.recruitmentId}/stages/${stageId}/close`
+  if (drafting && !prepare.isSuccess) {
+    return (
+      <Drafting
+        notice={notice}
+        stageName={overview.data.name}
+        closePath={closePath}
+        error={prepare.isError ? errorMessage(prepare.error) : null}
+        onRetry={() => void prepare.refetch()}
+      />
+    )
+  }
   return (
     <Editor
       key={`${notice.group}-${notice.content}`}
       notice={notice}
       notices={notices.data ?? []}
       stageName={overview.data.name}
-      closePath={`/hr/recruitments/${overview.data.recruitmentId}/stages/${stageId}/close`}
+      closePath={closePath}
       guidesPath={`/hr/recruitments/${overview.data.recruitmentId}/posting#${STAGE_GUIDES_ID}`}
     />
+  )
+}
+
+/** Communication Agent가 초안을 쓰는 동안 보여 준다. 다른 화면으로 가도 초안은 계속 쓴다 */
+function Drafting({
+  notice,
+  stageName,
+  closePath,
+  error,
+  onRetry,
+}: {
+  notice: Notice
+  stageName: string
+  closePath: string
+  error: string | null
+  onRetry: () => void
+}) {
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-3 border-b px-6 py-4">
+        <h1 className="text-xl font-bold">{notice.label}</h1>
+        <span className="text-xs text-muted-foreground">{stageName} 종료 · ② 합격·불합격 안내</span>
+      </div>
+      <div className="flex flex-1 items-center justify-center p-6">
+        <div
+          role="status"
+          aria-live="polite"
+          className="w-full max-w-sm space-y-3 rounded-xl border p-6 text-center"
+        >
+          {error ? (
+            <>
+              <p className="font-semibold">초안을 쓰지 못했어요</p>
+              <p className="text-sm text-muted-foreground">{error}</p>
+              <Button onClick={onRetry}>다시 쓰기</Button>
+            </>
+          ) : (
+            <>
+              <LoaderCircle className="mx-auto size-7 animate-spin text-ai" />
+              <p className="font-semibold">AI가 {notice.label} 초안을 쓰고 있어요</p>
+              <p className="text-sm text-muted-foreground">
+                {notice.recipientCount}명에게 보낼 안내예요. 30초쯤 걸릴 수 있어요. 다 쓰면 바로
+                고칠 수 있어요.
+              </p>
+            </>
+          )}
+          <Button variant="outline" size="sm" asChild>
+            <Link to={closePath}>전형 종료 화면으로</Link>
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -237,11 +305,29 @@ function Editor({
           }
           onClick={() => (missingGuide ? setConfirmingGuide(true) : void onSend())}
         >
-          <Send />
-          {notice.status === 'PARTIAL'
-            ? `실패한 ${notice.failedCount}명에게 다시 발송`
-            : `${remaining}명에게 발송`}
+          {send.isPending ? <LoaderCircle className="animate-spin" /> : <Send />}
+          {send.isPending
+            ? '보내는 중…'
+            : notice.status === 'PARTIAL'
+              ? `실패한 ${notice.failedCount}명에게 다시 발송`
+              : `${remaining}명에게 발송`}
         </Button>
+        {send.isPending && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm"
+          >
+            <div className="space-y-2 rounded-xl border bg-background px-8 py-6 text-center shadow-lg">
+              <LoaderCircle className="mx-auto size-7 animate-spin text-muted-foreground" />
+              <p className="font-semibold">메일을 보내고 있어요</p>
+              <p className="text-sm text-muted-foreground">
+                {notice.status === 'PARTIAL' ? notice.failedCount : remaining}명에게 보내는
+                중이에요. 다 보낼 때까지 이 화면을 닫지 말아 주세요.
+              </p>
+            </div>
+          </div>
+        )}
         <AlertDialog open={confirmingGuide} onOpenChange={setConfirmingGuide}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -281,10 +367,10 @@ function Editor({
                 <span
                   className={cn(
                     'rounded px-1 py-0.5 text-[11px] font-semibold',
-                    NOTICE_STATUS[item.status].className,
+                    noticeBadge(item).className,
                   )}
                 >
-                  {NOTICE_STATUS[item.status].label}
+                  {noticeBadge(item).label}
                 </span>
               </div>
             </Link>

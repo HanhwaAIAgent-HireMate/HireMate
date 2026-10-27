@@ -29,6 +29,13 @@ public class NoticeAiController {
         return service.prepare(member.companyId(), stageId);
     }
 
+    /** 그룹 하나의 AI 초안을 쓴다. 이미 쓴 초안은 그대로 둔다. */
+    @PostMapping("/api/stages/{stageId}/notices/{group}/prepare")
+    public List<NoticeView> prepareGroup(AuthenticatedMember member, @PathVariable UUID stageId,
+            @PathVariable NoticeGroup group) {
+        return service.prepare(member.companyId(), stageId, group);
+    }
+
     @PostMapping("/api/stages/{stageId}/notices/{group}/ai-requests")
     public NoticeAiService.NoticeAiAnswer revise(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable NoticeGroup group, @Valid @RequestBody NoticeAiRequest request) {
