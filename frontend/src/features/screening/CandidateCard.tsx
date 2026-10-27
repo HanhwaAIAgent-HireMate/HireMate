@@ -52,6 +52,7 @@ export function CandidateCard({
             stageId={overview.stageId}
             applicationId={applicationId}
             memo={detail.data.memo}
+            interview={overview.type === 'INTERVIEW'}
           />
         )}
       </div>
@@ -167,10 +168,12 @@ function MemoButton({
   stageId,
   applicationId,
   memo,
+  interview,
 }: {
   stageId: string
   applicationId: string
   memo: string
+  interview: boolean
 }) {
   const save = useSaveMemo(stageId, applicationId)
   const [text, setText] = useState(memo)
@@ -197,6 +200,11 @@ function MemoButton({
           placeholder="이 지원자에 대한 메모를 남겨요. 지원자에게는 보이지 않아요."
           onChange={(event) => setText(event.target.value)}
         />
+        {interview && (
+          <p className="text-xs text-muted-foreground">
+            질문에 참고하려면 AI Chat에 ‘메모를 참고해 질문을 만들어 주세요’라고 요청해 주세요.
+          </p>
+        )}
         <div className="flex justify-end">
           <Button
             size="sm"

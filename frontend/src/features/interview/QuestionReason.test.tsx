@@ -4,6 +4,22 @@ import { describe, expect, it } from 'vitest'
 import { QuestionReason } from './QuestionReason'
 
 describe('질문 생성 근거', () => {
+  it('면접관 메모 출처를 지원서와 구분해 그대로 표시한다', () => {
+    render(
+      <QuestionReason
+        text="직접 맡은 작업을 설명해 주세요."
+        source="AI"
+        reason={
+          '질문 유형: 메모 참고 확인\n출처: 면접관메모\n원문: 본인 역할은 추가 확인 필요\n확인할 내용: 직접 수행한 작업 범위'
+        }
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '질문 생성 근거' }))
+    const quote = screen.getByRole('region').querySelector('blockquote')
+    expect(quote?.parentElement).toHaveTextContent('면접관메모')
+    expect(quote).toHaveTextContent('본인 역할은 추가 확인 필요')
+    expect(screen.getByRole('region')).not.toHaveTextContent('자소서')
+  })
   it('버튼을 누르면 저장된 근거가 열리고 다시 누르면 접힌다', () => {
     render(
       <QuestionReason
