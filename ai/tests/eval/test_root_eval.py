@@ -89,19 +89,24 @@ def print_failure_trace(log: MemoryCallLog) -> None:
 
 
 @pytest.mark.parametrize("repeat", range(3))
+@pytest.mark.parametrize("scope", ["stage", "checked", "selected"])
 async def test_financial_career_search_keeps_all_matches_within_three_calls(
     sample_applicants: dict[str, ApplicantDetail],
     sample_company: CompanyProfile,
     sample_posting: PostingContent,
     monkeypatch: pytest.MonkeyPatch,
     repeat: int,
+    scope: str,
 ) -> None:
     """검색 인자와 최종 명령의 형식 보완 때문에 같은 검색을 더 비싸게 실행하지 않는다."""
     context = make_context(
         sample_applicants,
         sample_company,
         sample_posting,
-        message="금융 도메인에서 일한 경력이 있는 지원자를 찾아줘.",
+        message={"stage": "", "checked": "체크한 지원자 중 ", "selected": "선택된 지원자 중 "}[scope]
+        + "금융 도메인에서 일한 경력이 있는 지원자를 찾아줘.",
+        checked=["정유민", "박서준"] if scope == "checked" else [],
+        selected=["정유민", "박서준"] if scope == "selected" else [],
     )
     monkeypatch.setattr(settings, "llm_agent_max_calls", 8)
     calls = MemoryCallLog()
@@ -110,21 +115,24 @@ async def test_financial_career_search_keeps_all_matches_within_three_calls(
     plan = await run_plan(build_llm(calls), context, default_toolkit())
 
     print(f"financial search {repeat}: calls={len(calls.records)}, intent={plan.intent}, targets={plan.targets}")
-    if len(calls.records) > 3 or calls.validation:
+    if len(calls.records) > 3 or calls.validation or (scope == "selected" and plan.mode != "NARROW"):
         print_failure_trace(calls)
     assert plan.intent is Intent.FIND
-    assert plan.targets == [sample_applicants[name].info.application_id for name in ("정유민", "김하늘", "한예린")]
+    expected_names = ("정유민", "김하늘", "한예린") if scope == "stage" else ("정유민",)
+    assert plan.targets == [sample_applicants[name].info.application_id for name in expected_names]
     assert {item.application_id for item in plan.items} == set(plan.targets)
     assert "이력서" in plan.sources
     assert len(calls.records) <= 3
     assert all(record.status == "OK" for record in calls.records)
     assert not calls.validation
-    final = [
-        call["args"]
-        for record in calls.records
-        for call in (record.output or {}).get("tool_calls", [])
-        if call["name"] == "RootReply"
-    ]
+    tool_calls = [call for record in calls.records for call in (record.output or {}).get("tool_calls", [])]
+    search = [call["args"] for call in tool_calls if call["name"] == "search_candidates"]
+    assert len(search) == 1
+    assert not {"get_candidate_briefs", "resolve_candidates"} & {call["name"] for call in tool_calls}
+    expected_mode = "within_selected" if scope == "selected" else "replace"
+    assert search[0]["query"].get("mode") == expected_mode, search[0]
+    assert plan.mode == ("NARROW" if scope == "selected" else "REPLACE")
+    final = [call["args"] for call in tool_calls if call["name"] == "RootReply"]
     assert len(final) == 1
     assert final[0]["items"] == [] and final[0]["candidates"] == []
 
@@ -526,9 +534,14 @@ async def test_reported_chat_requests(
         sample_company,
         sample_posting,
     )
-    plan = await run_plan(build_llm(MemoryCallLog()), context)
+    calls = MemoryCallLog()
+    plan = await run_plan(build_llm(calls), context)
 
-    assert mismatches(plan, context, case["expect"]) == []
+    problems = mismatches(plan, context, case["expect"])
+    if problems:
+        print_failure_trace(calls)
+        print(f"reported request call statuses: {[(record.agent, record.status) for record in calls.records]}")
+    assert problems == []
     if case.get("mentions"):
         assert {item.application_id for item in plan.items} == {sample_applicants["정유민"].info.application_id}
         assert any(item.status == "OK" for item in plan.items)
@@ -609,7 +622,8 @@ async def test_finance_followup_keeps_the_selected_scope(
     )
     saver = InMemorySaver()
     thread = RootThread(id=str(uuid4()), company_id=context.company.company_id, stage_id=context.stage_id)
-    llm = build_llm(MemoryCallLog())
+    calls = MemoryCallLog()
+    llm = build_llm(calls)
     initial = (
         FakeLlm(
             ToolCall(
@@ -635,6 +649,8 @@ async def test_finance_followup_keeps_the_selected_scope(
 
     plan = await run_plan(llm, context.model_copy(update={"message": followup}), saver=saver, thread=thread)
 
+    if plan.intent is not Intent.FIND or plan.mode != "NARROW":
+        print_failure_trace(calls)
     assert plan.intent is Intent.FIND
     assert plan.mode == "NARROW"
     assert {row.application_id for row in context.candidates if row.name in ("정유민", "김하늘", "한예린")} == set(

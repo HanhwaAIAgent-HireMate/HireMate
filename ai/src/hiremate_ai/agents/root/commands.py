@@ -115,7 +115,7 @@ class _ModelReply(BaseModel):
 
     kind: Literal["answer", "conversation", "find", "edit", "questions", "clarify", "blocked", "decision"] = Field(
         description=(
-            "분석과 업무 현황은 answer, 인사와 말투 변경은 conversation, 검색 결과 선택은 find, "
+            "분석과 업무 현황은 answer, 인사와 말투 변경은 conversation, 검색 결과 참조는 find, "
             "명시적 대상 선택 편집은 edit, 면접 질문 생성은 questions, 필수 정보 부족은 clarify, "
             "차별 조건은 blocked, 담당자가 직접 해야 할 채용 결정은 decision"
         )
@@ -135,7 +135,11 @@ class _ModelReply(BaseModel):
         ),
     )
     action: EditAction | None = Field(
-        default=None, description='edit의 ADD, REMOVE, CLEAR, RESTORE. 다른 종류는 JSON null이며 문자열 "null"이 아니다'
+        default=None,
+        description=(
+            "edit 전용 ADD, REMOVE, CLEAR, RESTORE. find의 검색 방식은 query.mode로 이미 정해졌으므로 반드시 null. "
+            '다른 종류도 JSON null이며 문자열 "null"이 아니다'
+        ),
     )
     result: str | None = Field(
         default=None,

@@ -91,25 +91,23 @@ ROOT_SYSTEM = """너는 채용 담당자를 돕는 Root Agent다.
   현재 선택 명단은 지원자별 candidates와 items를 작성하고 각자의 '선택 여부: 선택됨'을 근거로 단다.
   get_stage_summary가 반환한 'C번호 이름, 결정, 경력, 선택 여부' 행은 그 지원자의 전형 결과 근거다.
   여러 지원자의 자료는 get_candidate_briefs로 함께 읽을 수 있다. 필요한 자료가 더 있으면 다른 조회를 사용한다.
-- 조건으로 지원자를 찾거나 특정 기술과 경험 보유자를 물으면 search_candidates를 쓴다.
-  생략된 조건은 대화로 해소하고 message만이 아니라 query.concepts, query.min_score 등에 넣는다.
-  예: 평가 80점 이상은 query={"min_score":80,"score_source":"assessment"}다.
-  범위 지정 없는 새 조건은 전체 REPLACE 검색이다. 기본값인 query.mode=REPLACE와 pool=null은 생략한다.
-  예: {"query":{"concepts":["금융 업종 재직 경력"],"min_score":null}}.
-  범위를 지정한 pool은 query와 같은 최상위 인자이며 query 안에 넣지 않는다.
-  이전 결과, 직전 대상과 화면의 선택 목록만으로 범위를 좁히지 않는다.
-  예: '금융 도메인 경험자 찾아줘' 다음 '결제 정산 운영해 본 사람 찾아줘'도 전체 REPLACE 검색이다.
-  '그중', '선택된 사람 중', '체크한 사람 중', 멘션처럼 이번 요청이 지정한 범위에서만 제한 검색한다.
-  선택 목록을 좁히기는 NARROW, 이전 결과나 체크한 명단 안에서 찾기는 해당 C번호를 pool에 넣는다.
-  예: '그중 금융권 경력만 남겨줘'는 가리킨 명단을 pool로 주고 mode=NARROW,
-  concepts=["금융 업종 재직 경력"]로 찾는다. pool 없는 NARROW의 범위는 화면의 선택 지원자다.
-  직전 되묻기에 짧게 답한 요청은 원래 요청의 범위와 조건을 이어받는다.
-  점수만 말하면 현재 전형 점수, 경력은 제출 이력서와 저장된 근거를 쓴다. 화면과 대화로 정해진 점수 출처,
-  검색 범위와 자료 출처는 다시 묻지 않는다. 공고 기준과 결정 상태를 정하고 새로 찾기, 추가, 좁히기를 구별한다.
-  검색 뒤 추가 조회나 조건 수정 후 재검색은 가능하다. 최종 답은 0명이어도 도구의 결과 번호를 참조하는 find다.
-  result에 검색 결과 번호만 넣고 candidates=[], items=[], action=null, focus={}로 낸다.
-  검색 후보와 근거는 서버가 결과 번호로 보존하므로 복사하지 않고 후보와 순서를 임의로 바꾸지 않는다.
-  자료 목록이나 brief에서 후보를 직접 나열한 answer, message에만 이름을 넣은 answer로 검색을 대신하지 않는다.
+- 조건으로 지원자나 특정 기술과 경험 보유자를 찾으면 search_candidates를 쓴다.
+  대화로 해소한 조건을 query에 넣는다. mode는 항상 적고 concepts와 min_score는 조건이 없어도 []와 null로 적는다.
+  예: 평가 80점 이상은 {"query":{"mode":"replace","concepts":[],"min_score":80,"score_source":"assessment"}}다.
+  나머지 선택 인자는 필요한 값만 적고 pool=null은 생략한다.
+  범위 없는 새 조건은 이전 결과와 화면 선택에 관계없이 전체 replace 검색이다.
+  '금융 경험자' 다음 '결제 정산 운영 경험자'도 전체에서 새로 찾는다.
+  '그중', '체크한 사람 중', '선택된 사람 중', 멘션처럼 이번 요청이 범위를 지정할 때만 pool에 C번호를 넣는다.
+  pool은 query와 같은 최상위 인자다. 새로 찾기와 체크 명단 내 검색은 replace, 선택에 추가는 add다.
+  선택된 사람 안에서 찾기는 query.mode=within_selected로 내고 pool은 생략한다.
+  '그중', '얘네들 중'처럼 현재 선택이나 이전 결과에서 조건에 맞는 사람만 남기기도 within_selected다.
+  이때 이전 결과를 가리키면 그 목록을 pool에 넣는다. 현재 선택 목록은 pool을 생략한다.
+  pool 없는 within_selected는 화면 선택 목록 안에서 찾는다. 짧은 되묻기 답은 원래 범위와 조건을 이어받는다.
+  점수만 말하면 현재 전형 점수, 경력은 제출 이력서와 저장 근거를 쓴다. 공고 기준과 결정 상태도 구분한다.
+  화면과 대화로 정해진 점수 출처, 범위, 자료 출처는 다시 묻지 않는다.
+  검색 후 필요한 추가 조회나 조건 수정 후 재검색은 가능하다. 후보와 순서는 도구 결과를 따른다.
+  0명이어도 kind=find, result=검색 결과 번호, candidates=[], items=[], action=null, focus={}로 낸다.
+  서버가 후보와 근거를 보존하므로 복사하지 않는다. brief나 message의 명단, answer로 검색을 대신하지 않는다.
   검색에서 빠진 사람에게 그 경험이 없다고 단정하지 않는다.
 - 이름이나 앞 대화의 특정 지원자를 넣거나 빼는 것은 edit 명령이다. 빼기는 불합격이 아니다.
   선택 영역을 비우거나 되돌리는 명령에는 지원자를 넣지 않는다.
@@ -306,15 +304,12 @@ async def run_agent(
             Field(description="query와 동급 인자. 전체 검색은 생략(null), 제한 검색은 C번호 목록"),
         ] = None,
     ) -> str:
-        """명시한 직무 조건, 점수 출처, 공고 기준으로 검색하고 검증한 후보와 결과 번호를 반환한다.
+        """직무 조건, 점수 출처, 공고 기준으로 문서와 저장 근거를 검색하고 재검증한 결과 번호를 반환한다.
 
-        조건과 mode는 query 안에, pool은 query와 같은 최상위에 둔다. query 안에는 pool을 넣지 않는다.
-        필수 query.concepts와 query.min_score 외에는 요청에 필요한 값만 적고 기본값인 선택 인자는 생략한다.
-        새 조건 검색은 기본 REPLACE로 전체에서 한다. pool은 명시한 제한 범위의 C번호 목록이다.
-        과거 검색 결과나 화면 선택이 있다는 이유만으로 pool이나 NARROW를 지정하지 않는다.
-        그중 또는 선택된 사람 안에서만 찾으라고 범위를 지정한 경우에만 제한한다.
-        이 도구는 조회만 한다. 최종 RootReply는 kind=find, result=결과 번호로 낸다.
-        후보와 근거는 서버가 보존한다. 검색 결과의 candidates와 items를 복사하지 말고 둘 다 []로 낸다.
+        query에는 필수 mode, concepts, min_score와 필요한 선택 인자만 넣는다. pool은 query 밖의 C번호 목록이다.
+        새 검색과 체크 명단 검색은 replace다. 체크 C번호는 추가 조회 없이 pool에 넣는다.
+        현재 선택이나 이전 결과를 조건으로 좁히기는 mode=within_selected다. 현재 선택은 pool을 생략한다.
+        검색 전 brief는 필요 없다. 조회만 수행하며 최종 find는 result로 참조하고 candidates=[], items=[]로 낸다.
         """
         scope = runtime.context
         if not (
@@ -379,7 +374,7 @@ async def run_agent(
 
     @tool
     async def get_candidate_briefs(candidates: list[str], runtime: ToolRuntime[RootRun]) -> str:
-        """여러 지원자의 제출 문서, 프로필, 전형 결과와 이전 확인 내용을 한 번에 읽는다."""
+        """개별 분석과 비교에 필요한 여러 지원자의 자료를 읽는다. 조건 검색의 자료 조회는 search_candidates가 한다."""
         scope = runtime.context
         rows = [resolve_ref(scope.chat, ref) for ref in candidates]
         if not rows or any(row is None for row in rows):

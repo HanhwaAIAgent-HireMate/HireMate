@@ -6,10 +6,10 @@
 
 from collections.abc import Iterable, Sequence
 from hashlib import sha256
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema
 
 from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.progress import SILENT, Progress
@@ -90,17 +90,36 @@ CRITERIA_SYSTEM = """너는 채용 담당자가 공고 항목을 기준으로 �
 - 후보는 블록의 번호(candidate_no)로 답하고 문장을 옮겨 쓰지 않는다. 충족한 항목이 없으면 met을 비운다."""
 
 
+def _search_mode(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    return {
+        "replace": SelectionMode.REPLACE,
+        "add": SelectionMode.ADD,
+        "within_selected": SelectionMode.NARROW,
+    }.get(value, value)
+
+
+type _SearchMode = Annotated[
+    SelectionMode,
+    BeforeValidator(_search_mode),
+    WithJsonSchema({"type": "string", "enum": ["replace", "add", "within_selected"]}),
+]
+
+
 class SearchQuery(BaseModel):
-    """검색 조건. concepts와 min_score는 필수다. 나머지 선택 인자는 기본값이면 생략하고 필요한 값만 적는다."""
+    """검색 조건. mode, concepts, min_score는 필수다. 나머지 선택 인자는 필요한 값만 적는다."""
 
-    # 모델은 조건이 없을 때도 []와 null을 직접 쓰게 한다. Python 호출의 기본값은 유지한다.
-    model_config = ConfigDict(extra="forbid", json_schema_extra={"required": ["concepts", "min_score"]})
+    # 모델은 검색 방식과 빈 조건도 직접 쓰게 한다. Python 호출의 기본값은 유지한다.
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"required": ["mode", "concepts", "min_score"]})
 
-    mode: SelectionMode = Field(
+    mode: _SearchMode = Field(
         default=SelectionMode.REPLACE,
+        json_schema_extra={"default": "replace"},
         description=(
-            "새 완결 조건 검색의 기본값은 REPLACE다. 이전 결과나 현재 선택이 있어도 전체에서 새로 찾는다. "
-            "사용자가 기존 선택에 더하라고 하면 ADD, 그중이나 선택된 사람 안으로 명시해 좁힐 때만 NARROW"
+            "선택 명단이나 직전 결과에서 조건에 맞는 사람만 남기기는 within_selected, 기존 선택에 더하기는 add, "
+            "그 밖의 새 조건과 체크 명단 검색은 replace다. pool은 별도로 범위를 제한한다. "
+            "이전 결과나 화면 선택만으로 범위를 좁히지 않는다"
         ),
     )
     concepts: list[str] = Field(
