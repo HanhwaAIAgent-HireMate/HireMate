@@ -88,6 +88,47 @@ def print_failure_trace(log: MemoryCallLog) -> None:
     print("failure validation: " + json.dumps(log.validation, ensure_ascii=False))
 
 
+@pytest.mark.parametrize("repeat", range(3))
+async def test_financial_career_search_keeps_all_matches_within_three_calls(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+    repeat: int,
+) -> None:
+    """검색 인자와 최종 명령의 형식 보완 때문에 같은 검색을 더 비싸게 실행하지 않는다."""
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="금융 도메인에서 일한 경력이 있는 지원자를 찾아줘.",
+    )
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 8)
+    calls = MemoryCallLog()
+    trace_validation(calls, monkeypatch)
+
+    plan = await run_plan(build_llm(calls), context, default_toolkit())
+
+    print(f"financial search {repeat}: calls={len(calls.records)}, intent={plan.intent}, targets={plan.targets}")
+    if len(calls.records) > 3 or calls.validation:
+        print_failure_trace(calls)
+    assert plan.intent is Intent.FIND
+    assert plan.targets == [sample_applicants[name].info.application_id for name in ("정유민", "김하늘", "한예린")]
+    assert {item.application_id for item in plan.items} == set(plan.targets)
+    assert "이력서" in plan.sources
+    assert len(calls.records) <= 3
+    assert all(record.status == "OK" for record in calls.records)
+    assert not calls.validation
+    final = [
+        call["args"]
+        for record in calls.records
+        for call in (record.output or {}).get("tool_calls", [])
+        if call["name"] == "RootReply"
+    ]
+    assert len(final) == 1
+    assert final[0]["items"] == [] and final[0]["candidates"] == []
+
+
 async def test_portfolio_question_request_keeps_generation_handoff(
     sample_applicants: dict[str, ApplicantDetail],
     sample_company: CompanyProfile,

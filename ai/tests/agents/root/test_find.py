@@ -44,6 +44,8 @@ type Applicants = dict[str, ApplicantDetail]
         {"conditions": ["금융 업종 재직 경력"]},
         {"minimum_score": 80, "score_source": "assessment"},
         {"selected": False},
+        {"concepts": ["금융 업종 재직 경력"], "pool": None},
+        {"concepts": ["금융 업종 재직 경력"], "pool": ["C1"]},
     ],
 )
 def test_search_rejects_unknown_conditions_instead_of_dropping_them(query: dict[str, object]) -> None:
