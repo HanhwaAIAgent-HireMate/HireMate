@@ -17,7 +17,8 @@ import {
   type Posting,
   type PostingContent,
 } from '@/features/posting/api'
-import { BulletListField } from '@/features/posting/BulletListField'
+import { BulletListField, LineBullet } from '@/features/posting/BulletListField'
+import { focusLabel, hasLine, toServerFocus, type LineFocus } from '@/features/posting/focus'
 import { StageEditor } from '@/features/posting/StageEditor'
 import { StageFlow } from '@/features/posting/StageFlow'
 import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/stages'
@@ -40,7 +41,9 @@ const TAGS: {
   { key: 'location', placeholder: '근무지' },
 ]
 
-const LISTS: { key: 'duties' | 'qualifications' | 'preferred' | 'benefits'; label: string }[] = [
+type ListKey = 'duties' | 'qualifications' | 'preferred' | 'benefits'
+
+const LISTS: { key: ListKey; label: string }[] = [
   { key: 'duties', label: '주요 업무' },
   { key: 'qualifications', label: '자격 요건' },
   { key: 'preferred', label: '우대 사항' },
@@ -54,11 +57,15 @@ export function PostingEditor({
   posting,
   messages,
   setMessages,
+  focus,
+  setFocus,
 }: {
   posting: Posting
-  /** 저장 · 적용으로 편집 상태를 새로 열어도 대화는 남도록 화면이 들고 있다 */
+  /** 저장 · 적용으로 편집 상태를 새로 열어도 대화와 고른 줄은 남도록 화면이 들고 있다 */
   messages: AiMessage[]
   setMessages: Dispatch<SetStateAction<AiMessage[]>>
+  focus: LineFocus | null
+  setFocus: Dispatch<SetStateAction<LineFocus | null>>
 }) {
   const navigate = useNavigate()
   const id = posting.recruitmentId
@@ -82,10 +89,22 @@ export function PostingEditor({
   const editable = isDraft
   const shown = suggestion ? { ...draft, ...pick(suggestion.content, changed) } : draft
   const locked = (field: string) => !editable || changed.has(field)
+  // 고른 줄. 그 칸에 수정안이 생겨 잠기거나 줄이 비면 고르지 않은 것으로 본다
+  const picked = focus && !locked(focus.field) && hasLine(focus, draft) ? focus : null
 
   const update = (patch: Partial<PostingContent>) => {
     setDraft((current) => ({ ...current, ...patch }))
     setDirty(true)
+  }
+
+  /** 줄 앞의 ·을 누르면 그 줄을 고르고, 고른 줄을 다시 누르면 푼다 */
+  const toggleFocus = (next: LineFocus) =>
+    setFocus(picked?.field === next.field && picked.index === next.index ? null : next)
+
+  /** 고른 칸에서 줄을 더하거나 지우면 줄 순서가 바뀌어 고르기를 푼다 */
+  const changeList = (key: ListKey, items: string[]) => {
+    if (focus?.field === key && items.length !== draft[key].length) setFocus(null)
+    update({ [key]: items })
   }
 
   const changeStages = (next: StageForm[]) => {
@@ -128,10 +147,24 @@ export function PostingEditor({
   }
 
   const sendRequest = async (message: string) => {
-    setMessages((current) => [...current, { role: 'user', text: message }])
+    const target = picked
+    // 저장하면 빈 줄이 빠지므로, 저장 전 화면의 줄 순서를 서버의 줄 순서로 바꿔 둔다
+    const sent = target && toServerFocus(target, draft)
+    setMessages((current) => [
+      ...current,
+      { role: 'user', text: message, focus: target ? focusLabel(target) : undefined },
+    ])
     if (!(await saveDraft(true))) return
     try {
-      const answer = await ai.mutateAsync(message)
+      const answer = await ai.mutateAsync({ message, focus: sent })
+      // 그 줄의 수정안이 생기면 칸이 잠겨 고르기를 푼다. 아니면 서버의 줄 순서(= 다시 연 화면의 순서)로 남긴다
+      if (target && sent) {
+        setFocus(
+          answer.posting.suggestion?.changedFields.includes(target.field)
+            ? null
+            : { field: target.field, index: sent.index ?? undefined },
+        )
+      }
       setMessages((current) => [
         ...current,
         { role: 'ai', text: answer.reply, agent: answer.agent, stub: answer.stub },
@@ -285,14 +318,26 @@ export function PostingEditor({
                 </Link>
               }
             >
-              <Textarea
-                aria-label="회사 소개"
-                value={shown.intro}
-                disabled={locked('intro')}
-                onChange={(event) => update({ intro: event.target.value })}
-                className="min-h-0 resize-none border-0 p-0 shadow-none focus-visible:ring-0"
-                rows={2}
-              />
+              <div
+                className={cn(
+                  'flex items-start gap-2 rounded px-1 text-sm',
+                  picked?.field === 'intro' && 'bg-ai-soft ring-1 ring-ai/40',
+                )}
+              >
+                <LineBullet
+                  label="회사 소개"
+                  selected={picked?.field === 'intro'}
+                  onSelect={locked('intro') ? undefined : () => toggleFocus({ field: 'intro' })}
+                />
+                <Textarea
+                  aria-label="회사 소개"
+                  value={shown.intro}
+                  disabled={locked('intro')}
+                  onChange={(event) => update({ intro: event.target.value })}
+                  className="min-h-0 resize-none border-0 p-0 shadow-none focus-visible:ring-0"
+                  rows={2}
+                />
+              </div>
             </Section>
             {LISTS.map((list) => (
               <Section key={list.key} title={list.label} highlighted={changed.has(list.key)}>
@@ -303,7 +348,9 @@ export function PostingEditor({
                   highlight={
                     changed.has(list.key) ? newLines(shown[list.key], draft[list.key]) : undefined
                   }
-                  onChange={(items) => update({ [list.key]: items })}
+                  onChange={(items) => changeList(list.key, items)}
+                  selected={picked?.field === list.key ? picked.index : undefined}
+                  onSelect={(index) => toggleFocus({ field: list.key, index })}
                 />
                 {actions(list.key)}
               </Section>
@@ -354,7 +401,9 @@ export function PostingEditor({
                 label="복지"
                 items={shown.benefits}
                 disabled={locked('benefits')}
-                onChange={(items) => update({ benefits: items })}
+                onChange={(items) => changeList('benefits', items)}
+                selected={picked?.field === 'benefits' ? picked.index : undefined}
+                onSelect={(index) => toggleFocus({ field: 'benefits', index })}
               />
               {actions('benefits')}
             </Section>
@@ -376,8 +425,10 @@ export function PostingEditor({
         <AiRequestPanel
           messages={messages}
           examples={EXAMPLES}
+          hint={editable ? '줄 앞의 · 을 누르면 그 줄만 고쳐 달라고 할 수 있어요.' : undefined}
           pending={ai.isPending || save.isPending}
           disabled={!editable}
+          focus={picked ? { label: focusLabel(picked), onClear: () => setFocus(null) } : undefined}
           onSend={(message) => void sendRequest(message)}
           onReset={() => setMessages([])}
         />

@@ -10,6 +10,7 @@
 NCS 근거는 고른 능력단위의 정의를 보여 주고 쓰게 하며, 근거 코드는 실제로 있는 능력단위인지 확인한다 (규칙 7).
 고른 능력단위는 NCS 중요도 및 활용도 조사 점수가 높은 것을 앞에 놓고 앞쪽부터 쓰게 한다.
 자격 요건 · 우대 사항 중 무엇을 몇 개 쓸지는 코드가 요청과 지금 공고를 보고 정해 모델에게 알려 준다.
+HR이 줄을 골라 요청하면 대상을 고르지 않고 그 줄만 한 번에 쓰게 한다. 고른 줄 밖은 코드가 그대로 둔다.
 """
 
 import re
@@ -19,9 +20,10 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic.alias_generators import to_camel
 
-from hiremate_ai.agents.generation.posting.checks import blocked_terms, problems
+from hiremate_ai.agents.generation.posting.checks import JUDGED_FIELDS, blocked_terms, problems
 from hiremate_ai.agents.generation.posting.types import (
     PostingDraftContext,
+    PostingFocus,
     PostingSuggestion,
     RecruitmentStatus,
     RevisionResult,
@@ -66,6 +68,11 @@ BLOCKED_REPLY = (
 CHECK_FAILED_REPLY = "요청대로 고친 수정안이 공고 작성 규칙을 지키지 못했어요. 요청을 조금 바꿔 다시 말씀해 주세요."
 RETRY_HINT = "처음 요청에 종류를 붙여 다시 말씀해 주세요. 예: 'PT 발표 전형을 평가로 넣어 줘'"
 ANSWER_ONLY_REPLY = f"앞의 대화는 기억하지 못해요. {RETRY_HINT}"
+FOCUS_MISSING_REPLY = "고른 줄을 공고에서 찾지 못했어요. 줄을 다시 골라 주세요."
+LINE_UNCHANGED_REPLY = "고른 줄에서 바꿀 부분을 찾지 못했어요. 어떻게 고칠지 알려 주세요."
+UNCHANGED_LINE = "고른 줄을 바꾸지 않고 그대로 썼다. 요청대로 바꿔 쓴다"
+MULTILINE_LINE = "고른 줄 하나를 한 줄로 쓰지 않고 칸 이름이나 여러 줄을 썼다"
+"""고른 줄을 다시 쓰게 할 때 붙이는 이유. 작은 모델이 고른 줄을 그대로 돌려주거나 칸 전체를 한 줄에 쓰곤 한다."""
 
 ATTEMPTS = 2
 """처음 한 번과, 검사에 걸렸을 때 이유를 붙여 다시 쓰는 한 번."""
@@ -189,6 +196,24 @@ class ExtrasPlan(BaseModel):
     )
 
 
+class LineEdit(BaseModel):
+    """HR이 고른 목록 줄 하나를 고친 답. 지울지는 action으로 고른다.
+
+    text를 null로 두어 지우게 하면 작은 모델이 null 대신 목록을 통째로 쓴다.
+    """
+
+    action: Literal["REWRITE", "DELETE"] = Field(
+        description="REWRITE(고친 줄을 text에 쓴다) 또는 DELETE(그 줄을 지운다)"
+    )
+    text: str | None = Field(description="REWRITE면 고친 뒤의 줄 한 줄. DELETE면 null")
+
+
+class IntroEdit(BaseModel):
+    """HR이 고른 회사 소개를 고친 답."""
+
+    text: str = Field(description="고친 뒤의 회사 소개 전체")
+
+
 class NcsPick(BaseModel):
     ncs_codes: list[str] = Field(description="근거로 쓸 NCS 능력단위 코드 (최대 8개)")
 
@@ -284,12 +309,19 @@ class _Draft:
 
 
 async def revise_posting(
-    llm: LlmClient, posting: PostingDraftContext, writing_style: str, request: str
+    llm: LlmClient,
+    posting: PostingDraftContext,
+    writing_style: str,
+    request: str,
+    focus: PostingFocus | None = None,
 ) -> RevisionResult:
     """HR의 요청대로 공고 수정안을 만든다. 되묻거나 처리할 수 없으면 수정안 없이 답만 한다.
 
     수정안이 검사에 걸리면 이유를 붙여 한 번 더 쓰게 한다. 차별 조건은 다시 쓰게 하지 않고 바로 거절한다.
+    focus가 있으면 HR이 고른 그 줄만 고친다.
     """
+    if focus is not None:
+        return await _revise_line(llm, posting, writing_style, request, focus)
     if blocked_attribute(request) and _JUDGING.search(request):
         return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
     if _ANSWER_ONLY.fullmatch(_compact(request)):
@@ -321,6 +353,83 @@ async def revise_posting(
         if not found:
             return _result(draft, edit, locked)
     return RevisionResult(reply=CHECK_FAILED_REPLY, suggestion=None)
+
+
+async def _revise_line(
+    llm: LlmClient, posting: PostingDraftContext, writing_style: str, request: str, focus: PostingFocus
+) -> RevisionResult:
+    """HR이 고른 줄만 고친다. 고른 칸이 자격 요건 · 우대 사항이면 요청에 차별 조건이 있을 때 바로 거절한다.
+
+    회사 소개는 줄 하나짜리 목록으로 다룬다. 고친 줄이 그대로이거나 검사에 걸리면 이유를 붙여 한 번 더 쓰게 한다.
+    """
+    if blocked_attribute(request) and (focus.field in JUDGED_FIELDS or _JUDGING.search(request)):
+        return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
+    value: str | list[str] = getattr(posting.content, focus.field)
+    listed = isinstance(value, list)
+    lines = list(value) if isinstance(value, list) else [value]
+    index = focus.index if listed else 0
+    if index is None or not 0 <= index < len(lines):
+        return RevisionResult(reply=FOCUS_MISSING_REPLY, suggestion=None)
+    label = FIELD_LABELS[focus.field]
+    where = f"{label} {index + 1}번 줄" if listed else label
+    context = _context(posting, writing_style, request)
+    step = _line_step(where, lines[index], listed)
+    found: list[str] = []
+    revised = lines
+    for _ in range(ATTEMPTS):
+        revised = await _rewrite_line(llm, context, step, found, lines, index, listed)
+        if revised == lines:
+            found = [UNCHANGED_LINE]
+            continue
+        content = posting.content.model_copy(update={focus.field: revised if listed else revised[0]})
+        if blocked_terms(content, [focus.field]):
+            return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
+        found = problems(content, [focus.field], None, FIELD_LABELS, source=context)
+        removed = len(revised) < len(lines)
+        if listed and not removed and "\n" in revised[index]:
+            found.append(MULTILINE_LINE)
+        if not found:
+            reply = (
+                f"{where}을 지운 수정안을 만들었어요. 확인하고 적용해 주세요."
+                if removed
+                else f"{where} 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
+            )
+            return RevisionResult(
+                reply=reply,
+                suggestion=PostingSuggestion(
+                    content=content, stages=None, required_extras=None, changed_fields=[to_camel(focus.field)]
+                ),
+            )
+    return RevisionResult(reply=LINE_UNCHANGED_REPLY if revised == lines else CHECK_FAILED_REPLY, suggestion=None)
+
+
+def _line_step(where: str, line: str, listed: bool) -> str:
+    """고른 줄만 고치게 하는 할 일. 고른 줄을 함께 적어야 작은 모델이 다른 줄과 헷갈리지 않는다.
+
+    목록의 줄은 지울지부터 정하게 한다. 고치는 법을 먼저 말하면 작은 모델이 지우라는 요청에도 REWRITE를 고른다.
+    """
+    if not listed:
+        return f'지금 할 일: HR이 고른 {where}("{line}")만 요청대로 고쳐 text에 쓴다. 다른 칸은 쓰지 않는다.'
+    return (
+        f'지금 할 일: HR이 고른 {where}("{line}")을 다룬다. 먼저 HR 요청이 이 줄을 지우라는 것인지 본다. '
+        "지우라는 요청이면 action을 DELETE로, text를 null로 둔다. "
+        "아니면 action을 REWRITE로 두고 이 줄만 요청대로 고친 한 줄을 text에 쓴다. 칸 이름이나 다른 줄은 쓰지 않는다."
+    )
+
+
+async def _rewrite_line(
+    llm: LlmClient, context: str, step: str, found: list[str], lines: list[str], index: int, listed: bool
+) -> list[str]:
+    """모델이 고친 줄을 넣은 목록. 목록의 줄은 DELETE면 지운다. 빈 답이면 그대로 둬, 회사 소개는 지우지 않는다."""
+    if listed:
+        edit = await _ask(llm, LineEdit, context, step, found)
+        if edit.action == "DELETE":
+            return lines[:index] + lines[index + 1 :]
+        text = _BULLET.sub("", (edit.text or "").strip())
+    else:
+        text = (await _ask(llm, IntroEdit, context, step, found)).text
+    cleaned = _tidy(text)
+    return lines[:index] + [cleaned] + lines[index + 1 :] if cleaned else lines
 
 
 async def _write(

@@ -4,6 +4,7 @@ import { api, unwrap, type Schemas } from '@/lib/api/client'
 
 export type Posting = Schemas['PostingView']
 export type PostingContent = Schemas['PostingContent']
+export type PostingFocus = Schemas['PostingFocus']
 export type PublicPosting = Schemas['PublicPostingView']
 export type RequiredDocument = Schemas['RequiredDocument']
 
@@ -126,15 +127,15 @@ export function useClosePosting(recruitmentId: string) {
   )
 }
 
-/** [AI 수정 요청]. 수정안이 생기면 공고 캐시의 suggestion이 바뀐다. */
+/** [AI 수정 요청]. focus가 있으면 그 줄만 고친다. 수정안이 생기면 공고 캐시의 suggestion이 바뀐다. */
 export function usePostingAiRequest(recruitmentId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (message: string) =>
+    mutationFn: ({ message, focus }: { message: string; focus: PostingFocus | null }) =>
       unwrap(
         api.POST('/api/recruitments/{recruitmentId}/posting/ai-requests', {
           params: { path: { recruitmentId } },
-          body: { message },
+          body: { message, focus },
         }),
       ),
     onSuccess: (answer) =>

@@ -11,10 +11,13 @@ from hiremate_ai.agents.generation.posting.reviser import (
     CONTENT_STEP,
     DEFAULT_ITEMS,
     FIELD_LABELS,
+    FOCUS_MISSING_REPLY,
     JUNIOR_NOTE,
+    LINE_UNCHANGED_REPLY,
     LOCKED_REPLY,
     MAX_DRAFT_ITEMS,
     MAX_NCS_UNITS,
+    MULTILINE_LINE,
     NCS_DETAIL_CHARS,
     NCS_ORDER_NOTE,
     NCS_SYSTEM,
@@ -22,9 +25,12 @@ from hiremate_ai.agents.generation.posting.reviser import (
     RETRY_HINT,
     ROUTE_STEP,
     SYSTEM,
+    UNCHANGED_LINE,
     ContentChanges,
     ExtrasPlan,
     FieldChange,
+    IntroEdit,
+    LineEdit,
     NcsDraft,
     NcsPick,
     Route,
@@ -33,7 +39,12 @@ from hiremate_ai.agents.generation.posting.reviser import (
     StagePlan,
     revise_posting,
 )
-from hiremate_ai.agents.generation.posting.types import PostingDraftContext, RecruitmentStatus, StageDraft
+from hiremate_ai.agents.generation.posting.types import (
+    PostingDraftContext,
+    PostingFocus,
+    RecruitmentStatus,
+    StageDraft,
+)
 from hiremate_ai.contract import DocumentType, PostingContent, StageType
 from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.tools.ncs import ncs_data, survey_score, unit_by_code
@@ -814,6 +825,158 @@ async def test_revise_checks_ncs_written_lists_too() -> None:
     result = await revise_posting(llm, posting(), "", "자격 요건 써 줘")
 
     assert result.reply == BLOCKED_REPLY
+
+
+# 고른 줄
+
+
+def focus(field: Any, index: int | None = None) -> PostingFocus:
+    return PostingFocus(field=field, index=index)
+
+
+def rewrite(text: str | None) -> LineEdit:
+    return LineEdit(action="REWRITE", text=text)
+
+
+TWO_PREFERRED = CONTENT.model_copy(update={"preferred": ["금융 도메인 경험", "대용량 트래픽 처리 경험"]})
+
+
+async def test_revise_line_changes_only_the_picked_line_in_one_call() -> None:
+    llm = FakeLlm(rewrite("카드 결제 · 정산 시스템 개발 경험"))
+
+    result = await revise_posting(
+        llm, posting(content=TWO_PREFERRED), "", "결제 쪽으로 구체적으로", focus("preferred", 0)
+    )
+
+    assert result.suggestion is not None
+    assert result.suggestion.content == TWO_PREFERRED.model_copy(
+        update={"preferred": ["카드 결제 · 정산 시스템 개발 경험", "대용량 트래픽 처리 경험"]}
+    )
+    assert result.suggestion.changed_fields == ["preferred"]
+    assert result.suggestion.stages is None
+    assert result.reply == "우대 사항 1번 줄 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
+    (call,) = llm.calls
+    assert call.output is LineEdit
+    assert call.system == SYSTEM
+    assert "HR 요청: 결제 쪽으로 구체적으로" in call.user
+    assert call.user.endswith(
+        '지금 할 일: HR이 고른 우대 사항 1번 줄("금융 도메인 경험")을 다룬다. '
+        "먼저 HR 요청이 이 줄을 지우라는 것인지 본다. 지우라는 요청이면 action을 DELETE로, text를 null로 둔다. "
+        "아니면 action을 REWRITE로 두고 이 줄만 요청대로 고친 한 줄을 text에 쓴다. 칸 이름이나 다른 줄은 쓰지 않는다."
+    )
+
+
+async def test_revise_line_removes_the_line_when_model_chooses_delete() -> None:
+    llm = FakeLlm(LineEdit(action="DELETE", text=None))
+
+    result = await revise_posting(llm, posting(content=TWO_PREFERRED), "", "이 줄 지워 줘", focus("preferred", 1))
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.preferred == ["금융 도메인 경험"]
+    assert result.reply == "우대 사항 2번 줄을 지운 수정안을 만들었어요. 확인하고 적용해 주세요."
+
+
+async def test_revise_line_tidies_bullets_and_spacing() -> None:
+    llm = FakeLlm(rewrite("- 연 1 회 워크숍"))
+
+    result = await revise_posting(llm, posting(), "", "워크숍으로 바꿔 줘", focus("benefits", 0))
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.benefits == ["연 1회 워크숍"]
+
+
+async def test_revise_line_retries_when_model_writes_the_list_in_one_line() -> None:
+    llm = FakeLlm(rewrite("복지:\n- 유연 근무"), rewrite("식대 지원"))
+
+    result = await revise_posting(llm, posting(), "", "식대 지원으로 바꿔 줘", focus("benefits", 0))
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.benefits == ["식대 지원"]
+    assert MULTILINE_LINE in llm.calls[1].user
+
+
+async def test_revise_line_rewrites_intro_as_a_whole() -> None:
+    llm = FakeLlm(IntroEdit(text="카드 결제와 정산 플랫폼을 운영하는 회사입니다."))
+
+    result = await revise_posting(llm, posting(), "", "더 짧게", focus("intro"))
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.intro == "카드 결제와 정산 플랫폼을 운영하는 회사입니다."
+    assert result.suggestion.changed_fields == ["intro"]
+    assert result.reply == "회사 소개 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
+    assert llm.calls[0].output is IntroEdit
+    assert llm.calls[0].user.endswith(
+        f'지금 할 일: HR이 고른 회사 소개("{CONTENT.intro}")만 요청대로 고쳐 text에 쓴다. 다른 칸은 쓰지 않는다.'
+    )
+
+
+async def test_revise_line_asks_again_when_model_returns_the_line_unchanged() -> None:
+    llm = FakeLlm(IntroEdit(text=CONTENT.intro), IntroEdit(text="결제 플랫폼 회사입니다."))
+
+    result = await revise_posting(llm, posting(), "", "더 짧게", focus("intro"))
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.intro == "결제 플랫폼 회사입니다."
+    assert UNCHANGED_LINE in llm.calls[1].user
+
+
+async def test_revise_line_does_not_clear_intro() -> None:
+    llm = FakeLlm(IntroEdit(text=" "), IntroEdit(text=""))
+
+    result = await revise_posting(llm, posting(), "", "지워 줘", focus("intro"))
+
+    assert result.suggestion is None
+    assert result.reply == LINE_UNCHANGED_REPLY
+
+
+async def test_revise_line_says_nothing_changed_when_line_stays_the_same_twice() -> None:
+    llm = FakeLlm(rewrite("금융 도메인 경험"), rewrite("금융 도메인 경험"))
+
+    result = await revise_posting(llm, posting(), "", "괜찮은지 봐 줘", focus("preferred", 0))
+
+    assert result.suggestion is None
+    assert result.reply == LINE_UNCHANGED_REPLY
+    assert len(llm.calls) == 2
+
+
+@pytest.mark.parametrize("picked", [focus("preferred", 1), focus("preferred", -1), focus("duties")])
+async def test_revise_line_reports_a_line_not_in_posting_without_calling_model(picked: PostingFocus) -> None:
+    llm = FakeLlm()
+
+    result = await revise_posting(llm, posting(), "", "고쳐 줘", picked)
+
+    assert result.reply == FOCUS_MISSING_REPLY
+    assert llm.calls == []
+
+
+async def test_revise_line_refuses_discriminatory_request_on_requirements_without_calling_model() -> None:
+    llm = FakeLlm()
+
+    result = await revise_posting(llm, posting(), "", "20대 여성으로 바꿔 줘", focus("qualifications", 0))
+
+    assert result.reply == BLOCKED_REPLY
+    assert llm.calls == []
+
+
+async def test_revise_line_refuses_discriminatory_output_without_retry() -> None:
+    llm = FakeLlm(rewrite("30세 이하 지원자"))
+
+    result = await revise_posting(llm, posting(), "", "다듬어 줘", focus("preferred", 0))
+
+    assert result.suggestion is None
+    assert result.reply == BLOCKED_REPLY
+    assert len(llm.calls) == 1
+
+
+async def test_revise_line_retries_once_with_reasons() -> None:
+    llm = FakeLlm(rewrite("연봉 6000만원 보장"), rewrite("성과급"))
+
+    result = await revise_posting(llm, posting(), "", "성과급으로 바꿔 줘", focus("benefits", 0))
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.benefits == ["성과급"]
+    assert len(llm.calls) == 2
+    assert "복지에 주어진 정보에 없는 금액을 썼다: 6000만원" in llm.calls[1].user
 
 
 # 프롬프트

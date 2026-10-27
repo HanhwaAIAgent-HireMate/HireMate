@@ -6,6 +6,7 @@ import com.hiremate.ai.application.PostingAgent;
 import com.hiremate.posting.DocumentType;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.PostingDraftContext;
+import com.hiremate.posting.PostingFocus;
 import com.hiremate.posting.PostingSuggestion;
 import com.hiremate.recruit.RecruitmentStatus;
 import com.hiremate.recruit.StageDraft;
@@ -23,7 +24,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 개발용 Posting Agent. ai 서버가 붙기 전까지 규칙으로 수정 요청을 처리한다.
- * 전형 절차 말하기 · 빼기, 필수 제출 서류, 각 칸에 줄 더하기, 채용명 · 고용 형태 · 경력 · 근무지를 다룬다.
+ * 전형 절차 말하기 · 빼기, 필수 제출 서류, 각 칸에 줄 더하기, 채용명 · 고용 형태 · 경력 · 근무지, 고른 줄 지우기를 다룬다.
  */
 @Component
 @ConditionalOnAiMode(agent = AiAgent.POSTING, mode = AiMode.STUB)
@@ -36,12 +37,16 @@ class StubPostingAgent implements PostingAgent {
     private static final Pattern LOCATION = Pattern.compile("근무지(?:는|를)?\\s*(.+?)(?:으로|로)\\s");
     private static final Pattern CAREER = Pattern.compile("(경력\\s*\\d+\\s*년\\s*이상|신입|경력 무관)");
     private static final Pattern EMPLOYMENT = Pattern.compile("(정규직|계약직|인턴)");
+    private static final Pattern LINE_REMOVE = Pattern.compile("빼|지워|지우|삭제");
     private static final Map<String, String> SECTION_FIELDS =
             Map.of("주요 업무", "duties", "자격 요건", "qualifications", "우대 사항", "preferred");
 
     @Override
-    public Result revise(PostingDraftContext posting, String writingStyle, String request) {
+    public Result revise(PostingDraftContext posting, String writingStyle, String request, PostingFocus focus) {
         String message = request.trim() + " ";
+        if (focus != null) {
+            return focusedLine(posting.content(), focus, message);
+        }
         boolean locked = posting.status() != RecruitmentStatus.DRAFT;
 
         if (message.contains("필수") && (message.contains("포트폴리오") || message.contains("자격증"))) {
@@ -189,6 +194,23 @@ class StubPostingAgent implements PostingAgent {
                 content.benefits());
         return new Result(section + "에 \"" + line + "\" 줄을 더했어요.",
                 new PostingSuggestion(revised, null, null, List.of(field)));
+    }
+
+    /** 고른 줄은 지우기만 한다. 고른 줄을 고쳐 쓰는 일은 ai 서버의 Posting Agent가 한다. */
+    private static Result focusedLine(PostingContent content, PostingFocus focus, String message) {
+        if (focus.index() == null || !LINE_REMOVE.matcher(message).find()) {
+            return new Result("지금은 개발용 AI라 고른 줄은 지우기(\"이 줄 지워 줘\")만 처리해요.", null);
+        }
+        List<String> lines = new ArrayList<>(focus.lines(content));
+        lines.remove(focus.index().intValue());
+        String field = focus.field();
+        PostingContent revised = new PostingContent(content.title(), content.jobCategory(), content.employmentType(),
+                content.career(), content.location(), content.intro(),
+                field.equals("duties") ? lines : content.duties(),
+                field.equals("qualifications") ? lines : content.qualifications(),
+                field.equals("preferred") ? lines : content.preferred(),
+                field.equals("benefits") ? lines : content.benefits());
+        return new Result("고른 줄을 지운 수정안을 만들었어요.", new PostingSuggestion(revised, null, null, List.of(field)));
     }
 
     private static Result lockedReply() {

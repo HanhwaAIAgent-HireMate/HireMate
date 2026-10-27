@@ -2,6 +2,8 @@ package com.hiremate.ai.api;
 
 import com.hiremate.ai.application.PostingAiService;
 import com.hiremate.global.AuthenticatedMember;
+import com.hiremate.posting.PostingFocus;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -24,9 +26,11 @@ public class PostingAiController {
     @PostMapping("/api/recruitments/{recruitmentId}/posting/ai-requests")
     public PostingAiService.PostingAiAnswer request(AuthenticatedMember member, @PathVariable UUID recruitmentId,
             @Valid @RequestBody PostingAiRequest request) {
-        return service.request(member.companyId(), recruitmentId, request.message());
+        return service.request(member.companyId(), recruitmentId, request.message(), request.focus());
     }
 
-    public record PostingAiRequest(@NotBlank @Size(max = 1000) String message) {
+    /** focus는 HR이 줄을 골라 요청할 때만 있고 아니면 null이다. 있으면 AI는 그 줄만 고친다. */
+    public record PostingAiRequest(@NotBlank @Size(max = 1000) String message,
+            @Valid @Schema(nullable = true) PostingFocus focus) {
     }
 }

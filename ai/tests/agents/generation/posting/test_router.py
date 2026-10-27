@@ -3,7 +3,13 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from hiremate_ai.agents.generation.posting.reviser import NOTHING_CHANGED_REPLY, ContentChanges, FieldChange, Route
+from hiremate_ai.agents.generation.posting.reviser import (
+    NOTHING_CHANGED_REPLY,
+    ContentChanges,
+    FieldChange,
+    LineEdit,
+    Route,
+)
 from hiremate_ai.agents.generation.posting.router import router
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
@@ -23,7 +29,7 @@ CONTENT = {
 
 
 def body(request: str) -> dict[str, Any]:
-    """backend PostingAgent.revise(posting, writingStyle, request)가 보내는 JSON."""
+    """backend PostingAgent.revise(posting, writingStyle, request, focus)가 보내는 JSON."""
     return {
         "posting": {
             "recruitmentId": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
@@ -34,6 +40,7 @@ def body(request: str) -> dict[str, Any]:
         },
         "writingStyle": "",
         "request": request,
+        "focus": None,
     }
 
 
@@ -66,6 +73,22 @@ def test_revise_returns_backend_result_shape() -> None:
             "changedFields": ["preferred"],
         },
     }
+
+
+def test_revise_changes_only_the_line_hr_picked() -> None:
+    llm = FakeLlm(LineEdit(action="REWRITE", text="카드 결제 · 정산 도메인 경험"))
+    request = {**body("결제 쪽으로 구체적으로"), "focus": {"field": "preferred", "index": 0}}
+
+    response = client(llm).post("/agents/posting/revise", json=request)
+
+    assert response.status_code == 200
+    assert response.json()["suggestion"] == {
+        "content": {**CONTENT, "preferred": ["카드 결제 · 정산 도메인 경험"]},
+        "stages": None,
+        "requiredExtras": None,
+        "changedFields": ["preferred"],
+    }
+    assert [call.output for call in llm.calls] == [LineEdit]
 
 
 def test_revise_returns_null_suggestion_when_nothing_changes() -> None:

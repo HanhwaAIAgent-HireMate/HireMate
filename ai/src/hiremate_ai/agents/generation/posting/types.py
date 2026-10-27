@@ -1,9 +1,10 @@
 """Posting Agent만 쓰는 계약 타입. backend `posting` · `recruit` · `ai.application`의 Java 레코드를 그대로 옮긴다.
 
-필드를 바꾸면 저장소 루트 contract/의 PostingDraftContext.json · PostingSuggestion.json도 고친다.
+필드를 바꾸면 저장소 루트 contract/의 PostingDraftContext.json · PostingFocus.json · PostingSuggestion.json도 고친다.
 """
 
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from hiremate_ai.contract import ContractModel, DocumentType, PostingContent, StageType
@@ -36,6 +37,20 @@ class PostingDraftContext(ContractModel):
     content: PostingContent
     stages: list[StageDraft]
     required_extras: list[DocumentType]
+
+
+FocusField = Literal["intro", "duties", "qualifications", "preferred", "benefits"]
+"""HR이 골라 고칠 수 있는 본문 칸. 회사 소개는 칸 전체를, 나머지는 목록의 줄 하나를 고른다."""
+
+
+class PostingFocus(ContractModel):
+    """HR이 공고 편집 화면에서 고른 줄 (posting.PostingFocus). AI는 이 줄만 고친다.
+
+    index는 목록 칸의 몇 번째 줄인지(0부터)이고, 회사 소개를 고르면 null이다.
+    """
+
+    field: FocusField
+    index: int | None
 
 
 class PostingSuggestion(ContractModel):

@@ -22,6 +22,7 @@ import com.hiremate.job.Job;
 import com.hiremate.job.JobResult;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.PostingDraftContext;
+import com.hiremate.posting.PostingFocus;
 import com.hiremate.posting.PostingSuggestion;
 import com.hiremate.posting.ScreeningRubric;
 import java.io.IOException;
@@ -70,6 +71,7 @@ class ContractSampleTests {
             Map.entry("JobResult", JobResult.class),
             Map.entry("PostingContent", PostingContent.class),
             Map.entry("PostingDraftContext", PostingDraftContext.class),
+            Map.entry("PostingFocus", PostingFocus.class),
             Map.entry("PostingSuggestion", PostingSuggestion.class),
             Map.entry("ScreeningRubric", ScreeningRubric.class));
 
