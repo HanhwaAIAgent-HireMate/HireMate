@@ -14,6 +14,11 @@ const content: PostingContent = {
   qualifications: [],
   preferred: ['금융 도메인 경험', '', '대용량 트래픽 처리 경험'],
   benefits: [],
+  headcount: null,
+  position: '',
+  education: '',
+  workHours: '',
+  salary: '',
 }
 
 describe('줄 골라 AI에게 맡기기', () => {

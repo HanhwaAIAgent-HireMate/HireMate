@@ -43,6 +43,11 @@ FIELD_LABELS = {
     "employment_type": "고용 형태",
     "career": "경력",
     "location": "근무지",
+    "headcount": "채용 인원",
+    "position": "직급",
+    "education": "학력",
+    "work_hours": "근무 일시",
+    "salary": "급여",
     "intro": "회사 소개",
     "duties": "주요 업무",
     "qualifications": "자격 요건",
@@ -98,22 +103,62 @@ NCS_DETAIL_CHARS = 3000
 """두 번째 호출에 넣는 능력단위 정의와 수행준거의 글자 수 한도. 능력단위 하나에 평균 700자라 다 넣으면
 노트북 모델이 한 번에 읽는 양(약 4천 토큰)을 넘는다. 지식 · 기술은 일반적인 말이라 공고 문장에는 넣지 않는다."""
 
-DEFAULT_ITEMS = 5
-"""요청에 개수가 없을 때 NCS 근거로 쓰는 자격 요건 · 우대 사항 수."""
+DEFAULT_ITEMS = 10
+"""요청에 개수가 없을 때 NCS 근거로 쓰는 자격 요건 · 우대 사항의 최대 수. HR이 많은 후보에서 추리도록 넉넉히 쓰되,
+근거를 찾을 수 있는 만큼만 쓰고 개수를 채우려고 지어내지 않는다."""
 
 MAX_DRAFT_ITEMS = 10
 """NCS 근거로 한 번에 쓰는 목록 하나의 항목 수 한도. 항목이 많을수록 오래 걸리고 근거가 얇아진다."""
 
 ContentLabel = Literal[
-    "채용명", "직무", "고용 형태", "경력", "근무지", "회사 소개", "주요 업무", "자격 요건", "우대 사항", "복지"
+    "채용명",
+    "직무",
+    "고용 형태",
+    "경력",
+    "근무지",
+    "채용 인원",
+    "직급",
+    "학력",
+    "근무 일시",
+    "급여",
+    "회사 소개",
+    "주요 업무",
+    "자격 요건",
+    "우대 사항",
+    "복지",
 ]
 """모델이 바꿀 칸을 고르는 이름. 영어 필드 이름을 주면 작은 모델이 '근무지'를 job_category에 넣는 식으로 헷갈린다."""
 LABEL_FIELDS = {label: name for name, label in FIELD_LABELS.items()}
-TEXT_FIELDS = ("title", "job_category", "employment_type", "career", "location", "intro")
+TEXT_FIELDS = (
+    "title",
+    "job_category",
+    "employment_type",
+    "career",
+    "location",
+    "position",
+    "education",
+    "work_hours",
+    "salary",
+    "intro",
+)
 NCS_FIELDS: tuple[tuple[str, ContentLabel], ...] = (("qualifications", "자격 요건"), ("preferred", "우대 사항"))
+MAX_HEADCOUNT = 9999
+"""채용 인원 한도. backend PostingContentRequest와 같다."""
 
 EXTRA_WORDS = {DocumentType.PORTFOLIO: ("포트폴리오",), DocumentType.CERTIFICATE: ("자격증",)}
 """필수 서류는 요청에 그 서류가 나올 때만 넣고 뺀다. 작은 모델이 요청하지 않은 서류를 더하곤 한다."""
+
+FACT_WORDS = {
+    "headcount": re.compile(r"인원|\d+\s*명|(?:한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*명"),
+    "position": re.compile(r"직급|직위|직책|사원|주임|대리|과장|차장|부장|선임|책임|수석"),
+    "education": re.compile(r"학력|학위|학사|석사|박사|졸업|대졸|고졸|초대졸"),
+    "work_hours": re.compile(r"근무\s*(?:시간|일시|요일|일|형태)|출근|퇴근|시차|교대|주\s*\d\s*일|\d+\s*시"),
+    "salary": re.compile(r"급여|연봉|월급|임금|보수|시급|처우|\d\s*(?:만\s*)?원"),
+    "intro": re.compile(r"소개"),
+    "benefits": re.compile(r"복지|혜택|복리"),
+}
+"""회사가 알려 주는 사실을 담는 칸과, 요청에서 그 칸을 말하는 낱말. 요청에서 그 칸을 말했을 때만 바꾼다.
+작은 모델이 공고 전체를 써 달라는 요청에 회사가 알려 주지 않은 복지 · 회사 소개 · 근무 조건을 지어내곤 한다."""
 
 # 이름만으로 전형 종류를 알 수 없는 낱말과, 종류를 알 수 있는 낱말. 새 전형 이름이 앞에만 걸리고
 # 요청에도 종류가 없으면 모델이 종류를 골랐어도 되묻는다 (FR-04). 모델은 지시를 어기고 추측하곤 한다.
@@ -165,13 +210,16 @@ class Route(BaseModel):
 
     targets: list[Target] = Field(description="요청이 바꾸라는 대상. 알 수 없으면 빈 목록")
     question: str | None = Field(description="무엇을 바꾸라는지 알 수 없을 때 HR에게 되묻는 한 문장. 아니면 null")
+    writes_posting: bool = Field(
+        description="공고를 처음부터 쓰거나 공고 전체를 채우라는 요청이면 true, 몇 칸만 고치라는 요청이면 false"
+    )
 
 
 class FieldChange(BaseModel):
     """바꿀 본문 칸 하나. 글 칸은 text, 목록 칸은 items에 쓰고 다른 하나는 null이다."""
 
     field: ContentLabel = Field(description="바꿀 본문 칸")
-    text: str | None = Field(description="글 칸(채용명, 직무, 고용 형태, 경력, 근무지, 회사 소개)의 새 내용")
+    text: str | None = Field(description="목록이 아닌 글 칸(채용명, 근무지, 급여, 회사 소개 등)의 새 내용")
     items: list[str] | None = Field(description="목록 칸(주요 업무, 자격 요건, 우대 사항, 복지)의 바꾼 뒤 목록 전체")
 
 
@@ -236,8 +284,8 @@ SYSTEM = """너는 기업 인사팀의 채용 공고 편집을 돕는 Posting Ag
 요청은 여러 번에 나눠 처리한다. 맨 끝의 "지금 할 일"만 하고, 그 형식의 칸만 쓴다.
 
 바꿀 수 있는 대상:
-- CONTENT: 공고 본문 칸(채용명, 직무, 고용 형태, 경력, 근무지, 회사 소개, 주요 업무, 자격 요건, 우대 사항, 복지)을
-  고치거나 항목을 더하고 빼기.
+- CONTENT: 공고 본문 칸(채용명, 직무, 고용 형태, 경력, 근무지, 채용 인원, 직급, 학력, 근무 일시, 급여, 회사 소개,
+  주요 업무, 자격 요건, 우대 사항, 복지)을 고치거나 항목을 더하고 빼기.
 - STAGES: 전형 절차. 전형 이름은 HR이 말한 그대로 두고 종류를 정한다. 종류는 DOCUMENT(서류: 지원서와 제출 서류 검토),
   ASSESSMENT(평가: 코딩테스트, 인적성, 직무역량 평가, 과제), INTERVIEW(면접: 실무면접, 임원면접)다.
 - REQUIRED_EXTRAS: 필수 제출 서류. 이력서와 자기소개서는 항상 받는다. 더 받을 수 있는 것은 PORTFOLIO(포트폴리오),
@@ -247,18 +295,22 @@ SYSTEM = """너는 기업 인사팀의 채용 공고 편집을 돕는 Posting Ag
 
 규칙:
 1. 요청하지 않은 대상과 칸은 바꾸지 않는다.
-2. 회사가 알려 주지 않은 사실(연봉, 복지, 근무 조건, 회사 정보)은 지어내지 않는다.
+2. 회사가 알려 주지 않은 사실(급여, 복지, 근무 일시, 직급, 학력, 채용 인원, 회사 정보)은 지어내지 않는다.
+   지금 공고와 HR 요청에 있는 내용만 쓴다.
 3. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 자격 요건이나 우대 사항에 넣지 않는다.
 4. 회사의 공고 작성 스타일이 있으면 따른다. 한국어로 쓰고, 목록 항목은 앞에 기호 없이 한 줄로 짧게 쓴다."""
 
 ROUTE_STEP = (
     "지금 할 일: 요청이 바꾸라는 대상을 targets에 고른다. 요청하지 않은 대상은 넣지 않는다. "
-    "무엇을 바꾸라는지 알 수 없으면 targets를 비우고 question에 되묻는 한 문장을 쓴다."
+    "무엇을 바꾸라는지 알 수 없으면 targets를 비우고 question에 되묻는 한 문장을 쓴다. "
+    "공고를 처음부터 쓰거나 공고 전체를 채우라는 요청(예: '백엔드 개발자 공고 써 줘', "
+    "'경력 3년 이상 5명 채용하려고 해')이면 writes_posting을 true로 둔다."
 )
 CONTENT_STEP = (
     "지금 할 일: 본문 칸 중 요청이 바꾸라는 칸만 changes에 쓴다. field에는 칸 이름(예: 근무지, 우대 사항)을 쓴다. "
-    "글 칸(채용명, 직무, 고용 형태, 경력, 근무지, 회사 소개)은 text에 새 내용을, 목록 칸(주요 업무, 자격 요건, "
-    "우대 사항, 복지)은 items에 그대로 둘 항목까지 넣은 바꾼 뒤 목록 전체를 쓰고, 다른 하나는 null로 둔다."
+    "글 칸(채용명, 직무, 고용 형태, 경력, 근무지, 채용 인원, 직급, 학력, 근무 일시, 급여, 회사 소개)은 text에 "
+    "새 내용을, 목록 칸(주요 업무, 자격 요건, 우대 사항, 복지)은 items에 그대로 둘 항목까지 넣은 바꾼 뒤 목록 전체를 "
+    "쓰고, 다른 하나는 null로 둔다. 채용 인원은 숫자만 쓴다(예: 3)."
 )
 STAGES_STEP = (
     "지금 할 일: 바꾼 뒤의 전형 절차 전체를 순서대로 stages에 쓴다. 이름만으로 종류를 알 수 없는 전형"
@@ -282,8 +334,9 @@ NCS_SYSTEM = """너는 채용 공고의 자격 요건과 우대 사항을 NCS(�
 5. 지금 공고의 항목 중 요청과 관계없이 그대로 둘 항목도 함께 쓴다.
 6. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 넣지 않는다. 회사가 알려 주지 않은 사실은 지어내지 않는다.
 7. 항목은 40자 안팎의 한 줄로, 공고에 쓰는 쉬운 말로 쓴다.
-   수행준거의 "~할 수 있는 능력" 말투나 전문 용어를 늘어놓지 않고 "~ 경험", "~ 능력"으로 끝낸다.
-   목록마다 "지금 할 일"에 적힌 개수만큼 쓴다. 한국어로 쓴다."""
+   수행준거의 "~할 수 있는 능력" 말투나 전문 용어를 늘어놓지 않고 "~ 경험", "~ 능력"으로 끝낸다. 한국어로 쓴다.
+8. 목록마다 "지금 할 일"에 적힌 개수까지 쓴다. 능력단위와 지금 공고에서 근거를 찾을 수 있는 만큼만 쓰고,
+   개수를 채우려고 같은 능력을 말만 바꿔 다시 쓰거나 근거 없는 항목을 만들지 않는다. 개수보다 적어도 된다."""
 
 
 @dataclass(frozen=True)
@@ -331,7 +384,11 @@ async def revise_posting(
     targets = set(route.targets)
     if "CONTENT" in targets and _writes_whole_list(posting.content, request):
         targets.add("NCS_REQUIREMENTS")
-    if not _NCS_WORDS.search(request):
+    # 공고 전체를 써 달라는 요청이면 자격 요건 · 우대 사항을 말하지 않았어도 비어 있는 목록을 NCS 근거로 쓴다
+    fills_empty = route.writes_posting and not _NCS_WORDS.search(request) and _has_empty_list(posting.content)
+    if fills_empty:
+        targets.add("NCS_REQUIREMENTS")
+    elif not _NCS_WORDS.search(request):
         # 근거로 새로 쓰는 일은 오래 걸려, 자격 요건 · 우대 사항을 말한 요청일 때만 한다
         targets.discard("NCS_REQUIREMENTS")
     locked = posting.status is not RecruitmentStatus.DRAFT and bool(targets & PROCESS_TARGETS)
@@ -342,7 +399,7 @@ async def revise_posting(
 
     found: list[str] = []
     for _ in range(ATTEMPTS):
-        edit = await _write(llm, posting, writing_style, request, context, targets, found)
+        edit = await _write(llm, posting, writing_style, request, context, targets, found, fills_empty)
         draft = _draft(posting, edit, request)
         if draft.unknown_stages:
             # 모델의 되묻는 말은 평가 방식 같은 다른 것을 묻곤 해서, 정해 둔 말로 종류만 묻는다
@@ -440,14 +497,18 @@ async def _write(
     context: str,
     targets: set[Target],
     found: list[str],
+    fills_empty: bool = False,
 ) -> _Edit:
-    """고른 대상마다 그 대상만 쓰게 한다. found가 있으면 앞서 쓴 수정안이 걸린 이유를 붙인다."""
+    """고른 대상마다 그 대상만 쓰게 한다. found가 있으면 앞서 쓴 수정안이 걸린 이유를 붙인다.
+
+    fills_empty면 NCS 근거로 비어 있는 자격 요건 · 우대 사항만 쓴다 (공고 전체를 써 달라는 요청).
+    """
     changes: list[FieldChange] = []
     cited: list[NcsUnit] = []
     notes: list[str] = []
     if "CONTENT" in targets:
         changes = (await _ask(llm, ContentChanges, context, CONTENT_STEP, found)).changes
-    if "NCS_REQUIREMENTS" in targets and (plan := _ncs_plan(posting.content, request)):
+    if "NCS_REQUIREMENTS" in targets and (plan := _ncs_plan(posting.content, request, fills_empty)):
         pick = await _ask(llm, NcsPick, context, _ncs_pick_step(), found)
         if units := _chosen_units(pick.ncs_codes):
             counts = {name: min(max(count, 1), MAX_DRAFT_ITEMS) for name, count in plan.items()}
@@ -474,13 +535,16 @@ async def _ask[T: BaseModel](
     return await llm.structured(output, agent=AGENT, system=SYSTEM, user=f"{_with_reasons(context, found)}\n\n{step}")
 
 
-def _ncs_plan(content: PostingContent, request: str) -> dict[str, int]:
+def _ncs_plan(content: PostingContent, request: str, empty_only: bool = False) -> dict[str, int]:
     """NCS 근거로 쓸 목록과 요청한 항목 수.
 
     요청에서 말한 목록은 요청대로 쓰고(개수가 없으면 DEFAULT_ITEMS), 말하지 않은 목록은 비어 있을 때만 쓴다.
     HR이 다듬어 둔 목록을 덮어쓰지 않기 위해서다. "우대 사항만"이면 그 목록만 쓰고, "자격 요건은 그대로 두고"면
     그 목록은 쓰지 않는다. 목록을 말하지 않은 요청(예: "NCS 기반으로 써 줘")은 둘 다 말한 것으로 본다.
+    empty_only면 비어 있는 목록만 쓴다.
     """
+    if empty_only:
+        return {name: DEFAULT_ITEMS for name in _LIST_WORDS if not getattr(content, name)}
     said = {name for name, words in _LIST_WORDS.items() if re.search(words, request)} or set(_LIST_WORDS)
     kept = {name for name, words in _LIST_WORDS.items() if re.search(f"(?:{words}){_KEEP}", request)}
     only = {name for name, words in _LIST_WORDS.items() if re.search(f"(?:{words}){_ONLY}", request)}
@@ -492,6 +556,10 @@ def _ncs_plan(content: PostingContent, request: str) -> dict[str, int]:
             spoken = _spoken_count(words, request)
             plan[name] = _number(spoken.group(1)) if spoken else DEFAULT_ITEMS
     return plan
+
+
+def _has_empty_list(content: PostingContent) -> bool:
+    return any(not getattr(content, name) for name in _LIST_WORDS)
 
 
 def _writes_whole_list(content: PostingContent, request: str) -> bool:
@@ -543,7 +611,7 @@ def _apply_ncs(
     """NCS 정의를 보고 쓴 목록을 바꿀 칸에 넣고, 보여 준 능력단위 중 근거로 쓴 것과 목록마다 넣은 항목 수를 돌려준다.
 
     쓰기로 한 목록만 정한 개수까지 넣는다. 목록이 비어 있으면 지금 공고의 목록을 지우지 않게 넣지 않는다.
-    보여 주지 않은 능력단위는 근거로 치지 않는다.
+    개수를 채우려고 같은 항목을 되풀이하면 하나만 남긴다. 보여 주지 않은 능력단위는 근거로 치지 않는다.
     """
     shown = {unit.code for unit in units}
     written: list[FieldChange] = []
@@ -552,7 +620,11 @@ def _apply_ncs(
     for name, label in NCS_FIELDS:
         if name not in counts:
             continue
-        items = [item for item in getattr(ncs, name) if item.text.strip()][: counts[name]]
+        unique: dict[str, SourcedItem] = {}
+        for item in getattr(ncs, name):
+            if item.text.strip():
+                unique.setdefault(_compact(item.text), item)
+        items = list(unique.values())[: counts[name]]
         sizes[name] = len(items)
         if not items:
             continue
@@ -566,24 +638,22 @@ def _apply_ncs(
 
 
 def _count_notes(plan: dict[str, int], counts: dict[str, int], written: dict[str, int]) -> list[str]:
-    """요청보다 적게 쓴 목록을 알린다. 모델이 적게 썼으면 다시 쓰게 하지 않는다. 노트북 모델로는 시간 제한을 넘는다."""
+    """요청보다 적게 쓴 목록을 알린다. 근거를 찾을 수 있는 만큼만 쓰게 해서, 적게 썼다고 다시 쓰게 하지 않는다."""
     notes = [
         f"{FIELD_LABELS[name]}은 {MAX_DRAFT_ITEMS}개까지 써요."
         for name, count in plan.items()
         if count > MAX_DRAFT_ITEMS and written.get(name)
     ]
-    short = [
-        f"{FIELD_LABELS[name]}은 {count}개 중 {written[name]}개만 썼어요."
+    notes += [
+        f"{FIELD_LABELS[name]}은 근거를 찾을 수 있는 {written[name]}개만 썼어요."
         for name, count in counts.items()
         if 0 < written.get(name, 0) < count
     ]
-    if short:
-        notes += [*short, "더 필요하면 다시 요청해 주세요."]
     return notes
 
 
 def _draft(posting: PostingDraftContext, edit: _Edit, request: str) -> _Draft:
-    content, changed = _apply(posting.content, edit.changes)
+    content, changed = _apply(posting.content, _requested_facts(edit.changes, request))
     stages: list[StageDraft] | None = None
     unknown: list[str] = []
     if edit.stages is not None:
@@ -633,10 +703,16 @@ def _apply(content: PostingContent, changes: list[FieldChange]) -> tuple[Posting
     """모델이 바꾼 본문 칸을 지금 공고에 합친다. 원래와 같은 칸은 바뀐 칸에 넣지 않는다.
 
     빈 값은 칸을 지우라는 뜻으로 보지 않는다. 작은 모델이 바꾸지 않을 칸을 빈 값으로 채우기 때문이다.
+    채용 인원은 글에서 숫자를 읽고, 숫자가 없거나 한도를 넘으면 바꾸지 않는다.
     """
-    updates: dict[str, str | list[str]] = {}
+    updates: dict[str, str | list[str] | int] = {}
     for change in changes:
         name = LABEL_FIELDS[change.field]
+        if name == "headcount":
+            count = _headcount(change.text)
+            if count is not None and count != content.headcount:
+                updates[name] = count
+            continue
         value: str | list[str] | None = change.text if name in TEXT_FIELDS else change.items
         if value is None:
             continue
@@ -645,6 +721,24 @@ def _apply(content: PostingContent, changes: list[FieldChange]) -> tuple[Posting
             updates[name] = cleaned
     changed = [name for name in FIELD_LABELS if name in updates]
     return content.model_copy(update=updates), changed
+
+
+def _requested_facts(changes: list[FieldChange], request: str) -> list[FieldChange]:
+    """회사가 알려 주는 사실을 담는 칸(FACT_WORDS)은 요청에서 그 칸을 말했을 때만 바꾼다."""
+    return [
+        change
+        for change in changes
+        if (words := FACT_WORDS.get(LABEL_FIELDS[change.field])) is None or words.search(request)
+    ]
+
+
+def _headcount(text: str | None) -> int | None:
+    """채용 인원 글에서 읽은 숫자 (예: "3", "3명", "세 명"). 1부터 MAX_HEADCOUNT까지만 받는다."""
+    found = re.search(r"\d+|" + "|".join(_KOREAN_NUMBERS), text or "")
+    if not found:
+        return None
+    count = _number(found.group())
+    return count if 1 <= count <= MAX_HEADCOUNT else None
 
 
 # 목록 항목 앞에 모델이 붙이는 기호와 번호 (예: "- ", "• ", "1. ")
@@ -743,7 +837,7 @@ def _ncs_prompt(
 
 def _ncs_task(counts: dict[str, int]) -> str:
     """쓸 목록과 개수. 요청을 읽고 정하는 일은 코드가 하고 모델에게는 정한 대로 알려 준다."""
-    task = f"지금 할 일: {', '.join(f'{FIELD_LABELS[name]} {count}개' for name, count in counts.items())}를 쓴다."
+    task = f"지금 할 일: {', '.join(f'{FIELD_LABELS[name]} 최대 {count}개' for name, count in counts.items())}를 쓴다."
     if skipped := [label for name, label in NCS_FIELDS if name not in counts]:
         task += f" {', '.join(skipped)}은 쓰지 않고 빈 목록으로 둔다."
     return task
@@ -803,6 +897,8 @@ def _context(posting: PostingDraftContext, writing_style: str, request: str) -> 
         if isinstance(value, list):
             lines.append(f"{label}:")
             lines += [f"- {item}" for item in value] or ["(비어 있음)"]
+        elif isinstance(value, int):
+            lines.append(f"{label}: {value}명")
         else:
             lines.append(f"{label}: {value or '(비어 있음)'}")
     lines.append("전형 절차:")

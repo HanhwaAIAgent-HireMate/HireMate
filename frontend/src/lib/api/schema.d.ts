@@ -1279,6 +1279,12 @@ export interface components {
             qualifications: string[];
             preferred: string[];
             benefits: string[];
+            /** Format: int32 */
+            headcount: number | null;
+            position: string | null;
+            education: string | null;
+            workHours: string | null;
+            salary: string | null;
         };
         PostingContent: {
             title: string;
@@ -1291,6 +1297,12 @@ export interface components {
             qualifications: string[];
             preferred: string[];
             benefits: string[];
+            /** Format: int32 */
+            headcount: number | null;
+            position: string;
+            education: string;
+            workHours: string;
+            salary: string;
         };
         PostingStage: {
             /** Format: uuid */
@@ -1892,9 +1904,9 @@ export interface components {
             type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
         };
         CsrfToken: {
-            headerName: string;
             parameterName: string;
             token: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;
