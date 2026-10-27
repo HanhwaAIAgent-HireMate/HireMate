@@ -93,11 +93,11 @@ public class PostingService {
         return dummyRubric.of(companyId, recruitmentId);
     }
 
-    /** 본문은 게시 후에도 고칠 수 있다. 채용명이 바뀌면 채용 이름도 함께 바꾼다. */
+    /** 본문은 게시 전에만 고칠 수 있다(requireDraft). 채용명이 바뀌면 채용 이름도 함께 바꾼다. */
     @Transactional
     public PostingView updateContent(UUID companyId, UUID recruitmentId, PostingContent content) {
         JobPosting posting = posting(companyId, recruitmentId);
-        requireEditable(recruits.get(companyId, recruitmentId));
+        requireDraft(recruits.get(companyId, recruitmentId));
         posting.update(content);
         recruits.rename(companyId, recruitmentId, content.title());
         return view(companyId, recruitmentId);
@@ -106,7 +106,7 @@ public class PostingService {
     @Transactional
     public PostingView suggest(UUID companyId, UUID recruitmentId, PostingSuggestion suggestion) {
         JobPosting posting = posting(companyId, recruitmentId);
-        requireEditable(recruits.get(companyId, recruitmentId));
+        requireDraft(recruits.get(companyId, recruitmentId));
         posting.suggest(JsonText.write(suggestion));
         return view(companyId, recruitmentId);
     }
@@ -142,14 +142,9 @@ public class PostingService {
             throw new ApiException(HttpStatus.CONFLICT, "NO_SUGGESTION", "There is no suggestion to apply.");
         }
         Set<String> chosen = chosenFields(suggestion, fields);
-        RecruitmentInfo recruitment = recruits.get(companyId, recruitmentId);
-        requireEditable(recruitment);
+        requireDraft(recruits.get(companyId, recruitmentId));
         boolean stages = chosen.contains(STAGES_FIELD) && suggestion.stages() != null;
         boolean documents = chosen.contains(DOCUMENTS_FIELD) && suggestion.requiredExtras() != null;
-        if ((stages || documents) && recruitment.status() != RecruitmentStatus.DRAFT) {
-            throw new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_LOCKED",
-                    "Stages and required documents cannot change after publishing.");
-        }
         PostingContent merged = merge(posting.content(), suggestion.content(), chosen);
         posting.update(merged);
         recruits.rename(companyId, recruitmentId, merged.title());
@@ -319,9 +314,13 @@ public class PostingService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "POSTING_NOT_FOUND", "Posting not found."));
     }
 
-    private static void requireEditable(RecruitmentInfo recruitment) {
-        if (recruitment.status() != RecruitmentStatus.DRAFT && recruitment.status() != RecruitmentStatus.PUBLISHED) {
-            throw new ApiException(HttpStatus.CONFLICT, "POSTING_CLOSED", "The posting can no longer be edited.");
+    /**
+     * 게시한 공고는 본문 · 전형 절차 · 필수 제출 서류를 바꿀 수 없다. 모든 지원자가 같은 공고를 보고 지원하게 한다.
+     * 일정 · 장소가 바뀔 수 있는 전형별 안내만 채용이 끝나기 전까지 고칠 수 있다 (NoticeService.changeGuide).
+     */
+    private static void requireDraft(RecruitmentInfo recruitment) {
+        if (recruitment.status() != RecruitmentStatus.DRAFT) {
+            throw new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_LOCKED", "A published posting cannot change.");
         }
     }
 

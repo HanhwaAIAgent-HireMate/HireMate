@@ -8,6 +8,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
+  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -226,6 +227,10 @@ function PublishForm({ posting }: { posting: Posting }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>공고를 게시할까요?</AlertDialogTitle>
+            <AlertDialogDescription>
+              게시하면 공고 내용과 전형 절차는 바꿀 수 없어요. 전형 일정 · 장소는 게시한 뒤에도
+              전형별 안내에서 고칠 수 있어요.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <dl className="divide-y border-y text-sm">
             <ConfirmRow label="공고명" value={posting.content.title} />

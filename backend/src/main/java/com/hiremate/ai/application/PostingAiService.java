@@ -4,6 +4,7 @@ import com.hiremate.company.CompanyService;
 import com.hiremate.posting.PostingDraftContext;
 import com.hiremate.posting.PostingService;
 import com.hiremate.posting.PostingView;
+import com.hiremate.recruit.RecruitmentStatus;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -24,8 +25,15 @@ public class PostingAiService {
         this.settings = settings;
     }
 
+    /** 게시한 공고는 바꿀 수 없어 Posting Agent를 부르지 않고 바로 답한다. */
+    static final String PUBLISHED_REPLY = "게시한 공고는 바꿀 수 없어요. 전형 일정 · 장소는 전형별 안내에서 고칠 수 있어요.";
+
     public PostingAiAnswer request(UUID companyId, UUID recruitmentId, String message) {
         PostingDraftContext context = postings.draftContext(companyId, recruitmentId);
+        if (context.status() != RecruitmentStatus.DRAFT) {
+            return new PostingAiAnswer(PUBLISHED_REPLY, "Posting Agent", settings.isStub(AiAgent.POSTING),
+                    postings.view(companyId, recruitmentId));
+        }
         PostingAgent.Result result = agent.revise(context,
                 companies.postingSettings(companyId).writingStyle(), message);
         PostingView posting = result.suggestion() == null
