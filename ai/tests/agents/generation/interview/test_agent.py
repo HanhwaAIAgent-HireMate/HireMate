@@ -32,6 +32,7 @@ from hiremate_ai.agents.generation.interview.agent import (
     _checked,
     _DraftQuestion,
     _gap_others,
+    _gap_reason,
     _reasoning_problem,
     _reasoning_sources,
     _same_goal,
@@ -50,6 +51,7 @@ from hiremate_ai.agents.generation.interview.router import (
     PreviousInterview,
     QuestionSource,
 )
+from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.contract import (
     ApplicantDetail,
     CandidateAnalysis,
@@ -3069,3 +3071,44 @@ async def test_chat_question_count_controls_planned_and_returned_questions(
     assert len(result) == (requested if requested is not None else 2)
     assert all("free_pick: 요청하지 않음" in call.user for call in llm.calls)
     assert INTRO not in result
+
+
+def test_only_original_document_quotes_are_exposed(sample_applicants: dict[str, ApplicantDetail]) -> None:
+    applicant = sample_applicants["이도윤"]
+    quote = applicant.documents[0].text.strip()
+    question = "본인이 담당한 역할을 설명해 주세요."
+    state: State = {"applicant": applicant, "kept": {"G1": question}, "purposes": {"G1": "본인 역할 확인"}}
+    gap = Gap("G1", NOTABLE, "프로젝트", "", evidence=[quote, "원문에 없는 가짜 성과입니다."])
+
+    reason = _gap_reason(state, gap, question)
+
+    assert quote in reason
+    assert "본인 역할 확인" in reason
+    assert "원문에 없는 가짜 성과" not in reason
+
+
+@pytest.mark.parametrize("final", [False, True])
+async def test_question_reasons_stay_attached_to_the_returned_questions(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    newcomer_analysis: CandidateAnalysis,
+    final: bool,
+) -> None:
+    drafts: list[InterviewQuestionDraft] = []
+    previous = PreviousInterview(stage_id=uuid4(), stage_name="1차", schedule=None, questions=[])
+    interview = InterviewView(application_id=uuid4(), schedule=None, questions=[], previous=[previous] if final else [])
+    questions = await generate_questions(
+        FakeLlm(QuestionDraft(questions=[]), QuestionDraft(questions=[])),
+        applicant=sample_applicants["이도윤"],
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=interview,
+        focus=None,
+        drafts=drafts,
+    )
+
+    assert [draft.text for draft in drafts] == questions
+    assert drafts and all(draft.reason for draft in drafts)
+    assert "공통 질문" in (drafts[0].reason or "")
+    if final:
+        assert any("기본 질문" in (draft.reason or "") for draft in drafts[1:])

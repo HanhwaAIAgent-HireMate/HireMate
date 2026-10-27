@@ -17,6 +17,7 @@ from hiremate_ai.agents.analysis.application.store import ReviewStore
 from hiremate_ai.agents.analysis.application.types import AnalyzeRequest
 from hiremate_ai.agents.generation.interview import generate_questions, load_review
 from hiremate_ai.agents.generation.interview.router import QuestionsRequest
+from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.agents.generation.report import load_profiles, write_report
 from hiremate_ai.api import assessment, interview, report
 from hiremate_ai.config import settings
@@ -108,7 +109,8 @@ def job_handlers(
         request = QuestionsRequest.model_validate(payload)
         # 서류 전형 Agent가 저장한 상세 판정이 있으면 그것으로 빈틈을 고른다 (없으면 요청의 요약으로)
         review = await load_review(store, request.applicant)
-        questions = await generate_questions(
+        drafts: list[InterviewQuestionDraft] = []
+        await generate_questions(
             llm,
             applicant=request.applicant,
             posting=request.posting,
@@ -118,8 +120,9 @@ def job_handlers(
             question_count=request.question_count,
             company=request.company,
             review=review,
+            drafts=drafts,
         )
-        return {"questions": questions}
+        return {"questions": [draft.model_dump(mode="json") for draft in drafts]}
 
     handlers: dict[str, Handler] = {
         "application/analyze": application_analyze,

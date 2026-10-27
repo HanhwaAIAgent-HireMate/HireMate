@@ -71,8 +71,8 @@
       "applicationId": "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60",
       "schedule": {"scheduledAt": "2026-11-05T05:00:00Z", "interviewers": "면접관 2명"},
       "questions": [
-        {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c41", "text": "정산 배치 시간을 줄일 때 가장 어려웠던 결정은?", "source": "AI", "answer": "파티셔닝 기준을 월 단위로 정한 것"},
-        {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c42", "text": "장애 회고는 어떻게 진행했나요?", "source": "MANUAL", "answer": ""}
+        {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c41", "text": "정산 배치 시간을 줄일 때 가장 어려웠던 결정은?", "source": "AI", "answer": "파티셔닝 기준을 월 단위로 정한 것", "reason": null},
+        {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c42", "text": "장애 회고는 어떻게 진행했나요?", "source": "MANUAL", "answer": "", "reason": null}
       ],
       "previous": [
         {
@@ -80,7 +80,7 @@
           "stageName": "1차 면접",
           "schedule": null,
           "questions": [
-            {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c43", "text": "결제 승인 서버의 응답 시간을 어떻게 줄였나요?", "source": "AI", "answer": "짧음"}
+            {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c43", "text": "결제 승인 서버의 응답 시간을 어떻게 줄였나요?", "source": "AI", "answer": "짧음", "reason": null}
           ]
         }
       ]

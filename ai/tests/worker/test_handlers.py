@@ -176,7 +176,11 @@ async def test_interview_questions_returns_questions_made_by_the_agent(
 
     async def generate_questions(llm: LlmClient, **kwargs: Any) -> list[str]:
         received.append(kwargs)
-        return ["1분 자기소개 부탁드립니다.", "결제 승인 API에서 맡은 역할을 말해 주세요."]
+        from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
+
+        texts = ["1분 자기소개 부탁드립니다.", "결제 승인 API에서 맡은 역할을 말해 주세요."]
+        kwargs["drafts"].extend(InterviewQuestionDraft(text=text, reason="생성 시 선택한 근거") for text in texts)
+        return texts
 
     monkeypatch.setattr(worker_handlers, "generate_questions", generate_questions)
     handle = job_handlers(FakeLlm(), MemoryStore(), SESSIONS)["interview/questions"]
@@ -211,7 +215,11 @@ async def test_interview_questions_returns_questions_made_by_the_agent(
         }
     )
 
-    assert result == {"questions": ["1분 자기소개 부탁드립니다.", "결제 승인 API에서 맡은 역할을 말해 주세요."]}
+    assert [question["text"] for question in result["questions"]] == [
+        "1분 자기소개 부탁드립니다.",
+        "결제 승인 API에서 맡은 역할을 말해 주세요.",
+    ]
+    assert all(question["reason"] == "생성 시 선택한 근거" for question in result["questions"])
     assert received[0]["applicant"].info.name == "정유민"
     assert received[0]["focus"] is None and received[0]["company"] is None
 

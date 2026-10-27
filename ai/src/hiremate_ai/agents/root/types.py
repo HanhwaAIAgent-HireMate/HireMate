@@ -100,6 +100,7 @@ class InterviewQuestion(ContractModel):
     text: str
     source: QuestionSource
     answer: str
+    reason: str | None = None
 
 
 class PreviousInterview(ContractModel):

@@ -52,6 +52,7 @@ from pydantic import BaseModel
 from hiremate_ai.agents.analysis.application.present import notable_facts
 from hiremate_ai.agents.analysis.application.types import VERDICT_LABEL, Actor, ApplicationReview, CriterionResult
 from hiremate_ai.agents.analysis.interview.agent import CONFIRMED, NO_ANSWER, analyze_answers
+from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.agents.guardrails import blocked_attribute, evidence_source
 from hiremate_ai.contract import (
     ApplicantDetail,
@@ -398,6 +399,7 @@ class State(TypedDict, total=False):
     errors: list[str]
     retry: int
     result: list[str]
+    reasons: dict[str, str]
 
 
 _SPACES = re.compile(r"[\s\"'“”‘’.,!?·]+")
@@ -2394,9 +2396,80 @@ _FINAL_ALTERNATIVES = {
 }
 
 
+def _document_reason(state: State, sentence: str) -> str:
+    source = evidence_source(sentence, state["applicant"].documents)
+    labels = {DocumentType.RESUME: "이력서", DocumentType.COVER_LETTER: "자기소개서"}
+    return f"출처: {labels.get(source, source.value if source else '')}\n원문: {sentence}" if source else ""
+
+
+def _gap_reason(state: State, gap: Gap, text: str) -> str:
+    generated = state["kept"].get(gap.gap_id) == text
+    purpose = state.get("purposes", {}).get(gap.gap_id, "") if generated else ""
+    lines = [f"질문 유형: {gap.label}", f"확인할 내용: {purpose or gap.detail or gap.topic}"]
+    if not generated:
+        lines.append("생성 방식: 기본 질문으로 구성했습니다.")
+    for sentence in gap.evidence:
+        reason = _document_reason(state, sentence)
+        if reason:
+            lines.append(reason)
+    if gap.kind == FOLLOW_UP:
+        lines.append("출처: 이전 면접의 질문·기록된 답변 및 답변 분석의 미확인 항목")
+        if state.get("final"):
+            lines.append("이 질문의 자리: 1차 미확인")
+        for evidence in gap.evidence:
+            if evidence.startswith("[답변]"):
+                lines.append("이전 면접 답변: " + evidence.removeprefix("[답변]").strip())
+            else:
+                lines.append("이전 면접 질문: " + evidence)
+    target = state.get("reasoning_targets", {}).get(gap.gap_id) if generated else None
+    if target and _reasoning_material(state, target):
+        reason = _document_reason(state, target.anchor)
+        lines.append(reason or f"출처: 공고의 직무·평가 기준\n기준 문구: {target.anchor}")
+    if gap.criterion_id:
+        lines.append(f"질문 기준: {gap.topic}")
+    return "\n".join(dict.fromkeys(lines))
+
+
+def _pick_reason(state: State) -> str:
+    sid = state.get("pick_sid")
+    sentence = state["sentences"].get(sid, "") if sid else ""
+    return "\n".join(
+        filter(
+            None,
+            [
+                f"확인할 내용: {state.get('pick_purpose') or '지원 문서에서 선택한 실제 경험의 역할과 판단'}",
+                _document_reason(state, sentence),
+            ],
+        )
+    )
+
+
+def _final_slot_reason(state: State, key: str, text: str) -> str:
+    generated = state.get("slot_kept", {}).get(key) == text
+    purpose = state.get("slot_purposes", {}).get(key) if generated else None
+    lines = [f"이 질문의 자리: {FINAL_SLOTS[key].label}", f"확인할 내용: {purpose or FINAL_SLOTS[key].hint}"]
+    if not generated:
+        lines.append("생성 방식: 해당 주제를 확인하는 기본 질문입니다. 지원자의 경험이 있다고 단정하지 않습니다.")
+    sid = state.get("slot_sids", {}).get(key) if generated else None
+    if sid:
+        lines.append(_document_reason(state, state["sentences"].get(sid, "")))
+    company = state.get("company")
+    if company and key == "VALUES" and company.talents:
+        lines.append(
+            "질문 기준 · 회사 인재상: " + "; ".join(f"{item.title}: {item.description}" for item in company.talents)
+        )
+    if company and key == "CULTURE" and company.culture:
+        lines.append("질문 기준 · 조직 문화: " + company.culture)
+    return "\n".join(line for line in lines if line)
+
+
+INTRO_REASON = "공통 질문: 모든 면접에서 지원자의 주요 경험과 지원 동기를 먼저 듣기 위한 자기소개입니다."
+
+
 def _finalize_final(state: State) -> dict[str, Any]:
     """기본 질문도 생성 질문과 같은 검사를 거친다. 부적절한 문장을 개수 때문에 복원하지 않는다."""
     result: list[str] = []
+    reasons: dict[str, str] = {}
     purposes: list[str] = []
     follow_up = state["gaps"][0] if state["gaps"] else None
     if follow_up is not None:
@@ -2422,6 +2495,13 @@ def _finalize_final(state: State) -> dict[str, Any]:
         checked, _ = _final_checked(candidate, kind, others)
         if checked is not None:
             result.append(checked)
+            reasons[checked] = (
+                _gap_reason(state, follow_up, checked)
+                if follow_up is not None
+                else _pick_reason(state)
+                if candidate == first
+                else "기본 질문: 지원자의 직무 관련 경험을 확인합니다. 특정 경험이 있다고 단정하지 않습니다."
+            )
             purposes.append(purpose)
             break
     for key in FINAL_SLOTS:
@@ -2441,11 +2521,14 @@ def _finalize_final(state: State) -> dict[str, Any]:
             if checked is None:
                 continue
             result.append(checked)
+            reasons[checked] = _final_slot_reason(state, key, checked)
             purposes.append(purpose)
             break
     if not any("자기소개" in question.text for question in state["interview"].questions):
         result.insert(0, INTRO)
-    return {"result": result}
+    if INTRO in result:
+        reasons[INTRO] = INTRO_REASON
+    return {"result": result, "reasons": reasons}
 
 
 def finalize(state: State) -> dict[str, Any]:
@@ -2456,6 +2539,7 @@ def finalize(state: State) -> dict[str, Any]:
             + ②~⑤ 자리 질문(없으면 자리별 기본 질문)
     """
     questions: list[str] = []
+    reasons: dict[str, str] = {}
     follow_up = ""  # 최종면접 ① 1차 미확인 질문 (중복 검사를 이번 카드 질문하고만 한다)
     if state.get("final"):
         return _finalize_final(state)
@@ -2487,11 +2571,15 @@ def finalize(state: State) -> dict[str, Any]:
                 text = _template(gap)
             if text:
                 questions.append(text)
+                reasons[text] = _gap_reason(state, gap, text)
                 accepted[gap.gap_id] = text
         if state["pick"]:
             questions.append(state["pick"])
+            reasons[state["pick"]] = _pick_reason(state)
         elif state["spare"]:
-            questions.append(_template(state["spare"][0]))
+            text = _template(state["spare"][0])
+            questions.append(text)
+            reasons[text] = _gap_reason(state, state["spare"][0], text)
         limit = MAX_QUESTIONS if state.get("balanced") else _additional_count(state)
     result: list[str] = []
     for text in questions:
@@ -2510,7 +2598,9 @@ def finalize(state: State) -> dict[str, Any]:
     #   이전 면접의 자기소개는 보지 않는다 (최종면접에서도 처음에 다시 묻는다)
     if not any("자기소개" in question.text for question in state["interview"].questions):
         result.insert(0, INTRO)
-    return {"result": result}
+    if INTRO in result:
+        reasons[INTRO] = INTRO_REASON
+    return {"result": result, "reasons": {text: reasons[text] for text in result}}
 
 
 _ACTION_END = re.compile(
@@ -2614,6 +2704,7 @@ async def generate_questions(
     company: CompanyProfile | None = None,
     review: ApplicationReview | None = None,
     question_count: int | None = None,
+    drafts: list[InterviewQuestionDraft] | None = None,
 ) -> list[str]:
     """맞춤 면접 질문을 만든다 (1차 최초: 자기소개 + 3~5개 목표, 최종면접: 자기소개 + 자리 5개).
 
@@ -2638,6 +2729,8 @@ async def generate_questions(
         "company": company,
     }
     out = await interview_graph.ainvoke(state)
+    if drafts is not None:
+        drafts.extend(InterviewQuestionDraft(text=text, reason=out["reasons"].get(text)) for text in out["result"])
     return list(out["result"])
 
 
