@@ -84,6 +84,19 @@ export function useInterviewActions(stageId: string, applicationId: string) {
   const onSuccess = (interview: Interview) =>
     queryClient.setQueryData(key(stageId, applicationId), interview)
   return {
+    regenerate: useMutation({
+      mutationFn: () =>
+        unwrap(
+          api.POST(
+            '/api/stages/{stageId}/candidates/{applicationId}/interview/questions/regenerate',
+            path(stageId, applicationId),
+          ),
+        ),
+      onSuccess: async () => {
+        queryClient.setQueryData([...key(stageId, applicationId), 'preparing'], { preparing: true })
+        await queryClient.invalidateQueries({ queryKey: key(stageId, applicationId) })
+      },
+    }),
     add: useMutation({
       mutationFn: (text: string) =>
         unwrap(

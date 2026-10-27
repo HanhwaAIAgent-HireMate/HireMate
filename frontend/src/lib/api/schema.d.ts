@@ -420,6 +420,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/candidates/{applicationId}/interview/questions/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["regenerate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/assessment/results/{applicationId}/file": {
         parameters: {
             query?: never;
@@ -724,6 +740,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/candidates/{applicationId}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["candidateProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates/{applicationId}/interview": {
         parameters: {
             query?: never;
@@ -780,22 +812,6 @@ export interface paths {
             cookie?: never;
         };
         get: operations["analysis"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/stages/{stageId}/candidates/{applicationId}/profile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["candidateProfile"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1074,6 +1090,7 @@ export interface components {
             /** @enum {string} */
             source: "AI" | "MANUAL";
             answer: string;
+            reason: string | null;
         };
         Schedule: {
             /** Format: date-time */
@@ -1513,6 +1530,25 @@ export interface components {
             documents: components["schemas"]["ApplicantDocument"][];
             memo: string;
         };
+        CandidateProfileView: {
+            /** Format: uuid */
+            applicationId: string;
+            /** @enum {string|null} */
+            status: "DONE" | "CHECK" | "FAILED" | null;
+            summary: string;
+            items: components["schemas"]["ProfileItemView"][];
+        };
+        ProfileItemView: {
+            category: string;
+            agent: string;
+            content: string;
+            evidence: string | null;
+            source: string;
+            /** @enum {string} */
+            verification: "CONFIRMED" | "EVIDENCED" | "UNCONFIRMED" | "CONFLICT";
+            /** Format: uuid */
+            stageId: string | null;
+        };
         PreparingView: {
             preparing: boolean;
         };
@@ -1556,46 +1592,10 @@ export interface components {
             agent: string;
             stub: boolean;
         };
-        CandidateProfileView: {
-            /** Format: uuid */
-            applicationId: string;
-            /** @enum {string|null} */
-            status: "DONE" | "CHECK" | "FAILED" | null;
-            summary: string;
-            items: components["schemas"]["ProfileItemView"][];
-        };
-        ProfileItemView: {
-            category: string;
-            agent: string;
-            content: string;
-            evidence: string | null;
-            source: string;
-            /** @enum {string} */
-            verification: "CONFIRMED" | "EVIDENCED" | "UNCONFIRMED" | "CONFLICT";
-            /** Format: uuid */
-            stageId: string | null;
-        };
         Condition: {
             label: string;
             met: boolean;
             requirement: string;
-        };
-        Evidence: {
-            /** @enum {string} */
-            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
-            sentence: string;
-        };
-        Finding: {
-            text: string;
-            source: string;
-        };
-        SummarySection: {
-            /** @enum {string} */
-            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
-            title: string;
-            summary: string;
-            points: string[];
-            evidence: components["schemas"]["Evidence"][];
         };
         CriterionLine: {
             criterionId: string;
@@ -1621,6 +1621,23 @@ export interface components {
             careerYears: number | null;
             /** @enum {string|null} */
             certificateStatus: "SELF_REPORTED" | "EVIDENCE_SUBMITTED" | "ISSUER_VERIFIED" | null;
+        };
+        Evidence: {
+            /** @enum {string} */
+            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            sentence: string;
+        };
+        Finding: {
+            text: string;
+            source: string;
+        };
+        SummarySection: {
+            /** @enum {string} */
+            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            title: string;
+            summary: string;
+            points: string[];
+            evidence: components["schemas"]["Evidence"][];
         };
         DashboardStep: {
             /** Format: uuid */
@@ -2519,6 +2536,27 @@ export interface operations {
             };
         };
     };
+    regenerate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     file: {
         parameters: {
             query?: never;
@@ -3066,6 +3104,29 @@ export interface operations {
             };
         };
     };
+    candidateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CandidateProfileView"];
+                };
+            };
+        };
+    };
     view: {
         parameters: {
             query?: never;
@@ -3154,29 +3215,6 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CandidateAnalysis"];
-                };
-            };
-        };
-    };
-    candidateProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-                applicationId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["CandidateProfileView"];
                 };
             };
         };
