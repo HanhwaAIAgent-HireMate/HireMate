@@ -8,6 +8,7 @@ from hiremate_ai.agents.analysis.application.types import ApplicationAnalysis, S
 from hiremate_ai.agents.analysis.interview import InterviewAnalysisInput
 from hiremate_ai.agents.analysis.interview.router import InterviewAnalysis
 from hiremate_ai.agents.generation.interview.router import InterviewView, QuestionsRequest
+from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, PostingSuggestion
 from hiremate_ai.agents.root.types import ChatContext, ChatHistoryTurn, ChatPlan, ChatStatus
 from hiremate_ai.api.profile import CandidateProfileView
@@ -28,6 +29,7 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "CompanyProfile": CompanyProfile,
     "InterviewAnalysis": InterviewAnalysis,
     "InterviewView": InterviewView,
+    "InterviewQuestionDraft": InterviewQuestionDraft,
     "InterviewAnalysisInput": InterviewAnalysisInput,
     "InterviewQuestionsRequest": QuestionsRequest,
     "Job": Job,

@@ -20,5 +20,10 @@ backend와 ai 서버가 주고받는 JSON의 샘플이다. 파일 하나가 타�
 개수를 생략한 Chat 요청은 backend가 2를 전달한다. 최초 자동 생성은 `null`로 기존 전형 구성을 사용한다.
 중복·근거 검사로 유효한 후보가 부족하면 요청 수보다 적게 반환할 수 있고, Chat은 실제 추가 수를 안내한다.
 
+`InterviewQuestionDraft`는 생성된 질문 `text`와 생성 시 선택한 자료·확인 목적 `reason`이다.
+`interview/questions` API는 이 객체의 목록, 워커는 `questions`에 같은 목록을 반환한다.
+backend가 질문과 근거를 함께 저장해 `InterviewView.Question.reason`으로 제공한다.
+과거 질문과 배포 전 대기열의 문자열 결과는 근거를 추측하지 않고 `null`로 유지한다.
+
 `ChatStatus`는 Root `plan` SSE의 `status` 이벤트 data다. `item` 이벤트 data는 `ChatPlan.items`의 한 항목,
 `done` 이벤트 data는 `ChatPlan`이다.
