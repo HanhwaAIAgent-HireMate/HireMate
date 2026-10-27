@@ -25,6 +25,12 @@ backend와 ai 서버가 주고받는 JSON의 샘플이다. 파일 하나가 타�
 backend가 질문과 근거를 함께 저장해 `InterviewView.Question.reason`으로 제공한다.
 과거 질문과 배포 전 대기열의 문자열 결과는 근거를 추측하지 않고 `null`로 유지한다.
 
+`ChatContext.interviewerMemos`는 현재 지원자별 현재·이전 면접의 담당자 메모다. 자동 질문 생성에는 전달하지 않는다.
+Root가 명시적인 메모 참고 요청을 검토한 경우에만 `ChatPlan.questionMemos`에 실제 원문 인용 하나를 넣는다.
+backend가 기업·지원자·전형과 최신 메모를 다시 검증한 뒤 질문 요청의 `memo`로 전달한다.
+메모는 사실 판정의 근거가 아니며, 실제 면접 답변에 연결한 추가 확인 질문만 최대 1개 반환한다.
+인상뿐이거나 인용·중복 검증에 실패하면 다른 질문으로 대체하지 않고 빈 목록을 반환한다.
+
 `ChatStatus`는 Root `plan` SSE의 `status` 이벤트 data다. `item` 이벤트 data는 `ChatPlan.items`의 한 항목,
 `done` 이벤트 data는 `ChatPlan`이다.
 

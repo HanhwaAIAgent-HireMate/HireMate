@@ -27,13 +27,14 @@ from hiremate_ai.agents.root.toolkit import (
     stage_summary_text,
 )
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem
-from hiremate_ai.contract import DocumentType
+from hiremate_ai.contract import DocumentType, InterviewerMemo
 
 TEXT_LENGTH = 120
 BULK_LIMIT = 20
 FOCUS_WITH_REQUEST = "{focus} (담당자 요청: {request})"
 INTERVIEW_AGENT = "Interview Agent"
 INTERVIEW_SOURCE = "면접 기록"
+MEMO_SOURCE = "면접관메모"
 RESULT_SOURCE = "전형 결과"
 COMPANY_SOURCE = "회사 소개"
 POSTING_SOURCE = "공고"
@@ -57,7 +58,7 @@ class AnswerEvidence(BaseModel):
     source: str = Field(
         description=(
             "근거 출처: 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, "
-            "평가 제출물, 평가 메모, 회사 소개, 공고"
+            "평가 제출물, 평가 메모, 면접관메모, 회사 소개, 공고"
         )
     )
 
@@ -117,7 +118,7 @@ def verify_items(
             and bool(kept)
             and all(_doubtful(recorded, row, evidence) for evidence, source in checked if source)
         )
-        status = "CHECK" if unsupported or doubtful else item.status
+        status = "CHECK" if unsupported or doubtful or MEMO_SOURCE in kept else item.status
         sources += [source for source in dict.fromkeys(kept) if source not in sources]
         if row is not None:
             cited += [(row.application_id, evidence.sentence) for evidence, source in checked if source]
@@ -181,6 +182,8 @@ def _verified_source(
     평가 제출물과 평가 메모는 Assessment Agent가 원문과 맞춰 프로필에 남긴 근거에 있어야 한다.
     """
     source = _canonical_source(evidence.source)
+    if source == MEMO_SOURCE:
+        return source if row is not None and memo_evidence(context, row, evidence) is not None else None
     if source in PROFILE_SOURCES:
         saved = recorded_evidence(recorded, row.application_id, evidence.sentence) if row is not None else None
         return saved.source if saved else None
@@ -207,6 +210,8 @@ def _verified_source(
 
 def _canonical_source(source: str) -> str | None:
     compact = "".join(source.split())
+    if compact == MEMO_SOURCE:
+        return MEMO_SOURCE
     for label in ("자기소개서", "이력서", "포트폴리오", "자격증"):
         if label in compact:
             return label
@@ -224,6 +229,20 @@ def _canonical_source(source: str) -> str | None:
         if "".join(label.split()) in compact:
             return label
     return None
+
+
+def memo_evidence(context: ChatContext, row: CandidateRow, evidence: AnswerEvidence) -> InterviewerMemo | None:
+    """같은 지원자의 실제 메모에 있는 인용만 반환한다. 메모 내용의 진실성을 인정하는 검사가 아니다."""
+    if _canonical_source(evidence.source) != MEMO_SOURCE or not evidence.sentence.strip():
+        return None
+    return next(
+        (
+            memo.model_copy(update={"text": evidence.sentence})
+            for memo in context.interviewer_memos.get(row.application_id, [])
+            if evidence.sentence in memo.text
+        ),
+        None,
+    )
 
 
 def _company_text(context: ChatContext) -> str:

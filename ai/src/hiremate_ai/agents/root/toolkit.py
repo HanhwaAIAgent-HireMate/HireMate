@@ -428,6 +428,20 @@ async def get_company_profile(runtime: ToolRuntime[RootToolContext]) -> str:
 
 
 @tool
+async def get_interviewer_memos(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
+    """담당자가 메모 참고를 요청했을 때 지원자의 현재·이전 면접관메모를 읽는다. 검증된 지원자 사실이 아니다."""
+    context = _used(runtime, "get_interviewer_memos")
+    row = resolve_ref(context.chat, candidate)
+    if row is None:
+        return OUT_OF_SCOPE
+    memos = context.chat.interviewer_memos.get(row.application_id, [])
+    return (
+        "\n\n".join(f"[{memo.stage_name}] 출처: 면접관메모\n{memo.text}" for memo in memos)
+        or "저장된 면접관메모가 없어요."
+    )
+
+
+@tool
 async def get_posting(runtime: ToolRuntime[RootToolContext]) -> str:
     """채용 공고(직무, 담당 업무, 자격 요건, 우대 사항)를 읽는다."""
     return posting_text(_used(runtime, "get_posting").chat)
@@ -529,6 +543,7 @@ ANSWER_TOOLS: tuple[BaseTool, ...] = (
     get_candidate_documents,
     get_stage_results,
     get_interview_records,
+    get_interviewer_memos,
     get_company_profile,
     get_posting,
     get_stage_summary,

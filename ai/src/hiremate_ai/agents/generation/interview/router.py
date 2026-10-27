@@ -21,7 +21,14 @@ from hiremate_ai.agents.generation.interview.agent import generate_questions, lo
 from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.agents.root.types import InterviewQuestion, InterviewView, PreviousInterview, QuestionSource
 from hiremate_ai.agents.root.types import InterviewSchedule as Schedule
-from hiremate_ai.contract import ApplicantDetail, CandidateAnalysis, CompanyProfile, ContractModel, PostingContent
+from hiremate_ai.contract import (
+    ApplicantDetail,
+    CandidateAnalysis,
+    CompanyProfile,
+    ContractModel,
+    InterviewerMemo,
+    PostingContent,
+)
 from hiremate_ai.llm.client import LlmDep
 
 router = APIRouter(prefix="/agents/interview", tags=["interview"])
@@ -47,6 +54,7 @@ class QuestionsRequest(ContractModel):
     company: CompanyProfile | None = None  # backend가 아직 안 보내도 되게 선택으로 둔다
     focus: str | None = None
     question_count: int | None = Field(default=None, ge=1)
+    memo: InterviewerMemo | None = None
 
 
 @router.post("/questions")
@@ -67,5 +75,6 @@ async def questions(request: QuestionsRequest, llm: LlmDep, store: StoreDep) -> 
         company=request.company,
         review=review,
         drafts=drafts,
+        memo=request.memo,
     )
     return drafts

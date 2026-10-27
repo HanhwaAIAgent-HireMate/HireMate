@@ -26,6 +26,14 @@ class ContractModel(BaseModel):
     )
 
 
+class InterviewerMemo(ContractModel):
+    """담당자의 면접 메모. 지원자의 발언이나 검증된 사실과 구분한다."""
+
+    stage_id: UUID
+    stage_name: str
+    text: str
+
+
 class DocumentType(StrEnum):
     """지원서 제출 항목 (posting.DocumentType)."""
 

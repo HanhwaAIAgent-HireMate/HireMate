@@ -125,6 +125,7 @@ def test_default_toolkit_uses_keyword_search() -> None:
         "get_candidate_documents",
         "get_stage_results",
         "get_interview_records",
+        "get_interviewer_memos",
         "get_company_profile",
         "get_posting",
         "get_stage_summary",
