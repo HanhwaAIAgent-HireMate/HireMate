@@ -67,7 +67,7 @@ export function SelectionPanel({
           전체 선택
         </label>
       )}
-      <div className="min-h-0 flex-1 space-y-2 overflow-auto px-4 pb-4">
+      <div className="min-h-0 flex-1 space-y-2 overflow-auto px-4 pt-1.5 pb-4">
         {selection.isPending && <Skeleton className="h-14 w-full" />}
         {!selection.isPending && rows.length === 0 && (
           <div className="px-4 py-12 text-center text-sm text-muted-foreground">
