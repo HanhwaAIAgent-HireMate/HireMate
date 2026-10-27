@@ -4,9 +4,10 @@ import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.company.CompanyService;
+import com.hiremate.global.ApiException;
+import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
-import com.hiremate.interview.QuestionSource;
 import com.hiremate.job.JobQueue;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.PostingService;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 /** 맞춤 면접 질문 생성. 앞 전형 결과를 확정하면 미리 만들고, AI Chat이면 Root Agent를 거쳐 더 만든다. 질문은 지원자 카드에 들어간다. */
@@ -62,6 +64,21 @@ public class InterviewAiService {
         return interviews.view(companyId, stageId, applicationId).questions().size();
     }
 
+    /** HR의 명시적인 재생성 요청. 추가 요청과 달리 최초 면접 구성을 다시 만든다. */
+    public void regenerate(UUID companyId, UUID stageId, UUID applicationId) {
+        InterviewView current = interviews.view(companyId, stageId, applicationId);
+        String target = InterviewAgent.jobTarget(companyId, stageId, applicationId);
+        if (!settings.isStub(AiAgent.INTERVIEW) && jobs.isOpen(InterviewAgent.QUESTIONS_JOB, target)) {
+            throw new ApiException(HttpStatus.CONFLICT, "QUESTIONS_PREPARING",
+                    "Questions are already being generated.");
+        }
+        Inputs in = inputs(companyId, stageId, applicationId,
+                new InterviewView(applicationId, current.schedule(), List.of(), current.previous()));
+        interviews.clearQuestions(companyId, stageId, applicationId);
+        agent.prepare(target, in.applicant(), in.posting(), in.analysis(), in.current(), in.company())
+                .ifPresent(questions -> addPreparedDrafts(companyId, stageId, applicationId, questions));
+    }
+
     /** AI Chat 요청: 질문을 바로 만들어 카드에 넣는다. focus는 Root Agent가 정리한 확인할 점이다. */
     public InterviewView generate(UUID companyId, UUID stageId, UUID applicationId, String focus) {
         return generate(companyId, stageId, applicationId, focus, 2);
@@ -70,10 +87,10 @@ public class InterviewAiService {
     /** Chat에서 요청한 문항 수까지만 추가한다. 기존 질문과 답변은 그대로 둔다. */
     public InterviewView generate(UUID companyId, UUID stageId, UUID applicationId, String focus, int limit) {
         Inputs in = inputs(companyId, stageId, applicationId, interviews.view(companyId, stageId, applicationId));
-        return interviews.addQuestions(companyId, stageId, applicationId,
+        return interviews.addGeneratedQuestions(companyId, stageId, applicationId,
                 agent.questions(in.applicant(), in.posting(), in.analysis(), in.current(), in.company(), focus, limit)
-                        .stream().filter(question -> !question.equals(InterviewService.INTRO)).limit(limit).toList(),
-                QuestionSource.AI);
+                        .stream().filter(question -> !question.text().equals(InterviewService.INTRO))
+                        .limit(limit).toList());
     }
 
     /**
@@ -90,7 +107,7 @@ public class InterviewAiService {
         Inputs in = inputs(companyId, stageId, applicationId, current);
         agent.prepare(InterviewAgent.jobTarget(companyId, stageId, applicationId), in.applicant(), in.posting(),
                 in.analysis(), in.current(), in.company())
-                .ifPresent(questions -> addPrepared(companyId, stageId, applicationId, questions));
+                .ifPresent(questions -> addPreparedDrafts(companyId, stageId, applicationId, questions));
     }
 
     /**
@@ -114,6 +131,12 @@ public class InterviewAiService {
     /** 미리 만든 질문을 카드에 넣는다. 카드에 이미 있는 문장은 건너뛴다. */
     public void addPrepared(UUID companyId, UUID stageId, UUID applicationId, List<String> questions) {
         interviews.addPreparedQuestions(companyId, stageId, applicationId, questions);
+    }
+
+    /** 생성 시 선택한 근거를 문장과 함께 저장한다. */
+    public void addPreparedDrafts(UUID companyId, UUID stageId, UUID applicationId,
+            List<InterviewQuestionDraft> questions) {
+        interviews.addPreparedDrafts(companyId, stageId, applicationId, questions);
     }
 
     /** 질문 생성 재료: 지원서 · 공고 · 서류 분석 · 지금 카드(이전 면접 기록 포함) · 회사 인재상과 조직 문화. */

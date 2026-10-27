@@ -44,11 +44,19 @@ public class InterviewQuestion {
     @Column(nullable = false)
     private String answer = "";
 
+    @Column(columnDefinition = "text")
+    private String reason;
+
     @Column(nullable = false)
     private Instant updatedAt;
 
     public InterviewQuestion(UUID stageId, UUID applicationId, UUID companyId, int seq, String text,
             QuestionSource source) {
+        this(stageId, applicationId, companyId, seq, text, source, null);
+    }
+
+    public InterviewQuestion(UUID stageId, UUID applicationId, UUID companyId, int seq, String text,
+            QuestionSource source, String reason) {
         this.id = UUID.randomUUID();
         this.stageId = stageId;
         this.applicationId = applicationId;
@@ -56,6 +64,7 @@ public class InterviewQuestion {
         this.seq = seq;
         this.text = text;
         this.source = source;
+        this.reason = reason;
         this.updatedAt = Instant.now();
     }
 

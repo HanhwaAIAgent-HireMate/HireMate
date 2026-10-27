@@ -6,6 +6,7 @@ import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.InterviewAgent;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
+import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.posting.PostingContent;
 import java.util.ArrayList;
@@ -26,8 +27,10 @@ class StubInterviewAgent implements InterviewAgent {
     private static final int SHORT_ANSWER = 15;
 
     @Override
-    public List<String> questions(ApplicantDetail applicant, PostingContent posting, CandidateAnalysis analysis,
-            InterviewView interview, CompanyProfile company, String focus, Integer questionCount) {
+    public List<InterviewQuestionDraft> questions(ApplicantDetail applicant, PostingContent posting,
+            CandidateAnalysis analysis,
+            InterviewView interview, CompanyProfile company, String focus,
+            Integer questionCount) {
         Set<String> questions = new LinkedHashSet<>();
         String scope = focus == null ? "" : focus;
         boolean onlyUnchecked = scope.contains("확인 안") || scope.contains("아직");
@@ -66,11 +69,14 @@ class StubInterviewAgent implements InterviewAgent {
                 .map(InterviewView.Question::text).toList());
         List<String> fresh = new ArrayList<>(questions);
         fresh.removeAll(existing);
-        return fresh.stream().limit(questionCount == null ? 3 : questionCount).toList();
+        return fresh.stream().limit(questionCount == null ? 3 : questionCount)
+                .map(text -> new InterviewQuestionDraft(text, "개발용 기본 질문입니다. 실제 모델의 생성 근거가 아닙니다."))
+                .toList();
     }
 
     @Override
-    public Optional<List<String>> prepare(String target, ApplicantDetail applicant, PostingContent posting,
+    public Optional<List<InterviewQuestionDraft>> prepare(String target, ApplicantDetail applicant,
+            PostingContent posting,
             CandidateAnalysis analysis, InterviewView interview, CompanyProfile company) {
         return Optional.of(questions(applicant, posting, analysis, interview, company, null, null));
     }

@@ -56,6 +56,10 @@ class InterviewAnalysisTests extends IntegrationTest {
         String stage = "/api/stages/" + stageId;
         String cardPath = stage + "/candidates/" + applicationId + "/interview";
         awaitPrepared(hr, cardPath);
+        JsonNode prepared = json(expect(hr.get(cardPath), 200));
+        for (JsonNode question : prepared.path("questions")) {
+            assertThat(question.path("reason").asString()).isNotBlank();
+        }
         String text = "가장 어려웠던 장애 대응은?";
         String recorded = "정산 배치가 멈췄을 때 재처리 스크립트로 당일 복구했습니다.";
         JsonNode card = json(expect(hr.post(cardPath + "/questions", Map.of("text", text)), 200));
@@ -87,6 +91,16 @@ class InterviewAnalysisTests extends IntegrationTest {
 
         expect(hr.put(answer, Map.of("answer", recorded)), 200);
         verify(analyst, after(1_000)).analyze(any());
+
+        expect(newHr().post(cardPath + "/questions/regenerate", null), 404);
+        expect(hr.post(cardPath + "/questions/regenerate", null), 202);
+        awaitPrepared(hr, cardPath);
+        JsonNode regenerated = json(expect(hr.get(cardPath), 200));
+        for (JsonNode question : regenerated.path("questions")) {
+            assertThat(question.path("questionId").asString()).isNotEqualTo(questionId);
+            assertThat(question.path("answer").asString()).isEmpty();
+            assertThat(question.path("reason").asString()).isNotBlank();
+        }
     }
 
     private void awaitPrepared(TestApi hr, String cardPath) throws Exception {

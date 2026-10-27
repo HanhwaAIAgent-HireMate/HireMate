@@ -1,5 +1,6 @@
 package com.hiremate.ai.application;
 
+import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.job.JobFinished;
 import com.hiremate.job.JobResult;
 import com.hiremate.job.JobStatus;
@@ -44,10 +45,13 @@ class InterviewQuestionResults {
                     result.error());
             return;
         }
-        List<String> questions = new ArrayList<>();
+        List<InterviewQuestionDraft> questions = new ArrayList<>();
         for (JsonNode question : result.result().path("questions")) {
-            questions.add(question.asString());
+            // 배포 전 대기열에 남아 있는 문자열 결과도 근거 없이 정상 수신한다.
+            questions.add(question.isString() ? new InterviewQuestionDraft(question.asString(), null)
+                    : new InterviewQuestionDraft(question.path("text").asString(),
+                            question.path("reason").isString() ? question.path("reason").asString() : null));
         }
-        interviews.addPrepared(companyId, stageId, applicationId, questions);
+        interviews.addPreparedDrafts(companyId, stageId, applicationId, questions);
     }
 }

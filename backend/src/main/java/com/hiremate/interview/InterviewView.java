@@ -13,7 +13,12 @@ public record InterviewView(UUID applicationId, @Schema(nullable = true) Schedul
     public record Schedule(@Schema(nullable = true) Instant scheduledAt, String interviewers) {
     }
 
-    public record Question(UUID questionId, String text, QuestionSource source, String answer) {
+    public record Question(UUID questionId, String text, QuestionSource source, String answer,
+            @Schema(nullable = true) String reason) {
+
+        public Question(UUID questionId, String text, QuestionSource source, String answer) {
+            this(questionId, text, source, answer, null);
+        }
     }
 
     public record PreviousInterview(UUID stageId, String stageName, @Schema(nullable = true) Schedule schedule,

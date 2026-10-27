@@ -102,17 +102,42 @@ public class InterviewService {
 
     private void saveQuestions(UUID companyId, UUID stageId, UUID applicationId, List<String> texts,
             QuestionSource source) {
+        saveDrafts(companyId, stageId, applicationId,
+                texts.stream().map(text -> new InterviewQuestionDraft(text, null)).toList(), source);
+    }
+
+    /** 현재 면접에 생성 당시의 근거와 함께 질문을 추가한다. */
+    @Transactional
+    public InterviewView addGeneratedQuestions(UUID companyId, UUID stageId, UUID applicationId,
+            List<InterviewQuestionDraft> drafts) {
+        StageInfo stage = interviewStage(companyId, stageId, applicationId);
+        saveDrafts(companyId, stageId, applicationId, drafts, QuestionSource.AI);
+        return view(companyId, stage, applicationId);
+    }
+
+    /** 시작 전 면접도 기존의 합격자·기업 범위를 검증한 뒤 근거를 함께 저장한다. */
+    @Transactional
+    public void addPreparedDrafts(UUID companyId, UUID stageId, UUID applicationId,
+            List<InterviewQuestionDraft> drafts) {
+        preparationStage(companyId, stageId, applicationId);
+        saveDrafts(companyId, stageId, applicationId, drafts, QuestionSource.AI);
+    }
+
+    private void saveDrafts(UUID companyId, UUID stageId, UUID applicationId, List<InterviewQuestionDraft> drafts,
+            QuestionSource source) {
         List<InterviewQuestion> existing = questions.findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(stageId,
                 applicationId, companyId);
         Set<String> seen = existing.stream().map(InterviewQuestion::getText).collect(Collectors.toSet());
         if (source == QuestionSource.AI && seen.add(INTRO)) {
-            questions.save(new InterviewQuestion(stageId, applicationId, companyId, 0, INTRO, source));
+            questions.save(new InterviewQuestion(stageId, applicationId, companyId, 0, INTRO, source,
+                    "공통 질문: 모든 면접에서 지원자의 주요 경험과 지원 동기를 먼저 듣기 위한 자기소개입니다."));
         }
         int seq = existing.stream().mapToInt(InterviewQuestion::getSeq).max().orElse(0);
-        for (String text : texts) {
-            String trimmed = text.strip();
+        for (InterviewQuestionDraft draft : drafts) {
+            String trimmed = draft.text().strip();
             if (!trimmed.isEmpty() && seen.add(trimmed)) {
-                questions.save(new InterviewQuestion(stageId, applicationId, companyId, ++seq, trimmed, source));
+                questions.save(new InterviewQuestion(stageId, applicationId, companyId, ++seq, trimmed, source,
+                        draft.reason()));
             }
         }
     }
@@ -135,6 +160,21 @@ public class InterviewService {
             events.publishEvent(new InterviewAnswersChanged(companyId, stageId, question.getApplicationId()));
         }
         return view(companyId, stageId, question.getApplicationId());
+    }
+
+    /** 담당자가 요청한 현재 면접 질문만 백업 없이 제거한다. 이전 면접 기록은 유지한다. */
+    @Transactional
+    public void clearQuestions(UUID companyId, UUID stageId, UUID applicationId) {
+        StageInfo stage = interviewStage(companyId, stageId, applicationId);
+        if (stage.status() != StageStatus.ACTIVE) {
+            throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "Only active interviews can regenerate.");
+        }
+        List<InterviewQuestion> existing = questions.findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(stageId,
+                applicationId, companyId);
+        questions.deleteAll(existing);
+        if (existing.stream().anyMatch(question -> !question.getAnswer().isBlank())) {
+            events.publishEvent(new InterviewAnswersChanged(companyId, stageId, applicationId));
+        }
     }
 
     @Transactional
@@ -192,7 +232,7 @@ public class InterviewService {
                 .map(question -> new InterviewView.Question(question.getId(),
                         question.getText().replaceFirst("^([\"“]?)" + Pattern.quote(name) + "\\s*[|｜]\\s*", "$1"),
                         question.getSource(),
-                        question.getAnswer()))
+                        question.getAnswer(), question.getReason()))
                 .toList();
     }
 }

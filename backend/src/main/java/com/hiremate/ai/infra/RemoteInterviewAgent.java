@@ -7,6 +7,7 @@ import com.hiremate.ai.application.InterviewAgent;
 import com.hiremate.ai.application.InterviewQuestionsRequest;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
+import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.job.JobQueue;
 import com.hiremate.posting.PostingContent;
@@ -23,8 +24,9 @@ import org.springframework.stereotype.Component;
 @ConditionalOnAiMode(agent = AiAgent.INTERVIEW, mode = AiMode.REMOTE)
 class RemoteInterviewAgent implements InterviewAgent {
 
-    private static final ParameterizedTypeReference<List<String>> QUESTIONS = new ParameterizedTypeReference<>() {
-    };
+    private static final ParameterizedTypeReference<List<InterviewQuestionDraft>> QUESTIONS =
+            new ParameterizedTypeReference<>() {
+            };
 
     private final AiServerClient client;
     private final JobQueue jobs;
@@ -35,15 +37,18 @@ class RemoteInterviewAgent implements InterviewAgent {
     }
 
     @Override
-    public List<String> questions(ApplicantDetail applicant, PostingContent posting, CandidateAnalysis analysis,
-            InterviewView interview, CompanyProfile company, String focus, Integer questionCount) {
+    public List<InterviewQuestionDraft> questions(ApplicantDetail applicant, PostingContent posting,
+            CandidateAnalysis analysis,
+            InterviewView interview, CompanyProfile company, String focus,
+            Integer questionCount) {
         InterviewQuestionsRequest body = new InterviewQuestionsRequest(applicant, posting, analysis, interview, company,
                 focus, questionCount);
         return client.post(AiAgent.INTERVIEW, "questions", body, QUESTIONS);
     }
 
     @Override
-    public Optional<List<String>> prepare(String target, ApplicantDetail applicant, PostingContent posting,
+    public Optional<List<InterviewQuestionDraft>> prepare(String target, ApplicantDetail applicant,
+            PostingContent posting,
             CandidateAnalysis analysis, InterviewView interview, CompanyProfile company) {
         jobs.enqueue(QUESTIONS_JOB, target,
                 new InterviewQuestionsRequest(applicant, posting, analysis, interview, company, null, null));

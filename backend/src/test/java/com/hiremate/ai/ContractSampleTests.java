@@ -14,6 +14,7 @@ import com.hiremate.ai.application.InterviewQuestionsRequest;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.company.CompanyProfile;
+import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.job.Job;
 import com.hiremate.job.JobResult;
@@ -58,6 +59,7 @@ class ContractSampleTests {
             Map.entry("CompanyProfile", CompanyProfile.class),
             Map.entry("InterviewAnalysis", InterviewAnalysis.class),
             Map.entry("InterviewView", InterviewView.class),
+            Map.entry("InterviewQuestionDraft", InterviewQuestionDraft.class),
             Map.entry("InterviewAnalysisInput", InterviewAnalysisInput.class),
             Map.entry("InterviewQuestionsRequest", InterviewQuestionsRequest.class),
             Map.entry("Job", Job.class),
