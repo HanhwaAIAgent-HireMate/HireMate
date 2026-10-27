@@ -4,9 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, GetJsonSchemaHandler, field_validator, model_validator
-from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import CoreSchema
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.answer import (
@@ -105,63 +103,96 @@ type RootCommand = Annotated[
 ]
 
 
-class _ModelReply(BaseModel):
-    """최종 응답. find는 result로 검색을 참조하고 candidates와 items는 []로 낸다. 후보와 근거는 서버가 보존한다."""
+def _require_all(schema: dict[str, Any]) -> None:
+    # 기본값이 있는 인자도 빠뜨리지 않고 쓰게 모든 인자를 필수로 보여 준다
+    schema["required"] = list(schema.get("properties", {}))
 
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={"required": ["kind", "message", "items", "candidates", "action", "result", "focus"]},
-    )
 
-    kind: Literal["answer", "conversation", "find", "edit", "questions", "clarify", "blocked", "decision"] = Field(
-        description=(
-            "분석과 업무 현황은 answer, 인사와 말투 변경은 conversation, 검색 결과 참조는 find, "
-            "명시적 대상 선택 편집은 edit, 면접 질문 생성은 questions, 필수 정보 부족은 clarify, "
-            "차별 조건은 blocked, 담당자가 직접 해야 할 채용 결정은 decision"
-        )
-    )
+class _Reply(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_require_all)
+
     message: str = Field(description="현재 요청에 대한 짧은 답. 분석 내용은 items에 적는다")
+
+    @model_validator(mode="before")
+    @classmethod
+    def unused_arguments(cls, value: Any) -> Any:
+        """다른 명령의 인자를 빈 값(null, "null", [], {})으로 적었으면 버리고, 실제 값을 넣었으면 알린다."""
+        if not isinstance(value, dict):
+            return value
+        unused = [key for key in value if key not in cls.model_fields]
+        filled = [key for key in unused if value[key] not in (None, "null", [], {})]
+        if filled:
+            raise ValueError(f"이 명령에서 사용하지 않는 인자가 있어요: {', '.join(filled)}")
+        return {key: argument for key, argument in value.items() if key not in unused}
+
+
+class AnswerReply(_Reply):
+    """자료에 근거한 분석, 비교와 업무 현황 답변. 특정 지원자는 candidates와 지원자별 원문 근거 items를 작성한다."""
+
     items: list[AnswerItem] = Field(
-        default=[],
-        description=(
-            "지원자별 원문 근거 항목. 전형 집계는 candidate=null인 항목에 전형 결과 근거를 쓴다. "
-            "find, 일반 대화와 선택 편집이면 []. find의 검색 근거는 result로 보존되므로 복사하지 않는다"
-        ),
+        default=[], description="지원자별 원문 근거 항목. 전형 집계는 candidate=null인 항목에 전형 결과 근거를 쓴다"
     )
-    candidates: list[str] = Field(
-        default=[],
-        description=(
-            "answer, edit, questions의 대상 C번호. find는 검색 후보를 복사하지 않고 반드시 []. 전형 전체 답변도 []"
-        ),
-    )
-    action: EditAction | None = Field(
-        default=None,
-        description=(
-            "edit 전용 ADD, REMOVE, CLEAR, RESTORE. find의 검색 방식은 query.mode로 이미 정해졌으므로 반드시 null. "
-            '다른 종류도 JSON null이며 문자열 "null"이 아니다'
-        ),
-    )
-    result: str | None = Field(
-        default=None,
-        description='find가 참조할 실제 검색 결과 번호(S1 등). 다른 종류는 JSON null이며 문자열 "null"이 아니다',
-    )
+    candidates: list[str] = Field(default=[], description="답변 대상 지원자 C번호. 전형 전체 질문이면 []")
+
+
+class ConversationReply(_Reply):
+    """인사, 감사, 말투 변경과 일반 기능 설명. 지원자 분석이나 선택 편집 요청에 대한 답이 아니다."""
+
+
+class FindReply(_Reply):
+    """조건 검색 결과로 선택 목록을 교체, 추가, 좁힌다. 후보와 근거는 서버가 보존하므로 복사하지 않는다."""
+
+    result: str = Field(description="search_candidates가 반환한 검색 결과 번호(S1 등)")
+
+
+class EditReply(_Reply):
+    """명확한 지원자를 선택 목록에 넣거나 뺀다. 미선택 지원자 전체 추가도 ADD와 대상 C번호로 실행한다."""
+
+    action: EditAction = Field(description="ADD, REMOVE, CLEAR, RESTORE")
+    candidates: list[str] = Field(default=[], description="편집할 지원자 C번호. 비우기와 되돌리기에는 []")
+
+
+class QuestionsReply(_Reply):
+    """지원자별 면접 질문 생성 요청. 검증된 대상과 확인할 점의 원문 근거 항목을 전달한다."""
+
+    items: list[AnswerItem] = Field(default=[], description="지원자별 확인할 점과 원문 근거 항목")
+    candidates: list[str] = Field(description="면접 질문을 만들 지원자 C번호")
     focus: dict[str, str] = Field(
         default={},
         description=(
-            "questions의 지원자 번호별 확인할 점. 해당 지원자의 items.text 하나를 글자 그대로 복사한다. "
-            "여러 항목의 요약이나 evidence.sentence를 새로 쓰지 않는다. 다른 종류는 {}"
+            "지원자 번호별 확인할 점. 해당 지원자의 items.text 하나를 글자 그대로 복사한다. "
+            "여러 항목의 요약이나 evidence.sentence를 새로 쓰지 않는다"
         ),
     )
 
-    @field_validator("action", "result", mode="before")
-    @classmethod
-    def null_literal(cls, value: Any) -> Any:
-        """null을 문자열로 잘못 감싼 표기만 복원하며 실제 명령 값은 그대로 검증한다."""
-        return None if value == "null" else value
+
+class ClarifyReply(_Reply):
+    """현재 화면과 앞 대화에도 없는 필수 정보만 되묻는다. 이미 알려준 조건을 다시 확인하지 않는다."""
+
+
+class BlockedReply(_Reply):
+    """차별 조건에 따른 탐색이나 선택 요청을 차단한다."""
+
+
+class DecisionReply(_Reply):
+    """합격, 불합격, 결과 확정, 게시, 발송은 담당자가 화면에서 직접 실행하도록 안내한다."""
+
+
+# 모델이 보는 최종 답 도구. 이름이 명령 종류이고 각 도구에는 그 명령의 인자만 있다
+REPLY_FORMS: dict[str, type[_Reply]] = {
+    "answer": AnswerReply,
+    "conversation": ConversationReply,
+    "find": FindReply,
+    "edit": EditReply,
+    "questions": QuestionsReply,
+    "clarify": ClarifyReply,
+    "blocked": BlockedReply,
+    "decision": DecisionReply,
+}
 
 
 class RootReply(BaseModel):
-    """최종 명령. find는 result=검색 결과 번호, candidates=[], items=[], action=null, focus={}로 낸다."""
+    """검증할 최종 명령. 모델이 고른 종류별 도구의 답을 본문, 근거 항목과 명령으로 나눈다."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -169,37 +200,19 @@ class RootReply(BaseModel):
     items: list[AnswerItem] = Field(default=[], description="지원자별 원문 근거 항목")
     command: RootCommand = Field(description="대화와 조회 결과에 근거한 최종 명령")
 
-    @classmethod
-    def __get_pydantic_json_schema__(cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler) -> JsonSchemaValue:
-        schema = handler.resolve_ref_schema(handler(_ModelReply.__pydantic_core_schema__))
-        return {**schema, "title": cls.__name__}
-
     @model_validator(mode="before")
     @classmethod
-    def from_model_response(cls, value: Any) -> Any:
+    def from_form(cls, value: Any) -> Any:
+        """{"kind": 도구 이름, **인자}를 받으면 그 도구 형식으로 검증한다. 의도는 다시 추론하지 않는다."""
         if not isinstance(value, dict) or "command" in value:
             return value
-        response = _ModelReply.model_validate(value)
-        fields = {
-            "answer": ("candidates",),
-            "edit": ("action", "candidates"),
-            "find": ("result",),
-            "questions": ("candidates", "focus"),
-        }.get(response.kind, ())
-        arguments = {
-            "candidates": response.candidates,
-            "action": response.action,
-            "result": response.result,
-            "focus": response.focus,
-        }
-        unused = [name for name, argument in arguments.items() if name not in fields and argument not in (None, [], {})]
-        if unused:
-            raise ValueError(f"{response.kind}에서 사용하지 않는 필드가 있어요: {', '.join(unused)}")
-        return {
-            "message": response.message,
-            "items": response.items,
-            "command": {"kind": response.kind, **{name: arguments[name] for name in fields}},
-        }
+        kind = value.get("kind")
+        form = REPLY_FORMS.get(kind) if isinstance(kind, str) else None
+        if form is None:
+            raise ValueError(f"알 수 없는 최종 명령이에요: {kind}")
+        reply = form.model_validate({key: argument for key, argument in value.items() if key != "kind"})
+        arguments = reply.model_dump(exclude={"message", "items"})
+        return {"message": reply.message, "items": getattr(reply, "items", []), "command": {"kind": kind, **arguments}}
 
 
 async def compile_reply(

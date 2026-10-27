@@ -18,10 +18,10 @@ import pytest
 import pytest_asyncio
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel, Field
-from root_context import extra_row, make_context, save_sample_profiles
+from root_context import extra_row, make_context, root_reply, save_sample_profiles
 
 from hiremate_ai.agents.root.agent import BUDGET_EXHAUSTED, VALIDATION_FAILED, run_agent
-from hiremate_ai.agents.root.commands import RootReply
+from hiremate_ai.agents.root.commands import REPLY_FORMS, RootReply
 from hiremate_ai.agents.root.conversation import review_conversation
 from hiremate_ai.agents.root.find import SearchQuery, recheck, recheck_criteria
 from hiremate_ai.agents.root.graph import RootThread, run_plan
@@ -44,7 +44,7 @@ from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.call_log import CallRecord
 from hiremate_ai.llm.chat import ToolAgent
 from hiremate_ai.llm.client import LlmClient, build_llm
-from hiremate_ai.llm.fake import FakeLlm, ToolCall
+from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 # langchain-openai는 HTTP 클라이언트를 이벤트 루프에 묶어 재사용하므로 평가 테스트는 한 루프에서 돈다
@@ -92,13 +92,13 @@ def print_run_metrics(log: MemoryCallLog, started: float, **labels: object) -> N
 def last_root_reply(log: MemoryCallLog) -> RootReply:
     """공개 계획에서 ANSWER로 합쳐지는 내부 명령을 마지막 모델 출력의 구조로 확인한다."""
     replies = [
-        call["args"]
+        {"kind": call["name"], **call["args"]}
         for record in log.records
         if record.agent == "root"
         for call in (record.output or {}).get("tool_calls", [])
-        if call["name"] == "RootReply"
+        if call["name"] in REPLY_FORMS
     ]
-    assert replies, "RootReply 최종 명령이 없어요"
+    assert replies, "최종 명령이 없어요"
     return RootReply.model_validate(replies[-1])
 
 
@@ -179,9 +179,9 @@ async def test_financial_career_search_keeps_all_matches_within_three_calls(
     expected_mode = "within_selected" if scope == "selected" else "replace"
     assert search[0]["query"].get("mode") == expected_mode, search[0]
     assert plan.mode == ("NARROW" if scope == "selected" else "REPLACE")
-    final = [call["args"] for call in tool_calls if call["name"] == "RootReply"]
+    final = [call for call in tool_calls if call["name"] in REPLY_FORMS]
     assert len(final) == 1
-    assert final[0]["items"] == [] and final[0]["candidates"] == []
+    assert final[0]["name"] == "find"
 
 
 async def test_portfolio_question_request_keeps_generation_handoff(
@@ -614,7 +614,7 @@ async def test_style_change_after_failed_business_request(
     assert len(log.records) <= 3
     assert all(record.agent == "root" for record in log.records)
     calls = [call for record in log.records if record.output for call in record.output.get("tool_calls", [])]
-    assert {call["name"] for call in calls} <= {"RootReply", "get_previous_turns"}
+    assert {call["name"] for call in calls} <= {*REPLY_FORMS, "get_previous_turns"}
     assert log.records[-1].output == {"allowed": True}
 
 
@@ -866,8 +866,7 @@ async def test_finance_followup_keeps_the_selected_scope(
     llm = build_llm(calls)
     initial = (
         FakeLlm(
-            ToolCall(
-                "RootReply",
+            root_reply(
                 {"message": "금융권 경력은 어떤 자료와 기준으로 확인할까요?", "command": {"kind": "clarify"}},
             )
         )

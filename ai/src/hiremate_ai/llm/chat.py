@@ -1,10 +1,12 @@
 import json
+import operator
 import time
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from functools import reduce
 from typing import Any, Literal, NotRequired, cast
 
 from langchain.agents import create_agent
@@ -25,7 +27,7 @@ from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from openai import LengthFinishReasonError
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, create_model
 
 from hiremate_ai.llm.call_log import CallLog, CallRecord
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
@@ -194,6 +196,7 @@ class ChatLlm:
         system: str,
         tools: Sequence[BaseTool],
         context: type[Any] | None = None,
+        forms: Mapping[str, type[BaseModel]] | None = None,
     ) -> "ToolAgent[T]":
         return build_tool_agent(
             self._model,
@@ -205,6 +208,7 @@ class ChatLlm:
             tools=tools,
             context=context,
             max_calls=self._agent_max_calls,
+            forms=forms,
         )
 
 
@@ -213,12 +217,21 @@ class ToolAgent[T: BaseModel]:
 
     LlmClient.tool_agent로 만든다. 모델 호출마다 호출 로그를 남기고, 도구 결과는 자료 블록으로 감싸며,
     모델 호출이 정한 횟수(settings.llm_agent_max_calls)를 넘으면 멈춘다.
+    최종 답을 형식별 도구(forms)로 나눴으면 받은 답을 {"kind": 도구 이름, **인자}로 검증해 output으로 바꾼다.
     """
 
-    def __init__(self, graph: CompiledStateGraph[Any, Any, Any, Any], output: type[T], *, agent: str) -> None:
+    def __init__(
+        self,
+        graph: CompiledStateGraph[Any, Any, Any, Any],
+        output: type[T],
+        *,
+        agent: str,
+        forms: Mapping[type[BaseModel], str] | None = None,
+    ) -> None:
         self._graph = graph
         self._output = output
         self._agent = agent
+        self._forms = forms or {}
 
     async def run(
         self,
@@ -248,6 +261,11 @@ class ToolAgent[T: BaseModel]:
                     reason=LlmFailureReason.BUDGET,
                 ) from exceeded
             result = state.get("structured_response")
+            if isinstance(result, BaseModel) and (kind := self._forms.get(type(result))) is not None:
+                try:
+                    result = self._output.model_validate({"kind": kind, **result.model_dump()})
+                except ValidationError as invalid:
+                    raise LlmOutputError(f"{kind} 답을 {self._output.__name__}로 바꾸지 못했다: {invalid}") from invalid
             if not isinstance(result, self._output):
                 raise LlmOutputError(f"{self._output.__name__} 형식의 답을 받지 못했다 ({self._agent})")
             problem = await validate(result) if validate is not None else None
@@ -261,12 +279,11 @@ class ToolAgent[T: BaseModel]:
         raise AssertionError("도달할 수 없는 재작성 단계")
 
 
-def final_answer_rule(output_name: str) -> str:
+def final_answer_rule(names: Sequence[str]) -> str:
     """도구 루프 system에 붙이는 규칙. 서버가 도구 호출 앞의 글을 허용하면 모델이 답을 글로 쓰다 끊기는 일을 막는다."""
-    return (
-        "응답은 언제나 도구 호출이다. 본문 글은 쓰지 않는다. "
-        f"자료를 다 확인했으면 최종 답은 {output_name} 도구의 인자로만 낸다."
-    )
+    target = f"{names[0]} 도구" if len(names) == 1 else f"{', '.join(names)} 중 하나의 도구"
+    final = f"자료를 다 확인했으면 최종 답은 {target}의 인자로만 낸다."
+    return f"응답은 언제나 도구 호출이다. 본문 글은 쓰지 않는다. {final}"
 
 
 def build_tool_agent[T: BaseModel](
@@ -280,13 +297,20 @@ def build_tool_agent[T: BaseModel](
     tools: Sequence[BaseTool],
     context: type[Any] | None,
     max_calls: int,
+    forms: Mapping[str, type[BaseModel]] | None = None,
 ) -> ToolAgent[T]:
-    """LangChain create_agent에 공통 미들웨어를 붙인다. ChatLlm과 FakeLlm이 같이 쓴다."""
+    """LangChain create_agent에 공통 미들웨어를 붙인다. ChatLlm과 FakeLlm이 같이 쓴다.
+
+    forms를 주면 최종 답을 이름별 도구로 나눠 보여 준다. 모델은 고른 형식의 인자만 쓴다.
+    """
+    # ToolStrategy는 형식의 클래스 이름을 도구 이름으로 쓴다
+    named = {name: create_model(name, __base__=form, __doc__=form.__doc__) for name, form in (forms or {}).items()}
+    response_format = ToolStrategy(reduce(operator.or_, named.values()) if named else output)
     graph = create_agent(
         model,
         tools,
         system_prompt="\n\n".join(
-            part for part in (system, UNTRUSTED_RULE, final_answer_rule(output.__name__)) if part
+            part for part in (system, UNTRUSTED_RULE, final_answer_rule(list(named) or [output.__name__])) if part
         ),
         middleware=[
             _ReadOnce(frozenset(tool.name for tool in tools)),
@@ -298,13 +322,13 @@ def build_tool_agent[T: BaseModel](
             ModelCallLimitMiddleware(run_limit=max_calls, exit_behavior="error"),
             _ModelCallBudgetMiddleware(),
         ],
-        response_format=ToolStrategy(output),
+        response_format=response_format,
         state_schema=_ToolState,
         context_schema=context,
         # Root 그래프 노드 안에서 돌아도 대화방 체크포인터를 이어받지 않는다. 이어받으면 도구 결과(문서 본문)가 저장된다
         checkpointer=False,
     )
-    return ToolAgent(graph, output, agent=agent)
+    return ToolAgent(graph, output, agent=agent, forms={form: name for name, form in named.items()})
 
 
 def transcript(messages: Sequence[BaseMessage]) -> str:

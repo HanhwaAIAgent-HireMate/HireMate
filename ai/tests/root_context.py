@@ -6,11 +6,13 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from hiremate_ai.agents.root.commands import RootReply
 from hiremate_ai.agents.root.types import (
     CandidateRow,
     ChatContext,
@@ -23,6 +25,7 @@ from hiremate_ai.agents.root.types import (
 from hiremate_ai.contract import AnalysisStatus, ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.db.profile import ItemAgent
 from hiremate_ai.db.profile_store import NewItem, ProfileFields, save_profile
+from hiremate_ai.llm.fake import ToolCall
 
 STAGE_ID = UUID("9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b61")
 STAGE_NAMES = {StageType.DOCUMENT: "서류 전형", StageType.ASSESSMENT: "과제 평가", StageType.INTERVIEW: "1차 면접"}
@@ -164,3 +167,15 @@ class Recorder:
 
     def item(self, item: ChatItem) -> None:
         self.items.append(item)
+
+
+def root_reply(reply: RootReply | Mapping[str, Any]) -> ToolCall:
+    """테스트가 적은 최종 명령을 모델이 부르는 종류별 최종 답 도구 호출로 바꾼다.
+
+    RootReply 값, {"message", "items", "command": {"kind", ...}} 또는 kind를 최상위에 둔 dict를 받는다.
+    값은 검증하지 않고 옮겨 잘못된 명령도 그대로 모델 응답이 된다.
+    """
+    value = reply.model_dump(mode="json") if isinstance(reply, RootReply) else dict(reply)
+    command = value.pop("command", {})
+    args = {**value, **command}
+    return ToolCall(str(args.pop("kind")), args)

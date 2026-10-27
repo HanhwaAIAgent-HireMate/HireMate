@@ -216,6 +216,7 @@ src/hiremate_ai/
   내부 오류와 검증되지 않은 모델 출력은 사용자에게 노출하지 않는다.
 - LangGraph 그래프를 만드는 함수는 `LlmClient`를 인자로 받는다. 노드는 그것으로 모델을 부르고, 테스트는 `FakeLlm`을 넘긴다.
   `FakeLlm`에는 모델 호출 순서대로 응답을 넣는다. 도구 루프에서는 `ToolCall`이 도구 호출, output 형식의 값이 최종 답이다.
+  최종 답을 종류별 도구(`forms`)로 나눈 Root는 그 형식의 값이나 `ToolCall(종류, 인자)`가 최종 답이다 (`root_reply` 도우미).
 - 도구는 `langchain.tools`의 `@tool`을 단 async 함수로, 여러 Agent가 쓰면 `tools/`에, 한 Agent만 쓰면 그 Agent 패키지에 둔다.
   조회 범위(기업, 채용, 전형)는 도구 인자로 받지 않고 `ToolRuntime`의 `context`로 받는다. 값은 코드가
   `ToolAgent.run(context=...)`으로 넣는다 (규칙 4). 도구 루프에는 조회 도구만 준다.

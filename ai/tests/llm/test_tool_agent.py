@@ -49,12 +49,41 @@ async def test_runs_tools_with_scope_from_code_and_returns_answer() -> None:
     assert result == Opinion(text="경력이 충분하다")
     assert seen_scopes[-1] == stage_id
     assert [call.agent for call in llm.calls] == ["root", "root"]
-    assert llm.calls[0].system == f"지원자를 분석한다\n\n{UNTRUSTED_RULE}\n\n{final_answer_rule('Opinion')}"
+    assert llm.calls[0].system == f"지원자를 분석한다\n\n{UNTRUSTED_RULE}\n\n{final_answer_rule(['Opinion'])}"
     assert llm.calls[0].user == "[human] @김지원 경력 어때?"
 
 
+class Verdict(BaseModel):
+    kind: str
+    text: str
+
+
+class Keep(BaseModel):
+    """판정을 유지한다."""
+
+    text: str
+
+
+class Hold(BaseModel):
+    """판정을 보류한다."""
+
+    text: str
+
+
+async def test_split_final_answers_become_the_output_with_their_tool_name() -> None:
+    llm = FakeLlm(Hold(text="경력 확인 필요"))
+
+    result = await llm.tool_agent(
+        Verdict, agent="root", system="판정한다", tools=[assessment_result], forms={"keep": Keep, "hold": Hold}
+    ).run("판정해")
+
+    assert result == Verdict(kind="hold", text="경력 확인 필요")
+    assert "keep, hold 중 하나의 도구" in llm.calls[0].system
+    assert llm.calls[0].output is Verdict
+
+
 def test_final_answer_rule_names_output() -> None:
-    rule = final_answer_rule("Opinion")
+    rule = final_answer_rule(["Opinion"])
 
     assert "Opinion" in rule
     assert "본문 글은 쓰지 않는다" in rule

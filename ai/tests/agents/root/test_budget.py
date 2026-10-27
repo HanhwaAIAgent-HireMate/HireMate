@@ -1,5 +1,5 @@
 import pytest
-from root_context import make_context
+from root_context import make_context, root_reply
 
 from hiremate_ai.agents.root.commands import ClarifyCommand, RootReply
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
@@ -24,7 +24,7 @@ async def test_search_rechecks_share_the_roots_model_call_budget(
             ToolCall("search_candidates", {"query": {"concepts": ["금융"]}}),
         ],
         rechecked,
-        RootReply(message="검색 조건을 좁혀 주세요.", command=ClarifyCommand()),
+        root_reply(RootReply(message="검색 조건을 좁혀 주세요.", command=ClarifyCommand())),
     )
 
     plan = await run_plan(llm, context)

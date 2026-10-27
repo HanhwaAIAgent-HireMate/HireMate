@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from functools import cache
 from typing import Annotated, Any, Protocol
 
@@ -37,6 +37,7 @@ class LlmClient(Protocol):
         system: str,
         tools: Sequence[BaseTool],
         context: type[Any] | None = None,
+        forms: Mapping[str, type[BaseModel]] | None = None,
     ) -> ToolAgent[T]:
         """모델이 도구를 골라 부르며 자료를 확인하고 output 형식으로 답하는 Agent(ReAct)를 만든다.
 
@@ -44,6 +45,8 @@ class LlmClient(Protocol):
         한 번 묻고 형식대로 받으면 structured를 쓴다.
         tools는 @tool로 만든 조회 도구다. context는 도구가 ToolRuntime으로 받을 조회 범위의 타입이고,
         값은 ToolAgent.run에 넘긴다. 도구 결과는 자료 블록으로 감싸지고 system에는 UNTRUSTED_RULE이 붙는다.
+        forms는 최종 답을 종류별 도구로 나눌 때 도구 이름별 인자 형식이다. 모델은 고른 종류의 인자만 쓰고,
+        받은 답은 {"kind": 도구 이름, **인자}로 output을 검증해 만든다.
         """
         ...
 

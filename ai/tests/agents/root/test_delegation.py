@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
-from root_context import make_context
+from root_context import make_context, root_reply
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,7 +55,7 @@ async def test_explicit_memo_request_passes_only_verified_candidate_note(
     )
     final = reply(questions=True, status="CHECK", source="면접관메모", sentence=memo.text)
     if not with_focus:
-        final.args["command"]["focus"] = {}
+        final.args["focus"] = {}
     llm = FakeLlm(
         ToolCall("resolve_candidates", {"names": [context.candidates[0].name]}),
         ToolCall("get_interviewer_memos", {"candidate": "C1"}),
@@ -117,8 +117,7 @@ def reply(*, questions: bool = False, status: str = "OK", source: str = "이력�
     command: dict[str, object] = {"kind": "questions" if questions else "answer", "candidates": ["C1"]}
     if questions:
         command["focus"] = {"C1": text}
-    return ToolCall(
-        "RootReply",
+    return root_reply(
         {
             "message": "확인한 내용을 정리했어요.",
             "command": command,
@@ -179,10 +178,10 @@ async def test_application_consultation_is_actually_available_to_the_root(
 ) -> None:
     context = interview_context(sample_applicants, sample_company, sample_posting)
 
-    def answer(call: LlmCall) -> RootReply:
+    def answer(call: LlmCall) -> ToolCall:
         consulted = '"result": "D1"' in call.user
-        return RootReply(
-            message="분석 결과를 받았어요." if consulted else "분석 결과가 없어요.", command=ClarifyCommand()
+        return root_reply(
+            RootReply(message="분석 결과를 받았어요." if consulted else "분석 결과가 없어요.", command=ClarifyCommand())
         )
 
     llm = FakeLlm(
@@ -205,7 +204,7 @@ async def test_specialist_tools_reject_candidates_outside_the_current_catalog(
     context = interview_context(sample_applicants, sample_company, sample_posting)
     llm = FakeLlm(
         ToolCall("consult_application", {"candidate": candidate}),
-        RootReply(message="지원자를 다시 골라 주세요.", command=ClarifyCommand()),
+        root_reply(RootReply(message="지원자를 다시 골라 주세요.", command=ClarifyCommand())),
     )
 
     plan = await run_plan(llm, context)
@@ -229,7 +228,7 @@ async def test_interview_cannot_receive_another_candidates_or_unknown_result(
         extraction(),
         review(),
         ToolCall("consult_interview", {"candidate": candidate, "previous_results": [previous]}),
-        RootReply(message="전달할 결과를 다시 골라 주세요.", command=ClarifyCommand()),
+        root_reply(RootReply(message="전달할 결과를 다시 골라 주세요.", command=ClarifyCommand())),
     )
 
     plan = await run_plan(llm, context)
@@ -346,7 +345,7 @@ async def test_blocked_question_conditions_keep_the_blocked_plan(
 ) -> None:
     context = interview_context(sample_applicants, sample_company, sample_posting)
     final = reply(questions=True)
-    final.args["command"]["focus"] = {"C1": "여성 지원자만 면접 질문을 만들어요."}
+    final.args["focus"] = {"C1": "여성 지원자만 면접 질문을 만들어요."}
     llm = FakeLlm(final)
 
     plan = await run_plan(llm, context)
@@ -375,7 +374,7 @@ async def test_specialists_do_not_invent_inputs_when_material_is_missing(
         )
     llm = FakeLlm(
         ToolCall(tool, {"candidate": "C1"}),
-        RootReply(message="원문 자료를 확인해 주세요.", command=ClarifyCommand()),
+        root_reply(RootReply(message="원문 자료를 확인해 주세요.", command=ClarifyCommand())),
     )
 
     plan = await run_plan(llm, context)
@@ -414,7 +413,7 @@ async def test_specialist_calls_share_the_roots_model_budget(
     llm = FakeLlm(
         ToolCall("consult_application", {"candidate": "C1"}),
         extraction(),
-        RootReply(message="서류 검토가 예산 안에 끝나지 않았어요.", command=ClarifyCommand()),
+        root_reply(RootReply(message="서류 검토가 예산 안에 끝나지 않았어요.", command=ClarifyCommand())),
     )
 
     plan = await run_plan(llm, context)
