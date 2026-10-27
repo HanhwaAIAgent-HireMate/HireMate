@@ -640,23 +640,23 @@ def items(count: int) -> list[SourcedItem]:
 @pytest.mark.parametrize(
     ("current", "request_text", "task"),
     [
-        (EMPTY_LISTS, "NCS 기반으로 자격 요건과 우대 사항 써 줘", "자격 요건 최대 10개, 우대 사항 최대 10개를 쓴다."),
-        (CONTENT, "NCS 기반으로 다시 써 줘", "자격 요건 최대 10개, 우대 사항 최대 10개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건 3개, 우대 사항 4개로 써 줘", "자격 요건 최대 3개, 우대 사항 최대 4개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건과 우대 사항을 각각 세 개씩 써 줘", "자격 요건 최대 3개, 우대 사항 최대 3개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건은 7개로 써 줘", "자격 요건 최대 7개, 우대 사항 최대 10개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건 만들어 줘", "자격 요건 최대 10개, 우대 사항 최대 10개를 쓴다."),
-        (CONTENT, "자격 요건은 7개로 써 줘", "자격 요건 최대 7개를 쓴다. 우대 사항은 쓰지 않고 빈 목록으로 둔다."),
-        (EMPTY_LISTS, "우대 사항만 써 줘", "우대 사항 최대 10개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다."),
+        (EMPTY_LISTS, "NCS 기반으로 자격 요건과 우대 사항 써 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
+        (CONTENT, "NCS 기반으로 다시 써 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건 3개, 우대 사항 4개로 써 줘", "자격 요건 3개, 우대 사항 4개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건과 우대 사항을 각각 세 개씩 써 줘", "자격 요건 3개, 우대 사항 3개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건은 7개로 써 줘", "자격 요건 7개, 우대 사항 10개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건 만들어 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
+        (CONTENT, "자격 요건은 7개로 써 줘", "자격 요건 7개를 쓴다. 우대 사항은 쓰지 않고 빈 목록으로 둔다."),
+        (EMPTY_LISTS, "우대 사항만 써 줘", "우대 사항 10개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다."),
         (
             EMPTY_LISTS,
             "자격 요건은 그대로 두고 우대 사항 다섯 가지 써 줘",
-            "우대 사항 최대 5개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.",
+            "우대 사항 5개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.",
         ),
         (
             EMPTY_LISTS,
             "자격 요건 15개 써 줘",
-            f"자격 요건 최대 {MAX_DRAFT_ITEMS}개, 우대 사항 최대 {DEFAULT_ITEMS}개를 쓴다.",
+            f"자격 요건 {MAX_DRAFT_ITEMS}개, 우대 사항 {DEFAULT_ITEMS}개를 쓴다.",
         ),
     ],
 )
@@ -849,7 +849,7 @@ async def test_revise_fills_empty_lists_with_ncs_when_asked_to_write_the_whole_p
 
     assert result.suggestion is not None
     assert result.suggestion.changed_fields == ["duties", "qualifications", "preferred"]
-    assert llm.calls[3].user.endswith("지금 할 일: 자격 요건 최대 10개, 우대 사항 최대 10개를 쓴다.")
+    assert llm.calls[3].user.endswith("지금 할 일: 자격 요건 10개, 우대 사항 10개를 쓴다.")
     assert "자격 요건은 근거를 찾을 수 있는 3개만 썼어요." in result.reply
 
 
@@ -863,7 +863,7 @@ async def test_revise_fills_only_the_empty_list_for_a_whole_posting_request() ->
 
     assert result.suggestion is not None
     assert result.suggestion.content.qualifications == CONTENT.qualifications
-    assert llm.calls[3].user.endswith("지금 할 일: 우대 사항 최대 10개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.")
+    assert llm.calls[3].user.endswith("지금 할 일: 우대 사항 10개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.")
 
 
 async def test_revise_does_not_rewrite_filled_lists_for_a_whole_posting_request() -> None:
@@ -872,6 +872,16 @@ async def test_revise_does_not_rewrite_filled_lists_for_a_whole_posting_request(
     result = await revise_posting(llm, posting(), "", BROAD)
 
     assert result.suggestion is None
+    assert len(llm.calls) == 2
+
+
+async def test_revise_ignores_stages_the_request_did_not_mention() -> None:
+    llm = FakeLlm(route("CONTENT", "STAGES"), content(career="신입"))
+
+    result = await revise_posting(llm, posting(), "", "신입 3명 채용하려고 해")
+
+    assert result.suggestion is not None
+    assert result.suggestion.changed_fields == ["career"]
     assert len(llm.calls) == 2
 
 

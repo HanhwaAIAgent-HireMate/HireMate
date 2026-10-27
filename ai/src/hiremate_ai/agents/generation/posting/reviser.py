@@ -148,6 +148,10 @@ MAX_HEADCOUNT = 9999
 EXTRA_WORDS = {DocumentType.PORTFOLIO: ("포트폴리오",), DocumentType.CERTIFICATE: ("자격증",)}
 """필수 서류는 요청에 그 서류가 나올 때만 넣고 뺀다. 작은 모델이 요청하지 않은 서류를 더하곤 한다."""
 
+_STAGE_WORDS = re.compile(r"전형|절차|면접|서류|평가|테스트|시험|검사|과제|코딩|순서|순으로|단계|PT|발표|워크숍", re.I)
+"""전형 절차는 요청에 전형을 말하는 낱말이 있을 때만 바꾼다. 작은 모델이 "5명 채용하려고 해" 같은 요청에도
+하지 말라는 지시를 어기고 전형 절차를 고르곤 한다."""
+
 FACT_WORDS = {
     "headcount": re.compile(r"인원|\d+\s*명|(?:한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*명"),
     "position": re.compile(r"직급|직위|직책|사원|주임|대리|과장|차장|부장|선임|책임|수석"),
@@ -206,13 +210,17 @@ PROCESS_TARGETS: frozenset[Target] = frozenset({"STAGES", "REQUIRED_EXTRAS"})
 
 
 class Route(BaseModel):
-    """첫 호출: 요청이 바꾸라는 대상."""
+    """첫 호출: 요청이 바꾸라는 대상.
 
+    writes_posting을 먼저 정하게 해야 작은 모델이 공고 전체를 써 달라는 요청을 알아본다.
+    """
+
+    writes_posting: bool = Field(
+        description="HR이 뽑으려는 직무 · 경력 · 인원을 말하며 공고를 써 달라거나 채용하겠다고 하면 true. "
+        "이미 있는 칸 몇 개를 바꾸라는 요청이면 false"
+    )
     targets: list[Target] = Field(description="요청이 바꾸라는 대상. 알 수 없으면 빈 목록")
     question: str | None = Field(description="무엇을 바꾸라는지 알 수 없을 때 HR에게 되묻는 한 문장. 아니면 null")
-    writes_posting: bool = Field(
-        description="공고를 처음부터 쓰거나 공고 전체를 채우라는 요청이면 true, 몇 칸만 고치라는 요청이면 false"
-    )
 
 
 class FieldChange(BaseModel):
@@ -301,10 +309,11 @@ SYSTEM = """너는 기업 인사팀의 채용 공고 편집을 돕는 Posting Ag
 4. 회사의 공고 작성 스타일이 있으면 따른다. 한국어로 쓰고, 목록 항목은 앞에 기호 없이 한 줄로 짧게 쓴다."""
 
 ROUTE_STEP = (
-    "지금 할 일: 요청이 바꾸라는 대상을 targets에 고른다. 요청하지 않은 대상은 넣지 않는다. "
-    "무엇을 바꾸라는지 알 수 없으면 targets를 비우고 question에 되묻는 한 문장을 쓴다. "
-    "공고를 처음부터 쓰거나 공고 전체를 채우라는 요청(예: '백엔드 개발자 공고 써 줘', "
-    "'경력 3년 이상 5명 채용하려고 해')이면 writes_posting을 true로 둔다."
+    "지금 할 일: 먼저 writes_posting을 정한다. HR이 뽑으려는 직무 · 경력 · 인원을 말하며 공고를 써 달라거나 "
+    "채용하겠다고 하면(예: '경력 3년 이상 5명 채용하려고 해', '프론트엔드 신입 공고 만들어 줘') true, "
+    "이미 있는 칸 몇 개를 바꾸라는 요청이면 false다. 그다음 요청이 바꾸라는 대상을 targets에 고른다. "
+    "요청하지 않은 대상은 넣지 않는다. 전형 절차를 말하지 않았으면 STAGES를 넣지 않는다. "
+    "무엇을 바꾸라는지 알 수 없으면 targets를 비우고 question에 되묻는 한 문장을 쓴다."
 )
 CONTENT_STEP = (
     "지금 할 일: 본문 칸 중 요청이 바꾸라는 칸만 changes에 쓴다. field에는 칸 이름(예: 근무지, 우대 사항)을 쓴다. "
@@ -335,8 +344,9 @@ NCS_SYSTEM = """너는 채용 공고의 자격 요건과 우대 사항을 NCS(�
 6. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 넣지 않는다. 회사가 알려 주지 않은 사실은 지어내지 않는다.
 7. 항목은 40자 안팎의 한 줄로, 공고에 쓰는 쉬운 말로 쓴다.
    수행준거의 "~할 수 있는 능력" 말투나 전문 용어를 늘어놓지 않고 "~ 경험", "~ 능력"으로 끝낸다. 한국어로 쓴다.
-8. 목록마다 "지금 할 일"에 적힌 개수까지 쓴다. 능력단위와 지금 공고에서 근거를 찾을 수 있는 만큼만 쓰고,
-   개수를 채우려고 같은 능력을 말만 바꿔 다시 쓰거나 근거 없는 항목을 만들지 않는다. 개수보다 적어도 된다."""
+8. 목록마다 "지금 할 일"에 적힌 개수를 채운다. 능력단위마다 세부 능력([ ] 안의 이름)이 여러 개라 보통 채울 수 있다.
+   능력단위와 지금 공고에서 더는 근거를 찾을 수 없을 때만 그보다 적게 쓴다.
+   개수를 채우려고 같은 능력을 말만 바꿔 다시 쓰거나 근거 없는 항목을 만들지 않는다."""
 
 
 @dataclass(frozen=True)
@@ -391,6 +401,8 @@ async def revise_posting(
     elif not _NCS_WORDS.search(request):
         # 근거로 새로 쓰는 일은 오래 걸려, 자격 요건 · 우대 사항을 말한 요청일 때만 한다
         targets.discard("NCS_REQUIREMENTS")
+    if not _STAGE_WORDS.search(request):
+        targets.discard("STAGES")
     locked = posting.status is not RecruitmentStatus.DRAFT and bool(targets & PROCESS_TARGETS)
     targets -= PROCESS_TARGETS if locked else set()
     if not targets:
@@ -837,7 +849,7 @@ def _ncs_prompt(
 
 def _ncs_task(counts: dict[str, int]) -> str:
     """쓸 목록과 개수. 요청을 읽고 정하는 일은 코드가 하고 모델에게는 정한 대로 알려 준다."""
-    task = f"지금 할 일: {', '.join(f'{FIELD_LABELS[name]} 최대 {count}개' for name, count in counts.items())}를 쓴다."
+    task = f"지금 할 일: {', '.join(f'{FIELD_LABELS[name]} {count}개' for name, count in counts.items())}를 쓴다."
     if skipped := [label for name, label in NCS_FIELDS if name not in counts]:
         task += f" {', '.join(skipped)}은 쓰지 않고 빈 목록으로 둔다."
     return task
