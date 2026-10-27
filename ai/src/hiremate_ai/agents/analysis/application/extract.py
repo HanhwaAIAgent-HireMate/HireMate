@@ -19,6 +19,7 @@ from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.contract import ApplicantDocument, DocumentType
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, document_block
+from hiremate_ai.llm.recipe import analysis_recipe, fingerprint
 
 EXTRACT_SYSTEM = f"""너는 채용 서류 한 건에서 지원자에 관한 사실을 뽑는다. 판단이나 점수는 매기지 않는다.
 
@@ -83,13 +84,38 @@ class ExtractedFacts(BaseModel):
     periods: list[ExtractedPeriod] = []
 
 
+def extraction_recipe(llm: LlmClient) -> str | None:
+    recipe = analysis_recipe(llm)
+    return (
+        fingerprint(
+            {
+                "version": "document-extraction-1",
+                "llm": recipe,
+                "system": EXTRACT_SYSTEM,
+                "schema": ExtractedFacts.model_json_schema(),
+            }
+        )
+        if recipe is not None
+        else None
+    )
+
+
 async def extract_documents(
-    llm: LlmClient, documents: Sequence[ApplicantDocument], concurrency: int
+    llm: LlmClient,
+    documents: Sequence[ApplicantDocument],
+    concurrency: int,
+    *,
+    cached: Sequence[ExtractedFacts | None] | None = None,
 ) -> list[ExtractedFacts]:
     """문서마다 한 번씩, 동시에 concurrency개까지 모델을 부른다. 결과는 documents 순서다."""
     gate = asyncio.Semaphore(concurrency)
+    previous = list(cached) if cached is not None else [None] * len(documents)
+    if len(previous) != len(documents):
+        raise ValueError("추출 결과와 문서 수가 다르다")
 
-    async def one(document: ApplicantDocument) -> ExtractedFacts:
+    async def one(document: ApplicantDocument, saved: ExtractedFacts | None) -> ExtractedFacts:
+        if saved is not None:
+            return saved
         async with gate:
             return await ask(
                 llm,
@@ -98,7 +124,9 @@ async def extract_documents(
                 user=f"{document_block(document)}\n\n위 {document.type.label}에서 사실과 기간을 뽑아 줘.",
             )
 
-    return list(await asyncio.gather(*(one(document) for document in documents)))
+    return list(
+        await asyncio.gather(*(one(document, saved) for document, saved in zip(documents, previous, strict=True)))
+    )
 
 
 def merge(

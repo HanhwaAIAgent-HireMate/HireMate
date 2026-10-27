@@ -2737,16 +2737,24 @@ async def generate_questions(
 class ReviewReader(Protocol):
     """상세 판정을 읽는 쪽. 서류 전형 Agent의 저장소(ReviewStore)가 이 모양이다 (읽기만 하므로 latest만 쓴다)."""
 
-    async def latest(self, application_id: UUID) -> ApplicationReview | None: ...
+    async def latest(
+        self, application_id: UUID, *, company_id: UUID, recruitment_id: UUID
+    ) -> ApplicationReview | None: ...
 
 
-async def load_review(store: ReviewReader, applicant: ApplicantDetail) -> ApplicationReview | None:
+async def load_review(
+    store: ReviewReader, applicant: ApplicantDetail, *, company_id: UUID | None = None
+) -> ApplicationReview | None:
     """서류 전형 Agent가 저장한 이 지원서의 최근 상세 판정. 읽기만 한다.
 
     없거나(분석 전 · stub) 저장소를 읽지 못하면 None → 질문은 요약(CandidateAnalysis)으로 만든다.
     """
+    if company_id is None:
+        return None
     try:
-        return await store.latest(applicant.info.application_id)
+        return await store.latest(
+            applicant.info.application_id, company_id=company_id, recruitment_id=applicant.info.recruitment_id
+        )
     except Exception:  # DB 연결 실패 등. 질문 생성은 요약으로 계속한다
         logger.warning(
             "서류 상세 판정을 읽지 못해 요약으로 질문을 만든다: %s", applicant.info.application_id, exc_info=True

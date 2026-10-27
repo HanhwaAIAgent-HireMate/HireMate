@@ -25,7 +25,7 @@ from hiremate_ai.agents.root.types import (
     SelectionMode,
 )
 from hiremate_ai.contract import DocumentType, StageType
-from hiremate_ai.llm.chat import LlmOutputError
+from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 from hiremate_ai.tools.candidates import CandidateMatch, SourcedSentence
@@ -260,7 +260,9 @@ async def plan_find(
     progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
         verified = await recheck(llm, context, matches, conditions=conditions, talents=talents, memo=toolkit.judged)
-    except LlmOutputError:
+    except LlmOutputError as error:
+        if error.reason is LlmFailureReason.BUDGET:
+            raise
         return ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
     chosen = [(allowed[application_id], _shorten(evidence[0].sentence)) for application_id, evidence in verified]
     sources = list(dict.fromkeys(sourced.source for _, evidence in verified for sourced in evidence)) + score_sources
@@ -306,7 +308,9 @@ async def _plan_posting(
     progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
         judged = await recheck_criteria(llm, context, matches, items, required, toolkit.judged)
-    except LlmOutputError:
+    except LlmOutputError as error:
+        if error.reason is LlmFailureReason.BUDGET:
+            raise
         return ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
 
     n = len(items)

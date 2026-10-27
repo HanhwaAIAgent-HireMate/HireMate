@@ -1,23 +1,35 @@
 import json
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from uuid import UUID, uuid4
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from hiremate_ai.agents.analysis.application.extract import ExtractedFacts
+from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, extraction_recipe
 from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
-from hiremate_ai.agents.analysis.interview.types import FindingDraft, InterviewDraft
+from hiremate_ai.agents.analysis.interview import analyze_interview
+from hiremate_ai.agents.analysis.interview.store import interview_recipe
+from hiremate_ai.agents.analysis.interview.types import (
+    AnsweredQuestion,
+    FindingDraft,
+    InterviewAnalysisInput,
+    InterviewDraft,
+)
 from hiremate_ai.agents.root.commands import ClarifyCommand, RootReply
 from hiremate_ai.agents.root.graph import RootThread, run_plan
 from hiremate_ai.agents.root.toolkit import OUT_OF_SCOPE, AgentEvidence, RootToolContext, default_toolkit
 from hiremate_ai.agents.root.types import ChatContext, Intent, InterviewQuestion, InterviewView, QuestionSource
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.db.analysis_artifact import AnalysisArtifactRecord
+from hiremate_ai.db.analysis_store import DbAnalysisArtifacts
 from hiremate_ai.db.profile import Verification
-from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
+from hiremate_ai.llm.fake import FakeLlm, FakeReply, LlmCall, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
 
@@ -369,13 +381,19 @@ async def test_specialist_calls_share_the_roots_model_budget(
 ) -> None:
     context = interview_context(sample_applicants, sample_company, sample_posting)
     monkeypatch.setattr(settings, "llm_agent_max_calls", 3)
-    llm = FakeLlm(ToolCall("consult_application", {"candidate": "C1"}), extraction(), review())
+    llm = FakeLlm(
+        ToolCall("consult_application", {"candidate": "C1"}),
+        extraction(),
+        RootReply(message="서류 검토가 예산 안에 끝나지 않았어요.", command=ClarifyCommand()),
+    )
 
     plan = await run_plan(llm, context)
 
     assert plan.intent is Intent.CLARIFY
     assert len(llm.calls) == 3
     assert plan.question_targets == [] and plan.targets == []
+    assert [call.agent for call in llm.calls] == ["root", "application", "root"]
+    assert "서류 근거" in plan.message and "완료하지 못" in plan.message
 
 
 async def test_specialist_material_and_results_are_not_kept_in_conversation_checkpoints(
@@ -398,3 +416,206 @@ async def test_specialist_material_and_results_are_not_kept_in_conversation_chec
     assert "PRIVATE-MATERIAL-SENTINEL" not in saved
     assert DOCUMENT not in saved
     assert '"D1"' not in saved
+
+
+async def test_root_reuses_independently_saved_extraction_but_still_reviews_all_claims(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    document = context.documents[context.candidates[0].application_id][0]
+    store = artifact_store(db_session)
+    recipe = extraction_recipe(FakeLlm())
+    assert recipe is not None
+    await store.save_extraction(
+        company_id=context.company.company_id,
+        recruitment_id=context.recruitment_id,
+        application_id=context.candidates[0].application_id,
+        document=document,
+        recipe_hash=recipe,
+        extracted=extraction(),
+    )
+    before = await db_session.scalar(select(func.count()).select_from(AnalysisArtifactRecord))
+    toolkit = replace(default_toolkit(), artifacts=store)
+    for _ in range(2):
+        llm = FakeLlm(ToolCall("consult_application", {"candidate": "C1"}), review(), reply())
+        plan = await run_plan(llm, context, toolkit)
+        assert plan.intent is Intent.ANSWER
+        assert [call.agent for call in llm.calls] == ["root", "application", "root"]
+        assert DOCUMENT in llm.calls[1].user
+    assert await db_session.scalar(select(func.count()).select_from(AnalysisArtifactRecord)) == before
+
+
+async def test_explicit_fresh_review_bypasses_independent_extraction_reuse(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    store = artifact_store(db_session)
+    recipe = extraction_recipe(FakeLlm())
+    assert recipe is not None
+    await store.save_extraction(
+        company_id=context.company.company_id,
+        recruitment_id=context.recruitment_id,
+        application_id=context.candidates[0].application_id,
+        document=context.documents[context.candidates[0].application_id][0],
+        recipe_hash=recipe,
+        extracted=extraction(),
+    )
+    llm = FakeLlm(
+        ToolCall("consult_application", {"candidate": "C1", "force_review": True}),
+        extraction(),
+        review(),
+        reply(),
+    )
+    plan = await run_plan(llm, context, replace(default_toolkit(), artifacts=store))
+    assert plan.intent is Intent.ANSWER
+    assert [call.agent for call in llm.calls] == ["root", "application", "application", "root"]
+
+
+def artifact_store(session: AsyncSession) -> DbAnalysisArtifacts:
+    @asynccontextmanager
+    async def sessions() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    return DbAnalysisArtifacts(sessions)
+
+
+async def test_three_documents_leave_a_final_answer_when_interview_review_hits_the_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    application_id = context.candidates[0].application_id
+    document = context.documents[application_id][0]
+    context.documents[application_id] = [document.model_copy(update={"file_id": uuid4()}) for _ in range(3)]
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 8)
+    final = reply()
+    final.args["message"] = "서류와 면접을 모두 검토 완료했어요."
+    llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": [context.candidates[0].name]}),
+        ToolCall("consult_application", {"candidate": "C1"}),
+        extraction(),
+        extraction(),
+        extraction(),
+        review(),
+        ToolCall("consult_interview", {"candidate": "C1", "previous_results": ["D1"]}),
+        final,
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.ANSWER
+    assert len(llm.calls) == 8
+    assert not any(call.agent == "interview" for call in llm.calls)
+    assert len(plan.items) == 1 and plan.items[0].text == STATEMENT
+    assert "면접" in plan.message and "완료하지 못" in plan.message
+    assert "모두 검토 완료" not in plan.message
+    assert plan.targets == [] and plan.question_targets == []
+
+
+@pytest.mark.parametrize("force_review,with_reference", [(False, False), (True, False), (False, True)])
+async def test_root_reuses_independent_interview_only_for_matching_unreferenced_review(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    force_review: bool,
+    with_reference: bool,
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    application_id = context.candidates[0].application_id
+    view = context.interviews[application_id]
+    data = InterviewAnalysisInput(
+        company_id=context.company.company_id,
+        recruitment_id=context.recruitment_id,
+        application_id=application_id,
+        stage_id=context.stage_id,
+        stage_name=context.stage_name,
+        questions=[AnsweredQuestion(text=q.text, answer=q.answer) for q in view.questions],
+        previous=[],
+    )
+    store = artifact_store(db_session)
+    analysis = await analyze_interview(data, FakeLlm(interview_draft()))
+    recipe = interview_recipe(FakeLlm())
+    assert recipe is not None
+    await store.save_interview(data, analysis, recipe_hash=recipe)
+    before = await db_session.scalar(select(func.count()).select_from(AnalysisArtifactRecord))
+    responses: list[FakeReply] = []
+    if with_reference:
+        responses.extend([ToolCall("consult_application", {"candidate": "C1"}), extraction(), review()])
+    responses.append(
+        ToolCall(
+            "consult_interview",
+            {
+                "candidate": "C1",
+                "force_review": force_review,
+                "previous_results": ["D1"] if with_reference else [],
+            },
+        )
+    )
+    if force_review or with_reference:
+        responses.append(interview_draft())
+    responses.append(reply(source="면접 기록", sentence=ANSWER))
+    llm = FakeLlm(*responses)
+
+    plan = await run_plan(llm, context, replace(default_toolkit(), artifacts=store))
+
+    assert plan.intent is Intent.ANSWER
+    assert any(call.agent == "interview" for call in llm.calls) is (force_review or with_reference)
+    assert plan.items[0].text == INTERVIEW_STATEMENT
+    assert await db_session.scalar(select(func.count()).select_from(AnalysisArtifactRecord)) == before
+
+
+async def test_three_cached_documents_and_interview_finish_within_eight_calls(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    application_id = context.candidates[0].application_id
+    document = context.documents[application_id][0]
+    documents = [document.model_copy(update={"file_id": uuid4()}) for _ in range(3)]
+    context.documents[application_id] = documents
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 8)
+    store = artifact_store(db_session)
+    recipe = extraction_recipe(FakeLlm())
+    assert recipe is not None
+    for cached_document in documents:
+        await store.save_extraction(
+            company_id=context.company.company_id,
+            recruitment_id=context.recruitment_id,
+            application_id=application_id,
+            document=cached_document,
+            recipe_hash=recipe,
+            extracted=extraction(),
+        )
+    final = reply(source="면접 기록", sentence=ANSWER)
+    final.args["items"].insert(0, reply().args["items"][0])
+    final.args["message"] = "서류와 면접을 함께 검토했어요."
+    llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": [context.candidates[0].name]}),
+        ToolCall("consult_application", {"candidate": "C1"}),
+        review(),
+        ToolCall("consult_interview", {"candidate": "C1", "previous_results": ["D1"]}),
+        interview_draft(),
+        final,
+    )
+
+    plan = await run_plan(llm, context, replace(default_toolkit(), artifacts=store))
+
+    assert plan.intent is Intent.ANSWER
+    assert [call.agent for call in llm.calls] == ["root", "root", "application", "root", "interview", "root"]
+    assert len(plan.items) == 2
+    assert plan.message == "서류와 면접을 함께 검토했어요."
+    assert plan.agents == ["Application Agent", "Interview Agent"]
+    assert plan.sources == ["이력서", "면접 기록"]
+    assert await db_session.scalar(select(func.count()).select_from(AnalysisArtifactRecord)) == 3

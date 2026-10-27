@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 from root_context import make_context
 
-from hiremate_ai.agents.root.agent import run_agent
+from hiremate_ai.agents.root.agent import root_prompt, run_agent
 from hiremate_ai.agents.root.answer import AnswerEvidence, AnswerItem
 from hiremate_ai.agents.root.commands import (
     AnswerCommand,
@@ -22,7 +22,7 @@ from hiremate_ai.agents.root.graph import RootThread, build_root_graph, run_plan
 from hiremate_ai.agents.root.memory import forget_stage, get_saver
 from hiremate_ai.agents.root.toolkit import default_toolkit
 from hiremate_ai.agents.root.turns import Turn, turn_of
-from hiremate_ai.agents.root.types import ChatContext, ChatItem, ChatPlan, EditAction, Intent
+from hiremate_ai.agents.root.types import ChatContext, ChatItem, ChatPlan, Decision, EditAction, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.client import get_llm
@@ -749,3 +749,76 @@ async def test_previous_turns_can_read_legacy_turns_without_screen_targets(conte
     assert '담당자: "기존 질문"' in read
     assert "Root 답: 기존 답변" in read
     assert "멘션한 지원자:" not in read and "체크한 지원자:" not in read
+
+
+def test_root_prompt_emits_screen_identity_facts_once(context: ChatContext) -> None:
+    context = ask(context, "지원자 검토해줘", mentions=("정유민",))
+    context = context.model_copy(
+        update={"candidates": [row.model_copy(update={"selected": row.name == "박서준"}) for row in context.candidates]}
+    )
+
+    prompt = root_prompt(context, [], None, [])
+    screen = json.loads(prompt.split('<data kind="screen">', 1)[1].split("</data>", 1)[0])
+
+    # C1 is needed in its catalog row and the mention list, with no repeated mention sentence.
+    assert prompt.count("C1") == 2
+    assert screen["선택 지원자"] == ["C3"]
+    assert all("선택 여부" not in row for row in screen["지원자"])
+
+
+@pytest.mark.parametrize("result, expected", [(None, None), ([], []), (["김하늘", "정유민"], ["C2", "C1"])])
+def test_root_prompt_preserves_distinct_scopes_and_full_catalog(
+    context: ChatContext, result: list[str] | None, expected: list[str] | None
+) -> None:
+    context = ask(context, "그중 두 번째 사람 검토해줘", mentions=("정유민",), checked=("김하늘",))
+    context = context.model_copy(
+        update={
+            "candidates": [
+                row.model_copy(
+                    update={
+                        "selected": row.name == "박서준",
+                        "decision": Decision.PASS if row.name == "이도윤" else Decision.PENDING,
+                        "above_line": row.name != "한예린",
+                    }
+                )
+                for row in context.candidates
+            ]
+        }
+    )
+    previous = None if result is None else [str(value) for value in ids(context, *result)]
+    prompt = root_prompt(context, [], previous, [str(value) for value in ids(context, "이도윤")])
+    screen = json.loads(prompt.split('<data kind="screen">', 1)[1].split("</data>", 1)[0])
+
+    assert screen["멘션한 지원자"] == ["C1"]
+    assert screen["체크한 지원자"] == ["C2"]
+    assert screen["선택 지원자"] == ["C3"]
+    assert screen["이전 결과"] == expected
+    assert screen["직전 대상"] == ["C4"]
+    assert screen["선택 변경 가능"] is True
+    assert len(screen["지원자"]) == 8
+    assert [row["번호"] for row in screen["지원자"]] == ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
+    assert screen["지원자"][3]["결정"] == "PASS"
+    assert screen["지원자"][5]["기준선 위"] is False
+    assert [row["이름"] for row in screen["지원자"]] == [row.name for row in context.candidates]
+    assert all(str(row.application_id) not in prompt for row in context.candidates)
+
+
+def test_history_keeps_question_focus_once_and_references_it_from_the_matching_item(context: ChatContext) -> None:
+    application_id = context.candidates[0].application_id
+    plan = ChatPlan.answer(Intent.ANSWER, "질문을 확인할 점과 함께 정리했어요.").model_copy(
+        update={
+            "items": [ChatItem(application_id=application_id, label="확인할 점", text=FOCUS, status="CHECK")],
+            "question_focus": {application_id: FOCUS},
+        }
+    )
+    prior = turn_of(context, [application_id], plan, "ANSWER")
+
+    prompt = root_prompt(context, [prior], None, [])
+    history = json.loads(prompt.split('<data kind="history">', 1)[1].split("</data>", 1)[0])
+
+    assert prompt.count(FOCUS) == 1
+    assert history[0]["대화 번호"] == 1
+    assert history[0]["확인할 점"]["C1"] == FOCUS
+    assert history[0]["항목"][0]["text_ref"] == "확인할 점/C1"
+    assert history[0]["항목"][0]["application_id"] == "C1"
+    assert "text" not in history[0]["항목"][0]

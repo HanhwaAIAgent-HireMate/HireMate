@@ -282,3 +282,34 @@ async def test_router_refuses_profile_of_another_company(db_session: AsyncSessio
     )
 
     assert response.status_code == 409
+
+
+async def test_model_budget_exhaustion_stops_interview_retries_immediately() -> None:
+    from hiremate_ai.llm.chat import LlmFailureReason
+
+    def exhausted(call: LlmCall) -> InterviewDraft:
+        raise LlmOutputError("호출 예산", reason=LlmFailureReason.BUDGET)
+
+    llm = FakeLlm(exhausted, exhausted, exhausted)
+    analysis = await analyze_interview(interview_input(), llm)
+
+    assert analysis.status is ProfileStatus.CHECK
+    assert analysis.interrupted is True
+    assert len(llm.calls) == 1
+    assert all(item.category is ItemCategory.CHECK for item in analysis.items)
+
+
+async def test_budget_stop_preserves_validated_interview_items_without_marking_review_done() -> None:
+    from hiremate_ai.llm.chat import LlmFailureReason
+
+    def exhausted(call: LlmCall) -> InterviewDraft:
+        raise LlmOutputError("호출 예산", reason=LlmFailureReason.BUDGET)
+
+    llm = FakeLlm(InterviewDraft(findings=[confirmed(), from_question()]), exhausted, exhausted)
+    analysis = await analyze_interview(interview_input(), llm)
+
+    assert analysis.status is ProfileStatus.CHECK
+    assert analysis.interrupted is True
+    assert len(llm.calls) == 2
+    assert any(item.evidence == confirmed().evidence for item in analysis.items)
+    assert not any(item.evidence == from_question().evidence for item in analysis.items)

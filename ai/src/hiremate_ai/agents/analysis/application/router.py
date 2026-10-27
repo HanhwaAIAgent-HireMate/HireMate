@@ -60,7 +60,11 @@ async def candidate(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> Ca
     except RubricScopeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except TimeoutError as error:
-        latest = await store.latest(request.applicant.info.application_id)
+        latest = await store.latest(
+            request.applicant.info.application_id,
+            company_id=request.rubric.company_id,
+            recruitment_id=request.rubric.recruitment_id,
+        )
         if latest is None:
             raise HTTPException(status_code=503, detail="분석이 아직 끝나지 않았다") from error
         review = latest

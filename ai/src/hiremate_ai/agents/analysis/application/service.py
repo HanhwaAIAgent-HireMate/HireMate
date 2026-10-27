@@ -4,9 +4,10 @@ import asyncio
 import re
 from collections.abc import Sequence
 from datetime import date
+from uuid import uuid4
 
 from hiremate_ai.agents.analysis.application.context import readable
-from hiremate_ai.agents.analysis.application.extract import extract_documents, merge
+from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, extract_documents, merge
 from hiremate_ai.agents.analysis.application.graph import REVIEW_VERSION, ReviewInput, run_review
 from hiremate_ai.agents.analysis.application.review import fact_claims, review_claims
 from hiremate_ai.agents.analysis.application.store import ReviewStore, input_hash
@@ -21,7 +22,9 @@ from hiremate_ai.agents.analysis.application.types import (
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, ApplicantDocument, CriterionCategory, CriterionType, PostingContent
+from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.llm.client import LlmClient
+from hiremate_ai.llm.recipe import analysis_recipe
 
 CRITERIA_SOURCE = "공고 · 평가 기준"
 
@@ -30,7 +33,9 @@ class RubricScopeError(ValueError):
     """평가 기준의 채용과 지원서의 채용이 다를 때. 다른 채용의 기준으로 평가하지 않는다 (아키텍처 규칙 4)."""
 
 
-async def review_application_documents(llm: LlmClient, documents: Sequence[ApplicantDocument]) -> list[Fact]:
+async def review_application_documents(
+    llm: LlmClient, documents: Sequence[ApplicantDocument], *, extracted: Sequence[ExtractedFacts | None] | None = None
+) -> list[Fact]:
     """제출 문서의 사실과 근거를 검토한다. 점수를 매기거나 결과를 저장하지 않는다.
 
     원문에서 찾은 인용과 본인 역할을 보존하며, 검토에서 명시적으로 뒷받침된 사실만 supported다.
@@ -38,8 +43,12 @@ async def review_application_documents(llm: LlmClient, documents: Sequence[Appli
     usable = readable(documents)
     if not usable:
         return []
-    extracted = await extract_documents(llm, usable, settings.application_concurrency)
-    facts, _ = merge(usable, extracted, date.today())
+    if extracted is not None:
+        if len(extracted) != len(documents):
+            raise ValueError("추출 결과와 문서 수가 다르다")
+        extracted = [result for document, result in zip(documents, extracted, strict=True) if document.text.strip()]
+    results = await extract_documents(llm, usable, settings.application_concurrency, cached=extracted)
+    facts, _ = merge(usable, results, date.today())
     reviews = await review_claims(llm, fact_claims(facts))
     supported = {review.id for review in reviews.values() if review.verdict == "SUPPORTED"}
     return [
@@ -56,6 +65,7 @@ async def analyze_application(
     *,
     budget_seconds: float,
     today: date | None = None,
+    artifacts: AnalysisArtifactStore | None = None,
 ) -> ApplicationReview:
     """지원서를 분석하고 결과 원본을 돌려준다. 같은 입력의 저장 결과가 있으면 모델을 부르지 않는다.
 
@@ -64,8 +74,23 @@ async def analyze_application(
     """
     if rubric.recruitment_id != applicant.info.recruitment_id:
         raise RubricScopeError("평가 기준과 지원서의 채용이 다르다")
-    digest = input_hash(applicant, posting, rubric, REVIEW_VERSION)
-    stored = await store.find(applicant.info.application_id, digest)
+    analysis_date = today or date.today()
+    recipe = analysis_recipe(llm)
+    digest = input_hash(
+        applicant,
+        posting,
+        rubric,
+        REVIEW_VERSION,
+        today=analysis_date,
+        recipe=recipe if recipe is not None else {"unsupported": str(uuid4())},
+    )
+    stored = (
+        await store.find(
+            applicant.info.application_id, digest, company_id=rubric.company_id, recruitment_id=rubric.recruitment_id
+        )
+        if recipe is not None
+        else None
+    )
     if stored is not None:
         return stored
     criteria, notes = match_criteria(posting, rubric)
@@ -76,8 +101,10 @@ async def analyze_application(
         criteria_version=rubric.criteria_version,
         notes=notes,
         input_hash=digest,
-        today=today or date.today(),
+        today=analysis_date,
         deadline=asyncio.get_running_loop().time() + budget_seconds,
+        company_id=rubric.company_id,
+        artifacts=artifacts if artifacts is not None else store.artifacts,
     )
     async with asyncio.timeout(budget_seconds):
         review = await run_review(llm, context)

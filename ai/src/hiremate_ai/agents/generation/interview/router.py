@@ -52,7 +52,9 @@ class QuestionsRequest(ContractModel):
 @router.post("/questions")
 async def questions(request: QuestionsRequest, llm: LlmDep, store: StoreDep) -> list[InterviewQuestionDraft]:
     """이전 전형 근거로 맞춤 질문을 만든다. 카드에 이미 있는 질문과 비슷한 질문은 뺀다."""
-    review = await load_review(store, request.applicant)
+    review = await load_review(
+        store, request.applicant, company_id=request.company.company_id if request.company else None
+    )
     drafts: list[InterviewQuestionDraft] = []
     await generate_questions(
         llm,

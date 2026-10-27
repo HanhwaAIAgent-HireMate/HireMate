@@ -1,5 +1,5 @@
 import re
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -888,7 +888,9 @@ class ReviewOnly:
         self.review = review
         self.broken = broken
 
-    async def latest(self, application_id: object) -> ApplicationReview | None:
+    async def latest(
+        self, application_id: object, *, company_id: UUID, recruitment_id: UUID
+    ) -> ApplicationReview | None:
         if self.broken:
             raise ConnectionError("DB에 연결하지 못함")
         return self.review
@@ -1104,8 +1106,8 @@ async def test_load_review_returns_none_when_the_store_fails(sample_applicants: 
     """저장소를 읽지 못해도 질문 생성은 멈추지 않는다 (요약으로 만든다)."""
     applicant = sample_applicants["이도윤"]
 
-    assert await load_review(ReviewOnly(None, broken=True), applicant) is None
-    assert await load_review(ReviewOnly(newcomer_review(applicant)), applicant) is not None
+    assert await load_review(ReviewOnly(None, broken=True), applicant, company_id=UUID(int=1)) is None
+    assert await load_review(ReviewOnly(newcomer_review(applicant)), applicant, company_id=UUID(int=1)) is not None
 
 
 async def test_experience_already_asked_on_the_card_is_not_asked_again(

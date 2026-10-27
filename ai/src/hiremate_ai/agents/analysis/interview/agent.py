@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Sequence
-from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -26,7 +25,7 @@ from hiremate_ai.agents.analysis.interview.types import (
 )
 from hiremate_ai.db.profile import ProfileStatus
 from hiremate_ai.db.profile_store import NewItem
-from hiremate_ai.llm.chat import LlmOutputError
+from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 if TYPE_CHECKING:
@@ -180,7 +179,14 @@ async def analyze_interview(
     answered = False
     failed: list[tuple[FindingDraft, str]] = []
     for _ in range(1 + MAX_RETRIES):
-        drafts = await _draft(llm, prompt)
+        try:
+            drafts = await _draft(llm, prompt)
+        except LlmOutputError as error:
+            if error.reason is not LlmFailureReason.BUDGET:
+                raise
+            return InterviewAnalysis(
+                status=ProfileStatus.CHECK, items=_dedupe(items), dropped=len(failed), interrupted=True
+            )
         if drafts is None:  # 형식에 맞지 않은 답. 같은 요청으로 다시 묻는다
             continue
         answered = True
@@ -199,9 +205,12 @@ async def analyze_interview(
 
 
 async def _draft(llm: LlmClient, user: str) -> InterviewDraft | None:
-    with suppress(LlmOutputError):
+    try:
         return await llm.structured(InterviewDraft, agent=AGENT, system=PROFILE_SYSTEM, user=user)
-    return None
+    except LlmOutputError as error:
+        if error.reason is not LlmFailureReason.FORMAT:
+            raise
+        return None
 
 
 def _user_prompt(data: InterviewAnalysisInput, references: Sequence[InterviewReference]) -> str:

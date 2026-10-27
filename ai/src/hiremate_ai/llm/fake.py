@@ -44,9 +44,13 @@ class FakeLlm:
     도구 루프 Agent는 모델 호출 한 번마다 응답 하나를 쓴다. ToolCall이면 도구를 부르고, output 형식의 값이면 답을 낸다.
     """
 
-    def __init__(self, *responses: FakeResponse) -> None:
+    def __init__(self, *responses: FakeResponse, recipe: dict[str, Any] | None = None) -> None:
         self._responses = deque(responses)
         self.calls: list[LlmCall] = []
+        self._recipe = recipe if recipe is not None else {"implementation": "fake-v1"}
+
+    def analysis_recipe(self) -> dict[str, Any]:
+        return dict(self._recipe)
 
     async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
         consume_model_call()

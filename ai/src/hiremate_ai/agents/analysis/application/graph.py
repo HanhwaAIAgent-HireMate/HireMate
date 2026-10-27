@@ -19,7 +19,7 @@ from langgraph.runtime import Runtime
 
 from hiremate_ai.agents.analysis.application.career import career_years, last_company
 from hiremate_ai.agents.analysis.application.context import readable
-from hiremate_ai.agents.analysis.application.extract import extract_documents, merge, summarize
+from hiremate_ai.agents.analysis.application.extract import extract_documents, extraction_recipe, merge, summarize
 from hiremate_ai.agents.analysis.application.judge import (
     Evidence,
     apply_verification,
@@ -42,6 +42,7 @@ from hiremate_ai.agents.analysis.application.types import (
 )
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CriterionCategory, PostingContent, ScoreStatus, Verdict
+from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.llm.client import LlmClient
 
 REVIEW_VERSION = "2026-10-26.1"
@@ -67,6 +68,8 @@ class ReviewInput:
     input_hash: str
     today: date
     deadline: float | None = None
+    company_id: UUID | None = None
+    artifacts: AnalysisArtifactStore | None = None
 
 
 class ReviewState(TypedDict, total=False):
@@ -87,9 +90,34 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
     async def extract(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
         context = runtime.context
         documents = readable(context.applicant.documents)
+        artifacts = context.artifacts
+        recipe = extraction_recipe(llm)
+        cached = None
+        if artifacts is not None and recipe is not None and context.company_id is not None:
+            cached = [
+                await artifacts.find_extraction(
+                    company_id=context.company_id,
+                    recruitment_id=context.applicant.info.recruitment_id,
+                    application_id=context.applicant.info.application_id,
+                    document=document,
+                    recipe_hash=recipe,
+                )
+                for document in documents
+            ]
         extracted, sections = await asyncio.gather(
-            extract_documents(llm, documents, settings.application_concurrency), summarize(llm, documents)
+            extract_documents(llm, documents, settings.application_concurrency, cached=cached),
+            summarize(llm, documents),
         )
+        if artifacts is not None and recipe is not None and context.company_id is not None:
+            for document, result in zip(documents, extracted, strict=True):
+                await artifacts.save_extraction(
+                    company_id=context.company_id,
+                    recruitment_id=context.applicant.info.recruitment_id,
+                    application_id=context.applicant.info.application_id,
+                    document=document,
+                    recipe_hash=recipe,
+                    extracted=result,
+                )
         facts, periods = merge(documents, extracted, context.today)
         return {"facts": facts, "periods": periods, "sections": sections}
 
