@@ -91,7 +91,7 @@ CRITERIA_SYSTEM = """너는 채용 담당자가 공고 항목을 기준으로 �
 
 
 class SearchQuery(BaseModel):
-    """검색 도구의 실행 인자. 요청 문장의 의미를 다시 해석하거나 보정하지 않는다."""
+    """검색 조건. concepts와 min_score는 필수다. 나머지 선택 인자는 기본값이면 생략하고 필요한 값만 적는다."""
 
     # 모델은 조건이 없을 때도 []와 null을 직접 쓰게 한다. Python 호출의 기본값은 유지한다.
     model_config = ConfigDict(extra="forbid", json_schema_extra={"required": ["concepts", "min_score"]})
