@@ -97,7 +97,7 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
   }
 
   return (
-    <aside className="flex min-h-0 w-[340px] shrink-0 flex-col border-l">
+    <aside className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Sparkles className="size-4 text-ai" />

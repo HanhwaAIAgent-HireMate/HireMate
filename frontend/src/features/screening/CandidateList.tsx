@@ -109,7 +109,7 @@ export function CandidateList({
   }
 
   return (
-    <section className="flex min-h-0 w-[300px] shrink-0 flex-col border-r">
+    <section className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
         <h2 className="text-sm font-bold">
           전체 지원자 <span className="ml-1 text-muted-foreground">{total}</span>
