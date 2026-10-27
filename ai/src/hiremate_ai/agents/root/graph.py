@@ -3,6 +3,7 @@
 문서와 도구 실행 상태는 실행 context에만 두고 대화방에는 최근 질문과 검증한 결과만 보관한다.
 """
 
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, cast
@@ -16,7 +17,7 @@ from langgraph.runtime import Runtime
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.agent import run_agent
-from hiremate_ai.agents.root.progress import writer_progress
+from hiremate_ai.agents.root.progress import StepRecorder, writer_progress
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
 from hiremate_ai.agents.root.turns import Turn, next_result, remember, turn_of, update_turn
 from hiremate_ai.agents.root.types import (
@@ -40,6 +41,8 @@ class RootState(TypedDict, total=False):
     turns: list[Turn]
     result: list[str] | None
     subject: list[str]
+    steps: list[str]  # 이번 턴에 낸 단계 문구
+    started: float  # 이번 턴을 시작한 시각 (time.monotonic)
 
 
 @dataclass(frozen=True)
@@ -51,7 +54,7 @@ class RootThread:
     stage_id: UUID
 
 
-_NEW_TURN: RootState = {"plan": None, "kind": "", "mode": None}
+_NEW_TURN: RootState = {"plan": None, "kind": "", "mode": None, "steps": []}
 CHECKING = "요청을 확인하고 있어요"
 type PlanEvent = tuple[Literal["status", "item", "done"], ChatStatus | ChatItem | ChatPlan]
 
@@ -68,12 +71,13 @@ def build_root_graph(
 
     def guard(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         writer_progress(runtime.stream_writer).status(CHECKING)
+        started: RootState = {"steps": [CHECKING], "started": time.monotonic()}
         if blocked_attribute(runtime.context.message):
-            return {"plan": ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY)}
-        return {}
+            return {**started, "plan": ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY)}
+        return started
 
     async def agent(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
-        progress = writer_progress(runtime.stream_writer)
+        progress = StepRecorder(writer_progress(runtime.stream_writer), state.get("steps"))
         finished = await run_agent(
             llm,
             runtime.context,
@@ -85,7 +89,7 @@ def build_root_graph(
         )
         for item in finished.plan.items:
             progress.item(item)
-        return {"plan": finished.plan, "kind": finished.kind, "mode": finished.mode}
+        return {"plan": finished.plan, "kind": finished.kind, "mode": finished.mode, "steps": progress.steps}
 
     def record(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         plan = state.get("plan")
@@ -97,6 +101,10 @@ def build_root_graph(
         turn["mode"] = mode.value if mode is not None else None
         turn["result_before"] = state.get("result")
         turn["subject_before"] = state.get("subject") or []
+        turn["steps"] = state.get("steps") or []
+        started = state.get("started")
+        if started is not None:
+            turn["seconds"] = round(time.monotonic() - started)
         return {
             "turns": remember(state.get("turns") or [], turn, settings.root_memory_turns),
             "result": next_result(state.get("result"), kind, state.get("mode"), plan),
