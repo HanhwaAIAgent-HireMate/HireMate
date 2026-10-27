@@ -59,6 +59,32 @@ public class InterviewAiService {
         return views;
     }
 
+    /** 현재 카드와 이전 면접에 해당하는 메모만 Chat 조회에 제공한다. 자동 질문 생성에는 넣지 않는다. */
+    public List<InterviewerMemo> memos(UUID companyId, UUID stageId, UUID applicationId) {
+        InterviewView view = interviews.view(companyId, stageId, applicationId);
+        return screening.history(companyId, applicationId).stream()
+                .filter(item -> item.stageId().equals(stageId)
+                        || view.previous().stream().anyMatch(previous -> previous.stageId().equals(item.stageId())))
+                .filter(item -> !item.memo().isBlank())
+                .map(item -> new InterviewerMemo(item.stageId(), item.stageName(), item.memo())).toList();
+    }
+
+    /** Root가 원문과 대조한 메모도 실행 전에 다시 검증한다. 삭제·수정된 메모는 사용하지 않는다. */
+    public InterviewView generateFromMemo(UUID companyId, UUID stageId, UUID applicationId,
+            String focus, InterviewerMemo memo) {
+        if (memo == null || memo.text() == null || memo.text().isBlank()
+                || memos(companyId, stageId, applicationId).stream().noneMatch(actual ->
+                        actual.stageId().equals(memo.stageId()) && actual.stageName().equals(memo.stageName())
+                        && actual.text().contains(memo.text()))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_MEMO", "면접 메모를 다시 조회해 주세요.");
+        }
+        Inputs in = inputs(companyId, stageId, applicationId, interviews.view(companyId, stageId, applicationId));
+        return interviews.addGeneratedQuestions(companyId, stageId, applicationId,
+                agent.memoQuestions(in.applicant(), in.posting(), in.analysis(), in.current(), in.company(),
+                        focus, memo).stream()
+                        .filter(question -> !question.text().equals(InterviewService.INTRO)).limit(1).toList());
+    }
+
     /** 지금 카드에 있는 질문 수. */
     public int count(UUID companyId, UUID stageId, UUID applicationId) {
         return interviews.view(companyId, stageId, applicationId).questions().size();

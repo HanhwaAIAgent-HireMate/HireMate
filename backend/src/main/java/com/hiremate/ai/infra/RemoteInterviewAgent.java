@@ -5,6 +5,7 @@ import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.InterviewAgent;
 import com.hiremate.ai.application.InterviewQuestionsRequest;
+import com.hiremate.ai.application.InterviewerMemo;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.interview.InterviewQuestionDraft;
@@ -44,6 +45,15 @@ class RemoteInterviewAgent implements InterviewAgent {
         InterviewQuestionsRequest body = new InterviewQuestionsRequest(applicant, posting, analysis, interview, company,
                 focus, questionCount);
         return client.post(AiAgent.INTERVIEW, "questions", body, QUESTIONS);
+    }
+
+    @Override
+    public List<InterviewQuestionDraft> memoQuestions(ApplicantDetail applicant, PostingContent posting,
+            CandidateAnalysis analysis, InterviewView interview, CompanyProfile company, String focus,
+            InterviewerMemo memo) {
+        return client.post(AiAgent.INTERVIEW, "questions",
+                new InterviewQuestionsRequest(applicant, posting, analysis, interview, company, focus, 1, memo),
+                QUESTIONS);
     }
 
     @Override

@@ -80,13 +80,18 @@ public class ChatService {
         Map<UUID, InterviewView> interviewViews = stage.type() == StageType.INTERVIEW
                 ? interviews.views(companyId, stageId, candidates.stream().map(CandidateRow::applicationId).toList())
                 : Map.of();
+        Map<UUID, List<InterviewerMemo>> interviewerMemos = new HashMap<>();
+        if (stage.type() == StageType.INTERVIEW) {
+            candidates.forEach(candidate -> interviewerMemos.put(candidate.applicationId(),
+                    interviews.memos(companyId, stageId, candidate.applicationId())));
+        }
         // 대화는 전형 종료까지만 보관한다. 끝난 전형에서 물으면 대화방 없이 답한다
         String threadId = stage.status() == StageStatus.DONE ? "" : threadId(companyId, stageId, memberId);
         ChatContext context = new ChatContext(stageId, recruitment.id(), threadId, stage.name(),
                 stage.status() == StageStatus.ACTIVE, stage.type(), stages,
                 candidates, applications.documents(companyId, recruitment.id()), documentScores, interviewViews,
                 mentions, checked, companies.profile(companyId),
-                postings.draftContext(companyId, recruitment.id()).content(), message);
+                postings.draftContext(companyId, recruitment.id()).content(), message, interviewerMemos);
         return new ChatInput(companyId, stageId, stage.status(), candidates, context);
     }
 
@@ -159,7 +164,8 @@ public class ChatService {
         String message = plan.message().replace("{count}", String.valueOf(applied))
                 .replace("{total}", String.valueOf(total));
         ChatPlan finalPlan = new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), message,
-                plan.items(), plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus());
+                plan.items(), plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(),
+                plan.questionMemos());
         if (!context.threadId().isBlank()) {
             try {
                 root.applied(new ChatApplied(context.threadId(), context.message(), previous, finalPlan));
@@ -229,7 +235,7 @@ public class ChatService {
         List<ChatItem> items = plan.items().stream()
                 .filter(item -> item.applicationId() == null || targets.contains(item.applicationId())).toList();
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), targets, message, items,
-                plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus());
+                plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos());
     }
 
     /**
@@ -247,11 +253,17 @@ public class ChatService {
             progress.status(name + " 면접 질문을 만들고 있어요");
             int before = interviews.count(companyId, stageId, applicationId);
             String focus = plan.questionFocus().getOrDefault(applicationId, message);
-            InterviewView view = interviews.generate(companyId, stageId, applicationId, focus, limit);
+            InterviewerMemo memo = plan.questionMemos().get(applicationId);
+            InterviewView view = memo == null
+                    ? interviews.generate(companyId, stageId, applicationId, focus, limit)
+                    : interviews.generateFromMemo(companyId, stageId, applicationId, focus, memo);
             List<InterviewView.Question> added = view.questions().subList(Math.min(before, view.questions().size()),
                     view.questions().size());
-            if (added.size() < limit) {
-                shortfalls.add(name + ": 중복과 근거를 확인해 요청한 " + limit + "개 중 " + added.size() + "개를 추가했어요.");
+            if (memo != null && added.isEmpty()) {
+                shortfalls.add(name + ": 메모에서 실제 면접 기록과 연결되는 새 확인 사항을 찾지 못해 질문을 추가하지 않았어요.");
+            } else if (added.size() < limit) {
+                shortfalls.add(name + (memo != null ? ": 메모 참고 질문은 최대 1개만 추가해요."
+                        : ": 중복과 근거를 확인해 요청한 " + limit + "개 중 " + added.size() + "개를 추가했어요."));
             }
             summaries.add(new ChatItem(applicationId, name, added.isEmpty() ? "새로 넣을 질문이 없어요"
                     : added.getFirst().text() + (added.size() > 1 ? " 외 " + (added.size() - 1) + "문항" : ""), null));
@@ -259,7 +271,7 @@ public class ChatService {
         List<ChatItem> items = plan.items().isEmpty() ? summaries : plan.items();
         String reply = plan.message() + (shortfalls.isEmpty() ? "" : "\n" + String.join("\n", shortfalls));
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), reply, items,
-                plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus());
+                plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos());
     }
 
     static int requestedQuestionCount(String message) {
