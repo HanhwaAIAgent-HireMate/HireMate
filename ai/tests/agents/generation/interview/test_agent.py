@@ -24,6 +24,7 @@ from hiremate_ai.agents.generation.interview.agent import (
     INTRO,
     NOTABLE,
     PREFERRED,
+    PREFERRED_PARTIAL,
     REQUIRED,
     SCENARIO,
     Gap,
@@ -638,7 +639,7 @@ def test_template_josa_and_internal_note_are_fixed() -> None:
     from hiremate_ai.agents.generation.interview.agent import FOLLOW_UP, NO_ANSWER, PREFERRED, Gap, _template
 
     preferred = _template(Gap("G1", PREFERRED, "금융 도메인 경험", ""))
-    assert preferred.startswith("금융 도메인 경험과 관련된")
+    assert preferred.startswith("금융 도메인 경험이 있다면")  # '경험과 관련된 경험'처럼 겹치지 않게
     assert _template(Gap("G2", PREFERRED, "대용량 트래픽 처리", "")).startswith("대용량 트래픽 처리와 관련된")
     failed = _template(Gap("G3", FOLLOW_UP, "결제 API", "", detail="AI가 해석하지 못한 답변 (면접관 확인 필요)"))
     assert "AI가" not in failed and "면접관" not in failed
@@ -965,7 +966,8 @@ def test_review_gaps_skip_known_shortfall_and_duplicate_note(sample_applicants: 
     """이미 확인된 기간 미달과 그 판정 메모를 제외하고 실제로 확인할 소재를 남긴다."""
     gaps = review_gaps(newcomer_review(sample_applicants["이도윤"]))
 
-    assert [gap.kind for gap in gaps] == [PREFERRED, CLAIM, NOTABLE]
+    # 부분 충족 우대사항은 '경험이 있다면'이 아니라 남은 부분을 묻는 '우대 조건 일부 확인'이다
+    assert [gap.kind for gap in gaps] == [PREFERRED_PARTIAL, CLAIM, NOTABLE]
     assert "부분 충족" in gaps[0].note and "성능 기준" in gaps[0].note
     assert all("금융" not in gap.topic for gap in gaps)  # 평가 기준(UNRATED)이 없는 우대사항은 빈틈이 아니다
     assert gaps[1].evidence == [SDK] and "불분명" in gaps[1].note
@@ -3114,3 +3116,140 @@ async def test_question_reasons_stay_attached_to_the_returned_questions(
     assert "공통 질문" in (drafts[0].reason or "")
     if final:
         assert any("기본 질문" in (draft.reason or "") for draft in drafts[1:])
+
+
+# ── 🎤 기본 질문 주제 · 부분 충족 · 1인칭 (직무 5개 NCS 기준 검증에서 나온 깨진 질문) ──
+
+
+def test_partial_criterion_asks_remaining_part_with_posting_sentence() -> None:
+    """부분 충족은 '일부 확인' 유형이고, 판정 이유 문장 대신 공고 문장을 다듬은 주제로 묻는다.
+
+    예전: "근거 중 '…'는 데이터 정리 경험을과 관련해 직접 해 본 경험이 있다면 …" (판정 이유가 주제로 들어감)
+    """
+    from hiremate_ai.agents.generation.interview.agent import REQUIRED_PARTIAL, _criterion_gap, _template
+
+    reason = (
+        "근거 중 '고객 반품 데이터 600건을 불량 유형별로 집계해 파레토도로 정리했습니다'는 데이터 정리 경험을 "
+        "뒷받침하지만, 두 가지 주장을 모두 충족한다고 보기에는 근거가 분산되어 있습니다."
+    )
+    item = _result(
+        "Q-03",
+        CriterionCategory.QUALIFICATION,
+        "안전 절차를 지키며 수량·불량률 등 기본 데이터를 정리할 수 있는 분",
+        Verdict.PARTIAL,
+        reason,
+    ).model_copy(update={"unsatisfied_parts": [reason], "satisfied_parts": ["품질 데이터를 집계 · 정리했다."]})
+
+    gap = _criterion_gap(item)
+
+    assert gap is not None and gap.kind == REQUIRED_PARTIAL and gap.label == "필수 조건 일부 확인"
+    assert gap.topic == gap.title == "안전 절차를 지키며 수량·불량률 등 기본 데이터를 정리하는 일"
+    question = _template(gap)
+    assert (
+        "근거 중" not in question and "경험이 있다면" not in question
+    )  # 일부는 확인됐으니 경험 유무를 다시 묻지 않는다
+    assert question.startswith("안전 절차를 지키며 수량·불량률 등 기본 데이터를 정리하는 일과 관련해 본인이 직접 맡은")
+
+
+def test_rule_sentence_target_becomes_phrase_and_template_uses_posting_sentence() -> None:
+    """평가 기준의 판정 문장('…근거가 있다.')은 '…한 일'로 다듬고, 기본 질문은 공고 문장으로 만든다.
+
+    예전: "차이가 난 항목의 원인을 찾아 정리한 근거가 있다.와 관련해 직접 해 본 경험이 있다면 …"
+    """
+    from hiremate_ai.agents.generation.interview.agent import _criterion_gap, _template
+
+    item = _result(
+        "Q-03",
+        CriterionCategory.QUALIFICATION,
+        "스프레드시트로 금액을 검산하고 불일치 항목을 추적할 수 있는 분",
+        Verdict.UNKNOWN,
+        "불일치 추적은 드러나지 않음",
+    ).model_copy(update={"unknown_parts": ["차이가 난 항목의 원인을 찾아 정리한 근거가 있다."]})
+
+    gap = _criterion_gap(item)
+
+    assert gap is not None and gap.kind == REQUIRED
+    assert gap.topic == "차이가 난 항목의 원인을 찾아 정리한 일"  # 모델에게 줄 남은 확인 사항
+    question = _template(gap)
+    assert "있다." not in question
+    assert question.startswith(
+        "스프레드시트로 금액을 검산하고 불일치 항목을 추적하는 일과 관련해 직접 해 본 경험이 있다면"
+    )
+
+
+def test_long_target_falls_back_to_posting_sentence_without_dangling_dot() -> None:
+    """60자가 넘는 판정 문장은 잘라 쓰지 않는다 (예전: '…본인이 비교 ·와 관련해')."""
+    from hiremate_ai.agents.generation.interview.agent import _criterion_gap, _question_topic, _template
+
+    long_rule = (
+        "캠페인이나 프로젝트의 목표(또는 성과 지표)를 정하고, 결과 자료를 모아 목표 대비 달성 여부를 "
+        "본인이 비교 · 분석한 근거가 있다."
+    )
+    item = _result(
+        "Q-01",
+        CriterionCategory.QUALIFICATION,
+        "광고 캠페인 또는 수업·동아리·개인 프로젝트에서 목표와 결과를 비교한 경험",
+        Verdict.UNKNOWN,
+        "본인 비교 여부 불명",
+    ).model_copy(update={"unknown_parts": [long_rule]})
+
+    gap = _criterion_gap(item)
+
+    assert gap is not None and gap.topic == gap.title
+    assert "·와" not in _template(gap) and "· 와" not in _template(gap)
+    assert not _question_topic("목표 대비 달성 여부를 본인이 비교 · 분석한 일입니다", 26).endswith("·")
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "지원자 문의를 분석하여 FAQ를 만든 것이 제 제안이었다고 말씀해 주세요.",
+        "제가 맡은 일정 조율 과정을 설명해 주세요.",
+    ],
+)
+def test_first_person_from_applicant_sentence_is_rejected(question: str) -> None:
+    """지원자의 1인칭 문장을 면접관 말처럼 옮긴 질문은 다시 쓰게 한다."""
+    from hiremate_ai.agents.generation.interview.agent import _style_problem
+
+    assert "1인칭" in (_style_problem(question, NOTABLE) or "")
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "'저는 면접 일정을 직접 조정했습니다'라고 적어 주셨는데, 겹친 일정을 어떻게 정했는지 말해 주세요.",
+        "저희 회사와 이 직무를 고르게 된 계기를 말해 주세요.",
+        "문제 원인을 어떻게 찾았는지 말해 주세요.",
+    ],
+)
+def test_first_person_check_allows_quotes_and_company_voice(question: str) -> None:
+    """인용 안의 1인칭, 면접관의 '저희 회사', '문제'의 '제'는 걸지 않는다."""
+    from hiremate_ai.agents.generation.interview.agent import _style_problem
+
+    assert "1인칭" not in (_style_problem(question, NOTABLE) or "")
+
+
+def test_criterion_title_turns_posting_requirement_into_topic() -> None:
+    """'…할 수 있는 분' 같은 공고 문장을 질문 주제로 다듬는다 (예전: '…설명할 수 있는 분의 관점에서')."""
+    from hiremate_ai.agents.generation.interview.agent import _criterion_title
+
+    assert _criterion_title("관찰된 불량 현상과 추정 원인을 구분해 설명할 수 있는 분") == (
+        "관찰된 불량 현상과 추정 원인을 구분해 설명하는 일"
+    )
+    assert (
+        _criterion_title("개인정보의 목적 외 사용을 피하는 원칙을 이해하는 분")
+        == "개인정보의 목적 외 사용을 피하는 원칙"
+    )
+    assert _criterion_title("GA4 등 웹 분석 도구 사용 경험") == "GA4 등 웹 분석 도구 사용 경험"
+
+
+def test_experience_topic_does_not_repeat_experience_word() -> None:
+    """'…조율한 경험과 관련해 직접 해 본 경험이 있다면' 대신 '…조율한 경험이 있다면'으로 묻는다."""
+    from hiremate_ai.agents.generation.interview.agent import _template
+
+    gap = Gap("G1", REQUIRED, "남은 부분", "", criterion_id="Q-01", title="여러 사람의 일정과 요청을 조율한 경험")
+
+    assert (
+        _template(gap)
+        == "여러 사람의 일정과 요청을 조율한 경험이 있다면, 본인이 맡은 일과 결과를 구체적으로 말해 주세요."
+    )

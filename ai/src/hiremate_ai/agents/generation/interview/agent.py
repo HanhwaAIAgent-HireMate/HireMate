@@ -131,6 +131,8 @@ FINAL_SLOTS: dict[str, Slot] = {
 PICK_FALLBACK = "서류에 적어 주신 경험 중 가장 자신 있는 일 하나를 골라, 본인이 맡은 부분과 결과를 말해 주세요."
 
 FOLLOW_UP, REQUIRED, CHECK, PREFERRED, NOTABLE = "FOLLOW_UP", "REQUIRED", "CHECK", "PREFERRED", "NOTABLE"
+# 부분 충족: 서류에서 일부가 확인된 조건. '경험이 있다면'으로 묻지 않고 남은 부분의 본인 역할 · 결과를 묻는다
+REQUIRED_PARTIAL, PREFERRED_PARTIAL = "REQUIRED_PARTIAL", "PREFERRED_PARTIAL"
 CLAIM = "CLAIM"  # 주장만 있음: 상세 판정에서 팀 성과로 적었거나 본인 역할 · 근거가 약한 경험 (데모의 '주장만')
 CONCEPT, SCENARIO, FACT = "CONCEPT", "SCENARIO", "FACT"
 GAP_TYPES: dict[str, tuple[int, str]] = {
@@ -138,6 +140,8 @@ GAP_TYPES: dict[str, tuple[int, str]] = {
     REQUIRED: (2, "필수 조건 근거 없음"),
     CHECK: (3, "확인 필요"),
     PREFERRED: (4, "우대 조건 근거 없음"),
+    REQUIRED_PARTIAL: (2, "필수 조건 일부 확인"),
+    PREFERRED_PARTIAL: (4, "우대 조건 일부 확인"),
     CLAIM: (5, "주장만 있음"),
     NOTABLE: (6, "본인 역할 확인"),
     CONCEPT: (7, "직무 개념과 적용 판단"),
@@ -159,6 +163,9 @@ TEMPLATES = {
     REQUIRED: "{topic}와 관련해 직접 해 본 경험이 있다면, 본인이 맡은 일과 결과를 구체적으로 말해 주세요.",
     CHECK: "{topic} 부분을 실제 경험을 예로 들어 구체적으로 설명해 주세요.",
     PREFERRED: "{topic}와 관련된 경험이 있다면, 그때 본인이 한 일을 사례로 말해 주세요.",
+    # 일부가 이미 확인됐으므로 경험 유무를 다시 묻지 않는다
+    REQUIRED_PARTIAL: "{topic}와 관련해 본인이 직접 맡은 부분과 결과를 구체적인 사례로 말해 주세요.",
+    PREFERRED_PARTIAL: "{topic}와 관련해 본인이 직접 맡은 부분과 결과를 구체적인 사례로 말해 주세요.",
     NOTABLE: "'{topic}'라고 적어 주셨는데, 본인이 맡은 역할과 그렇게 판단한 근거, 결과를 말해 주세요.",
     CLAIM: "'{topic}'라고 적어 주셨는데, 그중 본인이 직접 맡은 부분과 결과를 구체적으로 말해 주세요.",
     # 인용 문장에 '직접 설계했습니다'처럼 역할이 이미 적혀 있으면 역할을 또 묻지 않는다
@@ -183,6 +190,8 @@ SYSTEM = f"""너는 채용 면접 질문을 만드는 Interview Agent다. 두 �
 [일 1] gaps(평가 근거와 지원자 자료 사이의 빈틈)마다 면접관이 그대로 읽을 질문을 하나씩 만든다.
 - "이전 면접에서 확인 안 됨": 이전 질문과 답변을 보고, still_unconfirmed(아직 확인 안 된 점)를 이어서 구체적으로 묻는다.
 - "필수 조건 근거 없음" / "우대 조건 근거 없음": 경험이 있다고 전제하지 않고, 있다면 본인이 한 일을 묻는다.
+- "필수 조건 일부 확인" / "우대 조건 일부 확인": 서류에서 일부가 확인된 조건이다. 경험 유무를 다시 묻지 말고
+  confirmed를 전제로 target의 남은 부분에서 본인이 직접 한 일과 결과를 묻는다.
 - "확인 필요": 확인이 필요한 점을 실제 경험 사례로 묻는다.
 - "주장만 있음": 근거 문장을 인용하고, 팀 전체가 아니라 그중 본인이 직접 한 부분과 결과를 묻는다.
 - "본인 역할 확인": 근거 문장을 인용하고 본인 역할 · 판단 근거 · 결과를 묻는다.
@@ -354,6 +363,8 @@ class Gap:
     targets: list[str] = field(default_factory=list)
     mode: str = ""
     important: bool = False
+    # 기본 질문 · 근거 표시에 쓰는 주제. 평가 항목이면 공고 문장을 다듬은 말이다 (판정 문장을 그대로 넣지 않으려고)
+    title: str = ""
 
     @property
     def priority(self) -> int:
@@ -441,7 +452,44 @@ def _question_topic(text: str, limit: int = 65) -> str:
     if len(text) <= limit:
         return text
     cut = text[:limit]
-    return cut.rsplit(" ", 1)[0] if " " in cut else "관련 업무"
+    cut = cut.rsplit(" ", 1)[0] if " " in cut else "관련 업무"
+    # '…비교 ·'처럼 잘린 끝에 남은 가운뎃점 · 쉼표는 지운다
+    return cut.rstrip(" ·,/-") or "관련 업무"
+
+
+def _criterion_title(text: str) -> str:
+    """공고의 자격요건 · 우대사항 문장을 질문 주제로 쓸 말로 다듬는다.
+
+    예) '불량 현상과 추정 원인을 구분해 설명할 수 있는 분' → '불량 현상과 추정 원인을 구분해 설명하는 일'
+        '…원칙을 이해하는 분' → '…원칙',  '…경험이 있는 분' → '…경험',  '…경험' → 그대로
+    """
+    text = _display_topic(text).strip().rstrip(".")
+    text = re.sub(r"(경험|이해|능력|자격)이 있는 분$", r"\1", text)
+    text = re.sub(r"(?:을|를) 이해하는 분$", "", text)  # '이해하는 일'은 질문 주제로 어색해 대상만 남긴다
+    text = re.sub(r"할 수 있는 분$", "하는 일", text)
+    text = re.sub(r"는 분$", "는 일", text)
+    return text
+
+
+# 판정 이유 · 검증 설명 문장. 질문 주제가 아니라 면접관이 볼 메모다
+_VERDICT_REASON = re.compile(r"검증|근거 중|보기에는|뒷받침|판정|확인되지 않")
+
+
+def _target_phrase(text: str) -> str:
+    """판정의 남은 부분(평가 기준 문장 조각)을 질문 주제로 쓸 짧은 말로 바꾼다. 쓸 수 없으면 빈 문자열.
+
+    - 검증 이유 문장(근거 중 '…'는 … 보기에는 …)은 주제가 아니다 → ''
+    - '…정리한 근거가 있다.' → '…정리한 일',  '…설계했다.' → '…설계한 일'
+    - 너무 길면(60자 초과) 잘라 쓰지 않고 '' (잘린 문장이 질문에 들어가지 않게)
+    """
+    text = re.sub(r"\s*\((?:예|e\.g\.)[^)]*\)", "", _display_topic(text)).strip()
+    if not text or "'" in text or _VERDICT_REASON.search(text):
+        return ""
+    text = re.sub(r"\s*(?:근거|기록)(?:가|도)?\s*(?:모두\s*)?있다\.?$", "", text)
+    text = re.sub(r"했다\.?$", "한", text).rstrip(". ")
+    if re.search(r"[한된던은]$", text):
+        text += " 일"
+    return text if len(text) <= 60 else ""
 
 
 def _template_pieces() -> list[str]:
@@ -645,7 +693,7 @@ def find_gaps(state: State) -> dict[str, Any]:
 
     focus = state.get("focus") or ""
     if "확인 안" in focus or "아직" in focus:
-        candidates = [gap for gap in candidates if gap.kind in (FOLLOW_UP, REQUIRED, CHECK, CLAIM)]
+        candidates = [gap for gap in candidates if gap.kind in (FOLLOW_UP, REQUIRED, REQUIRED_PARTIAL, CHECK, CLAIM)]
     candidates.sort(key=lambda gap: gap.priority)  # 같은 순위는 만든 순서 유지
     gap_limit = _additional_count(state) if state.get("additional") else CODE_SLOTS
     gaps = []
@@ -728,7 +776,7 @@ def _balanced_gaps(candidates: list[Gap], state: State) -> list[Gap]:
     # 자료를 모델이 함께 보며 구체적인 개념을 고른다. 앞쪽 주요업무 하나에 고정하지 않는다.
     review = state.get("review")
     criteria = review.criteria if review is not None and review.readable else state["analysis"].criteria
-    skill_topics = [item.text for item in criteria if item.criterion_type != CriterionType.CONDITION]
+    skill_topics = [_criterion_title(item.text) for item in criteria if item.criterion_type != CriterionType.CONDITION]
     topics = list(dict.fromkeys([*state["posting"].duties, *skill_topics]))
     for topic in topics:
         if topic.strip() and add(Gap("", CONCEPT, topic, "직무의 원리와 적용 판단", mode=CONCEPT)):
@@ -846,8 +894,15 @@ def _criterion_gap(item: CriterionResult | CriterionLine) -> Gap | None:
         return None  # 이미 확인된 경력/자격 미달은 면접에서 경험 유무를 다시 물어 해결할 일이 아니다.
     targets = list(dict.fromkeys([*item.unknown_parts, *item.unsatisfied_parts]))
     targets = [part for part in targets if _normalize(part) not in {_normalize(s) for s in item.satisfied_parts}]
-    topic = _display_topic(targets[0] if targets else item.text)
-    kind = REQUIRED if item.category == CriterionCategory.QUALIFICATION else PREFERRED
+    # 주제는 남은 부분을 다듬은 말. 판정 이유 문장이거나 너무 길면 공고 문장을 다듬어 쓴다
+    title = _criterion_title(item.text)
+    phrases = [phrase for phrase in (_target_phrase(part) for part in targets) if phrase]
+    topic = phrases[0] if phrases else title
+    partial = item.verdict == Verdict.PARTIAL
+    if item.category == CriterionCategory.QUALIFICATION:
+        kind = REQUIRED_PARTIAL if partial else REQUIRED
+    else:
+        kind = PREFERRED_PARTIAL if partial else PREFERRED
     mode = FACT if factual else SCENARIO if item.verdict == Verdict.NOT_MET and not item.unknown_parts else ""
     evidence = (
         [quote.sentence for quote in item.quotes]
@@ -865,6 +920,7 @@ def _criterion_gap(item: CriterionResult | CriterionLine) -> Gap | None:
         targets=targets,
         mode=mode,
         important=item.important,
+        title=title,
     )
 
 
@@ -1151,7 +1207,7 @@ def _reasoning_sources(state: State) -> dict[str, str]:
     criteria = review.criteria if review is not None and review.readable else state["analysis"].criteria
     for index, item in enumerate(criteria, 1):
         if item.criterion_type != CriterionType.CONDITION:
-            sources[f"C{index}"] = _display_topic(item.text)
+            sources[f"C{index}"] = _criterion_title(item.text)
     # 긴 문서를 중복 나열하지 않고, 이 지원자의 실제 수행 문장을 우선 제공한다.
     source_sentences = [(key, text) for key, text in state["sentences"].items() if not _FUTURE_ACTION.search(text)]
     source_sentences.sort(key=lambda item: not bool(_ROLE.search(item[1])))
@@ -1601,6 +1657,9 @@ def _same_topic(a: str, b: str) -> bool:
     return smaller > 0 and len(shared) >= 4 and len(shared) / smaller >= 0.5
 
 
+_FIRST_PERSON = re.compile(r"(?<![가-힣])(?:제가|저는|저의|제\s)")
+
+
 def _style_problem(text: str, kind: str) -> str | None:
     """모델이 쓴 질문의 문장 스타일 문제. 템플릿에는 쓰지 않는다. kind는 빈틈 종류(FOLLOW_UP 등)."""
     if text.count("?") >= 2:
@@ -1645,6 +1704,10 @@ def _style_problem(text: str, kind: str) -> str | None:
         return "가정 · 상상으로 물음 ('…할 수 있을지') — 실제로 한 일을"
     if _INSTRUCTION.search(text):
         return "프롬프트 지시('인용해 보세요')를 지원자에게 말함"
+    # 인용 밖에서 '제가 · 저는 · 제 …'를 쓰면 지원자의 문장을 면접관 말처럼 옮긴 것이다
+    # ('저희 회사'는 면접관이 회사를 가리키는 말이라 허용한다)
+    if _FIRST_PERSON.search(unquoted):
+        return "지원자 문장의 1인칭('제가', '저는')을 그대로 씀 (지원자에게 묻는 말로 바꿔서)"
     if kind in (REQUIRED, PREFERRED) and not any(word in text for word in _OPEN_WORDS):
         return "근거 없는 조건인데 경험이 있다고 전제함 ('~경험이 있다면')"
     if kind == SCENARIO and not re.search(r"만약|가정|라면|다면|상황에서|(?:할|될|일|는|된|한|인|을)\s*경우", text):
@@ -2428,7 +2491,7 @@ def _gap_reason(state: State, gap: Gap, text: str) -> str:
         reason = _document_reason(state, target.anchor)
         lines.append(reason or f"출처: 공고의 직무·평가 기준\n기준 문구: {target.anchor}")
     if gap.criterion_id:
-        lines.append(f"질문 기준: {gap.topic}")
+        lines.append(f"질문 기준: {gap.title or gap.topic}")
     return "\n".join(dict.fromkeys(lines))
 
 
@@ -2638,9 +2701,19 @@ def _template(gap: Gap) -> str:
     if gap.kind == NOTABLE and gap.evidence and _ROLE.search(gap.evidence[0]):
         key = NOTABLE + "_ROLE"
         return _fix_josa(TEMPLATES[key].format(topic=_question_topic(gap.topic), detail=""))
-    topic = _question_topic(gap.topic)
-    if gap.kind in (REQUIRED, PREFERRED):
-        topic = re.sub(r"\d+\s*(?:년|개월)\s*이상", "", topic).strip()
+    if gap.kind in (REQUIRED, PREFERRED, REQUIRED_PARTIAL, PREFERRED_PARTIAL):
+        # 판정 문장 조각보다 공고 문장이 질문 문장에 자연스럽다 ('…근거가 있다.와 관련해' 방지)
+        topic = re.sub(r"\d+\s*(?:년|개월)\s*이상", "", _question_topic(gap.title or gap.topic)).strip()
+        if gap.kind in (REQUIRED, PREFERRED) and topic.endswith("경험"):
+            # '…경험과 관련해 직접 해 본 경험이 있다면'처럼 '경험'이 겹치지 않게 주제를 그대로 묻는다
+            tail = (
+                "본인이 맡은 일과 결과를 구체적으로 말해 주세요."
+                if gap.kind == REQUIRED
+                else "그때 본인이 한 일을 사례로 말해 주세요."
+            )
+            return _fix_josa(f"{topic}이 있다면, {tail}")
+    else:
+        topic = _question_topic(gap.topic)
     detail = gap.detail
     if gap.kind == FOLLOW_UP and ("AI가" in detail or "면접관" in detail):
         # 답변 분석이 실패했을 때 남는 면접관용 메모('AI가 해석하지 못한 답변 …')는 지원자에게 읽지 않는다
