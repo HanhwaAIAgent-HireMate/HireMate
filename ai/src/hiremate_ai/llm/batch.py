@@ -389,6 +389,20 @@ class BatchLlm:
         self._http_client = dispatcher._model_client
         self._models: dict[tuple[str, int, float | None, str | None], ChatLlm] = {}
 
+    def analysis_recipe(self) -> dict[str, Any] | None:
+        job = current_batch_job()
+        if job is None:
+            return None
+        return {
+            "implementation": "openrouter-batch-v1",
+            "model": job.model,
+            "provider": job.provider,
+            "method": "json_schema",
+            "max_tokens": job.max_tokens,
+            "temperature": job.temperature,
+            "reasoning_effort": job.reasoning_effort,
+        }
+
     async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
         job = current_batch_job()
         if job is None:

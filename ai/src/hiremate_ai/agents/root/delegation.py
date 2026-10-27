@@ -10,6 +10,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
 from hiremate_ai.agents.analysis.application import review_application_documents
+from hiremate_ai.agents.analysis.application.extract import extraction_recipe
 from hiremate_ai.agents.analysis.application.types import Actor
 from hiremate_ai.agents.analysis.interview import (
     AnsweredQuestion,
@@ -18,6 +19,7 @@ from hiremate_ai.agents.analysis.interview import (
     PreviousInterview,
     analyze_interview,
 )
+from hiremate_ai.agents.analysis.interview.store import interview_recipe
 from hiremate_ai.agents.root.answer import INTERVIEW_SOURCE, AnswerEvidence, AnswerItem, _canonical_source
 from hiremate_ai.agents.root.progress import SILENT, Progress
 from hiremate_ai.agents.root.toolkit import (
@@ -32,7 +34,9 @@ from hiremate_ai.agents.root.toolkit import (
 )
 from hiremate_ai.agents.root.types import ChatItem
 from hiremate_ai.contract import StageType
+from hiremate_ai.db.analysis_store import AnalysisArtifactReader
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
+from hiremate_ai.llm.chat import record_interrupted_model_tool
 from hiremate_ai.llm.client import LlmClient
 
 REVIEWING_APPLICATION = "서류 Agent가 제출 문서의 근거를 검토하고 있어요"
@@ -54,6 +58,7 @@ class Consultation:
     agent: ItemAgent
     items: list[DelegatedItem]
     previous: tuple[str, ...] = ()
+    interrupted: bool = False
 
 
 @dataclass
@@ -61,27 +66,48 @@ class Delegation:
     llm: LlmClient
     progress: Progress = SILENT
     results: dict[str, Consultation] = field(default_factory=dict)
+    artifacts: AnalysisArtifactReader | None = None
 
     def tools(self) -> tuple[BaseTool, ...]:
         @tool
-        async def consult_application(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
+        async def consult_application(
+            candidate: str, runtime: ToolRuntime[RootToolContext], force_review: bool = False
+        ) -> str:
             """서류 Agent에게 지원자의 제출 문서 사실과 근거를 검토시킨다. 점수나 저장된 분석을 바꾸지 않는다.
 
             반환한 결과 번호를 consult_interview의 previous_results에 넣어 비교 자료로 전달할 수 있다.
             팀의 성과와 확인되지 않은 주장은 CHECK로 반환한다.
+            새로 검토해 달라는 명시적 요청은 force_review=true로 저장 추출과 이번 요청의 재사용을 생략한다.
             """
             scope = runtime.context
             row = resolve_ref(scope.chat, candidate)
             if row is None:
                 return OUT_OF_SCOPE
             cached = self._cached(row.application_id, ItemAgent.APPLICATION)
-            if cached:
+            if cached and not force_review:
                 return self._render(cached, scope)
             documents = scope.chat.documents.get(row.application_id, [])
             if not any(document.text.strip() for document in documents):
                 return NO_DOCUMENTS
             self.progress.status(REVIEWING_APPLICATION)
-            facts = await review_application_documents(self.llm, documents)
+            recipe = extraction_recipe(self.llm)
+            extracted = (
+                [
+                    await self.artifacts.find_extraction(
+                        company_id=scope.company_id,
+                        recruitment_id=scope.recruitment_id,
+                        application_id=row.application_id,
+                        document=document,
+                        recipe_hash=recipe,
+                    )
+                    if document.text.strip()
+                    else None
+                    for document in documents
+                ]
+                if self.artifacts is not None and recipe is not None and not force_review
+                else None
+            )
+            facts = await review_application_documents(self.llm, documents, extracted=extracted)
             items = [
                 DelegatedItem(
                     text=fact.statement,
@@ -99,12 +125,16 @@ class Delegation:
 
         @tool
         async def consult_interview(
-            candidate: str, runtime: ToolRuntime[RootToolContext], previous_results: list[str] | None = None
+            candidate: str,
+            runtime: ToolRuntime[RootToolContext],
+            previous_results: list[str] | None = None,
+            force_review: bool = False,
         ) -> str:
             """면접 Agent에게 현재 답변을 분석시킨다. previous_results는 같은 지원자의 앞선 결과 번호 목록이다.
 
             앞선 Agent의 결과를 비교 맥락으로만 전달하고 이번 면접 답변의 원문으로 검증한다.
             이 도구는 질문을 생성하거나 저장하지 않는다. 질문 생성은 최종 questions 명령으로 요청한다.
+            새 검토를 명시적으로 요청하면 force_review=true로 기존 결과를 쓰지 않는다.
             """
             scope = runtime.context
             row = resolve_ref(scope.chat, candidate)
@@ -123,7 +153,7 @@ class Delegation:
             ):
                 return NO_INTERVIEW
             cached = self._cached(row.application_id, ItemAgent.INTERVIEW, previous)
-            if cached:
+            if cached and not force_review:
                 return self._render(cached, scope)
             references = [
                 InterviewReference(
@@ -152,7 +182,16 @@ class Delegation:
                 ],
             )
             self.progress.status(REVIEWING_INTERVIEW)
-            analysis = await analyze_interview(data, self.llm, references=references)
+            recipe = interview_recipe(self.llm)
+            analysis = (
+                await self.artifacts.find_interview(data, recipe_hash=recipe)
+                if self.artifacts is not None and recipe is not None and not previous and not force_review
+                else None
+            )
+            if analysis is None:
+                analysis = await analyze_interview(data, self.llm, references=references)
+            if analysis.interrupted:
+                record_interrupted_model_tool("consult_interview")
             items = [
                 DelegatedItem(
                     text=item.content,
@@ -163,7 +202,9 @@ class Delegation:
                 )
                 for item in analysis.items
             ]
-            return self._save(Consultation(row.application_id, ItemAgent.INTERVIEW, items, previous), scope)
+            return self._save(
+                Consultation(row.application_id, ItemAgent.INTERVIEW, items, previous, analysis.interrupted), scope
+            )
 
         return consult_application, consult_interview
 
@@ -248,6 +289,7 @@ class Delegation:
                 "result": key,
                 "candidate": candidate_ref(scope.chat, result.application_id),
                 "agent": result.agent,
+                "complete": not result.interrupted,
                 "items": [
                     {**item.model_dump(mode="json"), "status": "CHECK" if item.verification in DOUBTFUL else "OK"}
                     for item in result.items

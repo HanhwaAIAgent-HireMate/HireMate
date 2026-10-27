@@ -400,7 +400,7 @@ async def test_parallel_tool_judgments_share_the_callers_budget() -> None:
         [
             tool_completion(("judge", {"concept": "금융"}), ("judge", {"concept": "결제"})),
             '{"text": "자료 판정"}',
-            '{"text": "예산 밖 판정"}',
+            tool_completion(("Summary", {"text": "완료한 판정만 정리"})),
         ],
         RecordingCallLog(),
         requests,
@@ -412,12 +412,14 @@ async def test_parallel_tool_judgments_share_the_callers_budget() -> None:
         result = await llm.structured(Summary, agent="judge", system="판정해", user=concept)
         return result.text
 
-    with model_call_budget(2), pytest.raises(LlmOutputError, match="상한"):
-        await llm.tool_agent(Summary, agent="root", system="", tools=[judge]).run("후보 확인")
+    with model_call_budget(3):
+        result = await llm.tool_agent(Summary, agent="root", system="", tools=[judge]).run("후보 확인")
 
-    assert len(requests) == 2
+    assert result.text == "완료한 판정만 정리"
+    assert len(requests) == 3
     assert "tools" in requests[0]
     assert "response_format" in requests[1]
+    assert [tool["function"]["name"] for tool in requests[2]["tools"]] == ["Summary"]
 
 
 async def test_repeated_read_batch_switches_to_final_answer_before_limit() -> None:
@@ -574,3 +576,99 @@ def test_get_llm_limits_openrouter_providers(monkeypatch: pytest.MonkeyPatch) ->
         assert llm._model.extra_body == {"provider": {"only": ["baidu", "coreweave"]}}
     finally:
         client.get_llm.cache_clear()
+
+
+async def test_repeated_read_references_the_first_result_without_copying_its_document() -> None:
+    document = "UNIQUE-DOCUMENT-SENTENCE " * 200
+    reads: list[str] = []
+
+    @tool
+    async def document_text() -> str:
+        """제출 문서 원문을 읽는다."""
+        reads.append("read")
+        return document
+
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [
+            tool_completion(("document_text", {})),
+            tool_completion(("document_text", {})),
+            tool_completion(("Summary", {"text": "원문에서 확인했어요"})),
+        ],
+        RecordingCallLog(),
+        requests,
+    )
+
+    result = await llm.tool_agent(Summary, agent="root", system="", tools=[document_text]).run("문서 근거")
+
+    messages = requests[-1]["messages"]
+    tool_messages = [message for message in messages if message["role"] == "tool"]
+    assert result.text == "원문에서 확인했어요"
+    assert reads == ["read"]
+    assert len(tool_messages) == 2
+    assert document in tool_messages[0]["content"]
+    assert document not in tool_messages[1]["content"]
+    assert tool_messages[0]["tool_call_id"] in tool_messages[1]["content"]
+    assert len(tool_messages[1]["content"]) < 300
+    assert sum(document in message["content"] for message in tool_messages) == 1
+
+
+async def test_reserved_final_call_cannot_be_consumed_by_nested_structured_analysis() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(['{"text":"검토"}', '{"text":"최종 답"}'], RecordingCallLog(), requests)
+
+    with model_call_budget(2):
+        with chat.reserve_model_calls(1):
+            await llm.structured(Summary, agent="interview", system="", user="검토")
+            with pytest.raises(LlmOutputError) as failure:
+                await llm.structured(Summary, agent="interview", system="", user="추가 검토")
+        final = await llm.structured(Summary, agent="root", system="", user="최종 답")
+
+    assert failure.value.reason is chat.LlmFailureReason.BUDGET
+    assert final.text == "최종 답"
+    assert len(requests) == 2
+
+
+async def test_parallel_specialists_share_one_protected_final_call() -> None:
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(['{"text":"검토1"}', '{"text":"검토2"}', '{"text":"최종 답"}'], RecordingCallLog(), requests)
+
+    with model_call_budget(3):
+        with chat.reserve_model_calls(1):
+            results = await asyncio.gather(
+                *(llm.structured(Summary, agent="application", system="", user=str(i)) for i in range(3)),
+                return_exceptions=True,
+            )
+        final = await llm.structured(Summary, agent="root", system="", user="최종 답")
+
+    assert sum(isinstance(value, Summary) for value in results) == 2
+    errors = [value for value in results if isinstance(value, LlmOutputError)]
+    assert len(errors) == 1 and errors[0].reason is chat.LlmFailureReason.BUDGET
+    assert final.text == "최종 답"
+    assert len(requests) == 3
+
+
+async def test_budget_interrupted_tool_returns_control_for_the_reserved_final_answer() -> None:
+    requests: list[dict[str, Any]] = []
+
+    @tool
+    async def specialist() -> str:
+        """전문 분석을 요청한다."""
+        result = await llm.structured(Summary, agent="application", system="", user="전문 검토")
+        return result.text
+
+    llm = chat_llm(
+        [tool_completion(("specialist", {})), tool_completion(("Summary", {"text": "전문 검토를 완료하지 못했어요"}))],
+        RecordingCallLog(),
+        requests,
+    )
+    with model_call_budget(2):
+        result = await llm.tool_agent(Summary, agent="root", system="", tools=[specialist]).run("검토")
+
+    assert result.text == "전문 검토를 완료하지 못했어요"
+    assert len(requests) == 2
+    assert [tool["function"]["name"] for tool in requests[-1]["tools"]] == ["Summary"]
+    tool_messages = [m for m in requests[-1]["messages"] if m["role"] == "tool"]
+    assert len(tool_messages) == 1
+    assert "model_call_budget" in tool_messages[0]["content"]
+    assert "<data" in tool_messages[0]["content"]

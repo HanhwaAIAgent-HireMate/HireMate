@@ -392,3 +392,45 @@ def test_stage_results_tell_score_state(
     assert "평가 점수: 아직 입력하지 않음" in scored(StageType.ASSESSMENT, (), StageStatus.ACTIVE)
     assert "평가 점수: 없음" in scored(StageType.ASSESSMENT, (), StageStatus.DONE)
     assert f"평가 점수: {EARLIER_SCORE}" in scored(StageType.INTERVIEW, (StageType.ASSESSMENT,), StageStatus.ACTIVE)
+
+
+async def test_previous_turn_lookup_can_read_one_number_without_repeating_other_turns(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    from hiremate_ai.agents.root.turns import turn_of
+    from hiremate_ai.agents.root.types import ChatPlan, Intent
+
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    scope = scope_of(context)
+    scope.turns[:] = [
+        turn_of(context, [context.candidates[0].application_id], ChatPlan.answer(Intent.ANSWER, "첫 대화 상세")),
+        turn_of(context, [context.candidates[1].application_id], ChatPlan.answer(Intent.ANSWER, "둘째 대화 상세")),
+    ]
+    llm = FakeLlm(ToolCall("get_previous_turns", {"turn_numbers": [2]}), Probe(text="끝"))
+    await llm.tool_agent(
+        Probe, agent="root", system="", tools=default_toolkit().answer_tools, context=RootToolContext
+    ).run("두 번째 대화만 확인", context=scope)
+
+    result = llm.calls[-1].user
+    assert "[2] 담당자" in result
+    assert "둘째 대화 상세" in result
+    assert "첫 대화 상세" not in result
+
+
+async def test_previous_turn_lookup_rejects_missing_numbers_instead_of_reading_everything(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    from hiremate_ai.agents.root.turns import turn_of
+    from hiremate_ai.agents.root.types import ChatPlan, Intent
+
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    scope = scope_of(context)
+    scope.turns[:] = [turn_of(context, None, ChatPlan.answer(Intent.ANSWER, "읽으면 안 되는 대화"))]
+    llm = FakeLlm(ToolCall("get_previous_turns", {"turn_numbers": [0, 99]}), Probe(text="끝"))
+    await llm.tool_agent(
+        Probe, agent="root", system="", tools=default_toolkit().answer_tools, context=RootToolContext
+    ).run("대화 번호 확인", context=scope)
+
+    result = llm.calls[-1].user
+    assert "현재 대화 목록에 없는 번호" in result
+    assert "읽으면 안 되는 대화" not in result

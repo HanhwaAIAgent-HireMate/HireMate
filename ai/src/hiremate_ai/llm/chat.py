@@ -3,7 +3,7 @@ import time
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any, Literal, NotRequired, cast
 
@@ -29,6 +29,7 @@ from pydantic import BaseModel, ValidationError
 
 from hiremate_ai.llm.call_log import CallLog, CallRecord
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
+from hiremate_ai.llm.recipe import model_recipe
 
 type StructuredMethod = Literal["json_schema", "function_calling", "json_mode"]
 
@@ -62,9 +63,11 @@ class LlmOutputError(RuntimeError):
 class _ModelCallBudget:
     limit: int
     remaining: int
+    interrupted_tools: list[str] = field(default_factory=list)
 
 
 _MODEL_CALL_BUDGET: ContextVar[_ModelCallBudget | None] = ContextVar("model_call_budget", default=None)
+_RESERVED_MODEL_CALLS: ContextVar[int] = ContextVar("reserved_model_calls", default=0)
 
 
 @contextmanager
@@ -85,12 +88,37 @@ def model_call_budget(limit: int) -> Iterator[None]:
         _MODEL_CALL_BUDGET.reset(token)
 
 
+@contextmanager
+def reserve_model_calls(count: int) -> Iterator[None]:
+    """도구 안의 분석이 마지막 답변용 호출을 소비하지 못하게 한다. 중첩 예약은 합산하지 않는다."""
+    if count < 0:
+        raise ValueError("보호할 모델 호출 수는 0 이상이어야 한다")
+    token = _RESERVED_MODEL_CALLS.set(max(count, _RESERVED_MODEL_CALLS.get()))
+    try:
+        yield
+    finally:
+        _RESERVED_MODEL_CALLS.reset(token)
+
+
+def interrupted_model_tools() -> tuple[str, ...]:
+    """이번 요청에서 호출 예산으로 끝내지 못한 도구. 원문과 모델 출력은 보관하지 않는다."""
+    budget = _MODEL_CALL_BUDGET.get()
+    return tuple(budget.interrupted_tools) if budget is not None else ()
+
+
+def record_interrupted_model_tool(name: str) -> None:
+    """부분 결과를 반환한 도구도 완료되지 않은 검토로 남긴다."""
+    budget = _MODEL_CALL_BUDGET.get()
+    if budget is not None and name not in budget.interrupted_tools:
+        budget.interrupted_tools.append(name)
+
+
 def consume_model_call() -> None:
     """실제 모델 호출 직전에 한 회를 사용한다. await 없이 차감해 병렬 task의 중복 사용을 막는다."""
     budget = _MODEL_CALL_BUDGET.get()
     if budget is None:
         return
-    if budget.remaining <= 0:
+    if budget.remaining <= _RESERVED_MODEL_CALLS.get():
         raise LlmOutputError(f"요청의 모델 호출 상한을 넘었다 ({budget.limit}회)", reason=LlmFailureReason.BUDGET)
     budget.remaining -= 1
 
@@ -118,6 +146,9 @@ class ChatLlm:
         self._model_name = model_name
         self._method = method
         self._agent_max_calls = agent_max_calls
+
+    def analysis_recipe(self) -> dict[str, Any] | None:
+        return model_recipe(self._model, method=self._method)
 
     async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
         messages: list[BaseMessage] = [SystemMessage(system), HumanMessage(user)]
@@ -260,6 +291,7 @@ def build_tool_agent[T: BaseModel](
         middleware=[
             _ReadOnce(frozenset(tool.name for tool in tools)),
             _ToolResultBlock(),
+            _ReserveFinalAnswer(),
             _LastCallAnswers(max_calls),
             _ShorterWhenCut(_max_tokens(model)),
             _CallLogMiddleware(_Recorder(call_log, agent=agent, model=model_name)),
@@ -333,7 +365,11 @@ class _ReadOnce(AgentMiddleware[Any, Any, Any]):
             update={
                 "id": None,
                 "tool_call_id": request.tool_call["id"],
-                "content": f"{REUSED_READ}\n{saved.text}",
+                "content": data_block(
+                    "tool",
+                    f"{REUSED_READ}\n기존 도구 호출 번호: {saved.tool_call_id}. 앞선 원문과 근거를 사용한다.",
+                    name=request.tool_call["name"],
+                ),
                 "additional_kwargs": {**saved.additional_kwargs, "read_reused": True},
             }
         )
@@ -405,6 +441,38 @@ class _ToolResultBlock(AgentMiddleware[Any, Any, Any]):
             block = data_block("tool", result.text, name=request.tool_call["name"])
             return result.model_copy(update={"content": block})
         return result
+
+
+class _ReserveFinalAnswer(AgentMiddleware[Any, Any, Any]):
+    """병렬 도구와 재시도도 하나의 최종 호출을 남기고, 예산 종료를 제어된 조회 결과로 돌려준다."""
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    ) -> ToolMessage | Command[Any]:
+        try:
+            with reserve_model_calls(1):
+                return await handler(request)
+        except LlmOutputError as error:
+            if error.reason is not LlmFailureReason.BUDGET:
+                raise
+            name = request.tool_call["name"]
+            record_interrupted_model_tool(name)
+            return ToolMessage(
+                content=json.dumps(
+                    {
+                        "status": "incomplete",
+                        "reason": "model_call_budget",
+                        "tool": name,
+                        "message": "이번 검토를 완료하지 못했다. 이미 검증한 결과로 답하고, 하지 못한 검토를 명시한다.",
+                    },
+                    ensure_ascii=False,
+                ),
+                name=name,
+                tool_call_id=request.tool_call["id"],
+                status="error",
+            )
 
 
 class _LastCallAnswers(AgentMiddleware[Any, Any, Any]):

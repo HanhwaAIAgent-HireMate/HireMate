@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from hiremate_ai.agents.analysis.application.router import get_store
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.contract import ApplicantDetail, PostingContent
+from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.main import app
@@ -17,13 +18,16 @@ class MemoryStore:
     """DB 대신 쓰는 저장소. 저장한 결과와 저장 횟수를 들고 있다."""
 
     def __init__(self) -> None:
+        self.artifacts: AnalysisArtifactStore | None = None
         self.reviews: dict[tuple[UUID, str], ApplicationReview] = {}
         self.saved = 0
 
-    async def find(self, application_id: UUID, input_hash: str) -> ApplicationReview | None:
+    async def find(
+        self, application_id: UUID, input_hash: str, *, company_id: UUID, recruitment_id: UUID
+    ) -> ApplicationReview | None:
         return self.reviews.get((application_id, input_hash))
 
-    async def latest(self, application_id: UUID) -> ApplicationReview | None:
+    async def latest(self, application_id: UUID, *, company_id: UUID, recruitment_id: UUID) -> ApplicationReview | None:
         found = [review for (owner, _), review in self.reviews.items() if owner == application_id]
         return found[-1] if found else None
 

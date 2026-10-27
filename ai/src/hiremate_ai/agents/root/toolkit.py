@@ -21,6 +21,7 @@ from hiremate_ai.agents.root.stages import StageData, not_yet, reached, stage_da
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion, StageStatus
 from hiremate_ai.contract import ApplicantDocument, StageType
+from hiremate_ai.db.analysis_store import AnalysisArtifactReader, DbAnalysisArtifacts
 from hiremate_ai.db.profile import ItemAgent, Verification
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block, documents_block
@@ -466,16 +467,29 @@ def stage_summary_text(chat: ChatContext) -> str:
 
 
 @tool
-async def get_previous_turns(runtime: ToolRuntime[RootToolContext]) -> str:
+async def get_previous_turns(
+    runtime: ToolRuntime[RootToolContext],
+    turn_numbers: list[int] | None = None,
+    candidates: list[str] | None = None,
+) -> str:
     """앞 대화 기록을 읽는다. 담당자 질문, Root 답, 다룬 지원자, 면접 질문을 만들 때 정리한 확인할 점과 이유가 있다.
 
     질문할 때 멘션하거나 체크한 지원자는 그때의 화면 범위로 구별해 보여 준다.
     이전에 만든 질문의 이유나 앞에서 한 이야기를 물으면 이 기록으로 답한다.
+    turn_numbers로 초기 대화 목록의 번호를, candidates로 현재 지원자 번호를 지정하면 해당 기록만 읽는다.
+    둘 다 생략하면 전체를 읽는다. 같은 기록의 순서와 원문은 유지한다.
     """
     context = _used(runtime, "get_previous_turns")
     if not context.turns:
         return "앞 대화 기록이 없어요."
     chat = context.chat
+    if turn_numbers is not None and any(number < 1 or number > len(context.turns) for number in turn_numbers):
+        return "현재 대화 목록에 없는 번호가 있어요. 제공된 대화 번호를 확인해 주세요."
+    selected_numbers = set(turn_numbers) if turn_numbers is not None else None
+    rows = [resolve_ref(chat, ref) for ref in candidates] if candidates is not None else None
+    if rows is not None and any(row is None for row in rows):
+        return OUT_OF_SCOPE
+    selected_ids = {str(row.application_id) for row in rows if row is not None} if rows is not None else None
     by_id = {str(row.application_id): row for row in chat.candidates}
 
     def who(application_id: str | None) -> str:
@@ -484,6 +498,17 @@ async def get_previous_turns(runtime: ToolRuntime[RootToolContext]) -> str:
 
     sections = []
     for number, turn in enumerate(context.turns, start=1):
+        if selected_numbers is not None and number not in selected_numbers:
+            continue
+        turn_ids = {
+            *turn["targets"],
+            *turn.get("mentions", []),
+            *turn.get("checked", []),
+            *turn["focus"],
+            *(item["application_id"] for item in turn["items"] if item["application_id"]),
+        }
+        if selected_ids is not None and not selected_ids.intersection(turn_ids):
+            continue
         lines = [f'[{number}] 담당자: "{turn["message"]}"', f"Root 답: {turn['answer']}"]
         mentions = [who(value) for value in turn.get("mentions", []) if value in by_id]
         checked = [who(value) for value in turn.get("checked", []) if value in by_id]
@@ -496,7 +521,7 @@ async def get_previous_turns(runtime: ToolRuntime[RootToolContext]) -> str:
         lines += [f"확인할 점 ({who(application_id)}): {focus}" for application_id, focus in turn["focus"].items()]
         lines += [f"항목 [{item['label']}] {item['text']} ({who(item['application_id'])})" for item in turn["items"]]
         sections.append("\n".join(lines))
-    return "\n\n".join(sections)
+    return "\n\n".join(sections) if sections else "선택한 범위의 앞 대화 기록이 없어요."
 
 
 ANSWER_TOOLS: tuple[BaseTool, ...] = (
@@ -644,6 +669,7 @@ class RootToolkit:
     brief: CandidateBrief = context_brief
     evidence: ProfileEvidence = no_profile_evidence
     judged: dict[str, dict[str, Any]] = field(default_factory=dict, compare=False)
+    artifacts: AnalysisArtifactReader | None = None
 
 
 def default_toolkit() -> RootToolkit:
@@ -664,6 +690,7 @@ def profile_toolkit(sessions: async_sessionmaker[AsyncSession]) -> RootToolkit:
         answer_tools=answer_tools,
         brief=profile_brief(sessions),
         evidence=profile_evidence(sessions),
+        artifacts=DbAnalysisArtifacts(sessions),
     )
 
 

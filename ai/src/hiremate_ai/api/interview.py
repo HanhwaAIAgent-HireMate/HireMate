@@ -2,7 +2,9 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.analysis.interview import InterviewAnalysisInput, analyze_interview
+from hiremate_ai.agents.analysis.interview.store import interview_recipe
 from hiremate_ai.contract import ContractModel
+from hiremate_ai.db.analysis_store import session_artifacts
 from hiremate_ai.db.profile import ItemAgent, ProfileStatus
 from hiremate_ai.db.profile_store import ProfileScopeError, save_profile
 from hiremate_ai.db.session import SessionDep
@@ -33,7 +35,11 @@ async def analyze_and_save(data: InterviewAnalysisInput, llm: LlmClient, session
 
     이 전형의 면접 항목만 바꾼다. 다른 기업 · 채용의 프로필이면 ProfileScopeError다 (아키텍처 규칙 4).
     """
-    analysis = await analyze_interview(data, llm)
+    artifacts = session_artifacts(session)
+    recipe = interview_recipe(llm)
+    analysis = await artifacts.find_interview(data, recipe_hash=recipe) if recipe is not None else None
+    if analysis is None:
+        analysis = await analyze_interview(data, llm)
     profile = await save_profile(
         session,
         company_id=data.company_id,
@@ -43,6 +49,8 @@ async def analyze_and_save(data: InterviewAnalysisInput, llm: LlmClient, session
         items=analysis.items,
         stage_id=data.stage_id,
     )
+    if recipe is not None:
+        await artifacts.save_interview(data, analysis, recipe_hash=recipe)
     await session.commit()
     saved = sum(1 for item in profile.items if item.agent == ItemAgent.INTERVIEW and item.stage_id == data.stage_id)
     return AnalyzeResult(status=analysis.status, saved=saved, dropped=analysis.dropped)

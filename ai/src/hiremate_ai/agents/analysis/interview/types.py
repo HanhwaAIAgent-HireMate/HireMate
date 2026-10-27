@@ -78,3 +78,4 @@ class InterviewAnalysis(BaseModel):
     status: ProfileStatus
     items: list[NewItem]
     dropped: int
+    interrupted: bool = False

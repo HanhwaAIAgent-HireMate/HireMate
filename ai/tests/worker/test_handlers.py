@@ -15,6 +15,7 @@ from hiremate_ai.agents.generation.report import ReportContent, ReportInput
 from hiremate_ai.api import interview
 from hiremate_ai.api.assessment import AnalyzeResult
 from hiremate_ai.contract import ApplicantDetail, PostingContent
+from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.db.profile import ProfileStatus
 from hiremate_ai.db.profile_store import ProfileScopeError
 from hiremate_ai.llm.client import LlmClient
@@ -29,12 +30,15 @@ SESSIONS: async_sessionmaker[AsyncSession] = async_sessionmaker()
 
 class MemoryStore:
     def __init__(self) -> None:
+        self.artifacts: AnalysisArtifactStore | None = None
         self.reviews: dict[tuple[UUID, str], ApplicationReview] = {}
 
-    async def find(self, application_id: UUID, input_hash: str) -> ApplicationReview | None:
+    async def find(
+        self, application_id: UUID, input_hash: str, *, company_id: UUID, recruitment_id: UUID
+    ) -> ApplicationReview | None:
         return self.reviews.get((application_id, input_hash))
 
-    async def latest(self, application_id: UUID) -> ApplicationReview | None:
+    async def latest(self, application_id: UUID, *, company_id: UUID, recruitment_id: UUID) -> ApplicationReview | None:
         return None
 
     async def save(self, review: ApplicationReview, applicant: ApplicantDetail, rubric: ScreeningRubric) -> None:

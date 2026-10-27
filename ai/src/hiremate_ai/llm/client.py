@@ -17,6 +17,10 @@ from hiremate_ai.llm.tracing import traced
 class LlmClient(Protocol):
     """모델 호출. 모든 Agent는 이 인터페이스로만 모델을 부른다. 호출은 ai.llm_calls에 기록된다."""
 
+    def analysis_recipe(self) -> dict[str, Any] | None:
+        """비밀정보 없는 실제 모델 설정. 알 수 없는 구현이면 None으로 재사용을 막는다."""
+        ...
+
     async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
         """system과 user 지시로 모델을 불러 output 형식의 결과를 받는다.
 

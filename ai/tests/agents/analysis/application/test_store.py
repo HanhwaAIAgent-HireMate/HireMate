@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 
 from application_context import COMPANY_ID, make_posting, make_rubric
 from sqlalchemy import select
@@ -33,14 +34,14 @@ def test_input_hash_changes_only_with_inputs_that_change_results(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
     applicant, posting, rubric = sample_applicants["정유민"], make_posting(sample_posting), make_rubric()
-    digest = input_hash(applicant, posting, rubric, REVIEW_VERSION)
+    digest = input_hash(applicant, posting, rubric, REVIEW_VERSION, today=date(2026, 10, 27), recipe={"model": "fake"})
 
     def other(
         posting: PostingContent = posting,
         rubric: ScreeningRubric = rubric,
         version: str = REVIEW_VERSION,
     ) -> str:
-        return input_hash(applicant, posting, rubric, version)
+        return input_hash(applicant, posting, rubric, version, today=date(2026, 10, 27), recipe={"model": "fake"})
 
     assert other(posting=posting.model_copy(update={"title": "새 제목"})) == digest
     assert other(posting=posting.model_copy(update={"qualifications": ["Git"]})) != digest
@@ -72,9 +73,32 @@ async def test_saves_review_and_profile_then_finds_them(
     )
     await store.save(again, applicant, make_rubric())
 
-    assert await store.find(applicant.info.application_id, "a" * 64) == again
-    assert await store.find(applicant.info.application_id, "b" * 64) is None
-    assert await store.latest(applicant.info.application_id) == again
+    assert (
+        await store.find(
+            applicant.info.application_id,
+            "a" * 64,
+            company_id=make_rubric().company_id,
+            recruitment_id=make_rubric().recruitment_id,
+        )
+        == again
+    )
+    assert (
+        await store.find(
+            applicant.info.application_id,
+            "b" * 64,
+            company_id=make_rubric().company_id,
+            recruitment_id=make_rubric().recruitment_id,
+        )
+        is None
+    )
+    assert (
+        await store.latest(
+            applicant.info.application_id,
+            company_id=make_rubric().company_id,
+            recruitment_id=make_rubric().recruitment_id,
+        )
+        == again
+    )
     profile = await db_session.scalar(
         select(CandidateProfile).where(CandidateProfile.application_id == applicant.info.application_id)
     )
@@ -94,5 +118,20 @@ async def test_reviews_saved_in_an_older_shape_are_analyzed_again(
     record.review = {**record.review, "criteria": [{"number": 1, "content_no": "1-1", "level": "MET"}]}
     await db_session.flush()
 
-    assert await store.find(applicant.info.application_id, "a" * 64) is None
-    assert await store.latest(applicant.info.application_id) is None
+    assert (
+        await store.find(
+            applicant.info.application_id,
+            "a" * 64,
+            company_id=make_rubric().company_id,
+            recruitment_id=make_rubric().recruitment_id,
+        )
+        is None
+    )
+    assert (
+        await store.latest(
+            applicant.info.application_id,
+            company_id=make_rubric().company_id,
+            recruitment_id=make_rubric().recruitment_id,
+        )
+        is None
+    )

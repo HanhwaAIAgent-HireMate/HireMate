@@ -108,7 +108,9 @@ def job_handlers(
         # 면접 전형이 시작될 때 지원자마다 미리 만드는 맞춤 질문 (FR-27). Chat 요청은 ai 서버 경로로 바로 받는다
         request = QuestionsRequest.model_validate(payload)
         # 서류 전형 Agent가 저장한 상세 판정이 있으면 그것으로 빈틈을 고른다 (없으면 요청의 요약으로)
-        review = await load_review(store, request.applicant)
+        review = await load_review(
+            store, request.applicant, company_id=request.company.company_id if request.company else None
+        )
         drafts: list[InterviewQuestionDraft] = []
         await generate_questions(
             llm,
