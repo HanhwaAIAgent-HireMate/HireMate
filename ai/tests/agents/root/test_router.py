@@ -5,6 +5,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 
+from hiremate_ai.agents.root.answer import AnswerEvidence, AnswerItem
 from hiremate_ai.agents.root.commands import AnswerCommand, EditCommand, RootReply
 from hiremate_ai.agents.root.memory import get_saver
 from hiremate_ai.agents.root.toolkit import default_toolkit, get_toolkit
@@ -115,15 +116,32 @@ def test_plan_without_thread_does_not_remember() -> None:
     saver = InMemorySaver()
     app.dependency_overrides[get_llm] = lambda: FakeLlm(
         ToolCall("get_stage_summary"),
-        RootReply(message="요약이에요.", command=AnswerCommand()),
+        RootReply(
+            message="현재 지원자는 2명이에요.",
+            command=AnswerCommand(),
+            items=[
+                AnswerItem(
+                    candidate=None,
+                    label="지원자 수",
+                    text="현재 전형의 지원자는 2명이에요.",
+                    status="OK",
+                    evidence=[AnswerEvidence(sentence="지원자 2명", source="전형 결과")],
+                )
+            ],
+        ),
     )
     app.dependency_overrides[get_saver] = lambda: saver
     # 연결된 DB 없이 문서 도구 묶음으로 요청을 처리한다
     app.dependency_overrides[get_toolkit] = default_toolkit
     try:
-        response = TestClient(app).post("/agents/root/plan", json={"context": {**context, "threadId": ""}})
+        response = TestClient(app).post(
+            "/agents/root/plan", json={"context": {**context, "threadId": "", "message": "현재 인원 알려줘"}}
+        )
     finally:
         app.dependency_overrides.clear()
 
-    assert done_of(response)["message"] == "요약이에요."
+    done = done_of(response)
+    assert (done["intent"], done["message"]) == ("ANSWER", "현재 지원자는 2명이에요.")
+    assert [(item["applicationId"], item["status"]) for item in done["items"]] == [(None, "OK")]
+    assert done["sources"] == ["전형 결과"]
     assert saver.storage == {}

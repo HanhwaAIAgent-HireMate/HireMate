@@ -12,7 +12,7 @@ from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJu
 from hiremate_ai.agents.analysis.interview.types import FindingDraft, InterviewDraft
 from hiremate_ai.agents.root.commands import ClarifyCommand, RootReply
 from hiremate_ai.agents.root.graph import RootThread, run_plan
-from hiremate_ai.agents.root.toolkit import AgentEvidence, RootToolContext, default_toolkit
+from hiremate_ai.agents.root.toolkit import OUT_OF_SCOPE, AgentEvidence, RootToolContext, default_toolkit
 from hiremate_ai.agents.root.types import ChatContext, Intent, InterviewQuestion, InterviewView, QuestionSource
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
@@ -97,9 +97,11 @@ async def test_root_passes_application_result_to_interview_agent_and_requests_qu
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = interview_context(sample_applicants, sample_company, sample_posting)
+    context = context.model_copy(update={"message": "정유민의 서류와 면접 답변을 함께 검토하고 다음 질문을 준비해줘"})
     final = reply(questions=True, source="면접 기록", sentence=ANSWER)
     final.args["items"].insert(0, reply().args["items"][0])
     llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": ["정유민"]}),
         ToolCall("consult_application", {"candidate": "C1"}),
         extraction(),
         review(),
@@ -116,9 +118,17 @@ async def test_root_passes_application_result_to_interview_agent_and_requests_qu
     assert INTERVIEW_STATEMENT in plan.question_focus[context.candidates[0].application_id]
     assert plan.sources == ["이력서", "면접 기록"]
     assert plan.agents == ["Application Agent", "Interview Agent"]
-    assert [call.agent for call in llm.calls] == ["root", "application", "application", "root", "interview", "root"]
-    assert STATEMENT in llm.calls[4].user and DOCUMENT in llm.calls[4].user
-    assert "specialist-reference" in llm.calls[4].user
+    assert [call.agent for call in llm.calls] == [
+        "root",
+        "root",
+        "application",
+        "application",
+        "root",
+        "interview",
+        "root",
+    ]
+    assert STATEMENT in llm.calls[5].user and DOCUMENT in llm.calls[5].user
+    assert "specialist-reference" in llm.calls[5].user
     assert plan.targets == [] and plan.edit is None
 
 
@@ -159,7 +169,7 @@ async def test_specialist_tools_reject_candidates_outside_the_current_catalog(
     plan = await run_plan(llm, context)
 
     assert plan.intent is Intent.CLARIFY
-    assert "범위 밖" in llm.calls[-1].user
+    assert OUT_OF_SCOPE in llm.calls[-1].user
     assert all(call.agent == "root" for call in llm.calls)
 
 

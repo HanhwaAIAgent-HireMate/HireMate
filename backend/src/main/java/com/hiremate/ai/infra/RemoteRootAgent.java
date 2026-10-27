@@ -2,6 +2,7 @@ package com.hiremate.ai.infra;
 
 import com.hiremate.ai.application.AiAgent;
 import com.hiremate.ai.application.AiMode;
+import com.hiremate.ai.application.ChatApplied;
 import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatPlan;
@@ -30,6 +31,11 @@ class RemoteRootAgent implements RootAgent {
     @Override
     public ChatPlan plan(ChatContext context, ChatProgress progress) {
         return client.stream(AiAgent.ROOT, "plan", Map.of("context", context), ChatPlan.class, progress);
+    }
+
+    @Override
+    public void applied(ChatApplied applied) {
+        client.post(AiAgent.ROOT, "applied", Map.of("applied", applied), Map.class);
     }
 
     @Override

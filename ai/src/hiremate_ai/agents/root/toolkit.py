@@ -4,11 +4,12 @@
 프로필은 분석을 마친 지원자만 있으므로 문서로 동작하는 도구를 같이 둔다. 테스트는 문서만 쓰는 default_toolkit을 쓴다.
 """
 
+import json
 import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cache
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import Depends
@@ -16,7 +17,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hiremate_ai.agents.root.stages import StageData, not_yet, reached, stage_data
+from hiremate_ai.agents.root.stages import StageData, not_yet, reached, stage_data, stage_plan
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion, StageStatus
 from hiremate_ai.contract import ApplicantDocument, StageType
@@ -39,6 +40,11 @@ class RootToolContext(ToolScope):
     chat: ChatContext
     called: list[str] = field(default_factory=list)
     turns: list[Turn] = field(default_factory=list)  # 대화방의 앞 턴 기록 (대화 기억이 없으면 비어 있다)
+    resolved_names: dict[str, list[str]] = field(default_factory=dict)  # 이번 요청에서 조회한 이름과 일치하는 C번호
+    resolved_context: list[str] = field(default_factory=list)
+    resolution_errors: list[str] = field(default_factory=list)
+    previous_result: list[str] | None = None
+    previous_subject: list[str] = field(default_factory=list)
 
 
 def scope_of(context: ChatContext, turns: Sequence[Turn] = ()) -> RootToolContext:
@@ -205,7 +211,10 @@ def _best_sentences(sentences: list[SourcedSentence], terms: list[str]) -> list[
     return [sourced for _, _, sourced in sorted(scored)[:SENTENCES_PER_CONCEPT]]
 
 
-OUT_OF_SCOPE = "조회 범위 밖의 지원자예요. 지원자 번호(C1 같은)로 다시 불러 주세요."
+OUT_OF_SCOPE = (
+    "조회 범위 밖의 지원자예요. 이름은 resolve_candidates로 확인하세요. "
+    "일치하는 대상이 없거나 동명이인이면 clarify로 되묻고, 다른 지원자 번호로 바꾸지 마세요."
+)
 NO_DOCUMENTS = "읽을 수 있는 제출 문서 본문이 없어요."
 NO_INTERVIEW_STAGE = "이 채용에는 면접 전형이 없어요."
 EARLIER_SCORE = "앞 평가 전형의 점수는 이 전형에서 불러오지 않았어요. 점수가 없다는 뜻은 아니에요."
@@ -214,7 +223,6 @@ NOT_ANSWERED = "(답변 아직 입력하지 않음)"
 _REF = re.compile(r"^\s*[Cc]?(\d+)\s*$")
 _DECISIONS = {Decision.PENDING: "미결정", Decision.PASS: "합격", Decision.FAIL: "불합격"}
 _STAGES = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
-_SUMMARY_LIMIT = 50
 
 
 def candidate_ref(context: ChatContext, application_id: UUID) -> str:
@@ -244,7 +252,11 @@ def documents_text(chat: ChatContext, row: CandidateRow) -> str:
 def stage_result_text(chat: ChatContext, row: CandidateRow) -> str:
     """평가 점수는 평가 전형에서만 기록된다. 아직 평가 전형을 진행하지 않았으면 줄을 넣지 않는다."""
     document = chat.document_scores.get(row.application_id)
-    lines = [_who(chat, row), f"결정: {_DECISIONS[row.decision]}"]
+    lines = [
+        _who(chat, row),
+        f"결정: {_DECISIONS[row.decision]}",
+        f"선택 여부: {'선택됨' if row.selected else '미선택'}",
+    ]
     match stage_data(chat, StageType.ASSESSMENT):
         case StageData.CURRENT:
             missing = "아직 입력하지 않음" if chat.stage_status is StageStatus.ACTIVE else "없음"
@@ -253,10 +265,19 @@ def stage_result_text(chat: ChatContext, row: CandidateRow) -> str:
             lines.append(f"평가 점수: {EARLIER_SCORE}")
     lines += [
         f"서류 점수: {f'{document:g}점' if document is not None else '없음'}",
-        f"경력: {_career(row)}" + (f" · 마지막 회사 {row.last_company}" if row.last_company else ""),
+        f"경력: {_career(row)}" + (f", 마지막 회사 {row.last_company}" if row.last_company else ""),
         f"서류 기준선: {'위' if row.above_line else '아래'}",
     ]
     return "\n".join(lines)
+
+
+def candidate_summary_text(chat: ChatContext, row: CandidateRow) -> str:
+    """전형 요약에 표시한 이 지원자의 공식 행. 근거 검증도 같은 지원자의 행만 쓴다."""
+    score = f", 평가 {row.score:g}점" if row.score is not None else ""
+    return (
+        f"{_who(chat, row)}, {_DECISIONS[row.decision]}{score}, 경력 {_career(row)}, "
+        f"선택 여부: {'선택됨' if row.selected else '미선택'}"
+    )
 
 
 def interview_text(chat: ChatContext, row: CandidateRow) -> str:
@@ -325,6 +346,54 @@ def previous_notes(chat: ChatContext, turns: Sequence[Turn], row: CandidateRow) 
 
 
 @tool
+async def resolve_candidates(
+    names: list[str],
+    runtime: ToolRuntime[RootToolContext],
+    source: Literal["names", "mentions", "checked", "selected", "result", "subject"] = "names",
+    candidates: list[str] | None = None,
+) -> str:
+    """요청이 가리키는 이름들을 현재 전형 전체에서 정확히 조회한다. 앞뒤 공백만 제거한다.
+
+    이름은 담당자의 요청과 맥락에서 정한다. 본문의 @이름도 멘션 ID가 없으면 이 도구로 확인한다.
+    요청한 이름을 한 번에 모두 넣는다. not_found나 ambiguous가 있으면 대상을 되묻는다.
+    비슷한 이름, 체크한 사람이나 이전 대화의 다른 사람으로 대신하지 않는다.
+    이름 대신 명시적으로 멘션, 체크, 선택, 이전 결과나 직전 대상을 가리키면 source로 그 범위를
+    고르고 names=[]로 조회한다. candidates를 주면 그 범위 안의 번호만 허용한다.
+    본문에 별도로 지정한 이름은 names에서 빼지 않는다. 이름이 없다고 source의 다른 사람으로 바꾸지 않는다.
+    """
+    scope = _used(runtime, "resolve_candidates")
+    results = []
+    for name in dict.fromkeys(name.strip() for name in names if name.strip()):
+        refs = [candidate_ref(scope.chat, row.application_id) for row in scope.chat.candidates if row.name == name]
+        scope.resolved_names[name] = refs
+        status = "not_found" if not refs else "found" if len(refs) == 1 else "ambiguous"
+        results.append({"name": name, "status": status, "candidates": refs})
+    if source != "names":
+        ids = {
+            "mentions": [str(value) for value in scope.chat.mentions],
+            "checked": [str(value) for value in scope.chat.checked],
+            "selected": [str(row.application_id) for row in scope.chat.candidates if row.selected],
+            "result": scope.previous_result or [],
+            "subject": scope.previous_subject,
+        }[source]
+        by_id = {
+            str(row.application_id): candidate_ref(scope.chat, row.application_id) for row in scope.chat.candidates
+        }
+        allowed = [by_id[value] for value in ids if value in by_id]
+        refs = list(dict.fromkeys(candidates if candidates is not None else allowed))
+        incomplete = candidates is None and any(value not in by_id for value in ids)
+        if incomplete or not refs or not set(refs) <= set(allowed):
+            scope.resolution_errors.append("지정한 화면이나 이전 대화의 범위에서 질문 대상을 확인할 수 없어요.")
+            results.append({"source": source, "status": "not_found", "candidates": []})
+        else:
+            scope.resolved_context.extend(ref for ref in refs if ref not in scope.resolved_context)
+            results.append({"source": source, "status": "found", "candidates": refs})
+    elif not results:
+        scope.resolution_errors.append("질문을 만들 지원자가 명확하지 않아요.")
+    return json.dumps(results, ensure_ascii=False)
+
+
+@tool
 async def get_candidate_documents(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
     """지원자의 제출 문서(이력서, 자기소개서, 포트폴리오, 자격증) 본문을 읽는다. candidate는 지원자 번호(예: C1)다."""
     context = _used(runtime, "get_candidate_documents")
@@ -365,18 +434,34 @@ async def get_posting(runtime: ToolRuntime[RootToolContext]) -> str:
 
 @tool
 async def get_stage_summary(runtime: ToolRuntime[RootToolContext]) -> str:
-    """현재 전형의 인원과 결정 현황, 지원자 번호 · 이름 · 결정 · 점수 · 경력 목록을 읽는다."""
-    chat = _used(runtime, "get_stage_summary").chat
+    """현재 전형의 전체 지원자와 선택 명단, 결정 현황, 등록 경력 최댓값과 동률 대상을 읽는다."""
+    return stage_summary_text(_used(runtime, "get_stage_summary").chat)
+
+
+def stage_summary_text(chat: ChatContext) -> str:
+    """현재 범위 전체의 공식 집계와 목록. 답변의 전형 결과 근거도 같은 글로 검증한다."""
     counts = {decision: sum(row.decision is decision for row in chat.candidates) for decision in Decision}
     lines = [
         f"{chat.stage_name} ({_STAGES[chat.stage_type]}) 지원자 {len(chat.candidates)}명: "
-        + ", ".join(f"{_DECISIONS[decision]} {count}명" for decision, count in counts.items())
+        + ", ".join(f"{_DECISIONS[decision]} {count}명" for decision, count in counts.items()),
+        f"전형 순서: {stage_plan(chat)}",
     ]
-    for index, row in enumerate(chat.candidates[:_SUMMARY_LIMIT], start=1):
-        score = f" · 평가 {row.score:g}점" if row.score is not None else ""
-        lines.append(f"C{index} {row.name} · {_DECISIONS[row.decision]}{score} · 경력 {_career(row)}")
-    if len(chat.candidates) > _SUMMARY_LIMIT:
-        lines.append(f"(그 밖 {len(chat.candidates) - _SUMMARY_LIMIT}명)")
+    selected = [row for row in chat.candidates if row.selected]
+    lines.append(f"선택 지원자 {len(selected)}명: " + (", ".join(_who(chat, row) for row in selected) or "없음"))
+    careers = [row.career_years for row in chat.candidates if row.career_years is not None]
+    if careers:
+        maximum = max(careers)
+        leaders = [row for row in chat.candidates if row.career_years == maximum]
+        lines.append(
+            f"등록 경력 최댓값: {maximum}년 (동률 {len(leaders)}명): " + ", ".join(_who(chat, row) for row in leaders)
+        )
+    else:
+        lines.append("등록 경력 최댓값: 확인 불가")
+    lines.append(
+        f"경력 미등록 {len(chat.candidates) - len(careers)}명. "
+        "등록 경력은 정수 연 단위이며, 월 단위 실제 경력 순위는 확인할 수 없어요."
+    )
+    lines.extend(candidate_summary_text(chat, row) for row in chat.candidates)
     return "\n".join(lines)
 
 
@@ -415,6 +500,7 @@ async def get_previous_turns(runtime: ToolRuntime[RootToolContext]) -> str:
 
 
 ANSWER_TOOLS: tuple[BaseTool, ...] = (
+    resolve_candidates,
     get_candidate_documents,
     get_stage_results,
     get_interview_records,

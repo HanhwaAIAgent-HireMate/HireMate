@@ -10,7 +10,7 @@ from hiremate_ai.agents.analysis.interview.router import InterviewAnalysis
 from hiremate_ai.agents.generation.interview.router import InterviewView, QuestionsRequest
 from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, PostingSuggestion
-from hiremate_ai.agents.root.types import ChatContext, ChatHistoryTurn, ChatPlan, ChatStatus
+from hiremate_ai.agents.root.types import ChatApplied, ChatContext, ChatHistoryTurn, ChatPlan, ChatStatus
 from hiremate_ai.api.profile import CandidateProfileView
 from hiremate_ai.contract import ApplicantDetail, CandidateAnalysis, CompanyProfile, Job, JobResult, PostingContent
 
@@ -22,6 +22,7 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "ApplicationAnalysis": ApplicationAnalysis,
     "CandidateAnalysis": CandidateAnalysis,
     "CandidateProfileView": CandidateProfileView,
+    "ChatApplied": ChatApplied,
     "ChatContext": ChatContext,
     "ChatHistoryTurn": ChatHistoryTurn,
     "ChatPlan": ChatPlan,

@@ -4,6 +4,7 @@ import com.hiremate.ai.application.AiAgent;
 import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.CandidateAnalyst;
+import com.hiremate.ai.application.ChatApplied;
 import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatItem;
@@ -76,6 +77,10 @@ class StubRootAgent implements RootAgent {
     @Override
     public List<ChatHistoryTurn> history(String threadId) {
         return List.of();
+    }
+
+    @Override
+    public void applied(ChatApplied applied) {
     }
 
     @Override

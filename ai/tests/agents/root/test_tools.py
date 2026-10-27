@@ -1,7 +1,8 @@
+import json
 from uuid import uuid4
 
 from pydantic import BaseModel
-from root_context import make_context
+from root_context import extra_row, make_context
 
 from hiremate_ai.agents.root.toolkit import (
     EARLIER_SCORE,
@@ -83,6 +84,44 @@ async def test_tools_reject_unknown_candidate(
     assert OUT_OF_SCOPE in llm.calls[-1].user
 
 
+async def test_name_lookup_distinguishes_missing_unique_and_duplicate_names(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    duplicate = extra_row("정유민")
+    context = context.model_copy(update={"candidates": [*context.candidates, duplicate]})
+
+    llm, _ = await run_tools(
+        context,
+        ToolCall("resolve_candidates", {"names": ["김도현", "이서윤", "김하늘", "정유민"]}),
+    )
+
+    result = llm.calls[-1].user
+    for expected in (
+        {"name": "김도현", "status": "not_found", "candidates": []},
+        {"name": "이서윤", "status": "not_found", "candidates": []},
+        {"name": "김하늘", "status": "found", "candidates": ["C2"]},
+        {"name": "정유민", "status": "ambiguous", "candidates": ["C1", "C9"]},
+    ):
+        assert json.dumps(expected, ensure_ascii=False) in result
+
+
+async def test_name_lookup_checks_the_whole_stage_without_matching_similar_names(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    rows = [extra_row(f"지원자{number}") for number in range(1, 62)]
+    rows[-1] = rows[-1].model_copy(update={"name": "김도현"})
+    context = context.model_copy(update={"candidates": rows})
+
+    llm, _ = await run_tools(context, ToolCall("resolve_candidates", {"names": [" 김도현 ", "김도훈", "지원자"]}))
+
+    result = llm.calls[-1].user
+    assert json.dumps({"name": "김도현", "status": "found", "candidates": ["C61"]}, ensure_ascii=False) in result
+    assert json.dumps({"name": "김도훈", "status": "not_found", "candidates": []}, ensure_ascii=False) in result
+    assert json.dumps({"name": "지원자", "status": "not_found", "candidates": []}, ensure_ascii=False) in result
+
+
 async def test_tool_results_are_wrapped(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
@@ -121,6 +160,52 @@ async def test_stage_summary_lists_refs(
     assert "미결정 8명" in result
 
 
+async def test_stage_summary_includes_selected_candidates_after_the_fiftieth_row(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    rows = [extra_row(f"지원자{number}") for number in range(1, 62)]
+    rows[-1] = rows[-1].model_copy(update={"selected": True, "career_years": 15})
+    context = context.model_copy(update={"candidates": rows})
+
+    llm, _ = await run_tools(context, ToolCall("get_stage_summary"))
+
+    result = llm.calls[-1].user
+    assert "선택 지원자 1명: C61 지원자61" in result
+    assert "C61 지원자61, 미결정, 경력 15년, 선택 여부: 선택됨" in result
+    assert "C60 지원자60, 미결정, 경력 알 수 없음, 선택 여부: 미선택" in result
+    assert "(그 밖" not in result
+
+
+async def test_stage_summary_reports_all_registered_career_leaders_and_missing_values(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    rows = [extra_row(f"지원자{number}").model_copy(update={"career_years": 4}) for number in range(1, 62)]
+    rows[0] = rows[0].model_copy(update={"career_years": 12})
+    rows[1] = rows[1].model_copy(update={"career_years": None})
+    rows[-1] = rows[-1].model_copy(update={"career_years": 12})
+    context = context.model_copy(update={"candidates": rows})
+
+    llm, _ = await run_tools(context, ToolCall("get_stage_summary"))
+
+    result = llm.calls[-1].user
+    assert "등록 경력 최댓값: 12년 (동률 2명): C1 지원자1, C61 지원자61" in result
+    assert "경력 미등록 1명" in result
+    assert "월 단위 실제 경력 순위는 확인할 수 없어요" in result
+    assert "12년 1개월" not in result
+
+
+async def test_stage_result_exposes_the_candidates_actual_selection_state(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    selected = context.candidates[0].model_copy(update={"selected": True})
+
+    assert "선택 여부: 선택됨" in stage_result_text(context, selected)
+    assert "선택 여부: 미선택" in stage_result_text(context, context.candidates[1])
+
+
 async def test_stage_summary_lists_career(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
@@ -133,10 +218,10 @@ async def test_stage_summary_lists_career(
     llm, _ = await run_tools(context, ToolCall("get_stage_summary"))
 
     result = llm.calls[-1].user
-    assert "C1 정유민 · 미결정 · 경력 4년" in result
-    assert "C2 김하늘 · 미결정 · 경력 7년" in result
-    assert "C4 이도윤 · 미결정 · 경력 신입" in result
-    assert "C7 윤태오 · 미결정 · 경력 알 수 없음" in result
+    assert "C1 정유민, 미결정, 경력 4년" in result
+    assert "C2 김하늘, 미결정, 경력 7년" in result
+    assert "C4 이도윤, 미결정, 경력 신입" in result
+    assert "C7 윤태오, 미결정, 경력 알 수 없음" in result
 
 
 async def test_company_and_posting(

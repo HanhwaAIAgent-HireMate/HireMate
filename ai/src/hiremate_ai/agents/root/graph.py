@@ -18,8 +18,17 @@ from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.agent import run_agent
 from hiremate_ai.agents.root.progress import writer_progress
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
-from hiremate_ai.agents.root.turns import Turn, next_result, remember, turn_of
-from hiremate_ai.agents.root.types import ChatContext, ChatItem, ChatPlan, ChatStatus, Intent, SelectionMode
+from hiremate_ai.agents.root.turns import Turn, next_result, remember, turn_of, update_turn
+from hiremate_ai.agents.root.types import (
+    ChatApplied,
+    ChatContext,
+    ChatItem,
+    ChatPlan,
+    ChatStatus,
+    EditAction,
+    Intent,
+    SelectionMode,
+)
 from hiremate_ai.config import settings
 from hiremate_ai.llm.client import LlmClient
 
@@ -84,6 +93,10 @@ def build_root_graph(
             raise TypeError("검증된 최종 명령 없이 턴을 남기려 했다")
         kind = state.get("kind") or ""
         turn = turn_of(runtime.context, None, plan, kind)
+        mode = state.get("mode")
+        turn["mode"] = mode.value if mode is not None else None
+        turn["result_before"] = state.get("result")
+        turn["subject_before"] = state.get("subject") or []
         return {
             "turns": remember(state.get("turns") or [], turn, settings.root_memory_turns),
             "result": next_result(state.get("result"), kind, state.get("mode"), plan),
@@ -105,6 +118,77 @@ def build_root_graph(
     graph.add_edge("agent", "record")
     graph.add_edge("record", END)
     return graph.compile(checkpointer=checkpointer)
+
+
+async def apply_plan(llm: LlmClient, saver: BaseCheckpointSaver[Any], applied: ChatApplied) -> bool:
+    """업무 서버의 최종 응답으로 기존 턴을 보정한다. 모델이나 업무 도구를 실행하지 않는다."""
+    graph = build_root_graph(llm, checkpointer=saver)
+    snapshot = await graph.aget_state({"configurable": {"thread_id": applied.thread_id}})
+    if not snapshot.values or snapshot.next:
+        return False
+    turns: list[Turn] = snapshot.values.get("turns") or []
+    previous = applied.previous.model_dump(mode="json")
+    matches = [
+        index
+        for index, turn in enumerate(turns)
+        if turn["message"] == applied.message and "proposed_plan" not in turn and turn["plan"] == previous
+    ]
+    if not matches:
+        return any(
+            turn["message"] == applied.message
+            and turn.get("proposed_plan") == previous
+            and turn["plan"] == applied.plan.model_dump(mode="json")
+            for turn in turns
+        )
+    if len(matches) != 1:
+        return False
+    index = matches[0]
+    turn = turns[index]
+    allowed = _plan_candidates(applied.previous)
+    if (
+        applied.previous.intent is Intent.EDIT
+        and applied.previous.edit in (EditAction.CLEAR, EditAction.RESTORE)
+        and applied.plan.intent is Intent.EDIT
+        and applied.plan.edit is applied.previous.edit
+    ):
+        # 이 명령은 계획에 대상을 넣지 않고 업무 서버가 실제 변경한 대상을 돌려준다.
+        allowed.update(applied.plan.targets)
+    if not _plan_candidates(applied.plan) <= allowed:
+        return False
+    updated = list(turns)
+    updated[index] = update_turn(turn, applied.plan)
+    updated[index]["proposed_plan"] = previous
+    start = index if "result_before" in turn and "subject_before" in turn else 0
+    result = turns[start].get("result_before")
+    subject = turns[start].get("subject_before") or []
+    for position in range(start, len(updated)):
+        saved_turn = updated[position]
+        saved_turn = {**saved_turn, "result_before": result, "subject_before": subject}
+        updated[position] = saved_turn
+        plan = ChatPlan.model_validate(saved_turn["plan"])
+        saved_mode = saved_turn.get("mode", plan.mode)
+        mode = SelectionMode(saved_mode) if saved_mode is not None else None
+        result = next_result(result, saved_turn["kind"], mode, plan)
+        subject = saved_turn["targets"] or subject
+    metadata: dict[str, Any] = dict(snapshot.metadata or {})
+    await graph.aupdate_state(
+        {
+            **snapshot.config,
+            "metadata": {key: metadata[key] for key in ("stage_id", "company_id") if key in metadata},
+        },
+        {"turns": updated, "result": result, "subject": subject},
+        as_node="record",
+    )
+    return True
+
+
+def _plan_candidates(plan: ChatPlan) -> set[UUID]:
+    return (
+        set(plan.targets)
+        | set(plan.question_targets)
+        | set(plan.question_focus)
+        | {item.application_id for item in plan.items if item.application_id is not None}
+    )
 
 
 async def run_plan(

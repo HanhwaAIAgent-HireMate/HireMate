@@ -28,6 +28,10 @@ class Turn(TypedDict):
     focus: dict[str, str]
     total: int  # 그때 전형 인원
     plan: dict[str, Any]  # 화면에 다시 보여 줄 계획 (ChatPlan JSON)
+    mode: NotRequired[str | None]
+    result_before: NotRequired[list[str] | None]
+    subject_before: NotRequired[list[str]]
+    proposed_plan: NotRequired[dict[str, Any]]  # 업무 서버가 보정하기 전 계획. 중복 응답을 구분한다
 
 
 def turn_of(context: ChatContext, targets: Sequence[UUID] | None, plan: ChatPlan, kind: str = "") -> Turn:
@@ -35,21 +39,37 @@ def turn_of(context: ChatContext, targets: Sequence[UUID] | None, plan: ChatPlan
 
     합격 · 불합격한 지원자 안에서 찾았으면 선택 지원자를 바꾸지 않아 찾은 사람은 답 항목에만 있다.
     """
+    turn = Turn(
+        message=context.message,
+        mentions=[str(application_id) for application_id in context.mentions],
+        checked=[str(application_id) for application_id in context.checked],
+        kind=kind,
+        intent="",
+        targets=[],
+        answer="",
+        items=[],
+        focus={},
+        total=len(context.candidates),
+        plan={},
+    )
+    return update_turn(turn, plan, targets)
+
+
+def update_turn(turn: Turn, plan: ChatPlan, targets: Sequence[UUID] | None = None) -> Turn:
+    """보정된 계획의 대상과 근거만 남긴다. 원래 질문과 전형 인원은 보존한다."""
     answered = list(dict.fromkeys(item.application_id for item in plan.items if item.application_id))
+    kind = turn["kind"]
     subject: list[UUID] = (list(plan.targets) or answered) if kind == "FIND" else plan.targets or plan.question_targets
     if not subject and kind != "FIND":
         subject = answered
     if not subject and kind != "FIND" and targets is not None:
         subject = list(targets)
-    return Turn(
-        message=context.message,
-        mentions=[str(application_id) for application_id in context.mentions],
-        checked=[str(application_id) for application_id in context.checked],
-        kind=kind,
-        intent=plan.intent.value,
-        targets=[str(application_id) for application_id in subject],
-        answer=plan.message,
-        items=[
+    return {
+        **turn,
+        "intent": plan.intent.value,
+        "targets": [str(application_id) for application_id in subject],
+        "answer": plan.message,
+        "items": [
             TurnItem(
                 application_id=str(item.application_id) if item.application_id else None,
                 label=item.label,
@@ -57,10 +77,9 @@ def turn_of(context: ChatContext, targets: Sequence[UUID] | None, plan: ChatPlan
             )
             for item in plan.items
         ],
-        focus={str(application_id): focus for application_id, focus in plan.question_focus.items()},
-        total=len(context.candidates),
-        plan=plan.model_dump(mode="json"),
-    )
+        "focus": {str(application_id): focus for application_id, focus in plan.question_focus.items()},
+        "plan": plan.model_dump(mode="json"),
+    }
 
 
 def remember(turns: list[Turn], turn: Turn, limit: int) -> list[Turn]:

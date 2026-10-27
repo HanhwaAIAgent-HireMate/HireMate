@@ -149,7 +149,9 @@ public class ScreeningService {
         StageContext context = activeContext(companyId, stageId);
         for (StageCandidate candidate : targets(companyId, stageId, applicationIds)) {
             requireSelectable(context, candidate);
-            candidate.select(false);
+            if (!candidate.isSelected()) {
+                candidate.select(false);
+            }
         }
     }
 
@@ -157,7 +159,8 @@ public class ScreeningService {
     @Transactional
     public void remove(UUID companyId, UUID stageId, Collection<UUID> applicationIds) {
         activeContext(companyId, stageId);
-        targets(companyId, stageId, applicationIds).forEach(StageCandidate::unselect);
+        targets(companyId, stageId, applicationIds).stream().filter(StageCandidate::isSelected)
+                .forEach(StageCandidate::unselect);
     }
 
     @Transactional
@@ -165,7 +168,7 @@ public class ScreeningService {
         activeContext(companyId, stageId);
         List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
         snapshot(stageId, all);
-        all.forEach(StageCandidate::unselect);
+        all.stream().filter(StageCandidate::isSelected).forEach(StageCandidate::unselect);
     }
 
     /** 교체 · 좁히기 · 비우기 직전의 선택 지원자로 돌아간다. */
@@ -180,7 +183,7 @@ public class ScreeningService {
         for (StageCandidate candidate : candidates.findByStageIdAndCompanyId(stageId, companyId)) {
             if (previous.containsKey(candidate.getApplicationId()) && candidate.getDecision() == Decision.PENDING) {
                 candidate.select(previous.get(candidate.getApplicationId()));
-            } else {
+            } else if (candidate.isSelected()) {
                 candidate.unselect();
             }
         }
@@ -189,26 +192,39 @@ public class ScreeningService {
 
     /**
      * AI 탐색 결과를 선택 지원자에 반영한다. AI는 결정하지 않은 지원자만, 서류 전형에서는 기준을 넘은 지원자만 고를 수 있다.
-     * 조건에 맞지 않는 대상은 빼고 반영한 지원자 ID를 돌려준다.
+     * 조건에 맞지 않는 대상은 빼고 반영한 지원자 ID를 돌려준다. 추가는 신규 대상만, 교체와 좁히기는 최종 대상을 돌려준다.
      */
     @Transactional
     public List<UUID> applyAiSelection(UUID companyId, UUID stageId, SelectionMode mode,
             Collection<UUID> applicationIds) {
         StageContext context = activeContext(companyId, stageId);
         List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
-        Set<UUID> requested = new HashSet<>(applicationIds);
+        Map<UUID, StageCandidate> byApplication = all.stream()
+                .collect(Collectors.toMap(StageCandidate::getApplicationId, Function.identity()));
         Set<UUID> recommended = recommended(context, all, infos(context));
-        List<StageCandidate> chosen = all.stream()
-                .filter(candidate -> requested.contains(candidate.getApplicationId()))
+        List<StageCandidate> chosen = applicationIds.stream().distinct()
+                .filter(byApplication::containsKey)
+                .map(byApplication::get)
                 .filter(candidate -> candidate.getDecision() == Decision.PENDING)
                 .filter(candidate -> aboveLine(context.type(), candidate, recommended))
                 .filter(candidate -> mode != SelectionMode.NARROW || candidate.isSelected())
+                .filter(candidate -> mode != SelectionMode.ADD || !candidate.isSelected())
                 .toList();
-        if (mode != SelectionMode.ADD) {
-            snapshot(stageId, all);
-            all.forEach(StageCandidate::unselect);
+        if (chosen.isEmpty()) {
+            return List.of();
         }
-        chosen.forEach(candidate -> candidate.select(true));
+        if (mode != SelectionMode.ADD) {
+            Set<UUID> retained = chosen.stream().map(StageCandidate::getApplicationId).collect(Collectors.toSet());
+            boolean changed = all.stream().anyMatch(candidate -> candidate.isSelected()
+                    != retained.contains(candidate.getApplicationId()));
+            if (changed) {
+                snapshot(stageId, all);
+                all.stream().filter(StageCandidate::isSelected)
+                        .filter(candidate -> !retained.contains(candidate.getApplicationId()))
+                        .forEach(StageCandidate::unselect);
+            }
+        }
+        chosen.stream().filter(candidate -> !candidate.isSelected()).forEach(candidate -> candidate.select(true));
         return chosen.stream().map(StageCandidate::getApplicationId).toList();
     }
 

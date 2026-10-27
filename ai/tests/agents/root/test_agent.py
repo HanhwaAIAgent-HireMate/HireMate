@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -7,10 +8,12 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 from root_context import make_context
 
+from hiremate_ai.agents.root.agent import run_agent
 from hiremate_ai.agents.root.commands import EditCommand, RootReply
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import run_plan
-from hiremate_ai.agents.root.types import EditAction, Intent
+from hiremate_ai.agents.root.toolkit import default_toolkit
+from hiremate_ai.agents.root.types import Decision, EditAction, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.call_log import CallRecord
@@ -20,13 +23,13 @@ from hiremate_ai.llm.fake import FakeLlm, ToolCall
 type Applicants = dict[str, ApplicantDetail]
 
 
-async def test_portfolio_questions_can_handoff_without_spending_calls_on_document_analysis(
+async def test_portfolio_questions_can_handoff_after_identity_lookup_without_document_analysis(
     sample_applicants: Applicants,
     sample_company: CompanyProfile,
     sample_posting: PostingContent,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(settings, "llm_agent_max_calls", 1)
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 2)
     context = make_context(
         sample_applicants,
         sample_company,
@@ -39,6 +42,7 @@ async def test_portfolio_questions_can_handoff_without_spending_calls_on_documen
     target = next(row for row in context.candidates if row.name == "한예린")
     candidate = f"C{context.candidates.index(target) + 1}"
     llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": [], "source": "mentions"}),
         ToolCall(
             "RootReply",
             {
@@ -50,7 +54,7 @@ async def test_portfolio_questions_can_handoff_without_spending_calls_on_documen
                 "action": None,
                 "result": None,
             },
-        )
+        ),
     )
 
     plan = await run_plan(llm, context)
@@ -58,7 +62,239 @@ async def test_portfolio_questions_can_handoff_without_spending_calls_on_documen
     assert plan.intent is Intent.ANSWER
     assert plan.question_targets == [target.application_id]
     assert plan.question_focus == {} and plan.items == []
+    assert len(llm.calls) == 2
+
+
+@pytest.mark.parametrize("kind", ["clarify", "questions", "find"])
+async def test_missing_named_question_targets_are_clarified_without_substitution(
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+) -> None:
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 2)
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="@김도현 @이서윤 각각의 제출 서류에 맞는 질문 3개씩 만들어줘.",
+        checked=["정유민"],
+        selected=["김하늘"],
+        stage_type=StageType.INTERVIEW,
+    )
+    llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": ["김도현", "이서윤"]}),
+        ToolCall(
+            "RootReply",
+            {
+                "kind": kind,
+                "message": "확인할게요.",
+                "candidates": ["C1", "C2"] if kind == "questions" else [],
+                "result": "S1" if kind == "find" else None,
+            },
+        ),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.CLARIFY
+    assert "김도현" in plan.message and "이서윤" in plan.message
+    assert "찾을 수 없" in plan.message
+    assert not plan.question_targets and not plan.targets and plan.edit is None
+    assert plan.items == []
+    assert len(llm.calls) == 2
+
+
+async def test_mixed_present_and_missing_names_do_not_generate_a_partial_question_request(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="정유민과 김도현의 질문을 각각 만들어줘",
+        stage_type=StageType.INTERVIEW,
+    )
+    llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": ["정유민", "김도현"]}),
+        ToolCall("RootReply", {"kind": "questions", "message": "정유민 질문을 만들게요.", "candidates": ["C1"]}),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.CLARIFY and "김도현" in plan.message
+    assert not plan.question_targets and not plan.targets
+
+
+async def test_unique_named_targets_can_handoff_questions_without_document_reads(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="정유민과 김하늘의 제출 서류에 맞는 질문 3개씩 만들어줘",
+        stage_type=StageType.INTERVIEW,
+    )
+    llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": ["정유민", "김하늘"]}),
+        ToolCall("RootReply", {"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1", "C2"]}),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.ANSWER
+    assert plan.question_targets == [context.candidates[0].application_id, context.candidates[1].application_id]
+    assert plan.question_focus == {} and plan.items == []
+    assert len(llm.calls) == 2
+
+
+async def test_missing_mention_id_is_clarified_before_any_model_call(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="이 지원자 질문 만들어줘")
+    context = context.model_copy(update={"mentions": [uuid4()]})
+    llm = FakeLlm()
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.CLARIFY
+    assert "멘션" in plan.message and "찾을 수 없" in plan.message
+    assert not plan.question_targets and not plan.targets
+    assert llm.calls == []
+
+
+async def test_plain_text_question_targets_require_name_resolution_before_handoff(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="@김도현 @이서윤 각각 질문 3개씩 만들어줘",
+        checked=["정유민", "김하늘"],
+        stage_type=StageType.INTERVIEW,
+    )
+    wrong = ToolCall("RootReply", {"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1", "C2"]})
+    llm = FakeLlm(wrong, ToolCall("resolve_candidates", {"names": ["김도현", "이서윤"]}), wrong)
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.CLARIFY
+    assert "김도현" in plan.message and "이서윤" in plan.message
+    assert not plan.question_targets
+    assert len(llm.calls) == 3
+    assert "resolve_candidates" in llm.calls[1].user
+
+
+async def test_duplicate_named_targets_are_not_resolved_to_the_first_match(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="정유민 질문 만들어줘",
+        stage_type=StageType.INTERVIEW,
+    )
+    duplicate = context.candidates[0].model_copy(update={"application_id": uuid4()})
+    context = context.model_copy(update={"candidates": [*context.candidates, duplicate]})
+    llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": ["정유민"]}),
+        ToolCall("RootReply", {"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1"]}),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.CLARIFY
+    assert "정유민" in plan.message and "동명이인" in plan.message
+    assert not plan.question_targets
+
+
+async def test_missing_name_lookup_keeps_its_recovery_message_when_the_model_budget_ends(
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 1)
+    context = make_context(sample_applicants, sample_company, sample_posting, message="김도현 질문 만들어줘")
+    llm = FakeLlm(ToolCall("resolve_candidates", {"names": ["김도현"]}))
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.CLARIFY
+    assert "김도현" in plan.message and "찾을 수 없" in plan.message
+    assert not plan.question_targets
     assert len(llm.calls) == 1
+
+
+async def test_scoped_question_lookup_cannot_substitute_a_different_screen_source(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="체크한 사람 질문 만들어줘",
+        checked=["정유민"],
+        selected=["김하늘"],
+        stage_type=StageType.INTERVIEW,
+    )
+    llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": [], "source": "checked", "candidates": ["C2"]}),
+        ToolCall("RootReply", {"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C2"]}),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.CLARIFY
+    assert "범위" in plan.message
+    assert not plan.question_targets and not plan.targets
+
+
+@pytest.mark.parametrize("source", ["subject", "result"])
+@pytest.mark.parametrize("explicit_subset", [False, True])
+async def test_question_context_with_a_missing_applicant_requires_an_explicit_valid_subset(
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    source: str,
+    explicit_subset: bool,
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="그중 첫 번째 사람 질문 만들어줘" if explicit_subset else "그 두 사람 각각 질문 만들어줘",
+        stage_type=StageType.INTERVIEW,
+    )
+    prior = [str(context.candidates[0].application_id), str(uuid4())]
+    args: dict[str, Any] = {"names": [], "source": source}
+    if explicit_subset:
+        args["candidates"] = ["C1"]
+    llm = FakeLlm(
+        ToolCall("resolve_candidates", args),
+        ToolCall("RootReply", {"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1"]}),
+    )
+
+    finished = await run_agent(
+        llm,
+        context,
+        default_toolkit(),
+        result=prior if source == "result" else None,
+        subject=prior if source == "subject" else [],
+    )
+
+    plan = finished.plan
+    if explicit_subset:
+        assert plan.intent is Intent.ANSWER
+        assert plan.question_targets == [context.candidates[0].application_id]
+    else:
+        assert plan.intent is Intent.CLARIFY
+        assert "범위" in plan.message
+        assert not plan.question_targets and not plan.targets
 
 
 async def test_model_receives_required_search_conditions_and_answer_evidence(
@@ -172,7 +408,22 @@ async def test_root_chooses_a_read_tool_and_returns_a_command_without_classifica
     context = make_context(sample_applicants, sample_company, sample_posting, message="현재 인원 알려줘")
     llm = FakeLlm(
         ToolCall("get_stage_summary"),
-        ToolCall("RootReply", {"message": "현재 지원자는 8명이에요.", "command": {"kind": "answer"}}),
+        ToolCall(
+            "RootReply",
+            {
+                "message": "현재 지원자는 8명이에요.",
+                "command": {"kind": "answer"},
+                "items": [
+                    {
+                        "candidate": None,
+                        "label": "인원",
+                        "text": "현재 지원자 8명",
+                        "status": "OK",
+                        "evidence": [{"sentence": "지원자 8명", "source": "전형 결과"}],
+                    }
+                ],
+            },
+        ),
     )
 
     plan = await run_plan(llm, context)
@@ -184,7 +435,7 @@ async def test_root_chooses_a_read_tool_and_returns_a_command_without_classifica
     assert "미결정 8명" in llm.calls[-1].user
 
 
-async def test_root_observes_search_results_then_reads_more_before_answering(
+async def test_search_result_cannot_be_replaced_with_an_answer_after_reading_briefs(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(
@@ -211,16 +462,61 @@ async def test_root_observes_search_results_then_reads_more_before_answering(
                 ],
             },
         ),
+        ToolCall("RootReply", {"message": "검색 결과예요.", "command": {"kind": "find", "result": "S1"}}),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.FIND
+    assert plan.targets == [context.candidates[0].application_id]
+    assert plan.sources == ["이력서"]
+    assert '"result": "S1"' in llm.calls[2].user
+    assert sentence in llm.calls[-1].user
+    assert [call.output.__name__ for call in llm.calls] == [
+        "RootReply",
+        "RecheckResult",
+        "RootReply",
+        "RootReply",
+        "RootReply",
+    ]
+
+
+async def test_reading_summary_does_not_allow_an_answer_without_evidence_items(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="인원 알려줘")
+    answer = ToolCall("RootReply", {"message": "현재 지원자는 100명이에요.", "command": {"kind": "answer"}})
+
+    plan = await run_plan(FakeLlm(ToolCall("get_stage_summary"), answer, answer), context)
+
+    assert plan.intent is Intent.CLARIFY
+    assert "100명" not in plan.message
+
+
+async def test_empty_search_cannot_be_replaced_with_a_candidate_answer(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="양자 컴퓨팅 경험자 찾아줘")
+    llm = FakeLlm(
+        ToolCall("search_candidates", {"query": {"concepts": ["양자 컴퓨팅"]}}),
+        ToolCall("get_candidate_briefs", {"candidates": ["C1"]}),
+        ToolCall(
+            "RootReply",
+            {
+                "message": "정유민 님을 확인해 보세요.",
+                "command": {"kind": "answer", "candidates": ["C1"]},
+                "items": [{"candidate": "C1", "label": "확인", "text": "추가 확인이 필요해요.", "status": "CHECK"}],
+            },
+        ),
+        ToolCall("RootReply", {"message": "검색 결과예요.", "command": {"kind": "find", "result": "S1"}}),
     )
 
     plan = await run_plan(llm, context)
 
     assert plan.intent is Intent.ANSWER
-    assert plan.targets == []
-    assert plan.sources == ["이력서"]
-    assert '"result": "S1"' in llm.calls[2].user
-    assert sentence in llm.calls[-1].user
-    assert [call.output.__name__ for call in llm.calls] == ["RootReply", "RecheckResult", "RootReply", "RootReply"]
+    assert plan.items == []
+    assert "찾지 못했어요" in plan.message
+    assert len(llm.calls) == 4
 
 
 async def test_empty_stage_answers_must_observe_the_stage_summary(
@@ -261,13 +557,14 @@ async def test_question_confirmation_does_not_repeat_unverified_model_prose(
         sample_applicants, sample_company, sample_posting, message="면접 질문 만들어줘", stage_type=StageType.INTERVIEW
     )
     llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": ["정유민"]}),
         ToolCall(
             "RootReply",
             {
                 "message": "정유민은 증권사에서 20년 일했으니 질문을 만들어요.",
                 "command": {"kind": "questions", "candidates": ["C1"]},
             },
-        )
+        ),
     )
 
     plan = await run_plan(llm, context)
@@ -298,6 +595,86 @@ async def test_root_returns_the_models_explicit_edit_targets(
 
     assert plan.edit is EditAction.REMOVE
     assert plan.targets == [sample_applicants["정유민"].info.application_id]
+
+
+@pytest.mark.parametrize("decision", [Decision.PASS, Decision.FAIL])
+async def test_noop_add_rechecks_decided_previous_subject_before_using_unrelated_selection(
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    decision: Decision,
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="스테이지에 올려줘",
+        selected=["박서준", "이도윤"],
+    )
+    context = context.model_copy(
+        update={
+            "candidates": [
+                row.model_copy(update={"decision": decision}) if index < 2 else row
+                for index, row in enumerate(context.candidates)
+            ]
+        }
+    )
+    llm = FakeLlm(
+        ToolCall(
+            "RootReply",
+            {"message": "선택에 넣었어요.", "command": {"kind": "edit", "action": "ADD", "candidates": ["C3", "C4"]}},
+        ),
+        ToolCall(
+            "RootReply",
+            {"message": "선택에 넣을게요.", "command": {"kind": "edit", "action": "ADD", "candidates": ["C1", "C2"]}},
+        ),
+    )
+
+    result = await run_agent(
+        llm,
+        context,
+        default_toolkit(),
+        subject=[str(row.application_id) for row in context.candidates[:2]],
+    )
+
+    assert result.plan.intent is Intent.CLARIFY
+    assert result.plan.targets == [] and result.plan.edit is None
+    assert "정유민, 김하늘" in result.plan.message
+    assert "이미" in result.plan.message
+    assert "C1 정유민" in llm.calls[-1].user and "C2 김하늘" in llm.calls[-1].user
+    assert "C3 박서준" in llm.calls[-1].user and "C4 이도윤" in llm.calls[-1].user
+
+
+async def test_current_mentions_allow_an_explicit_idempotent_add_after_a_decided_subject(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="@박서준 다시 선택에 넣어줘",
+        mentions=["박서준"],
+        selected=["박서준"],
+    )
+    context = context.model_copy(
+        update={
+            "candidates": [
+                context.candidates[0].model_copy(update={"decision": Decision.PASS}),
+                *context.candidates[1:],
+            ]
+        }
+    )
+    llm = FakeLlm(
+        ToolCall(
+            "RootReply",
+            {"message": "선택에 넣을게요.", "command": {"kind": "edit", "action": "ADD", "candidates": ["C3"]}},
+        )
+    )
+
+    result = await run_agent(llm, context, default_toolkit(), subject=[str(context.candidates[0].application_id)])
+
+    assert result.plan.intent is Intent.EDIT
+    assert result.plan.targets == [context.candidates[2].application_id]
 
 
 async def test_search_with_missing_conditions_is_repaired_before_a_result_is_created(

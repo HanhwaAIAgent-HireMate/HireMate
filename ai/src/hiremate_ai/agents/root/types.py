@@ -236,6 +236,15 @@ class ChatPlan(ContractModel):
         )
 
 
+class ChatApplied(ContractModel):
+    """업무 서버가 실제 반영한 응답. 원래 질문과 계획이 일치하는 기록만 보정한다."""
+
+    thread_id: str
+    message: str
+    previous: ChatPlan
+    plan: ChatPlan
+
+
 class ChatHistoryTurn(ContractModel):
     """대화방의 지난 턴 하나 (ai.application.ChatHistoryTurn). 화면이 대화 기록을 다시 보여 줄 때 쓴다.
 

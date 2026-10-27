@@ -1,4 +1,4 @@
-"""backend RootAgent 연동: POST /agents/root/{plan, history, forget, forgetStage}.
+"""backend RootAgent 연동: POST /agents/root/{plan, applied, history, forget, forgetStage}.
 
 요청 본문은 Java 메서드의 매개변수 이름을 키로 한 JSON이다. 대화방은 체크포인터에 둔다 (기획 15절).
 plan만 SSE로 응답한다. 진행(status, item)을 낸 뒤 마지막 done 이벤트에 ChatPlan을 담는다.
@@ -11,11 +11,11 @@ from uuid import UUID
 from fastapi import APIRouter
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-from hiremate_ai.agents.root.graph import RootThread, stream_plan
+from hiremate_ai.agents.root.graph import RootThread, apply_plan, stream_plan
 from hiremate_ai.agents.root.memory import SaverDep, forget_stage, forget_thread
 from hiremate_ai.agents.root.toolkit import ToolkitDep
 from hiremate_ai.agents.root.turns import Turn
-from hiremate_ai.agents.root.types import ChatContext, ChatHistoryTurn, ChatPlan
+from hiremate_ai.agents.root.types import ChatApplied, ChatContext, ChatHistoryTurn, ChatPlan
 from hiremate_ai.contract import ContractModel
 from hiremate_ai.llm.client import LlmDep
 
@@ -28,6 +28,14 @@ class PlanRequest(ContractModel):
 
 class ThreadRequest(ContractModel):
     thread_id: str
+
+
+class AppliedRequest(ContractModel):
+    applied: ChatApplied
+
+
+class Applied(ContractModel):
+    applied: bool
 
 
 class StageRequest(ContractModel):
@@ -52,6 +60,11 @@ async def plan(
     async for name, data in events:
         # 계약 JSON(camelCase)을 그대로 보낸다
         yield ServerSentEvent(event=name, raw_data=data.model_dump_json(by_alias=True))
+
+
+@router.post("/applied")
+async def applied(request: AppliedRequest, llm: LlmDep, saver: SaverDep) -> Applied:
+    return Applied(applied=await apply_plan(llm, saver, request.applied))
 
 
 @router.post("/history")
