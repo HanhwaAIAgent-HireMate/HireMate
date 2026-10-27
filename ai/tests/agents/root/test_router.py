@@ -73,7 +73,7 @@ def test_plan_history_and_forget_use_thread() -> None:
     app.dependency_overrides[get_saver] = lambda: saver
     client = TestClient(app)
     try:
-        client.post("/agents/root/plan", json=plan_request(context, "비워줘"))
+        client.post("/agents/root/plan", json=plan_request({**context, "mentions": []}, "비워줘"))
         client.post("/agents/root/plan", json=plan_request(context, "되돌려줘"))
         history = client.post("/agents/root/history", json={"threadId": context["threadId"]})
         other = client.post("/agents/root/history", json={"threadId": "다른 대화방"})
@@ -87,6 +87,10 @@ def test_plan_history_and_forget_use_thread() -> None:
     assert [turn["message"] for turn in turns] == ["비워줘", "되돌려줘"]
     assert turns[1]["plan"]["edit"] == "RESTORE"
     assert turns[0]["total"] == 2
+    assert turns[0]["mentions"] == []
+    assert turns[1]["mentions"] == context["mentions"] != []
+    assert turns[0]["steps"][0] == "요청을 확인하고 있어요"
+    assert isinstance(turns[0]["seconds"], int)
     assert other.json() == []
     assert forgotten.json() == {"deleted": 1}
     assert after.json() == []

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from root_context import extra_row, make_context
@@ -223,6 +223,38 @@ async def test_stream_finishes_after_verified_items(
     completed = events[-1][1]
     assert isinstance(completed, ChatPlan)
     assert completed.items == [item]
+
+
+async def test_graph_records_streamed_steps_and_seconds(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="선택 비워줘")
+    graph = build_root_graph(FakeLlm(reply("edit", action="CLEAR")))
+
+    statuses: list[str] = []
+    state: dict[str, Any] = {}
+    async for streamed in graph.astream({}, context=context, stream_mode=["custom", "values"]):
+        mode, chunk = cast(tuple[str, Any], streamed)
+        if mode == "custom" and chunk[0] == "status":
+            statuses.append(chunk[1].text)
+        elif mode == "values":
+            state = chunk
+
+    turn = state["turns"][-1]
+    assert turn["steps"][0] == CHECKING
+    assert turn["steps"] == [text for index, text in enumerate(statuses) if index == 0 or statuses[index - 1] != text]
+    assert turn["seconds"] >= 0
+    assert state["steps"] == []
+
+
+async def test_blocked_turn_keeps_only_the_check_step(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="남자만 찾아줘")
+
+    state = await build_root_graph(FakeLlm()).ainvoke({}, context=context)
+
+    assert state["turns"][-1]["steps"] == [CHECKING]
 
 
 async def test_stream_blocked_has_one_status_and_done(

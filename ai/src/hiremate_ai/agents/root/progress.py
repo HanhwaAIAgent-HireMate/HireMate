@@ -46,3 +46,22 @@ class _Writer:
 def writer_progress(writer: StreamWriter) -> Progress:
     """LangGraph custom 스트림에 (이벤트 이름, data)를 낸다."""
     return _Writer(writer)
+
+
+class StepRecorder:
+    """알림을 그대로 내면서 단계 문구를 순서대로 모은다. 대화방에 그 턴의 처리 과정으로 남긴다.
+
+    같은 문구가 이어지면 한 번만 남긴다. 항목은 답에 남으므로 모으지 않는다.
+    """
+
+    def __init__(self, progress: Progress, steps: list[str] | None = None) -> None:
+        self._progress = progress
+        self.steps: list[str] = list(steps or [])
+
+    def status(self, text: str) -> None:
+        if not self.steps or self.steps[-1] != text:
+            self.steps.append(text)
+        self._progress.status(text)
+
+    def item(self, item: ChatItem) -> None:
+        self._progress.item(item)

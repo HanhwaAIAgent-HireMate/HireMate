@@ -253,8 +253,12 @@ class ChatHistoryTurn(ContractModel):
     """대화방의 지난 턴 하나 (ai.application.ChatHistoryTurn). 화면이 대화 기록을 다시 보여 줄 때 쓴다.
 
     plan.message의 {count}는 backend가 대상 수로, {total}은 그때 전형 인원(total)으로 바꾼다.
+    mentions는 그때 멘션한 지원자, steps는 그때 낸 단계 문구, seconds는 걸린 시간이다. 예전 턴에는 없다.
     """
 
     message: str
     plan: ChatPlan
     total: int
+    mentions: list[UUID] = []
+    steps: list[str] = []
+    seconds: int | None = None

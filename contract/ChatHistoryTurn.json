@@ -30,5 +30,14 @@
     },
     "questionMemos": {}
   },
-  "total": 2
+  "total": 2,
+  "mentions": [
+    "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"
+  ],
+  "steps": [
+    "요청을 확인하고 있어요",
+    "지원자 자료를 확인하고 있어요",
+    "요청에 맞는 답변을 준비하고 있어요"
+  ],
+  "seconds": 6
 }

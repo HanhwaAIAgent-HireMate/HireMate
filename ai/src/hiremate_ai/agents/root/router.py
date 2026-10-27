@@ -71,7 +71,14 @@ async def applied(request: AppliedRequest, llm: LlmDep, saver: SaverDep) -> Appl
 async def history(request: ThreadRequest, saver: SaverDep) -> list[ChatHistoryTurn]:
     turns = await _turns(saver, request.thread_id)
     return [
-        ChatHistoryTurn(message=turn["message"], plan=ChatPlan.model_validate(turn["plan"]), total=turn["total"])
+        ChatHistoryTurn(
+            message=turn["message"],
+            plan=ChatPlan.model_validate(turn["plan"]),
+            total=turn["total"],
+            mentions=[UUID(application_id) for application_id in turn.get("mentions", [])],
+            steps=turn.get("steps", []),
+            seconds=turn.get("seconds"),
+        )
         for turn in turns
     ]
 

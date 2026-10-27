@@ -1,4 +1,4 @@
-"""대화방에 남기는 턴 기록. 질문, 답, 대상 순서, 답 항목, 면접 질문의 확인할 점만 남긴다 (기획 15절).
+"""대화방에 남기는 턴 기록. 질문, 답, 대상 순서, 답 항목, 면접 질문의 확인할 점과 처리 단계 문구만 남긴다 (기획 15절).
 
 지원자 문서 본문은 넣지 않는다. 값은 JSON으로 저장할 수 있는 글자와 숫자만 쓴다.
 """
@@ -32,6 +32,8 @@ class Turn(TypedDict):
     result_before: NotRequired[list[str] | None]
     subject_before: NotRequired[list[str]]
     proposed_plan: NotRequired[dict[str, Any]]  # 업무 서버가 보정하기 전 계획. 중복 응답을 구분한다
+    steps: NotRequired[list[str]]  # 그때 화면에 낸 단계 문구 (코드 상수). 예전 체크포인트에는 없다
+    seconds: NotRequired[int]  # 요청 확인부터 턴을 남기기까지 걸린 시간
 
 
 def turn_of(context: ChatContext, targets: Sequence[UUID] | None, plan: ChatPlan, kind: str = "") -> Turn:

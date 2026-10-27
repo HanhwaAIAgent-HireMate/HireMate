@@ -34,5 +34,9 @@ backend가 기업·지원자·전형과 최신 메모를 다시 검증한 뒤 �
 `ChatStatus`는 Root `plan` SSE의 `status` 이벤트 data다. `item` 이벤트 data는 `ChatPlan.items`의 한 항목,
 `done` 이벤트 data는 `ChatPlan`이다.
 
+`ChatHistoryTurn`은 대화방의 지난 턴이다. `mentions`는 그때 멘션한 지원자, `steps`는 그때 `status` 이벤트로 낸
+단계 문구(같은 문구가 이어지면 한 번), `seconds`는 요청 확인부터 턴을 남기기까지 걸린 시간이다.
+두 필드가 생기기 전의 턴은 빈 목록과 `null`이다.
+
 `ChatApplied`는 업무 서버가 선택 변경을 검증한 뒤 실제 반영한 응답이다. 원래 질문과 계획이
 일치하는 기존 턴의 메시지, 항목과 대상 순서를 보정한다. 대화방이나 턴을 새로 만들지 않는다.
