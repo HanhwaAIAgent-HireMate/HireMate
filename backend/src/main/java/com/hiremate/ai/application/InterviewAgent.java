@@ -2,6 +2,7 @@ package com.hiremate.ai.application;
 
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
+import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.posting.PostingContent;
 import java.util.List;
@@ -25,11 +26,14 @@ public interface InterviewAgent {
      * @param focus HR이 정한 범위 (예: "기술은 확인했으니 확인 안 된 부분 중심으로"). 없으면 null
      * @param questionCount Chat 추가 목표 개수. 최초 자동 생성은 null
      */
-    List<String> questions(ApplicantDetail applicant, PostingContent posting, CandidateAnalysis analysis,
-            InterviewView interview, CompanyProfile company, String focus, Integer questionCount);
+    List<InterviewQuestionDraft> questions(ApplicantDetail applicant, PostingContent posting,
+            CandidateAnalysis analysis,
+            InterviewView interview, CompanyProfile company, String focus,
+            Integer questionCount);
 
     /** 앞 전형 결과를 확정할 때 질문을 미리 만든다. 매개변수는 {@link #questions}와 같고 범위(focus)는 없다. */
-    Optional<List<String>> prepare(String target, ApplicantDetail applicant, PostingContent posting,
+    Optional<List<InterviewQuestionDraft>> prepare(String target, ApplicantDetail applicant,
+            PostingContent posting,
             CandidateAnalysis analysis, InterviewView interview, CompanyProfile company);
 
     /** 미리 만들기 작업의 대상. 질문을 넣을 카드를 '기업 ID:전형 ID:지원서 ID'로 적는다. */
