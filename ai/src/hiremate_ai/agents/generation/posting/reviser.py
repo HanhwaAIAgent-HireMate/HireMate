@@ -592,8 +592,10 @@ async def _write(
                 system=NCS_SYSTEM,
                 user=_with_reasons(_ncs_prompt(posting, writing_style, request, units, counts), found),
             )
-            changes, cited, written = _apply_ncs(changes, ncs, units, counts)
+            changes, cited, written, dropped = _apply_ncs(changes, ncs, units, counts)
             notes = _count_notes(plan, counts, written)
+            if dropped:
+                notes.append(f"자격 요건과 같은 능력을 말하는 우대 사항 {dropped}개는 뺐어요.")
     stages: list[StageEdit] | None = None
     if "STAGES" in targets:
         stages = (await _ask(llm, StagePlan, context, STAGES_STEP, found)).stages
@@ -681,8 +683,9 @@ def _by_survey(units: list[NcsUnit]) -> list[NcsUnit]:
 
 def _apply_ncs(
     changes: list[FieldChange], ncs: NcsDraft, units: list[NcsUnit], counts: dict[str, int]
-) -> tuple[list[FieldChange], list[NcsUnit], dict[str, int]]:
-    """NCS 정의를 보고 쓴 목록을 바꿀 칸에 넣고, 보여 준 능력단위 중 근거로 쓴 것과 목록마다 넣은 항목 수를 돌려준다.
+) -> tuple[list[FieldChange], list[NcsUnit], dict[str, int], int]:
+    """NCS 정의를 보고 쓴 목록을 바꿀 칸에 넣고, 보여 준 능력단위 중 근거로 쓴 것, 목록마다 모델이 쓴 항목 수,
+    자격 요건과 겹쳐 뺀 우대 사항 수를 돌려준다.
 
     쓰기로 한 목록만 정한 개수까지 넣는다. 목록이 비어 있으면 지금 공고의 목록을 지우지 않게 넣지 않는다.
     개수를 채우려고 같은 항목을 되풀이하면 하나만 남긴다. 보여 주지 않은 능력단위는 근거로 치지 않는다.
@@ -691,6 +694,8 @@ def _apply_ncs(
     written: list[FieldChange] = []
     cited: dict[str, NcsUnit] = {}
     sizes: dict[str, int] = {}
+    chosen: dict[str, list[SourcedItem]] = {}
+    dropped = 0
     for name, label in NCS_FIELDS:
         if name not in counts:
             continue
@@ -700,6 +705,11 @@ def _apply_ncs(
                 unique.setdefault(_compact(item.text), item)
         items = list(unique.values())[: counts[name]]
         sizes[name] = len(items)
+        if name == "preferred":
+            kept_items = [item for item in items if not _repeats(item, chosen.get("qualifications", []))]
+            dropped = len(items) - len(kept_items)
+            items = kept_items
+        chosen[name] = items
         if not items:
             continue
         written.append(FieldChange(field=label, text=None, items=[item.text for item in items]))
@@ -708,7 +718,44 @@ def _apply_ncs(
                 cited.setdefault(unit.code, unit)
     rewritten = {change.field for change in written}
     kept = [change for change in changes if change.field not in rewritten]
-    return kept + written, list(cited.values()), sizes
+    return kept + written, list(cited.values()), sizes, dropped
+
+
+OVERLAP_SHARE = 0.5
+"""우대 사항이 자격 요건과 같은 능력인지 볼 때, 짧은 쪽 낱말 중 겹쳐야 하는 몫.
+같은 능력단위를 근거로 쓴 항목끼리만 본다.
+0.5면 "소스 코드 분석을 통한 잠재적 결함 제거"와 "리팩토링을 통한 … 잠재 결함 제거"는 겹치고,
+기본과 깊은 수준으로 나눈 "인터페이스 설계"끼리(0.33)는 남긴다 (NCS_SYSTEM 규칙 4)."""
+
+# 낱말 끝의 조사 · 어미. 떼어야 "잠재적"과 "잠재", "분석을"과 "분석"이 같은 낱말이 된다
+_WORD_ENDING = re.compile(r"(?:으로|에서|하는|하고|적인|을|를|의|에|와|과|로|한|된|적|은|는|이|가)$")
+# 공고 항목마다 붙어 같은 능력인지 가리는 데 쓸모없는 말
+_FILLER_WORDS = frozenset({"능력", "경험", "위한", "통한", "대한", "따른", "가진", "관련", "기반", "기반으로"})
+
+
+def _repeats(item: SourcedItem, qualifications: list[SourcedItem]) -> bool:
+    """우대 사항 항목이 자격 요건의 어느 항목과 같은 능력을 말하는지.
+
+    근거 능력단위가 같고 낱말이 많이 겹치면 같다고 본다.
+    """
+    words = _content_words(item.text)
+    for qualification in qualifications:
+        if not set(item.sources) & set(qualification.sources):
+            continue
+        other = _content_words(qualification.text)
+        shorter = min(len(words), len(other))
+        if shorter and len(words & other) / shorter >= OVERLAP_SHARE:
+            return True
+    return False
+
+
+def _content_words(text: str) -> set[str]:
+    words = set()
+    for word in re.findall(r"[가-힣A-Za-z0-9]+", text):
+        stem = _WORD_ENDING.sub("", word) if len(word) > 2 else word
+        if len(stem) >= 2 and stem not in _FILLER_WORDS and word not in _FILLER_WORDS:
+            words.add(stem)
+    return words
 
 
 def _count_notes(plan: dict[str, int], counts: dict[str, int], written: dict[str, int]) -> list[str]:

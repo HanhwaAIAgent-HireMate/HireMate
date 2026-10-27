@@ -697,6 +697,13 @@ def items(count: int) -> list[SourcedItem]:
     return [SourcedItem(text=f"서버 프로그램 구현 경험 {number}", sources=[SERVER]) for number in range(1, count + 1)]
 
 
+def preferred_items(count: int) -> list[SourcedItem]:
+    """items와 같은 능력단위를 근거로 하지만 다른 능력을 말하는 우대 사항."""
+    return [
+        SourcedItem(text=f"트래픽 분산 아키텍처 운영 경험 {number}", sources=[SERVER]) for number in range(1, count + 1)
+    ]
+
+
 @pytest.mark.parametrize(
     ("current", "request_text", "task"),
     [
@@ -766,8 +773,63 @@ async def test_revise_skips_ncs_when_request_keeps_every_list() -> None:
     assert result.reply == NOTHING_CHANGED_REPLY
 
 
+REFACTORING = "2001020217_23v6"
+"""응용SW엔지니어링 · 애플리케이션 리팩토링"""
+TEST_MANAGEMENT = "2001020226_23v6"
+"""응용SW엔지니어링 · 애플리케이션 테스트 관리"""
+
+
+async def test_revise_drops_preferred_items_that_repeat_a_qualification() -> None:
+    """2026-10-27 실제 모델 초안의 겹침.
+
+    같은 능력단위 · 같은 능력이면 우대 쪽을 빼고, 기본과 깊은 수준으로 나눈 것은 남긴다.
+    """
+    qualifications = [
+        SourcedItem(text="결제 승인 및 정산 API 개발을 위한 인터페이스 설계 능력", sources=[INTERFACE_DESIGN]),
+        SourcedItem(text="애플리케이션 성능 분석을 통한 병목 현상 해결 능력", sources=[TEST_MANAGEMENT]),
+        SourcedItem(text="소스 코드 분석을 통한 잠재적 결함 제거 능력", sources=[REFACTORING]),
+    ]
+    preferred = [
+        SourcedItem(text="비기능 요구사항을 고려한 복잡한 인터페이스 설계 경험", sources=[INTERFACE_DESIGN]),
+        SourcedItem(text="리팩토링을 통한 코드 가독성 개선 및 잠재 결함 제거 경험", sources=[REFACTORING]),
+        SourcedItem(text="애플리케이션 테스트 케이스 설계 및 성능 저하 요인 분석 경험", sources=[TEST_MANAGEMENT]),
+        SourcedItem(text="리팩토링 체크리스트를 활용한 코드 품질 관리 경험", sources=[REFACTORING]),
+    ]
+    llm = FakeLlm(
+        route("NCS_REQUIREMENTS"),
+        NcsPick(ncs_codes=[INTERFACE_DESIGN, TEST_MANAGEMENT, REFACTORING]),
+        ncs_draft(qualifications, preferred),
+    )
+
+    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "자격 요건 3개, 우대 사항 4개 써 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.qualifications == [item.text for item in qualifications]
+    assert result.suggestion.content.preferred == [
+        "비기능 요구사항을 고려한 복잡한 인터페이스 설계 경험",
+        "리팩토링 체크리스트를 활용한 코드 품질 관리 경험",
+    ]
+    assert "자격 요건과 같은 능력을 말하는 우대 사항 2개는 뺐어요." in result.reply
+    assert "근거를 찾을 수 있는" not in result.reply
+
+
+async def test_revise_keeps_similar_items_based_on_different_units() -> None:
+    qualifications = [SourcedItem(text="소스 코드 분석을 통한 잠재적 결함 제거 능력", sources=[REFACTORING])]
+    preferred = [SourcedItem(text="소스 코드 분석을 통한 잠재적 결함 제거 경험", sources=[TEST_MANAGEMENT])]
+    llm = FakeLlm(
+        route("NCS_REQUIREMENTS"),
+        NcsPick(ncs_codes=[TEST_MANAGEMENT, REFACTORING]),
+        ncs_draft(qualifications, preferred),
+    )
+
+    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "자격 요건 1개, 우대 사항 1개 써 줘")
+
+    assert result.suggestion is not None
+    assert len(result.suggestion.content.preferred) == 1
+
+
 async def test_revise_trims_ncs_lists_to_the_planned_count() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(12), items(11)))
+    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(12), preferred_items(11)))
 
     result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "자격 요건과 우대 사항 써 줘")
 
@@ -902,7 +964,7 @@ async def test_revise_fills_empty_lists_with_ncs_when_asked_to_write_the_whole_p
         route("CONTENT", writes_posting=True),
         content(duties=["결제 API 개발"]),
         NcsPick(ncs_codes=[SERVER]),
-        ncs_draft(items(3), items(2)),
+        ncs_draft(items(3), preferred_items(2)),
     )
 
     result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", BROAD)
