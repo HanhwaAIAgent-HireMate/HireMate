@@ -2,6 +2,7 @@ package com.hiremate.ai.application;
 
 import com.hiremate.company.CompanyService;
 import com.hiremate.posting.PostingDraftContext;
+import com.hiremate.posting.PostingFocus;
 import com.hiremate.posting.PostingService;
 import com.hiremate.posting.PostingView;
 import com.hiremate.recruit.RecruitmentStatus;
@@ -28,18 +29,32 @@ public class PostingAiService {
     /** 게시한 공고는 바꿀 수 없어 Posting Agent를 부르지 않고 바로 답한다. */
     static final String PUBLISHED_REPLY = "게시한 공고는 바꿀 수 없어요. 전형 일정 · 장소는 전형별 안내에서 고칠 수 있어요.";
 
-    public PostingAiAnswer request(UUID companyId, UUID recruitmentId, String message) {
+    /** 고른 줄이 저장된 공고에 없으면(다른 창에서 지웠을 때 등) Posting Agent를 부르지 않고 다시 고르게 한다. */
+    static final String FOCUS_MISSING_REPLY = "고른 줄을 공고에서 찾지 못했어요. 줄을 다시 골라 주세요.";
+
+    /**
+     * Posting Agent에게 수정안을 받아 공고에 수정안으로 남긴다. 적용은 HR이 한다.
+     *
+     * @param focus HR이 고른 줄. 고르지 않았으면 null이다
+     */
+    public PostingAiAnswer request(UUID companyId, UUID recruitmentId, String message, PostingFocus focus) {
         PostingDraftContext context = postings.draftContext(companyId, recruitmentId);
         if (context.status() != RecruitmentStatus.DRAFT) {
-            return new PostingAiAnswer(PUBLISHED_REPLY, "Posting Agent", settings.isStub(AiAgent.POSTING),
-                    postings.view(companyId, recruitmentId));
+            return answer(PUBLISHED_REPLY, postings.view(companyId, recruitmentId));
+        }
+        if (focus != null && !focus.isIn(context.content())) {
+            return answer(FOCUS_MISSING_REPLY, postings.view(companyId, recruitmentId));
         }
         PostingAgent.Result result = agent.revise(context,
-                companies.postingSettings(companyId).writingStyle(), message);
+                companies.postingSettings(companyId).writingStyle(), message, focus);
         PostingView posting = result.suggestion() == null
                 ? postings.view(companyId, recruitmentId)
                 : postings.suggest(companyId, recruitmentId, result.suggestion());
-        return new PostingAiAnswer(result.reply(), "Posting Agent", settings.isStub(AiAgent.POSTING), posting);
+        return answer(result.reply(), posting);
+    }
+
+    private PostingAiAnswer answer(String reply, PostingView posting) {
+        return new PostingAiAnswer(reply, "Posting Agent", settings.isStub(AiAgent.POSTING), posting);
     }
 
     public record PostingAiAnswer(String reply, String agent, boolean stub, PostingView posting) {

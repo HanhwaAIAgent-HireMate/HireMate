@@ -180,6 +180,31 @@ class PostingTests extends IntegrationTest {
                 "preparation", "", "note", "")), 200);
     }
 
+    @Test
+    @DisplayName("HR이 고른 줄만 AI에게 맡기고, 공고에 없는 줄을 고르면 다시 고르게 한다")
+    void aiRevisesOnlyTheChosenLine() throws Exception {
+        TestApi hr = newHr();
+        String id = json(expect(hr.post("/api/recruitments", null), 201)).path("recruitmentId").asString();
+        String base = "/api/recruitments/" + id + "/posting";
+        expect(hr.put(base, Map.of("title", "결제 백엔드 개발자", "jobCategory", "", "employmentType", "",
+                "career", "", "location", "", "intro", "", "duties", List.of(), "qualifications", List.of(),
+                "preferred", List.of("금융 도메인 경험", "대용량 트래픽 처리 경험"), "benefits", List.of())), 200);
+
+        JsonNode answer = json(expect(hr.post(base + "/ai-requests", Map.of("message", "이 줄 지워 줘",
+                "focus", Map.of("field", "preferred", "index", 0))), 200));
+        JsonNode suggestion = answer.path("posting").path("suggestion");
+        assertThat(suggestion.path("changedFields").toString()).isEqualTo("[\"preferred\"]");
+        assertThat(suggestion.path("content").path("preferred").toString()).isEqualTo("[\"대용량 트래픽 처리 경험\"]");
+
+        JsonNode missing = json(expect(hr.post(base + "/ai-requests", Map.of("message", "고쳐 줘",
+                "focus", Map.of("field", "preferred", "index", 2))), 200));
+        assertThat(missing.path("reply").asString()).startsWith("고른 줄을 공고에서 찾지 못했어요.");
+        expect(hr.post(base + "/ai-requests", Map.of("message", "고쳐 줘",
+                "focus", Map.of("field", "title", "index", 0))), 400);
+        expect(hr.post(base + "/ai-requests", Map.of("message", "고쳐 줘",
+                "focus", Map.of("field", "preferred", "index", -1))), 400);
+    }
+
     private static Map<String, String> stage(String name, String type) {
         return Map.of("name", name, "type", type);
     }

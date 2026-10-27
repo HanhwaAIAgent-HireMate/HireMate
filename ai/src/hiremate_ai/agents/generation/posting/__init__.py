@@ -3,6 +3,7 @@
 from hiremate_ai.agents.generation.posting.reviser import revise_posting
 from hiremate_ai.agents.generation.posting.types import (
     PostingDraftContext,
+    PostingFocus,
     PostingSuggestion,
     RecruitmentStatus,
     RevisionResult,
@@ -11,6 +12,7 @@ from hiremate_ai.agents.generation.posting.types import (
 
 __all__ = [
     "PostingDraftContext",
+    "PostingFocus",
     "PostingSuggestion",
     "RecruitmentStatus",
     "RevisionResult",

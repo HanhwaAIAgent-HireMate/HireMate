@@ -7,6 +7,7 @@ import com.hiremate.ai.application.PostingAgent;
 import com.hiremate.posting.DocumentType;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.PostingDraftContext;
+import com.hiremate.posting.PostingFocus;
 import com.hiremate.posting.PostingSuggestion;
 import com.hiremate.recruit.RecruitmentStatus;
 import com.hiremate.recruit.StageDraft;
@@ -38,14 +39,16 @@ class RemotePostingAgentTests {
                 new PostingSuggestion(CONTENT, null, null, List.of("preferred")));
         RecordingClient client = new RecordingClient(answer);
 
-        PostingAgent.Result result = new RemotePostingAgent(client).revise(POSTING, "짧게 쓴다", "우대 사항 다듬어 줘");
+        PostingAgent.Result result = new RemotePostingAgent(client).revise(POSTING, "짧게 쓴다", "우대 사항 다듬어 줘",
+                null);
 
         assertThat(result).isEqualTo(answer);
         assertThat(client.agent).isEqualTo(AiAgent.POSTING);
         assertThat(client.method).isEqualTo("revise");
         assertThat(client.body).containsEntry("posting", POSTING)
                 .containsEntry("writingStyle", "짧게 쓴다")
-                .containsEntry("request", "우대 사항 다듬어 줘");
+                .containsEntry("request", "우대 사항 다듬어 줘")
+                .containsEntry("focus", null);
     }
 
     @Test
@@ -53,9 +56,20 @@ class RemotePostingAgentTests {
     void sendsEmptyWritingStyleWhenMissing() {
         RecordingClient client = new RecordingClient(new PostingAgent.Result("어느 칸을 고칠까요?", null));
 
-        new RemotePostingAgent(client).revise(POSTING, null, "음");
+        new RemotePostingAgent(client).revise(POSTING, null, "음", null);
 
         assertThat(client.body).containsEntry("writingStyle", "");
+    }
+
+    @Test
+    @DisplayName("HR이 고른 줄을 focus로 보낸다")
+    void sendsChosenLineAsFocus() {
+        RecordingClient client = new RecordingClient(new PostingAgent.Result("우대 사항 1번 줄 수정안을 만들었어요.", null));
+        PostingFocus focus = new PostingFocus("preferred", 0);
+
+        new RemotePostingAgent(client).revise(POSTING, "", "더 구체적으로", focus);
+
+        assertThat(client.body).containsEntry("focus", focus);
     }
 
     /** ai 서버 대신 받은 요청을 기록하고 정해 둔 응답을 돌려준다. */

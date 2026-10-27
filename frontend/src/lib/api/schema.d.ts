@@ -1516,6 +1516,12 @@ export interface components {
         };
         PostingAiRequest: {
             message: string;
+            focus: components["schemas"]["PostingFocus"] | null;
+        };
+        PostingFocus: {
+            field: string;
+            /** Format: int32 */
+            index: number | null;
         };
         PostingAiAnswer: {
             reply: string;
