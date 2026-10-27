@@ -145,7 +145,13 @@ class _ModelReply(BaseModel):
         default=None,
         description='find가 참조할 실제 검색 결과 번호(S1 등). 다른 종류는 JSON null이며 문자열 "null"이 아니다',
     )
-    focus: dict[str, str] = Field(default={}, description="questions의 지원자별 확인할 점. 다른 종류는 {}")
+    focus: dict[str, str] = Field(
+        default={},
+        description=(
+            "questions의 지원자 번호별 확인할 점. 해당 지원자의 items.text 하나를 글자 그대로 복사한다. "
+            "여러 항목의 요약이나 evidence.sentence를 새로 쓰지 않는다. 다른 종류는 {}"
+        ),
+    )
 
     @field_validator("action", "result", mode="before")
     @classmethod
@@ -197,9 +203,18 @@ class RootReply(BaseModel):
 
 
 async def compile_reply(
-    reply: RootReply, context: ChatContext, toolkit: RootToolkit, searches: Mapping[str, ChatPlan]
+    reply: RootReply,
+    context: ChatContext,
+    toolkit: RootToolkit,
+    searches: Mapping[str, ChatPlan],
+    *,
+    reviewed_conversation_subjects: Sequence[UUID] = (),
 ) -> ChatPlan:
-    """의미와 대상을 다시 추론하지 않는다. 검증 실패는 수정 요청에 쓸 ValueError로 알린다."""
+    """의미와 대상을 다시 추론하지 않는다. 검증 실패는 수정 요청에 쓸 ValueError로 알린다.
+
+    reviewed_conversation_subjects는 최근 기록과의 의미 검토를 통과한 일반 대화의 대상 참조에만 쓴다.
+    새 지원자 사실의 근거나 분석 항목으로 사용하지 않는다.
+    """
     command = reply.command
     if isinstance(command, BlockedCommand):
         return ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY)
@@ -233,7 +248,7 @@ async def compile_reply(
     if isinstance(command, ConversationCommand):
         if reply.items:
             raise ValueError("일반 대화에는 지원자 분석 항목을 넣지 마세요. 자료에 근거한 답변은 answer로 작성하세요.")
-        _check_message_subjects(reply.message, context, [])
+        _check_message_subjects(reply.message, context, [], reviewed_conversation_subjects)
         return ChatPlan.answer(Intent.ANSWER, message)
     if isinstance(command, ClarifyCommand):
         if reply.items:
@@ -288,9 +303,16 @@ def _message(text: str, context: ChatContext) -> str:
     return message
 
 
-def _check_message_subjects(text: str, context: ChatContext, items: Sequence[ChatItem]) -> None:
+def _check_message_subjects(
+    text: str,
+    context: ChatContext,
+    items: Sequence[ChatItem],
+    reviewed_conversation_subjects: Sequence[UUID] = (),
+) -> None:
     """지원자 사실을 본문에만 써서 근거 항목 검증을 우회하지 못하게 한다."""
-    present = {item.application_id for item in items if item.application_id is not None}
+    present = {item.application_id for item in items if item.application_id is not None} | set(
+        reviewed_conversation_subjects
+    )
     missing: list[str] = []
     for match in _REF.finditer(text):
         row = resolve_ref(context, match.group(1))
@@ -336,12 +358,16 @@ async def _items(
     items, sources, agents = verify_items(raw, context, rows[0] if len(rows) == 1 else None, recorded)
     if len(items) != len(raw):
         raise ValueError("항목의 지원자 번호가 현재 전형에 없어요.")
-    for original, verified in zip(raw, items, strict=True):
+    for number, (original, verified) in enumerate(zip(raw, items, strict=True), start=1):
         if verified.application_id is not None and target_ids and verified.application_id not in target_ids:
             raise ValueError("대상 지원자 밖의 항목을 작성하지 마세요.")
         if original.status == "OK" and verified.status == "CHECK":
             raise ValueError(
-                "항목의 원문 근거가 충분하지 않아요. 근거를 보완하거나 확인이 필요한 내용으로 다시 작성하세요."
+                f"{number}번 항목의 원문 근거가 충분하지 않아요. "
+                "해당 항목의 대상과 출처에 맞는 원문을 인용하거나 확인이 필요한 내용으로 다시 작성하세요. "
+                "서로 다른 문장을 이어 붙이지 말고 evidence의 별도 항목으로 나누세요. "
+                "프로필은 '근거:' 문장과 실제 출처를 쓰세요. 프로필의 경력과 점수 요약은 평가 제출물 원문이 아니에요. "
+                "지원자 문서를 인용하는 비교 항목은 지원자별로 나누고 각 candidate를 지정하세요."
             )
         if _invalid_message(verified.label) or _invalid_message(verified.text):
             raise ValueError("항목은 내부 필드나 JSON 없이 담당자가 읽을 문장으로 작성하세요.")

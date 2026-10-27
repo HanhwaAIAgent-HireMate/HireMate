@@ -2,11 +2,13 @@ from collections.abc import Sequence
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import BaseModel
 from root_context import make_context, save_sample_profiles, sessions_of
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.root.toolkit import (
     AgentEvidence,
+    RootToolContext,
     cited_agents,
     context_brief,
     default_toolkit,
@@ -22,6 +24,7 @@ from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.profile_store import NewItem, save_profile
 from hiremate_ai.db.session import session_factory
+from hiremate_ai.llm.fake import FakeLlm, ToolCall
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
 from hiremate_ai.tools.scope import ToolScope
 
@@ -328,6 +331,45 @@ async def test_brief_has_previous_notes(
     assert "정산 배치 설계 판단 확인" in brief
     assert "배치 시간을 줄인 근거" in brief
     assert "계정계 장애 대응 확인" not in brief
+
+
+@pytest.mark.parametrize("renderer", ["brief", "previous_turns"])
+@pytest.mark.parametrize("stored_status", ["CHECK", "legacy_check", "missing"])
+async def test_previous_material_preserves_uncertainty(
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    renderer: str,
+    stored_status: str,
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    row = row_of(context, "정유민")
+    text = "팀 성과에서 본인 기여 범위 확인 필요"
+    turn = turn_with(row.application_id, text, text)
+    if stored_status == "CHECK":
+        turn["items"][0]["status"] = "CHECK"
+    elif stored_status == "legacy_check":
+        turn["plan"] = {
+            "items": [{"applicationId": str(row.application_id), "label": "확인할 점", "text": text, "status": "CHECK"}]
+        }
+    scope = scope_of(context, [turn])
+    if renderer == "brief":
+        material = await context_brief(scope, row)
+    else:
+
+        class Probe(BaseModel):
+            text: str
+
+        llm = FakeLlm(ToolCall("get_previous_turns", {"candidates": ["C1"]}), Probe(text="끝"))
+        await llm.tool_agent(
+            Probe, agent="root", system="", tools=default_toolkit().answer_tools, context=RootToolContext
+        ).run("앞서 확인할 점을 읽는다", context=scope)
+        material = llm.calls[-1].user
+
+    item_line = next(line for line in material.splitlines() if line.startswith("항목 ["))
+    assert text in item_line
+    assert "CHECK" in item_line
+    assert "OK" not in item_line
 
 
 async def test_brief_without_previous_turns_has_no_previous_block(
