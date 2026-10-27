@@ -94,9 +94,9 @@ ROOT_SYSTEM = """너는 채용 담당자를 돕는 Root Agent다.
 - 조건으로 지원자를 찾거나 특정 기술과 경험 보유자를 물으면 search_candidates를 쓴다.
   생략된 조건은 대화로 해소하고 message만이 아니라 query.concepts, query.min_score 등에 넣는다.
   예: 평가 80점 이상은 query={"min_score":80,"score_source":"assessment"}다.
-  범위 지정 없는 새 직무 조건은 query.mode=REPLACE, query와 같은 최상위의 pool=null로 전체 검색한다.
-  예: {"query":{"concepts":["금융 업종 재직 경력"],"min_score":null,"mode":"REPLACE"},"pool":null}.
-  pool은 query 안에 넣지 않는다.
+  범위 지정 없는 새 조건은 전체 REPLACE 검색이다. 기본값인 query.mode=REPLACE와 pool=null은 생략한다.
+  예: {"query":{"concepts":["금융 업종 재직 경력"],"min_score":null}}.
+  범위를 지정한 pool은 query와 같은 최상위 인자이며 query 안에 넣지 않는다.
   이전 결과, 직전 대상과 화면의 선택 목록만으로 범위를 좁히지 않는다.
   예: '금융 도메인 경험자 찾아줘' 다음 '결제 정산 운영해 본 사람 찾아줘'도 전체 REPLACE 검색이다.
   '그중', '선택된 사람 중', '체크한 사람 중', 멘션처럼 이번 요청이 지정한 범위에서만 제한 검색한다.
@@ -303,13 +303,14 @@ async def run_agent(
         runtime: ToolRuntime[RootRun],
         pool: Annotated[
             list[str] | None,
-            Field(description="query와 같은 최상위 인자. 전체 검색은 null, 지정 범위 검색은 C번호 목록"),
+            Field(description="query와 동급 인자. 전체 검색은 생략(null), 제한 검색은 C번호 목록"),
         ] = None,
     ) -> str:
         """명시한 직무 조건, 점수 출처, 공고 기준으로 검색하고 검증한 후보와 결과 번호를 반환한다.
 
         조건과 mode는 query 안에, pool은 query와 같은 최상위에 둔다. query 안에는 pool을 넣지 않는다.
-        새 조건 검색은 query.mode=REPLACE, pool=null로 전체에서 한다. pool은 명시한 제한 범위의 C번호 목록이다.
+        필수 query.concepts와 query.min_score 외에는 요청에 필요한 값만 적고 기본값인 선택 인자는 생략한다.
+        새 조건 검색은 기본 REPLACE로 전체에서 한다. pool은 명시한 제한 범위의 C번호 목록이다.
         과거 검색 결과나 화면 선택이 있다는 이유만으로 pool이나 NARROW를 지정하지 않는다.
         그중 또는 선택된 사람 안에서만 찾으라고 범위를 지정한 경우에만 제한한다.
         이 도구는 조회만 한다. 최종 RootReply는 kind=find, result=결과 번호로 낸다.
