@@ -39,6 +39,27 @@ type Applicants = dict[str, ApplicantDetail]
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("replace", SelectionMode.REPLACE),
+        ("add", SelectionMode.ADD),
+        ("within_selected", SelectionMode.NARROW),
+        ("REPLACE", SelectionMode.REPLACE),
+        ("ADD", SelectionMode.ADD),
+        ("NARROW", SelectionMode.NARROW),
+    ],
+)
+def test_model_search_modes_keep_the_external_selection_mode(value: str, expected: SelectionMode) -> None:
+    assert SearchQuery.model_validate({"mode": value}).mode is expected
+
+
+@pytest.mark.parametrize("value", ["all", {}, []])
+def test_search_rejects_unknown_or_malformed_modes(value: object) -> None:
+    with pytest.raises(ValidationError):
+        SearchQuery.model_validate({"mode": value})
+
+
+@pytest.mark.parametrize(
     "query",
     [
         {"conditions": ["금융 업종 재직 경력"]},

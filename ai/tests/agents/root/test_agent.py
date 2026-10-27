@@ -360,7 +360,9 @@ async def test_model_receives_required_search_conditions_and_answer_evidence(
     functions = {tool["function"]["name"]: tool["function"] for tool in requests[0]["tools"]}
     schemas = {name: function["parameters"] for name, function in functions.items()}
     query = schemas["search_candidates"]["properties"]["query"]
-    assert {"concepts", "min_score"} <= set(query.get("required", []))
+    assert {"mode", "concepts", "min_score"} <= set(query.get("required", []))
+    assert query["properties"]["mode"]["default"] == "replace"
+    assert query["properties"]["mode"]["enum"] == ["replace", "add", "within_selected"]
     assert "pool" not in query["properties"]
     assert schemas["search_candidates"]["properties"]["pool"].get("description")
     reply = schemas["RootReply"]

@@ -358,8 +358,9 @@ async def resolve_candidates(
     이름은 담당자의 요청과 맥락에서 정한다. 본문의 @이름도 멘션 ID가 없으면 이 도구로 확인한다.
     요청한 이름을 한 번에 모두 넣는다. not_found나 ambiguous가 있으면 대상을 되묻는다.
     비슷한 이름, 체크한 사람이나 이전 대화의 다른 사람으로 대신하지 않는다.
-    이름 대신 명시적으로 멘션, 체크, 선택, 이전 결과나 직전 대상을 가리키면 source로 그 범위를
+    질문 생성 대상을 확인하거나 이름 대신 화면과 대화의 대상을 확인해야 하면 source로 그 범위를
     고르고 names=[]로 조회한다. candidates를 주면 그 범위 안의 번호만 허용한다.
+    조건 검색 범위가 화면의 체크, 선택 C번호로 명확하면 조회 없이 search_candidates의 pool에 직접 넣는다.
     본문에 별도로 지정한 이름은 names에서 빼지 않는다. 이름이 없다고 source의 다른 사람으로 바꾸지 않는다.
     """
     scope = _used(runtime, "resolve_candidates")
