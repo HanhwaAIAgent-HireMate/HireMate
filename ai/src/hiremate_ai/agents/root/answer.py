@@ -54,7 +54,9 @@ _INTERNAL_REFERENCE = re.compile(
 
 
 class AnswerEvidence(BaseModel):
-    sentence: str = Field(description="근거 문장. 조회한 원문의 문장을 글자 그대로")
+    sentence: str = Field(
+        description="조회한 원문의 문장을 글자 그대로 쓴다. 여러 문장은 합치지 않고 evidence의 별도 항목으로 나눈다"
+    )
     source: str = Field(
         description=(
             "근거 출처: 이력서, 자기소개서, 포트폴리오, 자격증, 면접 기록, 전형 결과, "
@@ -67,7 +69,11 @@ class AnswerItem(BaseModel):
     model_config = ConfigDict(json_schema_extra={"required": ["candidate", "label", "text", "status", "evidence"]})
 
     candidate: str | None = Field(
-        default=None, description="지원자 번호(C1 같은). 전형 전체 항목은 JSON null을 쓴다. 빈 문자열을 쓰지 않는다"
+        default=None,
+        description=(
+            "이 항목의 지원자 번호(C1 같은). 비교도 지원자마다 항목을 나눈다. "
+            "JSON null은 지원자를 다루지 않는 공통 사실에만 쓴다. 빈 문자열을 쓰지 않는다"
+        ),
     )
     label: str = Field(description="항목 이름")
     text: str = Field(description="한 줄 설명")

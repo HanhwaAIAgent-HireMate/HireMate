@@ -73,10 +73,11 @@ class Delegation:
         async def consult_application(
             candidate: str, runtime: ToolRuntime[RootToolContext], force_review: bool = False
         ) -> str:
-            """서류 Agent에게 지원자의 제출 문서 사실과 근거를 검토시킨다. 점수나 저장된 분석을 바꾸지 않는다.
+            """서류의 사실과 원문 근거에 전문 검토가 필요할 때 쓴다. candidate는 C1 같은 지원자 번호다.
 
-            반환한 결과 번호를 consult_interview의 previous_results에 넣어 비교 자료로 전달할 수 있다.
-            팀의 성과와 확인되지 않은 주장은 CHECK로 반환한다.
+            반환한 이번 요청의 결과 번호를 같은 지원자의 consult_interview.previous_results에 넣을 수 있다.
+            팀 성과와 확인되지 않은 주장은 CHECK다. 원문 인용만으로 본인의 확정 실무로 강화하지 않는다.
+            점수, 저장된 분석과 업무 상태는 바꾸지 않는다. 질문 생성 자체에는 필요 없다.
             새로 검토해 달라는 명시적 요청은 force_review=true로 저장 추출과 이번 요청의 재사용을 생략한다.
             """
             scope = runtime.context
@@ -130,10 +131,11 @@ class Delegation:
             previous_results: list[str] | None = None,
             force_review: bool = False,
         ) -> str:
-            """면접 Agent에게 현재 답변을 분석시킨다. previous_results는 같은 지원자의 앞선 결과 번호 목록이다.
+            """현재 면접 답변의 전문 분석이 필요할 때 쓴다. candidate는 C1 같은 지원자 번호다.
 
-            앞선 Agent의 결과를 비교 맥락으로만 전달하고 이번 면접 답변의 원문으로 검증한다.
-            이 도구는 질문을 생성하거나 저장하지 않는다. 질문 생성은 최종 questions 명령으로 요청한다.
+            previous_results에는 같은 지원자의 이번 요청에서 받은 결과 번호만 넣는다. 임의 분석은 넣지 않는다.
+            앞선 결과는 비교 맥락이며 이번 면접 답변 원문으로 검증한다. CHECK와 미확인 역할은 확정하지 않는다.
+            질문 생성이나 업무 상태 저장은 하지 않는다. 질문 생성은 최종 questions 명령으로 요청한다.
             새 검토를 명시적으로 요청하면 force_review=true로 기존 결과를 쓰지 않는다.
             """
             scope = runtime.context
