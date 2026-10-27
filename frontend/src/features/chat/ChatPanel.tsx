@@ -10,6 +10,8 @@ import {
   type ChatAnswer,
   type ChatItem,
 } from '@/features/chat/api'
+import { LiveSteps, StepsSummary } from '@/features/chat/ChatSteps'
+import { addStep } from '@/features/chat/steps'
 import { turnsToMessages, useChatStore, type ChatMessage } from '@/features/chat/store'
 import { careerLabel, type StageOverview } from '@/features/screening/api'
 import { useStageUi } from '@/features/screening/store'
@@ -20,9 +22,9 @@ const EMPTY: ChatMessage[] = []
 const RECENT = 6
 const WAITING = '지원자 자료를 살펴보고 있어요…'
 
-/** 답을 기다리는 동안 받은 단계 문구와 검증을 마친 항목 */
-type Progress = { status: string | null; items: ChatItem[] }
-const NO_PROGRESS: Progress = { status: null, items: [] }
+/** 답을 기다리는 동안 쌓은 단계 문구와 검증을 마친 항목 */
+type Progress = { steps: string[]; items: ChatItem[] }
+const NO_PROGRESS: Progress = { steps: [], items: [] }
 
 const EXAMPLES: Record<StageOverview['type'], string[]> = {
   DOCUMENT: [
@@ -47,8 +49,13 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
   const forget = useForgetChat(stageId)
   const { mentions, removeMention, addMention, checked } = useStageUi()
   const [progress, setProgress] = useState<Progress>(NO_PROGRESS)
+  // 답이 오면 그때까지 쌓은 단계를 답에 붙인다. 응답 콜백은 보낼 때의 progress만 보므로 따로 들고 있는다
+  const steps = useRef<string[]>([])
   const chat = useChat(stageId, {
-    onStatus: (status) => setProgress((current) => ({ ...current, status })),
+    onStatus: (text) => {
+      steps.current = addStep(steps.current, text)
+      setProgress((current) => ({ ...current, steps: steps.current }))
+    },
     onItem: (item) => setProgress((current) => ({ ...current, items: [...current.items, item] })),
   })
   const [text, setText] = useState('')
@@ -73,6 +80,7 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
     if (!message || chat.isPending || loading) return
     append(stageId, { role: 'user', text: message, mentions })
     setText('')
+    steps.current = []
     setProgress(NO_PROGRESS)
     chat.mutate(
       {
@@ -81,7 +89,9 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
         checkedIds: checked,
       },
       {
-        onSuccess: (answer) => append(stageId, { role: 'ai', answer }),
+        // 쌓은 단계는 답에 붙여 접어 둔다. 다시 불러오면 ai 서버가 남긴 같은 단계가 온다
+        onSuccess: ({ answer, seconds }) =>
+          append(stageId, { role: 'ai', answer, steps: steps.current, seconds }),
         onError: (error) => append(stageId, { role: 'error', text: errorMessage(error) }),
         // 진행 중 화면은 최종 답이나 오류로 바뀐다
         onSettled: () => setProgress(NO_PROGRESS),
@@ -143,16 +153,12 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
           <Fragment key={index}>{renderMessage(message)}</Fragment>
         ))}
         {chat.isPending && (
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Sparkles className="size-4 animate-pulse text-ai" />
-              {progress.status ?? WAITING}
+          <div className="flex gap-2">
+            <Sparkles className="mt-0.5 size-4 shrink-0 text-ai" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <LiveSteps steps={progress.steps.length ? progress.steps : [WAITING]} />
+              {progress.items.length > 0 && <ItemList items={progress.items} />}
             </div>
-            {progress.items.length > 0 && (
-              <div className="pl-6">
-                <ItemList items={progress.items} />
-              </div>
-            )}
           </div>
         )}
         <div ref={bottom} />
@@ -261,14 +267,23 @@ function renderMessage(message: ChatMessage): ReactNode {
   if (message.role === 'error') {
     return <p className="text-sm text-destructive">{message.text}</p>
   }
-  return <Answer answer={message.answer} />
+  return <Answer answer={message.answer} steps={message.steps} seconds={message.seconds} />
 }
 
-function Answer({ answer }: { answer: ChatAnswer }) {
+function Answer({
+  answer,
+  steps,
+  seconds,
+}: {
+  answer: ChatAnswer
+  steps: string[]
+  seconds: number | null
+}) {
   return (
     <div className="flex gap-2 text-sm">
       <Sparkles className="mt-0.5 size-4 shrink-0 text-ai" />
       <div className="min-w-0 space-y-1.5">
+        <StepsSummary steps={steps} seconds={seconds} />
         <p className="leading-6">{bold(answer.message)}</p>
         {answer.items.length > 0 && <ItemList items={answer.items} />}
         {answer.sources.length > 0 && (

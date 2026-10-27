@@ -1677,9 +1677,18 @@ export interface components {
             subject: string;
             html: string;
         };
+        ChatMention: {
+            /** Format: uuid */
+            applicationId: string;
+            name: string;
+        };
         ChatTurn: {
             message: string;
+            mentions: components["schemas"]["ChatMention"][];
             answer: components["schemas"]["ChatAnswer"];
+            steps: string[];
+            /** Format: int32 */
+            seconds: number | null;
         };
         ApplicantDocument: {
             /** @enum {string} */
