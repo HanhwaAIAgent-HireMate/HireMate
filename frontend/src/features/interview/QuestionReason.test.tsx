@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { QuestionReason } from './QuestionReason'
@@ -123,5 +123,45 @@ describe('질문 생성 근거', () => {
     expect(screen.getByRole('region').querySelector('blockquote')).toHaveTextContent(
       '야간 배치의 종료 시간이 들쑥날쑥했습니다.',
     )
+  })
+
+  it('🎤 질문 유형 배지는 질문 바로 위에 둔다', () => {
+    render(
+      <QuestionReason
+        text="본인이 맡은 부분을 설명해 주세요."
+        source="AI"
+        reason={'질문 유형: 위험 신호 확인\n출처: 자기소개서\n원문: 공유 폴더에 올렸습니다.'}
+      />,
+    )
+    const badge = screen.getByLabelText('질문 유형: 위험 신호 확인')
+    const question = screen.getByText('본인이 맡은 부분을 설명해 주세요.')
+    expect(badge.compareDocumentPosition(question) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(badge).toHaveClass('bg-rose-50')
+  })
+
+  it('🎤 지원자 문장은 따옴표로 감싸고 공고 기준은 공고 표시로 구분한다', () => {
+    render(
+      <QuestionReason
+        text="본인이 맡은 부분을 설명해 주세요."
+        source="AI"
+        reason={
+          '질문 유형: 확인 필요\n확인할 내용: 일정 조율 방식\n출처: 자기소개서\n원문: 일정 변경 요청이 47건 들어왔습니다.\n질문 기준: 여러 사람의 일정을 조율한 경험'
+        }
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '질문 생성 근거' }))
+    const region = screen.getByRole('region')
+    expect(region.querySelector('blockquote')).toHaveTextContent(
+      '“일정 변경 요청이 47건 들어왔습니다.”',
+    )
+    // 출처 표시는 '근거' 제목 아래 줄의 맨 앞, 문장은 출처 표시 바로 뒤에 이어진다
+    expect(region.querySelector('blockquote')?.firstElementChild).toHaveTextContent('자소서')
+    expect(within(region).getByText('근거').nextElementSibling).toContainElement(
+      screen.getByText('자소서'),
+    )
+    expect(screen.getByText('공고').nextElementSibling).toHaveTextContent(
+      '여러 사람의 일정을 조율한 경험',
+    )
+    expect(screen.getByText('여러 사람의 일정을 조율한 경험').textContent).not.toContain('“')
   })
 })

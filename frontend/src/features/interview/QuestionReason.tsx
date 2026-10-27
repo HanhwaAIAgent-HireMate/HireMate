@@ -8,6 +8,12 @@ const BADGE_COLORS: Record<string, string> = {
   '가상 업무 상황 판단': 'border-violet-200 bg-violet-50 text-violet-800',
   '필수 조건 근거 없음': 'border-amber-200 bg-amber-50 text-amber-800',
   '우대 조건 근거 없음': 'border-amber-200 bg-amber-50 text-amber-800',
+  '필수 조건 일부 확인': 'border-amber-200 bg-amber-50 text-amber-800',
+  '우대 조건 일부 확인': 'border-amber-200 bg-amber-50 text-amber-800',
+  // 🎤 위험 신호(개인정보 · 안전 · 승인 절차)는 면접관이 놓치지 않게 다른 색으로 구분한다
+  '위험 신호 확인': 'border-rose-200 bg-rose-50 text-rose-800',
+  '주장 근거 확인': 'border-orange-200 bg-orange-50 text-orange-800',
+  '구체 업무 확인': 'border-teal-200 bg-teal-50 text-teal-800',
   '확인 필요': 'border-amber-200 bg-amber-50 text-amber-800',
   '주장만 있음': 'border-amber-200 bg-amber-50 text-amber-800',
   '본인 역할 확인': 'border-teal-200 bg-teal-50 text-teal-800',
@@ -18,6 +24,16 @@ const BADGE_COLORS: Record<string, string> = {
 
 const FIELD =
   /^(이 질문의 자리|이전 면접 질문|이전 면접 답변|질문 유형|확인할 내용|생성 방식|질문 기준(?: · 회사 인재상| · 조직 문화)?|출처|원문|기준 문구|공통 질문):\s*(.*)$/
+
+// 🎤 지원자가 직접 쓴 문서. 이 출처의 원문은 “ ”로 감싸 '지원자 문장을 그대로 가져왔다'는 것을 보여 준다
+const APPLICANT_DOCUMENTS = ['이력서', '자기소개서', '자소서']
+
+// 출처 표시를 짧게 줄인다: 자기소개서 → 자소서, '공고의 직무·평가 기준' → 공고
+function sourceLabel(value: string): string {
+  if (value === '자기소개서') return '자소서'
+  if (value.startsWith('공고')) return '공고'
+  return value
+}
 
 // 저장된 표시 문구만 항목으로 나눈다. 없는 근거나 출처를 새로 만들지 않는다.
 function sections(reason: string): Section[] {
@@ -58,27 +74,30 @@ export function QuestionReason({
 
   return (
     <div className="min-w-0 flex-1 text-sm">
+      {/* 🎤 질문 유형 배지는 질문 바로 위에 두어, 면접관이 어떤 질문인지 먼저 보고 읽게 한다 */}
       {type && !common && (
         <div className="mb-2">
           <ReasonBadge label="질문 유형" value={type.value} />
         </div>
       )}
       <p className="leading-relaxed font-semibold">{text}</p>
-      <button
-        type="button"
-        aria-label="질문 생성 근거"
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => setOpen((value) => !value)}
-        className={`mt-1 inline-flex min-h-7 items-center gap-1 rounded px-0.5 text-xs font-medium hover:text-ai focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${open ? 'text-ai' : 'text-muted-foreground'}`}
-      >
-        <Info className="size-3.5" aria-hidden="true" />
-        근거
-        <ChevronDown
-          className={`size-3 transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
-          aria-hidden="true"
-        />
-      </button>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          aria-label="질문 생성 근거"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => setOpen((value) => !value)}
+          className={`inline-flex min-h-7 items-center gap-1 rounded px-0.5 text-xs font-medium hover:text-ai focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${open ? 'text-ai' : 'text-muted-foreground'}`}
+        >
+          <Info className="size-3.5" aria-hidden="true" />
+          근거
+          <ChevronDown
+            className={`size-3 transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </button>
+      </div>
       <div id={id} hidden={!open} role="region" aria-label="질문 생성 근거">
         <div className="mt-1 space-y-4 rounded-xl border border-border/70 bg-muted/30 p-4 text-sm leading-relaxed text-foreground">
           {common ? (
@@ -98,12 +117,12 @@ export function QuestionReason({
                 </div>
               )}
               <ReasonSection label="근거">
-                {!hasMaterial && (
-                  <p>
-                    {criterion?.value ||
-                      '이 질문에 연결된 원문이나 기준이 별도로 기록되지 않았습니다.'}
-                  </p>
-                )}
+                {!hasMaterial &&
+                  (criterion ? (
+                    <SourceRow label="공고" text={criterion.value} />
+                  ) : (
+                    <p>이 질문에 연결된 원문이나 기준이 별도로 기록되지 않았습니다.</p>
+                  ))}
                 {material.map((row, index) => {
                   if (
                     row.label === '출처' &&
@@ -111,22 +130,18 @@ export function QuestionReason({
                   )
                     return null
                   const previous = material[index - 1]
-                  if (row.label === '원문' || row.label === '기준 문구')
+                  if (row.label === '원문' || row.label === '기준 문구') {
+                    const label = previous?.label === '출처' ? sourceLabel(previous.value) : ''
                     return (
-                      <div
+                      <SourceRow
                         key={index}
-                        className="flex items-start gap-2 rounded-lg bg-background/80 px-3 py-2.5"
-                      >
-                        {previous?.label === '출처' && (
-                          <span className="inline-flex shrink-0 rounded-full border bg-background px-2.5 py-0.5 text-xs leading-5 font-medium text-muted-foreground">
-                            {previous.value === '자기소개서' ? '자소서' : previous.value}
-                          </span>
-                        )}
-                        <blockquote className="min-w-0 flex-1 break-words whitespace-pre-wrap">
-                          {row.value}
-                        </blockquote>
-                      </div>
+                        label={label}
+                        text={row.value}
+                        verbatim
+                        quoted={row.label === '원문' && APPLICANT_DOCUMENTS.includes(label)}
+                      />
                     )
+                  }
                   return (
                     <ReasonSection
                       key={index}
@@ -136,6 +151,8 @@ export function QuestionReason({
                     </ReasonSection>
                   )
                 })}
+                {/* 서류 문장을 인용한 질문이면 어떤 공고 기준과 이어지는지도 보여 준다 */}
+                {hasMaterial && criterion && <SourceRow label="공고" text={criterion.value} />}
               </ReasonSection>
               <ReasonSection label="면접 확인 부분">
                 {purpose && !(samePurpose && !hasMaterial)
@@ -165,6 +182,34 @@ function ReasonSection({ label, children }: { label: string; children: ReactNode
       <p className="mb-2 text-xs font-semibold text-ai">{label}</p>
       <div className="space-y-2 break-words whitespace-pre-wrap">{children}</div>
     </div>
+  )
+}
+
+// 근거 한 줄: [출처] 문장. 출처 표시가 '근거' 제목과 같은 왼쪽 줄에서 시작하고,
+//   문장은 표시 바로 뒤에 이어 쓴다 (줄이 넘어가면 같은 왼쪽 줄부터 이어진다)
+//   verbatim: 문서 · 메모에서 그대로 옮긴 원문이면 blockquote, 저장된 기준 이름이면 일반 문단
+//   quoted: 지원자가 쓴 문장이면 “ ”로 감싼다
+function SourceRow({
+  label,
+  text,
+  verbatim = false,
+  quoted = false,
+}: {
+  label: string
+  text: string
+  verbatim?: boolean
+  quoted?: boolean
+}) {
+  const Body = verbatim ? 'blockquote' : 'p'
+  return (
+    <Body className="min-w-0 leading-6 break-words whitespace-pre-wrap">
+      {label && (
+        <span className="mr-1.5 inline-flex rounded-full border bg-background px-2 align-middle text-xs leading-5 font-medium text-muted-foreground">
+          {label}
+        </span>
+      )}
+      <span className="align-middle">{quoted ? `“${text}”` : text}</span>
+    </Body>
   )
 }
 
