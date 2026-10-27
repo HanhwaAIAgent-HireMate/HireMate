@@ -13,6 +13,7 @@ const BADGE_COLORS: Record<string, string> = {
   '본인 역할 확인': 'border-teal-200 bg-teal-50 text-teal-800',
   '사실 관계 확인': 'border-slate-200 bg-slate-50 text-slate-700',
   '이전 면접에서 확인 안 됨': 'border-indigo-200 bg-indigo-50 text-indigo-800',
+  '메모 참고 확인': 'border-violet-200 bg-violet-50 text-violet-800',
 }
 
 const FIELD =
