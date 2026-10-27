@@ -102,7 +102,7 @@ it('선택 목록을 갱신해도 방금 보낸 대화를 빈 과거 기록으�
       },
     )
     await waitFor(() => expect(result.current.history.isSuccess).toBe(true))
-    await act(() =>
+    const reply = await act(() =>
       result.current.chat.mutateAsync({
         message: '프로젝트 기반 질문 1개 추가해줘',
         mentionIds: ['a1'],
@@ -110,6 +110,9 @@ it('선택 목록을 갱신해도 방금 보낸 대화를 빈 과거 기록으�
       }),
     )
     expect(historyReads).toBe(1)
+    // 답과 함께 보낸 때부터 걸린 시간을 돌려준다. 화면은 이 시간을 처리 과정 요약에 쓴다
+    expect(reply.answer.selectionChanged).toBe(true)
+    expect(reply.seconds).toBeGreaterThanOrEqual(0)
   } finally {
     client.clear()
     resetCsrf()

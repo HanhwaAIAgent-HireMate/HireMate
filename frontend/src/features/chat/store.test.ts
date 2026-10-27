@@ -14,19 +14,36 @@ const answer: ChatTurn['answer'] = {
   stub: false,
 }
 
+/** 멘션과 처리 단계가 없는 지난 턴 (이 기능 전의 기록과 같다) */
+function turn(message: string): ChatTurn {
+  return { message, mentions: [], answer, steps: [], seconds: null }
+}
+
 describe('turnsToMessages', () => {
   it('서버에 남은 지난 턴을 담당자 질문과 AI 답 순서로 펼친다', () => {
     const messages = turnsToMessages([
-      { message: '금융 경험 찾아줘', answer },
+      turn('금융 경험 찾아줘'),
       {
-        message: '그중 두 번째 사람 강점은?',
+        ...turn('그중 두 번째 사람 강점은?'),
         answer: { ...answer, intent: 'ANSWER', mode: null },
       },
     ])
 
     expect(messages.map((message) => message.role)).toEqual(['user', 'ai', 'user', 'ai'])
     expect(messages[0]).toEqual({ role: 'user', text: '금융 경험 찾아줘', mentions: [] })
-    expect(messages[1]).toEqual({ role: 'ai', answer })
+    expect(messages[1]).toEqual({ role: 'ai', answer, steps: [], seconds: null })
+  })
+
+  it('질문에 쓴 @멘션과 답의 처리 단계, 걸린 시간을 살린다', () => {
+    const mention = { applicationId: 'a1', name: '정유민' }
+    const steps = ['요청을 확인하고 있어요', '지원자 자료를 확인하고 있어요']
+
+    const [question, reply] = turnsToMessages([
+      { ...turn('경력 알려줘'), mentions: [mention], steps, seconds: 7 },
+    ])
+
+    expect(question).toEqual({ role: 'user', text: '경력 알려줘', mentions: [mention] })
+    expect(reply).toEqual({ role: 'ai', answer, steps, seconds: 7 })
   })
 
   it('기록이 없으면 빈 목록이다', () => {
@@ -44,11 +61,11 @@ describe('useChatStore', () => {
     const { append, load } = useChatStore.getState()
     append('s1', { role: 'user', text: '예전 질문', mentions: [] })
 
-    load('s1', turnsToMessages([{ message: '금융 경험 찾아줘', answer }]))
+    load('s1', turnsToMessages([turn('금융 경험 찾아줘')]))
 
     expect(useChatStore.getState().threads.s1).toEqual([
       { role: 'user', text: '금융 경험 찾아줘', mentions: [] },
-      { role: 'ai', answer },
+      { role: 'ai', answer, steps: [], seconds: null },
     ])
   })
 

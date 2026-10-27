@@ -5,7 +5,7 @@ import type { Mention } from '@/features/screening/store'
 
 export type ChatMessage =
   | { role: 'user'; text: string; mentions: Mention[] }
-  | { role: 'ai'; answer: ChatAnswer }
+  | { role: 'ai'; answer: ChatAnswer; steps: string[]; seconds: number | null }
   | { role: 'error'; text: string }
 
 type ChatState = {
@@ -16,11 +16,11 @@ type ChatState = {
   clear: (stageId: string) => void
 }
 
-/** 서버에 남은 지난 턴을 화면 메시지로 펼친다. 질문에 쓴 @멘션 칩은 남지 않는다. */
+/** 서버에 남은 지난 턴을 화면 메시지로 펼친다. 질문에 쓴 @멘션과 답을 내기까지 거친 처리 단계도 같이 살린다. */
 export function turnsToMessages(turns: ChatTurn[]): ChatMessage[] {
   return turns.flatMap((turn): ChatMessage[] => [
-    { role: 'user', text: turn.message, mentions: [] },
-    { role: 'ai', answer: turn.answer },
+    { role: 'user', text: turn.message, mentions: turn.mentions },
+    { role: 'ai', answer: turn.answer, steps: turn.steps, seconds: turn.seconds },
   ])
 }
 

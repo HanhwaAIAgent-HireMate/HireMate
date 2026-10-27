@@ -9,6 +9,9 @@ export type ChatAnswer = Schemas['ChatAnswer']
 export type ChatTurn = Schemas['ChatTurn']
 export type ChatItem = Schemas['ChatItem']
 
+/** 받은 답과 보낸 때부터 답을 받기까지 걸린 초 */
+export type ChatReply = { answer: ChatAnswer; seconds: number }
+
 /** 답을 기다리는 동안 받는 진행 알림. 단계 문구와 검증을 마친 항목이다. */
 export type ChatProgress = {
   onStatus: (text: string) => void
@@ -45,7 +48,12 @@ export function useChat(stageId: string, progress: ChatProgress) {
   const waiting = useRef<AbortController | null>(null)
   useEffect(() => () => waiting.current?.abort(), [stageId])
   return useMutation({
-    mutationFn: async (body: { message: string; mentionIds: string[]; checkedIds: string[] }) => {
+    mutationFn: async (body: {
+      message: string
+      mentionIds: string[]
+      checkedIds: string[]
+    }): Promise<ChatReply> => {
+      const startedAt = Date.now()
       const controller = new AbortController()
       waiting.current = controller
       // 권한 · 입력 오류는 스트림을 열기 전에 일반 오류 응답으로 온다
@@ -61,9 +69,9 @@ export function useChat(stageId: string, progress: ChatProgress) {
       const answer = await readChat(stream, progress)
       // 끊은 뒤에 도착한 답으로 선택 지원자나 카드를 다시 불러오지 않는다
       controller.signal.throwIfAborted()
-      return answer
+      return { answer, seconds: Math.round((Date.now() - startedAt) / 1000) }
     },
-    onSuccess: (answer) => {
+    onSuccess: ({ answer }) => {
       // 찾기 · 편집이면 리스트의 AI 표시와 선택 지원자가 바뀐다
       if (answer.selectionChanged)
         void queryClient.invalidateQueries({ queryKey: stageKeys.all(stageId) })
