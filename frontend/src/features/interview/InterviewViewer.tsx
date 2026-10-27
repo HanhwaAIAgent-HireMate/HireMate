@@ -1,8 +1,17 @@
-import { CalendarClock, Loader2Icon, Plus, X } from 'lucide-react'
+import { CalendarClock, Loader2Icon, Plus, RotateCcw, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -15,6 +24,7 @@ import {
   type Interview,
 } from '@/features/interview/api'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
+import { QuestionReason } from '@/features/interview/QuestionReason'
 import { STAGE_TYPE_LABELS } from '@/features/recruit/labels'
 import type { CandidateDetail } from '@/features/screening/api'
 import { DocumentViewer } from '@/features/screening/DocumentViewer'
@@ -98,8 +108,11 @@ function Questions({
   editable: boolean
 }) {
   const actions = useInterviewActions(stageId, applicationId)
-  const preparing = useInterviewPreparing(stageId, applicationId).data?.preparing === true
+  const preparing =
+    useInterviewPreparing(stageId, applicationId).data?.preparing === true ||
+    actions.regenerate.isPending
   const [draft, setDraft] = useState<string | null>(null)
+  const [regenerating, setRegenerating] = useState(false)
   const fail = (error: unknown) => toast.error(errorMessage(error))
   // 카드를 연 뒤에 새로 들어온 질문(AI Chat · 자동 생성 · 직접 추가)을 잠깐 강조하고 그 위치로 내린다
   //   처음 열었을 때 이미 있던 질문 번호를 한 번만 기억해 두고(lazy 초기값), 그 뒤에 생긴 질문만 '새 질문'으로 본다
@@ -125,9 +138,11 @@ function Questions({
           </div>
           {previous.questions.map((question, index) => (
             <div key={question.questionId}>
-              <p className="font-medium">
-                Q{index + 1}. {question.text}
-              </p>
+              <QuestionReason
+                text={`Q${index + 1}. ${question.text}`}
+                reason={question.reason}
+                source={question.source}
+              />
               <p className="text-xs text-muted-foreground">
                 {question.answer || '기록한 답변이 없어요.'}
               </p>
@@ -139,6 +154,17 @@ function Questions({
         맞춤 질문
         <AgentChip name="Interview Agent" />
         <div className="ml-auto flex items-center gap-1">
+          {editable && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={preparing || actions.regenerate.isPending}
+              onClick={() => setRegenerating(true)}
+            >
+              <RotateCcw />
+              질문 재생성
+            </Button>
+          )}
           <ScheduleButton
             stageId={stageId}
             applicationId={applicationId}
@@ -147,6 +173,34 @@ function Questions({
           />
         </div>
       </div>
+      <AlertDialog open={regenerating} onOpenChange={setRegenerating}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>질문을 처음부터 다시 생성할까요?</AlertDialogTitle>
+            <AlertDialogDescription>
+              현재 지원자의 이번 면접 질문 {interview.questions.length}개와 기록한 답변을 백업 없이
+              삭제하고 다시 만듭니다. 이전 면접 기록은 유지됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <Button
+              disabled={actions.regenerate.isPending}
+              onClick={() => {
+                actions.regenerate.mutate(undefined, {
+                  onSuccess: () => {
+                    toast.success('질문 재생성을 시작했어요.')
+                  },
+                  onError: fail,
+                })
+                setRegenerating(false)
+              }}
+            >
+              삭제 후 재생성
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {preparing && (
         <div
           role="status"
@@ -183,7 +237,11 @@ function Questions({
           )}
         >
           <div className="flex items-start gap-2">
-            <p className="flex-1 text-sm font-semibold">{question.text}</p>
+            <QuestionReason
+              text={question.text}
+              reason={question.reason}
+              source={question.source}
+            />
             {editable && (
               <button
                 aria-label="질문 삭제"
