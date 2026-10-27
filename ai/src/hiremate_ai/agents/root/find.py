@@ -107,7 +107,7 @@ class SearchQuery(BaseModel):
         default_factory=list,
         description=(
             "지원자가 모두 충족해야 할 직무나 경력 조건. '금융권 경력 있는 사람'은 ['금융 업종 재직 경력']처럼 적는다. "
-            "점수는 min_score와 score_source에, 지원자 범위는 pool에 적는다"
+            "점수는 min_score와 score_source에 적는다. 지원자 범위는 이 query 밖의 별도 도구 인자 pool에 적는다"
         ),
     )
     min_score: int | None = Field(

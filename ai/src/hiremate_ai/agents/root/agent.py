@@ -4,10 +4,11 @@ import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Annotated, Any
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import ToolException
+from pydantic import Field
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.commands import (
@@ -93,7 +94,9 @@ ROOT_SYSTEM = """너는 채용 담당자를 돕는 Root Agent다.
 - 조건으로 지원자를 찾거나 특정 기술과 경험 보유자를 물으면 search_candidates를 쓴다.
   생략된 조건은 대화로 해소하고 message만이 아니라 query.concepts, query.min_score 등에 넣는다.
   예: 평가 80점 이상은 query={"min_score":80,"score_source":"assessment"}다.
-  범위 지정 없는 새 직무 조건은 현재 전형 전체에서 mode=REPLACE, pool=null로 검색한다.
+  범위 지정 없는 새 직무 조건은 query.mode=REPLACE, query와 같은 최상위의 pool=null로 전체 검색한다.
+  예: {"query":{"concepts":["금융 업종 재직 경력"],"min_score":null,"mode":"REPLACE"},"pool":null}.
+  pool은 query 안에 넣지 않는다.
   이전 결과, 직전 대상과 화면의 선택 목록만으로 범위를 좁히지 않는다.
   예: '금융 도메인 경험자 찾아줘' 다음 '결제 정산 운영해 본 사람 찾아줘'도 전체 REPLACE 검색이다.
   '그중', '선택된 사람 중', '체크한 사람 중', 멘션처럼 이번 요청이 지정한 범위에서만 제한 검색한다.
@@ -104,7 +107,8 @@ ROOT_SYSTEM = """너는 채용 담당자를 돕는 Root Agent다.
   점수만 말하면 현재 전형 점수, 경력은 제출 이력서와 저장된 근거를 쓴다. 화면과 대화로 정해진 점수 출처,
   검색 범위와 자료 출처는 다시 묻지 않는다. 공고 기준과 결정 상태를 정하고 새로 찾기, 추가, 좁히기를 구별한다.
   검색 뒤 추가 조회나 조건 수정 후 재검색은 가능하다. 최종 답은 0명이어도 도구의 결과 번호를 참조하는 find다.
-  candidates=[], items=[], action=null, focus={}로 내며 결과 후보와 순서를 임의로 바꾸지 않는다.
+  result에 검색 결과 번호만 넣고 candidates=[], items=[], action=null, focus={}로 낸다.
+  검색 후보와 근거는 서버가 결과 번호로 보존하므로 복사하지 않고 후보와 순서를 임의로 바꾸지 않는다.
   자료 목록이나 brief에서 후보를 직접 나열한 answer, message에만 이름을 넣은 answer로 검색을 대신하지 않는다.
   검색에서 빠진 사람에게 그 경험이 없다고 단정하지 않는다.
 - 이름이나 앞 대화의 특정 지원자를 넣거나 빼는 것은 edit 명령이다. 빼기는 불합격이 아니다.
@@ -295,15 +299,21 @@ async def run_agent(
 
     @tool
     async def search_candidates(
-        query: SearchQuery, runtime: ToolRuntime[RootRun], pool: list[str] | None = None
+        query: SearchQuery,
+        runtime: ToolRuntime[RootRun],
+        pool: Annotated[
+            list[str] | None,
+            Field(description="query와 같은 최상위 인자. 전체 검색은 null, 지정 범위 검색은 C번호 목록"),
+        ] = None,
     ) -> str:
         """명시한 직무 조건, 점수 출처, 공고 기준으로 검색하고 검증한 후보와 결과 번호를 반환한다.
 
-        새 조건 검색은 기본 mode=REPLACE, pool=null로 현재 전형 전체에서 한다.
-        pool은 사용자가 이번 요청에서 명시한 제한 범위의 지원자 번호 목록이다.
+        조건과 mode는 query 안에, pool은 query와 같은 최상위에 둔다. query 안에는 pool을 넣지 않는다.
+        새 조건 검색은 query.mode=REPLACE, pool=null로 전체에서 한다. pool은 명시한 제한 범위의 C번호 목록이다.
         과거 검색 결과나 화면 선택이 있다는 이유만으로 pool이나 NARROW를 지정하지 않는다.
         그중 또는 선택된 사람 안에서만 찾으라고 범위를 지정한 경우에만 제한한다.
-        이 도구는 조회만 한다. 최종 find 명령의 result에 결과 번호를 넣어야 선택 영역에 반영된다.
+        이 도구는 조회만 한다. 최종 RootReply는 kind=find, result=결과 번호로 낸다.
+        후보와 근거는 서버가 보존한다. 검색 결과의 candidates와 items를 복사하지 말고 둘 다 []로 낸다.
         """
         scope = runtime.context
         if not (

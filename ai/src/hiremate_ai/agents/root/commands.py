@@ -106,7 +106,7 @@ type RootCommand = Annotated[
 
 
 class _ModelReply(BaseModel):
-    """현재 요청의 최종 응답. 분석은 answer, 조건 검색은 find, 명시적 선택 편집은 edit으로 낸다."""
+    """최종 응답. find는 result로 검색을 참조하고 candidates와 items는 []로 낸다. 후보와 근거는 서버가 보존한다."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -125,11 +125,14 @@ class _ModelReply(BaseModel):
         default=[],
         description=(
             "지원자별 원문 근거 항목. 전형 집계는 candidate=null인 항목에 전형 결과 근거를 쓴다. "
-            "일반 대화와 선택 편집이면 []"
+            "find, 일반 대화와 선택 편집이면 []. find의 검색 근거는 result로 보존되므로 복사하지 않는다"
         ),
     )
     candidates: list[str] = Field(
-        default=[], description="answer, edit, questions의 대상 C번호. 전형 전체 답변과 다른 종류에서는 []"
+        default=[],
+        description=(
+            "answer, edit, questions의 대상 C번호. find는 검색 후보를 복사하지 않고 반드시 []. 전형 전체 답변도 []"
+        ),
     )
     action: EditAction | None = Field(
         default=None, description='edit의 ADD, REMOVE, CLEAR, RESTORE. 다른 종류는 JSON null이며 문자열 "null"이 아니다'
@@ -148,7 +151,7 @@ class _ModelReply(BaseModel):
 
 
 class RootReply(BaseModel):
-    """모델에는 평탄한 응답을 보여 주고 명시한 kind를 내부 명령으로 변환한다. 의도는 다시 추론하지 않는다."""
+    """최종 명령. find는 result=검색 결과 번호, candidates=[], items=[], action=null, focus={}로 낸다."""
 
     model_config = ConfigDict(extra="forbid")
 

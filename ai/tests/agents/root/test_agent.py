@@ -357,10 +357,14 @@ async def test_model_receives_required_search_conditions_and_answer_evidence(
         plan = await run_plan(llm, context)
 
     assert plan.intent is Intent.CLARIFY
-    schemas = {tool["function"]["name"]: tool["function"]["parameters"] for tool in requests[0]["tools"]}
+    functions = {tool["function"]["name"]: tool["function"] for tool in requests[0]["tools"]}
+    schemas = {name: function["parameters"] for name, function in functions.items()}
     query = schemas["search_candidates"]["properties"]["query"]
     assert {"concepts", "min_score"} <= set(query.get("required", []))
+    assert "pool" not in query["properties"]
+    assert schemas["search_candidates"]["properties"]["pool"].get("description")
     reply = schemas["RootReply"]
+    assert "find" in functions["RootReply"]["description"] and "result" in functions["RootReply"]["description"]
     assert {"kind", "message", "items", "candidates", "action", "result", "focus"} == set(reply["required"])
     assert "command" not in reply["properties"]
     item = reply["properties"]["items"]["items"]
@@ -385,7 +389,14 @@ def test_flat_model_response_preserves_the_explicit_selection_command() -> None:
     assert reply.command.candidates == ["C3", "C4"]
 
 
-@pytest.mark.parametrize("kind,extra", [("conversation", {"candidates": ["C1"]}), ("edit", {"result": "S1"})])
+@pytest.mark.parametrize(
+    "kind,extra",
+    [
+        ("conversation", {"candidates": ["C1"]}),
+        ("edit", {"result": "S1"}),
+        ("find", {"result": "S1", "candidates": ["C1"]}),
+    ],
+)
 def test_flat_model_response_rejects_unused_command_fields(kind: str, extra: dict[str, Any]) -> None:
     with pytest.raises(ValueError, match="사용하지 않는"):
         RootReply.model_validate(
