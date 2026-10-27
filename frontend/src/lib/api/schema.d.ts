@@ -1210,15 +1210,19 @@ export interface components {
             interviewers: string;
         };
         StageGuideRequest: {
-            schedule: string;
-            method: string;
+            /** Format: date */
+            schedule: string | null;
+            /** @enum {string|null} */
+            method: "ONLINE" | "OFFLINE" | null;
             place: string;
             preparation: string;
             note: string;
         };
         StageGuide: {
-            schedule: string;
-            method: string;
+            /** Format: date */
+            schedule: string | null;
+            /** @enum {string|null} */
+            method: "ONLINE" | "OFFLINE" | null;
             place: string;
             preparation: string;
             note: string;
