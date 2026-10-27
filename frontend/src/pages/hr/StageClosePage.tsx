@@ -6,7 +6,13 @@ import { toast } from 'sonner'
 import { useHeaderCrumb } from '@/app/header-store'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { NOTICE_STATUS, useFinishStage, useNotices, type Notice } from '@/features/notice/api'
+import {
+  needsDraft,
+  noticeBadge,
+  useFinishStage,
+  useNotices,
+  type Notice,
+} from '@/features/notice/api'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import { useStageOverview, type StageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
@@ -163,10 +169,10 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
                   <span
                     className={cn(
                       'rounded-md px-1.5 py-0.5 text-xs font-semibold',
-                      NOTICE_STATUS[notice.status].className,
+                      noticeBadge(notice).className,
                     )}
                   >
-                    {NOTICE_STATUS[notice.status].label}
+                    {noticeBadge(notice).label}
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -178,7 +184,7 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
                 {(notice.status === 'DRAFT' || notice.status === 'PARTIAL') && (
                   <Button size="sm" className="mt-2.5" asChild>
                     <Link to={`${base}/close/notices/${notice.group}`}>
-                      초안 확인·수정 <ArrowRight />
+                      {needsDraft(notice) ? 'AI 초안 쓰기' : '초안 확인·수정'} <ArrowRight />
                     </Link>
                   </Button>
                 )}

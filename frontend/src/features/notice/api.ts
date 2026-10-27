@@ -40,13 +40,45 @@ export function useSaveStageGuide(recruitmentId: string, stageId: string) {
   })
 }
 
-/** 결과를 확정한 전형의 안내 초안. 처음 열면 양식으로 초안을 만들고 Communication Agent가 내용을 채운다. */
+/**
+ * 결과를 확정한 전형의 안내 초안. 처음 열면 양식으로 초안을 만든다.
+ * AI 초안은 기다리지 않는다. 안내 초안 화면에서 그룹마다 usePrepareNotice로 쓴다
+ */
 export function useNotices(stageId: string, enabled = true) {
   return useQuery({
     queryKey: noticeKeys.all(stageId),
     enabled,
     queryFn: () =>
-      unwrap(api.POST('/api/stages/{stageId}/notices/prepare', { params: { path: { stageId } } })),
+      unwrap(api.GET('/api/stages/{stageId}/notices', { params: { path: { stageId } } })),
+  })
+}
+
+/** AI 초안을 아직 쓰지 않은 안내. 보낼 사람이 있는데 본문이 비어 있다 */
+export function needsDraft(notice: Notice) {
+  return notice.status === 'DRAFT' && !notice.content.trim()
+}
+
+/**
+ * Communication Agent가 그룹 하나의 초안을 쓴다(30초쯤). 다 쓰면 안내 목록을 바꾼다.
+ * 실패하면 다시 시도할 때까지 부르지 않는다. 한 번에 수십 초 걸려서 자동으로 다시 부르지 않는다
+ */
+export function usePrepareNotice(stageId: string, group: NoticeGroup, enabled: boolean) {
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: [...noticeKeys.all(stageId), group, 'draft'],
+    enabled,
+    retry: false,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      const notices = await unwrap(
+        api.POST('/api/stages/{stageId}/notices/{group}/prepare', {
+          params: { path: { stageId, group } },
+        }),
+      )
+      queryClient.setQueryData(noticeKeys.all(stageId), notices)
+      return notices
+    },
   })
 }
 
@@ -136,4 +168,11 @@ export const NOTICE_STATUS: Record<Notice['status'], { label: string; className:
   SENT: { label: '발송 완료', className: 'bg-pass text-pass-foreground' },
   PARTIAL: { label: '일부 실패', className: 'bg-fail text-fail-foreground' },
   EMPTY: { label: '대상 없음', className: 'bg-muted text-muted-foreground' },
+}
+
+/** 안내 상태 표시. AI 초안을 아직 쓰지 않았으면 '초안 작성 전'이다 */
+export function noticeBadge(notice: Notice) {
+  return needsDraft(notice)
+    ? { label: '초안 작성 전', className: 'bg-muted text-muted-foreground' }
+    : NOTICE_STATUS[notice.status]
 }
