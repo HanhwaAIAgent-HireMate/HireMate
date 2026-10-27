@@ -27,7 +27,17 @@ public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, Str
         List<Stage> stages,
         List<CandidateRow> candidates, Map<UUID, List<ApplicantDocument>> documents,
         Map<UUID, BigDecimal> documentScores, Map<UUID, InterviewView> interviews, List<UUID> mentions,
-        List<UUID> checked, CompanyProfile company, PostingContent posting, String message) {
+        List<UUID> checked, CompanyProfile company, PostingContent posting, String message,
+        Map<UUID, List<InterviewerMemo>> interviewerMemos) {
+
+    public ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
+            StageType stageType, List<Stage> stages, List<CandidateRow> candidates,
+            Map<UUID, List<ApplicantDocument>> documents, Map<UUID, BigDecimal> documentScores,
+            Map<UUID, InterviewView> interviews, List<UUID> mentions, List<UUID> checked,
+            CompanyProfile company, PostingContent posting, String message) {
+        this(stageId, recruitmentId, threadId, stageName, selectable, stageType, stages, candidates,
+                documents, documentScores, interviews, mentions, checked, company, posting, message, Map.of());
+    }
 
     /** 채용의 전형 하나. */
     public record Stage(UUID id, String name, StageType type, StageStatus status) {

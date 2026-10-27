@@ -63,6 +63,8 @@ class RootFocusChatTests extends IntegrationTest {
         when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.ANSWER, "답", List.of(), List.of(),
                 List.of()));
         String interview = passAndFinish(hr, document, id.toString());
+        expect(hr.put(interview + "/candidates/" + id + "/memo",
+                Map.of("memo", "협업 사례의 본인 역할은 추가 확인이 필요함")), 204);
         // 전형 종료 이벤트가 다른 스레드에서 root.forgetStage를 부르므로, 끝난 뒤에 계획을 바꿔 둔다
         verify(root, timeout(10_000)).forgetStage(any());
 
@@ -81,6 +83,9 @@ class RootFocusChatTests extends IntegrationTest {
         ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
         verify(root, atLeastOnce()).plan(sent.capture(), any());
         assertThat(sent.getValue().interviews()).containsKey(id);
+        assertThat(sent.getValue().interviewerMemos().get(id)).hasSize(1);
+        assertThat(sent.getValue().interviewerMemos().get(id).getFirst().text())
+                .isEqualTo("협업 사례의 본인 역할은 추가 확인이 필요함");
     }
 
     private static String passAndFinish(TestApi hr, String stagePath, String applicationId) throws Exception {

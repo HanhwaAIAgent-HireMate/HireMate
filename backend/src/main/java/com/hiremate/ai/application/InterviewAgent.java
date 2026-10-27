@@ -31,6 +31,13 @@ public interface InterviewAgent {
             InterviewView interview, CompanyProfile company, String focus,
             Integer questionCount);
 
+    /** Chat에서 명시적으로 요청한 메모의 추가 확인 질문. 지원하지 않으면 질문을 꾸며내지 않는다. */
+    default List<InterviewQuestionDraft> memoQuestions(ApplicantDetail applicant, PostingContent posting,
+            CandidateAnalysis analysis, InterviewView interview, CompanyProfile company, String focus,
+            InterviewerMemo memo) {
+        return List.of();
+    }
+
     /** 앞 전형 결과를 확정할 때 질문을 미리 만든다. 매개변수는 {@link #questions}와 같고 범위(focus)는 없다. */
     Optional<List<InterviewQuestionDraft>> prepare(String target, ApplicantDetail applicant,
             PostingContent posting,

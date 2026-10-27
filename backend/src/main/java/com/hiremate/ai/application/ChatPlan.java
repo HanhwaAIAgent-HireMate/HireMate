@@ -14,7 +14,17 @@ import java.util.UUID;
  */
 public record ChatPlan(Intent intent, SelectionMode mode, EditAction edit, List<UUID> targets, String message,
         List<ChatItem> items, List<String> sources, List<String> agents, List<UUID> questionTargets,
-        Map<UUID, String> questionFocus) {
+        Map<UUID, String> questionFocus, Map<UUID, InterviewerMemo> questionMemos) {
+
+    public ChatPlan {
+        questionMemos = questionMemos == null ? Map.of() : questionMemos;
+    }
+
+    public ChatPlan(Intent intent, SelectionMode mode, EditAction edit, List<UUID> targets, String message,
+            List<ChatItem> items, List<String> sources, List<String> agents, List<UUID> questionTargets,
+            Map<UUID, String> questionFocus) {
+        this(intent, mode, edit, targets, message, items, sources, agents, questionTargets, questionFocus, Map.of());
+    }
 
     /** 확인할 점 없이 만드는 계획. */
     public ChatPlan(Intent intent, SelectionMode mode, EditAction edit, List<UUID> targets, String message,
