@@ -300,12 +300,20 @@ public class ChatService {
         }
     }
 
-    /** 담당자의 이 전형 대화 기록. 다른 기업의 전형이면 찾을 수 없다. */
+    /** 담당자의 이 전형 대화 기록. 다른 기업의 전형이면 찾을 수 없다. 멘션은 지금 이 전형의 지원자 이름으로 보여 준다. */
     public List<ChatTurn> history(UUID companyId, UUID stageId, UUID memberId) {
         recruits.getByStage(companyId, stageId);
-        return root.history(threadId(companyId, stageId, memberId)).stream()
+        List<ChatHistoryTurn> turns = root.history(threadId(companyId, stageId, memberId));
+        Map<UUID, String> names = turns.stream().anyMatch(turn -> !turn.mentions().isEmpty())
+                ? allCandidates(companyId, stageId).stream()
+                        .collect(Collectors.toMap(CandidateRow::applicationId, CandidateRow::name))
+                : Map.of();
+        return turns.stream()
                 .map(turn -> new ChatTurn(turn.message(),
-                        answer(turn.plan(), false, turn.plan().targets().size(), turn.total())))
+                        turn.mentions().stream().filter(names::containsKey)
+                                .map(id -> new ChatMention(id, names.get(id))).toList(),
+                        answer(turn.plan(), false, turn.plan().targets().size(), turn.total()),
+                        turn.steps(), turn.seconds()))
                 .toList();
     }
 
