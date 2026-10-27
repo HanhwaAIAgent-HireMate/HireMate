@@ -19,7 +19,16 @@ from hiremate_ai.agents.root.commands import (
     compile_reply,
 )
 from hiremate_ai.agents.root.toolkit import default_toolkit
-from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Decision, EditAction, Intent, SelectionMode
+from hiremate_ai.agents.root.types import (
+    ChatContext,
+    ChatPlan,
+    ChatStage,
+    Decision,
+    EditAction,
+    Intent,
+    SelectionMode,
+    StageStatus,
+)
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, DocumentType, PostingContent, StageType
 
 type Applicants = dict[str, ApplicantDetail]
@@ -83,6 +92,220 @@ async def test_final_answer_keeps_only_verified_evidence(context: ChatContext) -
     ]
     assert plan.sources == ["이력서"]
     assert plan.targets == [] and plan.question_targets == []
+
+
+async def test_empty_candidate_is_normalized_for_a_stage_wide_item(context: ChatContext) -> None:
+    raw = AnswerItem(
+        candidate="",
+        label="기업 소개",
+        text="등록된 기업 소개예요.",
+        status="OK",
+        evidence=[AnswerEvidence(sentence=context.company.intro, source="회사 소개")],
+    )
+
+    plan = await answer(context, candidates=[], items=[raw], message="기업 소개를 확인했어요.")
+
+    assert raw.candidate is None
+    assert [(entry.application_id, entry.status) for entry in plan.items] == [(None, "OK")]
+    assert plan.sources == ["회사 소개"]
+
+
+@pytest.mark.parametrize("empty", [None, "null"])
+async def test_flat_answer_accepts_only_absent_action_and_result(context: ChatContext, empty: str | None) -> None:
+    reply = RootReply.model_validate(
+        {
+            "kind": "answer",
+            "message": "경험을 확인했어요.",
+            "items": [item().model_dump()],
+            "candidates": ["C1"],
+            "action": empty,
+            "result": empty,
+            "focus": {},
+        }
+    )
+
+    plan = await compile_reply(reply, context, default_toolkit(), {})
+
+    assert isinstance(reply.command, AnswerCommand)
+    assert plan.intent is Intent.ANSWER
+    assert [entry.application_id for entry in plan.items] == [context.candidates[0].application_id]
+    assert plan.targets == []
+
+
+@pytest.mark.parametrize("extra", [{"action": "CLEAR"}, {"result": "S1"}])
+def test_flat_answer_rejects_real_unused_command_values(extra: dict[str, str]) -> None:
+    with pytest.raises(ValidationError, match="사용하지 않는"):
+        RootReply.model_validate({"kind": "answer", "message": "정리했어요.", "action": None, "result": None, **extra})
+
+
+async def test_stage_count_quote_is_verified_without_a_candidate(context: ChatContext) -> None:
+    aggregate = AnswerItem(
+        candidate=None,
+        label="결정 현황",
+        text="현재 전형은 미결정 8명이에요.",
+        status="OK",
+        evidence=[
+            AnswerEvidence(sentence="서류 전형 (서류) 지원자 8명: 미결정 8명, 합격 0명, 불합격 0명", source="전형 결과")
+        ],
+    )
+
+    plan = await answer(context, candidates=[], items=[aggregate], message="현재 결정 현황이에요.")
+
+    assert [(entry.application_id, entry.status) for entry in plan.items] == [(None, "OK")]
+    assert plan.sources == ["전형 결과"]
+
+
+async def test_stage_order_can_be_verified_from_the_current_stage_configuration(context: ChatContext) -> None:
+    context = context.model_copy(
+        update={
+            "stages": [
+                *context.stages,
+                ChatStage(id=uuid4(), name="과제 평가", type=StageType.ASSESSMENT, status=StageStatus.PENDING),
+                ChatStage(id=uuid4(), name="1차 면접", type=StageType.INTERVIEW, status=StageStatus.PENDING),
+            ]
+        }
+    )
+    stages = AnswerItem(
+        candidate=None,
+        label="전형 순서",
+        text="현재 서류 전형 다음은 과제 평가이며, 세 번째가 1차 면접이에요.",
+        status="OK",
+        evidence=[
+            AnswerEvidence(sentence="2. 과제 평가", source="전형 결과"),
+            AnswerEvidence(sentence="3. 1차 면접", source="전형 결과"),
+        ],
+    )
+
+    plan = await answer(context, candidates=[], items=[stages], message="등록된 전형 순서예요.")
+
+    assert [(entry.application_id, entry.status) for entry in plan.items] == [(None, "OK")]
+    assert plan.sources == ["전형 결과"]
+
+
+async def test_selected_roster_uses_each_candidates_verified_selection_state(context: ChatContext) -> None:
+    context = context.model_copy(
+        update={
+            "candidates": [
+                row.model_copy(update={"selected": index < 2}) for index, row in enumerate(context.candidates)
+            ]
+        }
+    )
+    selected = [
+        AnswerItem(
+            candidate=f"C{index}",
+            label="선택 여부",
+            text=f"{name}이 선택되어 있어요.",
+            status="OK",
+            evidence=[AnswerEvidence(sentence="선택 여부: 선택됨", source="전형 결과")],
+        )
+        for index, name in [(1, "정유민"), (2, "김하늘")]
+    ]
+
+    plan = await answer(
+        context, candidates=["C1", "C2"], items=selected, message="선택 지원자는 정유민과 김하늘이에요."
+    )
+
+    assert [(entry.application_id, entry.status) for entry in plan.items] == [
+        (row.application_id, "OK") for row in context.candidates[:2]
+    ]
+    assert plan.sources == ["전형 결과"]
+    assert "정유민" in plan.message and "김하늘" in plan.message
+
+
+async def test_candidate_can_quote_its_own_compressed_stage_summary_row(context: ChatContext) -> None:
+    context = context.model_copy(
+        update={
+            "candidates": [
+                context.candidates[0].model_copy(update={"selected": True, "career_years": 12}),
+                *context.candidates[1:],
+            ]
+        }
+    )
+    selected = AnswerItem(
+        candidate="C1",
+        label="선택 및 등록 경력",
+        text="정유민은 선택된 지원자로, 등록 경력은 12년이에요.",
+        status="OK",
+        evidence=[AnswerEvidence(sentence="C1 정유민, 미결정, 경력 12년, 선택 여부: 선택됨", source="전형 결과")],
+    )
+
+    plan = await answer(context, items=[selected], message="선택 상태와 등록 경력을 확인했어요.")
+
+    assert [(entry.application_id, entry.status) for entry in plan.items] == [
+        (context.candidates[0].application_id, "OK")
+    ]
+    assert plan.sources == ["전형 결과"]
+
+
+async def test_candidate_cannot_quote_another_candidates_stage_summary_row(context: ChatContext) -> None:
+    context = context.model_copy(
+        update={
+            "candidates": [
+                context.candidates[0].model_copy(update={"selected": True, "career_years": 12}),
+                context.candidates[1].model_copy(update={"selected": True, "career_years": 12}),
+                *context.candidates[2:],
+            ]
+        }
+    )
+    selected = AnswerItem(
+        candidate="C1",
+        label="선택 및 등록 경력",
+        text="정유민의 등록 경력은 12년이에요.",
+        status="OK",
+        evidence=[AnswerEvidence(sentence="C2 김하늘, 미결정, 경력 12년, 선택 여부: 선택됨", source="전형 결과")],
+    )
+
+    with pytest.raises(ValueError, match="근거"):
+        await answer(context, items=[selected], message="등록 경력을 확인했어요.")
+
+
+async def test_stage_wide_roster_cannot_replace_candidate_linked_items(context: ChatContext) -> None:
+    context = context.model_copy(
+        update={
+            "candidates": [
+                row.model_copy(update={"selected": index < 2}) for index, row in enumerate(context.candidates)
+            ]
+        }
+    )
+    selected = AnswerItem(
+        candidate=None,
+        label="선택 명단",
+        text="정유민과 김하늘이 선택되어 있어요.",
+        status="OK",
+        evidence=[AnswerEvidence(sentence="선택 지원자 2명: C1 정유민, C2 김하늘", source="전형 결과")],
+    )
+
+    with pytest.raises(ValueError, match="지원자"):
+        await answer(context, candidates=[], items=[selected], message="선택 명단이에요.")
+
+
+@pytest.mark.parametrize(
+    "sentence,text",
+    [
+        ("선택 지원자 2명: C1 정유민, C3 박서준", "정유민과 박서준이 선택되어 있어요."),
+        ("선택 지원자 2명: C1 정유민, C2 김하늘", "정유민과 박서준이 선택되어 있어요."),
+    ],
+)
+async def test_stage_roster_rejects_forged_quotes_or_unquoted_candidates(
+    context: ChatContext, sentence: str, text: str
+) -> None:
+    context = context.model_copy(
+        update={
+            "candidates": [
+                row.model_copy(update={"selected": index < 2}) for index, row in enumerate(context.candidates)
+            ]
+        }
+    )
+    selected = AnswerItem(
+        candidate=None,
+        label="선택 명단",
+        text=text,
+        status="OK",
+        evidence=[AnswerEvidence(sentence=sentence, source="전형 결과")],
+    )
+
+    with pytest.raises(ValueError, match="근거|지원자"):
+        await answer(context, candidates=[], items=[selected], message="선택 명단이에요.")
 
 
 @pytest.mark.parametrize(

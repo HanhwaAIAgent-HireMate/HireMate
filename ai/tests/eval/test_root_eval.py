@@ -8,7 +8,7 @@
 import json
 import time
 from collections import Counter
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -16,9 +16,9 @@ from uuid import UUID, uuid4
 import pytest
 import pytest_asyncio
 from langgraph.checkpoint.memory import InMemorySaver
-from root_context import make_context, save_sample_profiles
+from root_context import extra_row, make_context, save_sample_profiles
 
-from hiremate_ai.agents.root.agent import VALIDATION_FAILED, run_agent
+from hiremate_ai.agents.root.agent import BUDGET_EXHAUSTED, VALIDATION_FAILED, run_agent
 from hiremate_ai.agents.root.conversation import review_conversation
 from hiremate_ai.agents.root.graph import RootThread, run_plan
 from hiremate_ai.agents.root.toolkit import AgentEvidence, RootToolkit, default_toolkit, profile_toolkit, scope_of
@@ -30,6 +30,7 @@ from hiremate_ai.db.profile import ItemAgent, ItemCategory
 from hiremate_ai.db.profile_store import NewItem, save_profile
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.call_log import CallRecord
+from hiremate_ai.llm.chat import ToolAgent
 from hiremate_ai.llm.client import build_llm
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
 
@@ -48,9 +49,43 @@ FIND_RUNS = 3
 class MemoryCallLog:
     def __init__(self) -> None:
         self.records: list[CallRecord] = []
+        self.validation: list[str] = []
 
     async def record(self, record: CallRecord) -> None:
         self.records.append(record)
+
+
+def trace_validation(log: MemoryCallLog, monkeypatch: pytest.MonkeyPatch) -> None:
+    """실제 모델 출력의 마지막 검증 오류까지 기록한다. 제출 문서나 도구 결과 본문은 복사하지 않는다."""
+    original = ToolAgent.run
+
+    async def traced(
+        agent: ToolAgent[Any],
+        user: str,
+        *,
+        context: object = None,
+        validate: Callable[[Any], Awaitable[str | None]] | None = None,
+    ) -> Any:
+        async def checked(value: Any) -> str | None:
+            problem = await validate(value) if validate is not None else None
+            if problem is not None:
+                log.validation.append(problem)
+            return problem
+
+        return await original(agent, user, context=context, validate=checked)
+
+    monkeypatch.setattr(ToolAgent, "run", traced)
+
+
+def print_failure_trace(log: MemoryCallLog) -> None:
+    """실패한 평가에서 모델의 도구 인자와 검증 오류만 출력한다."""
+    calls = [
+        {"agent": record.agent, **call}
+        for record in log.records
+        for call in (record.output or {}).get("tool_calls", [])
+    ]
+    print("failure tool calls: " + json.dumps(calls, ensure_ascii=False))
+    print("failure validation: " + json.dumps(log.validation, ensure_ascii=False))
 
 
 async def test_portfolio_question_request_keeps_generation_handoff(
@@ -82,6 +117,167 @@ async def test_portfolio_question_request_keeps_generation_handoff(
     assert plan.question_targets == [applicant.info.application_id]
     assert all(record.agent == "root" for record in calls.records)
     assert "consult_application" not in tools and "consult_interview" not in tools
+
+
+@pytest.mark.parametrize(
+    ("stage_type", "message", "names", "unrelated_context", "duplicate_name"),
+    [
+        (
+            StageType.INTERVIEW,
+            "@김도현 @이서윤 각각의 제출 서류에 맞는 질문 3개씩 만들어줘.",
+            ("김도현", "이서윤"),
+            False,
+            False,
+        ),
+        (
+            StageType.DOCUMENT,
+            "@김도현 @이서윤 각각의 제출 서류에 맞는 질문 3개씩 만들어줘.",
+            ("김도현", "이서윤"),
+            False,
+            False,
+        ),
+        (
+            StageType.INTERVIEW,
+            "김도현과 이서윤 각각의 제출 서류에 맞는 질문 3개씩 만들어줘.",
+            ("김도현", "이서윤"),
+            False,
+            False,
+        ),
+        (
+            StageType.DOCUMENT,
+            "김도현과 이서윤 각각의 제출 서류에 맞는 질문 3개씩 만들어줘.",
+            ("김도현", "이서윤"),
+            False,
+            False,
+        ),
+        (
+            StageType.INTERVIEW,
+            "@정유민 @김도현 각각의 제출 서류에 맞는 질문 3개씩 만들어줘.",
+            ("김도현",),
+            True,
+            False,
+        ),
+        (
+            StageType.INTERVIEW,
+            "@정유민 제출 서류에 맞는 질문 3개 만들어줘.",
+            ("정유민",),
+            True,
+            True,
+        ),
+    ],
+    ids=[
+        "missing-at-interview",
+        "missing-at-document",
+        "missing-plain-interview",
+        "missing-plain-document",
+        "mixed-with-unrelated-context",
+        "ambiguous-with-unrelated-context",
+    ],
+)
+async def test_question_request_clarifies_unresolved_names_without_substitution(
+    stage_type: StageType,
+    message: str,
+    names: tuple[str, ...],
+    unrelated_context: bool,
+    duplicate_name: bool,
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """본문의 대상이 없거나 동명이인이면 다른 화면 대상에게 질문을 만들지 않고 이름을 확인한다."""
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message=message,
+        stage_type=stage_type,
+        previous_types=[StageType.DOCUMENT] if stage_type is StageType.INTERVIEW else [],
+        checked=["김하늘"] if unrelated_context else [],
+        selected=["박서준"] if unrelated_context else [],
+        extra_rows=[extra_row("정유민")] if duplicate_name else [],
+    )
+    subject = sample_applicants["이도윤"].info.application_id
+    previous = context.model_copy(update={"message": "이도윤 님의 제출 서류를 검토해줘."})
+    turns = (
+        [turn_of(previous, [subject], ChatPlan.answer(Intent.ANSWER, "이도윤 님의 제출 서류를 검토했어요."))]
+        if unrelated_context
+        else []
+    )
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 8)
+    calls = MemoryCallLog()
+    trace_validation(calls, monkeypatch)
+
+    result = await run_agent(
+        build_llm(calls),
+        context,
+        default_toolkit(),
+        turns=turns,
+        result=[str(subject)] if unrelated_context else None,
+        subject=[str(subject)] if unrelated_context else [],
+    )
+    plan = result.plan
+
+    tools = [tool["name"] for record in calls.records for tool in (record.output or {}).get("tool_calls", [])]
+    print(f"unresolved names: stage={stage_type}, intent={plan.intent}, calls={len(calls.records)}, tools={tools}")
+    try:
+        assert plan.intent is Intent.CLARIFY
+        assert all(name in plan.message for name in names)
+        assert not plan.question_targets and not plan.question_focus
+        assert not plan.targets and plan.edit is None
+        assert plan.message not in {BUDGET_EXHAUSTED, VALIDATION_FAILED}
+    except AssertionError:
+        print_failure_trace(calls)
+        raise
+
+
+@pytest.mark.parametrize("source", ["mentions", "checked"], ids=["mention-plus-missing-name", "checked-duplicate-name"])
+async def test_question_request_preserves_explicit_identity_sources(
+    source: str,
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """첨부된 멘션 밖의 이름도 확인하고 체크한 동명이인은 해당 번호를 그대로 질문 대상으로 쓴다."""
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="정유민과 김도현 질문 각각 3개씩 만들어줘." if source == "mentions" else "체크한 사람 질문 만들어줘",
+        stage_type=StageType.INTERVIEW,
+        previous_types=[StageType.DOCUMENT],
+        mentions=["정유민"] if source == "mentions" else [],
+        checked=["정유민"] if source == "checked" else [],
+    )
+    if source == "checked":
+        context = context.model_copy(update={"candidates": [*context.candidates, extra_row("정유민")]})
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 8)
+    calls = MemoryCallLog()
+    trace_validation(calls, monkeypatch)
+
+    plan = await run_plan(build_llm(calls), context, default_toolkit())
+
+    tools = [tool for record in calls.records for tool in (record.output or {}).get("tool_calls", [])]
+    print(
+        f"question identity source: source={source}, intent={plan.intent}, calls={len(calls.records)}, "
+        f"tools={[tool['name'] for tool in tools]}"
+    )
+    try:
+        assert not plan.targets and plan.edit is None
+        assert plan.message not in {BUDGET_EXHAUSTED, VALIDATION_FAILED}
+        if source == "mentions":
+            assert plan.intent is Intent.CLARIFY and "김도현" in plan.message
+            assert not plan.question_targets and not plan.question_focus
+        else:
+            assert plan.intent is Intent.ANSWER
+            assert plan.question_targets == [sample_applicants["정유민"].info.application_id]
+            assert any(
+                tool["name"] == "resolve_candidates" and tool["args"].get("source") == "checked" for tool in tools
+            )
+    except AssertionError:
+        print_failure_trace(calls)
+        raise
 
 
 async def test_portfolio_candidate_lookup_succeeds_on_independent_first_requests(
@@ -403,6 +599,200 @@ async def test_finance_followup_keeps_the_selected_scope(
     assert {row.application_id for row in context.candidates if row.name in ("정유민", "김하늘", "한예린")} == set(
         plan.targets
     )
+
+
+async def test_independent_searches_replace_the_whole_stage_after_each_previous_selection(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    toolkit: RootToolkit,
+) -> None:
+    """독립 조건을 연속으로 물어도 앞 결과나 화면 선택에 검색 범위가 갇히지 않는다."""
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 도메인 경험자 찾아줘")
+    saver = InMemorySaver()
+    thread = RootThread(id=str(uuid4()), company_id=context.company.company_id, stage_id=context.stage_id)
+    requests = [
+        ("금융 도메인 경험자 찾아줘", {"정유민", "김하늘", "한예린"}),
+        ("결제 정산 운영해 본 사람 찾아줘", {"정유민", "김하늘", "한예린"}),
+        ("대용량 트래픽 처리해 본 사람 찾아줘", {"정유민", "박서준"}),
+        ("Java와 Spring Boot 개발 경험자 찾아줘", {"정유민", "김하늘"}),
+        ("PostgreSQL 사용 경험자 찾아줘", {"박서준", "한예린"}),
+        ("SQL 쿼리 성능 튜닝 경험자 찾아줘", {"김하늘", "박서준"}),
+        ("외부 카드사 연동 장애 대응 경험자 찾아줘", {"한예린"}),
+    ]
+    by_id = {row.application_id: row.name for row in context.candidates}
+    for message, expected in requests:
+        log = MemoryCallLog()
+        context = context.model_copy(update={"message": message})
+
+        plan = await run_plan(build_llm(log), context, toolkit, saver=saver, thread=thread)
+
+        searches = [
+            call["args"]
+            for record in log.records
+            for call in (record.output or {}).get("tool_calls", [])
+            if call["name"] == "search_candidates"
+        ]
+        found = {by_id[target] for target in plan.targets}
+        print(f"independent search {message}: intent={plan.intent}, mode={plan.mode}, found={sorted(found)}")
+        assert searches, f"조건 검색을 호출하지 않았어요: {message}"
+        assert all(search.get("pool") is None for search in searches), searches
+        assert all(search["query"].get("mode", "REPLACE") == "REPLACE" for search in searches), searches
+        assert plan.intent is Intent.FIND and plan.mode == "REPLACE"
+        assert expected <= found
+        context = context.model_copy(
+            update={
+                "candidates": [
+                    row.model_copy(update={"selected": row.application_id in plan.targets})
+                    for row in context.candidates
+                ]
+            }
+        )
+
+
+async def test_add_followup_does_not_substitute_selected_people_for_previous_decided_results(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    toolkit: RootToolkit,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """직전 합격자 검색을 편집할 수 없을 때 별개의 선택 목록으로 대상을 바꾸지 않는다."""
+    context = context_for(
+        {
+            "message": "합격한 사람 중 금융 도메인 경험자 찾아줘",
+            "decisions": {"정유민": "PASS", "김하늘": "PASS", "한예린": "PASS"},
+            "selected": ["박서준", "이도윤", "서민재"],
+        },
+        sample_applicants,
+        sample_company,
+        sample_posting,
+    )
+    saver = InMemorySaver()
+    thread = RootThread(id=str(uuid4()), company_id=context.company.company_id, stage_id=context.stage_id)
+    log = MemoryCallLog()
+    trace_validation(log, monkeypatch)
+    first = await run_plan(build_llm(log), context, toolkit, saver=saver, thread=thread)
+    assert first.intent is Intent.ANSWER
+    assert {item.application_id for item in first.items} == {
+        sample_applicants[name].info.application_id for name in ("정유민", "김하늘", "한예린")
+    }
+
+    plan = await run_plan(
+        build_llm(log),
+        context.model_copy(update={"message": "스테이지에 올려줘", "mentions": [], "checked": []}),
+        toolkit,
+        saver=saver,
+        thread=thread,
+    )
+
+    print(f"decided followup: intent={plan.intent}, targets={plan.targets}, message={plan.message}")
+    if (
+        plan.intent not in {Intent.ANSWER, Intent.CLARIFY}
+        or plan.targets
+        or plan.edit
+        or plan.message == VALIDATION_FAILED
+    ):
+        print_failure_trace(log)
+    assert plan.intent in {Intent.ANSWER, Intent.CLARIFY}
+    assert not plan.targets and plan.edit is None
+    assert "확인하지 못했어요" not in plan.message
+    assert any(word in plan.message for word in ("합격", "결정", "대상", "누구", "어떤"))
+
+
+@pytest.mark.parametrize(
+    "case_id,message",
+    [
+        ("overview-count", "현재 전형 전체 지원자가 몇 명이야?"),
+        ("selected-names", "현재 선택된 지원자가 누구야?"),
+        ("company-talents", "우리 회사에 등록된 인재상을 알려줘"),
+        ("posting-preferred", "이 공고에 등록된 우대 사항을 알려줘"),
+        ("stages-order", "이 채용의 전형 순서를 알려줘"),
+        ("registered-career-leaders", "전체 지원자 중 경력이 가장 많은 사람은 누구야?"),
+    ],
+    ids=["overview-count", "selected-names", "company-talents", "posting-preferred", "stages-order", "career-leaders"],
+)
+async def test_common_facts_and_career_ranking_use_the_complete_64_person_context(
+    case_id: str,
+    message: str,
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """공통 사실과 전형 전체 순위는 특정 지원자의 문서 근거로 대체하지 않는다."""
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message=message,
+        selected=["정유민", "김하늘"],
+        checked=["박서준"],
+        stage_type=StageType.ASSESSMENT,
+        previous_types=[StageType.DOCUMENT],
+        later_types=[StageType.INTERVIEW],
+    )
+    extra = [
+        context.candidates[0].model_copy(
+            update={
+                "application_id": uuid4(),
+                "name": f"가상지원자{number}",
+                "career_years": 12 if number in (41, 64) else number % 10,
+                "last_company": None,
+                "selected": number == 64,
+            }
+        )
+        for number in range(9, 65)
+    ]
+    context = context.model_copy(
+        update={
+            "candidates": [*context.candidates, *extra],
+            "stage_name": "과제 평가",
+            "stages": [
+                stage.model_copy(update={"name": "과제 평가"}) if stage.id == context.stage_id else stage
+                for stage in context.stages
+            ],
+        }
+    )
+    log = MemoryCallLog()
+    trace_validation(log, monkeypatch)
+
+    plan = await run_plan(build_llm(log), context, default_toolkit())
+
+    print(f"common fact {case_id}: intent={plan.intent}, sources={plan.sources}, message={plan.message}")
+    if plan.intent is not Intent.ANSWER:
+        print_failure_trace(log)
+    assert plan.intent is Intent.ANSWER
+    assert not plan.targets and plan.edit is None and not plan.question_targets
+    assert plan.items and all(item.status == "OK" for item in plan.items)
+    text = plan.message + " " + " ".join(item.text for item in plan.items)
+    by_id = {row.application_id: row.name for row in context.candidates}
+    covered = {by_id[item.application_id] for item in plan.items if item.application_id is not None}
+    if case_id in {"company-talents", "posting-preferred"}:
+        assert not covered
+        if case_id == "company-talents":
+            assert "회사 소개" in plan.sources
+            assert all(talent.title in text for talent in sample_company.talents)
+        else:
+            assert "공고" in plan.sources
+            assert all(preferred in text for preferred in sample_posting.preferred)
+    else:
+        tools = [call["name"] for record in log.records for call in (record.output or {}).get("tool_calls", [])]
+        assert "get_stage_summary" in tools
+        assert "전형 결과" in plan.sources
+        if case_id == "overview-count":
+            assert "64" in text and not covered
+        elif case_id == "selected-names":
+            assert covered == {"정유민", "김하늘", "가상지원자64"}
+            assert not strangers(plan, context, ("정유민", "김하늘", "가상지원자64"))
+        elif case_id == "stages-order":
+            positions = [text.find(name) for name in ("서류 전형", "과제 평가", "1차 면접")]
+            assert all(position >= 0 for position in positions) and positions == sorted(positions)
+            assert not covered
+        else:
+            assert covered == {"가상지원자41", "가상지원자64"}
+            assert "12" in text and "등록" in text
+            assert any(word in text for word in ("동률", "같", "공동", "두 명", "2명"))
 
 
 async def test_root_command_cases(

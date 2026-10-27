@@ -121,6 +121,7 @@ def test_default_toolkit_uses_keyword_search() -> None:
 
     assert toolkit.search is keyword_search
     assert {tool.name for tool in toolkit.answer_tools} == {
+        "resolve_candidates",
         "get_candidate_documents",
         "get_stage_results",
         "get_interview_records",

@@ -98,7 +98,10 @@ class SearchQuery(BaseModel):
 
     mode: SelectionMode = Field(
         default=SelectionMode.REPLACE,
-        description="선택 방식. 새로 고르면 REPLACE, 기존 선택에 더하면 ADD, 그중 조건에 맞는 사람만 남기면 NARROW",
+        description=(
+            "새 완결 조건 검색의 기본값은 REPLACE다. 이전 결과나 현재 선택이 있어도 전체에서 새로 찾는다. "
+            "사용자가 기존 선택에 더하라고 하면 ADD, 그중이나 선택된 사람 안으로 명시해 좁힐 때만 NARROW"
+        ),
     )
     concepts: list[str] = Field(
         default_factory=list,

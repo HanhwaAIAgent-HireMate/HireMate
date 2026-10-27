@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, GetJsonSchemaHandler, model_validator
+from pydantic import BaseModel, ConfigDict, Field, GetJsonSchemaHandler, field_validator, model_validator
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema
 
@@ -119,13 +119,30 @@ class _ModelReply(BaseModel):
         )
     )
     message: str = Field(description="현재 요청에 대한 짧은 답. 분석 내용은 items에 적는다")
-    items: list[AnswerItem] = Field(default=[], description="지원자별 원문 근거 항목. 일반 대화와 선택 편집이면 []")
+    items: list[AnswerItem] = Field(
+        default=[],
+        description=(
+            "지원자별 원문 근거 항목. 전형 집계는 candidate=null인 항목에 전형 결과 근거를 쓴다. "
+            "일반 대화와 선택 편집이면 []"
+        ),
+    )
     candidates: list[str] = Field(
         default=[], description="answer, edit, questions의 대상 C번호. 전형 전체 답변과 다른 종류에서는 []"
     )
-    action: EditAction | None = Field(default=None, description="edit의 ADD, REMOVE, CLEAR, RESTORE. 다른 종류는 null")
-    result: str | None = Field(default=None, description="find가 참조할 실제 검색 결과 번호(S1 등). 다른 종류는 null")
+    action: EditAction | None = Field(
+        default=None, description='edit의 ADD, REMOVE, CLEAR, RESTORE. 다른 종류는 JSON null이며 문자열 "null"이 아니다'
+    )
+    result: str | None = Field(
+        default=None,
+        description='find가 참조할 실제 검색 결과 번호(S1 등). 다른 종류는 JSON null이며 문자열 "null"이 아니다',
+    )
     focus: dict[str, str] = Field(default={}, description="questions의 지원자별 확인할 점. 다른 종류는 {}")
+
+    @field_validator("action", "result", mode="before")
+    @classmethod
+    def null_literal(cls, value: Any) -> Any:
+        """null을 문자열로 잘못 감싼 표기만 복원하며 실제 명령 값은 그대로 검증한다."""
+        return None if value == "null" else value
 
 
 class RootReply(BaseModel):
@@ -227,7 +244,10 @@ def _rows(context: ChatContext, refs: Sequence[str]) -> list[CandidateRow]:
     for ref in refs:
         row = resolve_ref(context, ref)
         if row is None:
-            raise ValueError(f"지원자 번호 {ref!r}는 현재 전형에 없어요. 현재 전형의 번호를 사용하세요.")
+            raise ValueError(
+                f"지원자 번호 {ref!r}는 현재 전형에 없어요. resolve_candidates로 이름을 확인하고, "
+                "찾지 못했거나 동명이인이면 clarify로 되물어 주세요. 다른 사람으로 대신하지 마세요."
+            )
         if row.application_id in seen:
             raise ValueError("같은 지원자를 여러 번 지정하지 마세요.")
         seen.add(row.application_id)

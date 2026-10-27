@@ -1,0 +1,55 @@
+{
+  "threadId": "22222222-2222-2222-2222-222222222222:44444444-4444-4444-4444-444444444444:55555555-5555-5555-5555-555555555555",
+  "message": "이 지원자 빼줘",
+  "previous": {
+    "intent": "EDIT",
+    "mode": null,
+    "edit": "REMOVE",
+    "targets": [
+      "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"
+    ],
+    "message": "정유민 님을 선택 지원자에서 뺐어요.",
+    "items": [
+      {
+        "applicationId": null,
+        "label": "안내",
+        "text": "빼기는 불합격 처리가 아니에요.",
+        "status": null
+      }
+    ],
+    "sources": [
+      "이력서"
+    ],
+    "agents": [
+      "Application Agent"
+    ],
+    "questionTargets": [
+      "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"
+    ],
+    "questionFocus": {
+      "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": "자기소개서의 장애 회고 경험을 실제 역할 중심으로 확인"
+    }
+  },
+  "plan": {
+    "intent": "EDIT",
+    "mode": null,
+    "edit": "REMOVE",
+    "targets": [
+      "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"
+    ],
+    "message": "선택 지원자에서 1명을 뺐어요.",
+    "items": [],
+    "sources": [
+      "이력서"
+    ],
+    "agents": [
+      "Application Agent"
+    ],
+    "questionTargets": [
+      "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"
+    ],
+    "questionFocus": {
+      "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": "자기소개서의 장애 회고 경험을 실제 역할 중심으로 확인"
+    }
+  }
+}

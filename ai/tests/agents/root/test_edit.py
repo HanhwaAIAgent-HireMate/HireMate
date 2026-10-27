@@ -103,6 +103,21 @@ def test_add_keeps_eligible_candidates_and_explains_the_rest(
         "리스트의 '불합격' 탭에서 모아 볼 수 있어요. "
         "박서준 님은 기준선 아래라 선택 지원자에 넣을 수 없어요. 먼저 기준선 위로 올려 주세요."
     )
+    assert [(item.application_id, item.label, item.text, item.status) for item in plan.items] == [
+        (
+            None,
+            "선택 불가",
+            "김하늘 님은 이미 불합격 처리한 지원자라 선택 지원자에 넣을 수 없어요. "
+            "리스트의 '불합격' 탭에서 모아 볼 수 있어요.",
+            "CHECK",
+        ),
+        (
+            None,
+            "선택 불가",
+            "박서준 님은 기준선 아래라 선택 지원자에 넣을 수 없어요. 먼저 기준선 위로 올려 주세요.",
+            "CHECK",
+        ),
+    ]
 
 
 def test_add_explains_both_decisions(

@@ -27,3 +27,6 @@ backend가 질문과 근거를 함께 저장해 `InterviewView.Question.reason`�
 
 `ChatStatus`는 Root `plan` SSE의 `status` 이벤트 data다. `item` 이벤트 data는 `ChatPlan.items`의 한 항목,
 `done` 이벤트 data는 `ChatPlan`이다.
+
+`ChatApplied`는 업무 서버가 선택 변경을 검증한 뒤 실제 반영한 응답이다. 원래 질문과 계획이
+일치하는 기존 턴의 메시지, 항목과 대상 순서를 보정한다. 대화방이나 턴을 새로 만들지 않는다.

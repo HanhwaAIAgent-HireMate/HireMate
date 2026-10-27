@@ -2,6 +2,7 @@ package com.hiremate.ai.infra;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hiremate.ai.application.ChatApplied;
 import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatItem;
@@ -99,6 +100,28 @@ class RemoteRootAgentTests {
                 .containsExactly("/agents/root/history", "/agents/root/forget", "/agents/root/forgetStage");
         assertThat(MAPPER.readTree(bodyOf(sent.get(0))).path("threadId").asString()).isEqualTo("c:s:m");
         assertThat(MAPPER.readTree(bodyOf(sent.get(2))).path("stageId").asString()).isEqualTo(stageId.toString());
+    }
+
+    @Test
+    @DisplayName("실제 반영한 계획과 원본 계획을 applied 키로 /agents/root/applied에 보낸다")
+    void sendsAppliedPlan() throws IOException {
+        AtomicReference<ClientRequest> sent = new AtomicReference<>();
+        AiServerClient client = new AiServerClient(WebClient.builder().exchangeFunction(request -> {
+            sent.set(request);
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                    .body("{\"applied\":true}").build());
+        }), "http://ai.test", Duration.ofSeconds(1), MAPPER);
+        ChatPlan plan = MAPPER.readValue(Files.readString(CONTRACT_DIR.resolve("ChatPlan.json")), ChatPlan.class);
+        ChatApplied applied = new ChatApplied("company:stage:member", "이 지원자 빼줘", plan, plan);
+
+        new RemoteRootAgent(client).applied(applied);
+
+        assertThat(sent.get()).isNotNull();
+        assertThat(sent.get().url()).hasToString("http://ai.test/agents/root/applied");
+        JsonNode body = MAPPER.readTree(bodyOf(sent.get()));
+        assertThat(body.propertyNames()).containsExactly("applied");
+        assertThat(body.path("applied")).isEqualTo(MAPPER.valueToTree(applied));
     }
 
     private static String bodyOf(ClientRequest request) {

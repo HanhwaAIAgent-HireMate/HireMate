@@ -105,13 +105,30 @@ async def test_rejected_conversation_is_repaired_using_the_same_react_loop(
         conversation("현재 지원자는 백 명이에요."),
         ConversationReview(allowed=False),
         ToolCall("get_stage_summary"),
-        ToolCall("RootReply", {"message": "현재 지원자는 8명이에요.", "command": {"kind": "answer"}}),
+        ToolCall(
+            "RootReply",
+            {
+                "message": "현재 지원자는 8명이에요.",
+                "command": {"kind": "answer"},
+                "items": [
+                    {
+                        "candidate": None,
+                        "label": "지원자 수",
+                        "text": "현재 전형의 지원자는 8명이에요.",
+                        "status": "OK",
+                        "evidence": [{"sentence": "지원자 8명", "source": "전형 결과"}],
+                    }
+                ],
+            },
+        ),
     )
 
     plan = await run_plan(llm, context)
 
     assert plan.intent is Intent.ANSWER
     assert plan.message == "현재 지원자는 8명이에요."
+    assert [(item.application_id, item.status) for item in plan.items] == [(None, "OK")]
+    assert plan.sources == ["전형 결과"]
     assert len(llm.calls) == 4
     assert "미결정 8명" in llm.calls[-1].user
 

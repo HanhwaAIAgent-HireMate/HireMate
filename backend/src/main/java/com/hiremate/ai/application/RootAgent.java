@@ -9,6 +9,9 @@ public interface RootAgent {
     /** 계획을 낸다. 처리 중 단계와 검증된 항목은 progress로 먼저 보낸다. */
     ChatPlan plan(ChatContext context, ChatProgress progress);
 
+    /** 검증과 업무 반영을 마친 최종 계획으로 해당 대화 기록을 갱신한다. */
+    void applied(ChatApplied applied);
+
     /** 대화방의 지난 턴. 대화방이 없으면 빈 목록이다. */
     List<ChatHistoryTurn> history(String threadId);
 

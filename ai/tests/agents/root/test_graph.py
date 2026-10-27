@@ -6,6 +6,7 @@ from root_context import extra_row, make_context
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY
 from hiremate_ai.agents.root.agent import NOT_FINISHED, root_prompt
 from hiremate_ai.agents.root.graph import CHECKING, build_root_graph, run_plan, stream_plan
+from hiremate_ai.agents.root.toolkit import OUT_OF_SCOPE
 from hiremate_ai.agents.root.types import ChatItem, ChatPlan, ChatStatus, EditAction, Intent
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.chat import LlmOutputError
@@ -129,9 +130,14 @@ async def test_question_command_only_carries_validated_targets_and_focus(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(
-        sample_applicants, sample_company, sample_posting, message="질문 만들어줘", stage_type=StageType.INTERVIEW
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="정유민 질문 만들어줘",
+        stage_type=StageType.INTERVIEW,
     )
     llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": ["정유민"]}),
         ToolCall(
             "RootReply",
             {
@@ -139,7 +145,7 @@ async def test_question_command_only_carries_validated_targets_and_focus(
                 "command": {"kind": "questions", "candidates": ["C1"], "focus": {"C1": "본인 역할을 확인"}},
                 "items": [{"candidate": "C1", "label": "확인할 점", "text": "본인 역할을 확인", "status": "CHECK"}],
             },
-        )
+        ),
     )
 
     plan = await run_plan(llm, context)
@@ -148,6 +154,32 @@ async def test_question_command_only_carries_validated_targets_and_focus(
     assert plan.question_targets == [context.candidates[0].application_id]
     assert "본인 역할" in plan.question_focus[context.candidates[0].application_id]
     assert plan.targets == []
+
+
+async def test_checked_question_target_preserves_its_identity_with_a_same_name_candidate(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        message="체크한 지원자의 질문을 만들어줘",
+        checked=["정유민"],
+        extra_rows=[extra_row("정유민")],
+        stage_type=StageType.INTERVIEW,
+    )
+    llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": [], "source": "checked", "candidates": ["C1"]}),
+        reply("questions", candidates=["C1"]),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.ANSWER
+    assert plan.question_targets == context.checked
+    assert plan.question_targets != [context.candidates[-1].application_id]
+    assert plan.items == [] and plan.question_focus == {}
+    assert len(llm.calls) == 2
 
 
 async def test_graph_records_only_the_validated_plan(
@@ -236,5 +268,5 @@ async def test_bulk_read_rejects_the_entire_out_of_scope_batch(
 
     await run_plan(llm, context)
 
-    assert "조회 범위 밖" in llm.calls[-1].user
+    assert OUT_OF_SCOPE in llm.calls[-1].user
     assert sample_applicants["정유민"].documents[0].text not in llm.calls[-1].user

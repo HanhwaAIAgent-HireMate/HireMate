@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan, Decision, EditAction, Intent
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem, ChatPlan, Decision, EditAction, Intent
 from hiremate_ai.contract import StageType
 
 NO_TARGET = "누구를 말씀하시는지 모르겠어요. @로 지원자를 골라 다시 말씀해 주세요."
@@ -35,7 +35,7 @@ def plan_edit(action: EditAction, context: ChatContext, rows: Sequence[Candidate
     if not selectable:
         return ChatPlan.answer(Intent.CLARIFY, " ".join(reasons))
     message = " ".join([ADDED.format(names=_names(selectable)), *reasons])
-    return _edit(EditAction.ADD, [row.application_id for row in selectable], message)
+    return _edit(EditAction.ADD, [row.application_id for row in selectable], message, reasons)
 
 
 def _selectable(context: ChatContext, row: CandidateRow) -> bool:
@@ -59,14 +59,14 @@ def _names(rows: Sequence[CandidateRow]) -> str:
     return ", ".join(row.name for row in rows)
 
 
-def _edit(action: EditAction, targets: list[UUID], message: str) -> ChatPlan:
+def _edit(action: EditAction, targets: list[UUID], message: str, reasons: Sequence[str] = ()) -> ChatPlan:
     return ChatPlan(
         intent=Intent.EDIT,
         mode=None,
         edit=action,
         targets=targets,
         message=message,
-        items=[],
+        items=[ChatItem(application_id=None, label="선택 불가", text=reason, status="CHECK") for reason in reasons],
         sources=[],
         agents=[],
         question_targets=[],

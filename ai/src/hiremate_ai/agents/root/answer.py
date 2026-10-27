@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hiremate_ai.agents.analysis.assessment.checks import NOTE_SOURCE, SUBMISSION_SOURCE
 from hiremate_ai.agents.analysis.assessment.checks import RESULT_SOURCE as SCORE_SOURCE
@@ -16,6 +16,7 @@ from hiremate_ai.agents.guardrails import evidence_source
 from hiremate_ai.agents.root.toolkit import (
     DOUBTFUL,
     AgentEvidence,
+    candidate_summary_text,
     cited_agents,
     company_text,
     posting_text,
@@ -23,6 +24,7 @@ from hiremate_ai.agents.root.toolkit import (
     recorded_matches,
     resolve_ref,
     stage_result_text,
+    stage_summary_text,
 )
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem
 from hiremate_ai.contract import DocumentType
@@ -63,11 +65,19 @@ class AnswerEvidence(BaseModel):
 class AnswerItem(BaseModel):
     model_config = ConfigDict(json_schema_extra={"required": ["candidate", "label", "text", "status", "evidence"]})
 
-    candidate: str | None = Field(default=None, description="지원자 번호(C1 같은). 전형 전체 항목이면 비운다")
+    candidate: str | None = Field(
+        default=None, description="지원자 번호(C1 같은). 전형 전체 항목은 JSON null을 쓴다. 빈 문자열을 쓰지 않는다"
+    )
     label: str = Field(description="항목 이름")
     text: str = Field(description="한 줄 설명")
     status: Literal["OK", "CHECK"] = Field(description="근거가 충분하면 OK, 추가 확인이 필요하면 CHECK")
     evidence: list[AnswerEvidence] = Field(default=[], description="원문 근거와 출처")
+
+    @field_validator("candidate", mode="before")
+    @classmethod
+    def empty_candidate(cls, value: object) -> object:
+        """모델이 공통 항목을 빈 문자열로 보낸 경우만 명시적인 무대상으로 맞춘다."""
+        return None if value == "" else value
 
 
 def _invalid_message(message: str) -> bool:
@@ -185,8 +195,12 @@ def _verified_source(
         return source if _contains(_company_text(context), evidence.sentence) else None
     if source == POSTING_SOURCE:
         return source if _contains(_posting_text(context), evidence.sentence) else None
-    if source in (RESULT_SOURCE, SCORE_SOURCE) and row is not None:
-        actual = stage_result_text(context, row)
+    if source == RESULT_SOURCE or (source == SCORE_SOURCE and row is not None):
+        actual = (
+            "\n".join([stage_result_text(context, row), candidate_summary_text(context, row)])
+            if row is not None
+            else stage_summary_text(context)
+        )
         return source if _contains(actual.replace(":", ""), evidence.sentence.replace(":", "")) else None
     return None
 
