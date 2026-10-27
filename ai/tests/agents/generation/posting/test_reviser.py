@@ -906,6 +906,37 @@ async def test_revise_drops_company_facts_the_request_did_not_give() -> None:
     assert result.suggestion.content.benefits == CONTENT.benefits
 
 
+async def test_revise_does_not_invent_career_or_employment_type() -> None:
+    blank = CONTENT.model_copy(update={"career": "", "employment_type": ""})
+    llm = FakeLlm(route("CONTENT"), content(title="백엔드 개발자", career="경력 3년 이상", employment_type="정규직"))
+
+    result = await revise_posting(llm, posting(content=blank), "", "백엔드 개발자 채용 공고 써 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.changed_fields == ["title"]
+    assert result.suggestion.content.career == ""
+    assert result.suggestion.content.employment_type == ""
+
+
+@pytest.mark.parametrize(
+    ("request_text", "changed"),
+    [
+        ("신입 정규직으로 바꿔 줘", ["employmentType", "career"]),
+        ("경력 무관, 계약직으로 해 줘", ["employmentType", "career"]),
+        ("5년 차 이상 인턴으로 뽑을게", ["employmentType", "career"]),
+    ],
+)
+async def test_revise_changes_career_and_employment_type_the_request_names(
+    request_text: str, changed: list[str]
+) -> None:
+    llm = FakeLlm(route("CONTENT"), content(career="신입", employment_type="계약직"))
+
+    result = await revise_posting(llm, posting(), "", request_text)
+
+    assert result.suggestion is not None
+    assert result.suggestion.changed_fields == changed
+
+
 async def test_revise_changes_company_facts_the_request_names() -> None:
     llm = FakeLlm(route("CONTENT"), content(salary="회사 내규에 따름", position="사원~대리", education="학력 무관"))
 
