@@ -14,6 +14,7 @@ class TurnItem(TypedDict):
     application_id: str | None
     label: str
     text: str
+    status: NotRequired[str | None]  # 예전 체크포인트에는 없다. 읽을 때 검증된 계획과 대조한다
 
 
 class Turn(TypedDict):
@@ -76,12 +77,39 @@ def update_turn(turn: Turn, plan: ChatPlan, targets: Sequence[UUID] | None = Non
                 application_id=str(item.application_id) if item.application_id else None,
                 label=item.label,
                 text=item.text,
+                status=item.status,
             )
             for item in plan.items
         ],
         "focus": {str(application_id): focus for application_id, focus in plan.question_focus.items()},
         "plan": plan.model_dump(mode="json"),
     }
+
+
+def verified_turn_items(turn: Turn) -> list[TurnItem]:
+    """간결한 검증 항목만 돌려준다. 구형 상태는 같은 대상과 문장의 계획에서만 복구한다."""
+    planned = turn["plan"].get("items", [])
+    items: list[TurnItem] = []
+    for item in turn["items"]:
+        statuses = [
+            candidate.get("status")
+            for candidate in planned
+            if (
+                candidate.get("applicationId", candidate.get("application_id")),
+                candidate.get("label"),
+                candidate.get("text"),
+            )
+            == (item["application_id"], item["label"], item["text"])
+        ]
+        status = item.get("status")
+        if status is None:
+            status = "OK" if statuses and all(value == "OK" for value in statuses) else "CHECK"
+        elif status not in ("OK", "CHECK") or "CHECK" in statuses:
+            status = "CHECK"
+        items.append(
+            TurnItem(application_id=item["application_id"], label=item["label"], text=item["text"], status=status)
+        )
+    return items
 
 
 def remember(turns: list[Turn], turn: Turn, limit: int) -> list[Turn]:

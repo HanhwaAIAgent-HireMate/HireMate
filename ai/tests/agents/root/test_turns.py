@@ -1,7 +1,9 @@
 from uuid import UUID, uuid4
 
+import pytest
 from root_context import make_context
 
+from hiremate_ai.agents.root import turns
 from hiremate_ai.agents.root.find import NOT_FOUND
 from hiremate_ai.agents.root.turns import next_result, turn_of
 from hiremate_ai.agents.root.types import ChatItem, ChatPlan, EditAction, Intent, SelectionMode
@@ -143,3 +145,110 @@ def test_find_among_decided_turn_keeps_found(
     turn = turn_of(context, [], found_among_decided(B, C), "FIND")
 
     assert turn["targets"] == [B, C]
+
+
+@pytest.mark.parametrize("status", ["OK", "CHECK", None])
+def test_new_turn_preserves_item_status(
+    status: str | None,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="검토 결과 알려줘")
+    plan = ChatPlan.answer(
+        Intent.ANSWER,
+        "검토 결과예요.",
+        [ChatItem(application_id=UUID(A), label="본인 역할", text="직접 맡은 범위 확인", status=status)],
+    )
+
+    turn = turn_of(context, None, plan, "ANSWER")
+
+    assert turn["items"] == [
+        {"application_id": A, "label": "본인 역할", "text": "직접 맡은 범위 확인", "status": status}
+    ]
+
+
+@pytest.mark.parametrize("status", ["OK", "CHECK"])
+def test_legacy_turn_restores_only_exact_matching_plan_item_status(
+    status: str,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="검토 결과 알려줘")
+    plan = ChatPlan.answer(
+        Intent.ANSWER,
+        "검토 결과예요.",
+        [ChatItem(application_id=UUID(A), label="본인 역할", text="직접 맡은 범위 확인", status=status)],
+    )
+    turn = turn_of(context, None, plan, "ANSWER")
+    turn["items"] = [{"application_id": A, "label": "본인 역할", "text": "직접 맡은 범위 확인"}]
+
+    assert turns.verified_turn_items(turn) == [
+        {"application_id": A, "label": "본인 역할", "text": "직접 맡은 범위 확인", "status": status}
+    ]
+    assert "status" not in turn["items"][0]
+
+
+@pytest.mark.parametrize(
+    "plan_items",
+    [
+        [],
+        [{"application_id": B, "label": "본인 역할", "text": "직접 맡은 범위 확인", "status": "OK"}],
+        [{"application_id": A, "label": "다른 항목", "text": "직접 맡은 범위 확인", "status": "OK"}],
+        [{"application_id": A, "label": "본인 역할", "text": "다른 사실", "status": "OK"}],
+        [{"application_id": A, "label": "본인 역할", "text": "직접 맡은 범위 확인"}],
+        [{"application_id": A, "label": "본인 역할", "text": "직접 맡은 범위 확인", "status": None}],
+    ],
+)
+def test_legacy_turn_with_unrecoverable_status_stays_uncertain(
+    plan_items: list[dict[str, str | None]],
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="검토 결과 알려줘")
+    turn = turn_of(context, None, ChatPlan.answer(Intent.ANSWER, "검토 결과예요."), "ANSWER")
+    turn["items"] = [{"application_id": A, "label": "본인 역할", "text": "직접 맡은 범위 확인"}]
+    turn["plan"]["items"] = plan_items
+
+    assert turns.verified_turn_items(turn) == [
+        {"application_id": A, "label": "본인 역할", "text": "직접 맡은 범위 확인", "status": "CHECK"}
+    ]
+
+
+def test_compact_check_cannot_be_strengthened_by_saved_plan(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="검토 결과 알려줘")
+    plan = ChatPlan.answer(
+        Intent.ANSWER,
+        "검토 결과예요.",
+        [ChatItem(application_id=UUID(A), label="본인 역할", text="직접 맡은 범위 확인", status="OK")],
+    )
+    turn = turn_of(context, None, plan, "ANSWER")
+    turn["items"] = [{"application_id": A, "label": "본인 역할", "text": "직접 맡은 범위 확인", "status": "CHECK"}]
+
+    assert turns.verified_turn_items(turn)[0]["status"] == "CHECK"
+
+
+@pytest.mark.parametrize("compact_status,plan_status", [("OK", "CHECK"), ("unknown", "OK"), (None, None)])
+def test_conflicting_or_unknown_compact_status_remains_check(
+    compact_status: str | None,
+    plan_status: str | None,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="검토 결과 알려줘")
+    plan = ChatPlan.answer(
+        Intent.ANSWER,
+        "검토 결과예요.",
+        [ChatItem(application_id=UUID(A), label="본인 역할", text="직접 맡은 범위 확인", status=plan_status)],
+    )
+    turn = turn_of(context, None, plan, "ANSWER")
+    turn["items"] = [
+        {"application_id": A, "label": "본인 역할", "text": "직접 맡은 범위 확인", "status": compact_status}
+    ]
+
+    assert turns.verified_turn_items(turn)[0]["status"] == "CHECK"
