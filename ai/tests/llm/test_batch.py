@@ -130,6 +130,7 @@ class Provider:
         self.saved_answers: dict[str, list[dict[str, Any]]] = {}
         self.post_failure: str | None = None
         self.get_failures = 0
+        self.get_failure_status = 503
         self.status = "completed"
         self.item_error = False
         self.missing_result = False
@@ -166,7 +167,7 @@ class Provider:
         self.polled.set()
         if self.get_failures:
             self.get_failures -= 1
-            return httpx.Response(503, json={"error": "temporary failure"})
+            return httpx.Response(self.get_failure_status, json={"error": "temporary failure"})
         results = []
         for item, answer in zip(
             self.posts[int(batch_id.split("-")[-1]) - 1]["requests"], self.saved_answers[batch_id], strict=True
@@ -216,6 +217,7 @@ async def test_groups_jobs_and_matches_reversed_custom_ids_after_saving_refs() -
         assert payload["provider"] == {"only": ["sail-research"], "allow_fallbacks": False}
         assert payload["completion_window"] == "24h"
         assert len({item["custom_id"] for item in payload["requests"]}) == 2
+        assert all(1 <= len(item["custom_id"]) <= 64 for item in payload["requests"])
         assert set(store.refs["batch-1"]) == {"one", "two"}
         assert "문서" not in repr(store.calls)
     finally:
@@ -280,10 +282,12 @@ async def test_definite_submission_rejection_is_permanent_without_upstream_conte
         await target.aclose()
 
 
-async def test_poll_transient_errors_reuse_the_same_batch() -> None:
+@pytest.mark.parametrize("status", [404, 429, 503])
+async def test_poll_transient_errors_reuse_the_same_batch(status: int) -> None:
     store = MemoryStore()
     provider = Provider(store)
     provider.get_failures = 2
+    provider.get_failure_status = status
     target = dispatcher(provider, store)
     try:
         assert (await invoke(target))["choices"]
