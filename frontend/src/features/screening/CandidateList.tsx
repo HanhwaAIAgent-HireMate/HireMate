@@ -172,7 +172,7 @@ export function CandidateList({
           />
         </label>
       </div>
-      <div className="min-h-0 flex-1 space-y-1 overflow-auto px-3 pb-4">
+      <div className="min-h-0 flex-1 space-y-1 overflow-auto px-3 pt-1.5 pb-4">
         {candidates.isPending &&
           Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-12 w-full" />)}
         {!candidates.isPending && rows.length === 0 && (
