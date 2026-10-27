@@ -1,5 +1,6 @@
 package com.hiremate.recruit.domain;
 
+import com.hiremate.recruit.GuideMethod;
 import com.hiremate.recruit.StageGuide;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
@@ -10,6 +11,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -50,11 +52,12 @@ public class Stage {
 
     private Instant doneAt;
 
-    @Column(nullable = false, length = 200)
-    private String guideSchedule = "";
+    /** 전형 안내. 일정 · 진행 방식은 정하지 않았으면 null이다. */
+    private LocalDate guideSchedule;
 
-    @Column(nullable = false, length = 100)
-    private String guideMethod = "";
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private GuideMethod guideMethod;
 
     @Column(nullable = false, length = 500)
     private String guidePlace = "";

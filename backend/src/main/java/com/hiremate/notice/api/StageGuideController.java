@@ -3,10 +3,13 @@ package com.hiremate.notice.api;
 import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.notice.NoticeService;
 import com.hiremate.notice.StageGuideView;
+import com.hiremate.recruit.GuideMethod;
 import com.hiremate.recruit.StageGuide;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -38,9 +41,12 @@ public class StageGuideController {
                         request.note()));
     }
 
-    /** 길이는 stages 테이블의 안내 칸과 같다. note는 기타 안내다. */
-    public record StageGuideRequest(@NotNull @Size(max = 200) String schedule,
-            @NotNull @Size(max = 100) String method, @NotNull @Size(max = 500) String place,
-            @NotNull @Size(max = 1000) String preparation, @NotNull @Size(max = 1000) String note) {
+    /**
+     * 일정은 YYYY-MM-DD, 진행 방식은 ONLINE · OFFLINE이고 정하지 않았으면 null이다. 준비 사항은 500자까지 받는다.
+     * note는 기타 안내다. 앞 · 뒤 전형과 맞는 날짜인지, 장소가 진행 방식과 맞는지는 NoticeService가 본다.
+     */
+    public record StageGuideRequest(@Schema(nullable = true) LocalDate schedule,
+            @Schema(nullable = true) GuideMethod method, @NotNull @Size(max = 500) String place,
+            @NotNull @Size(max = 500) String preparation, @NotNull @Size(max = 1000) String note) {
     }
 }

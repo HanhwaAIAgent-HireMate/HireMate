@@ -12,6 +12,7 @@ import com.hiremate.recruit.StageDraft;
 import com.hiremate.recruit.StageType;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
@@ -173,7 +174,7 @@ class PostingTests extends IntegrationTest {
         assertThat(saved.path("stages").get(0).path("name").asString()).isEqualTo("서류 전형");
         assertThat(saved.path("stages").get(1).path("type").asString()).isEqualTo("ASSESSMENT");
         String coding = saved.path("stages").get(1).path("id").asString();
-        expect(hr.put("/api/stages/" + coding + "/guide", Map.of("schedule", "11월 5일", "method", "온라인",
+        expect(hr.put("/api/stages/" + coding + "/guide", Map.of("schedule", day(5), "method", "ONLINE",
                 "place", "", "preparation", "", "note", "")), 200);
 
         JsonNode moved = json(expect(hr.put(base + "/stages", Map.of("stages", List.of(stage("서류 전형", "DOCUMENT"),
@@ -181,7 +182,7 @@ class PostingTests extends IntegrationTest {
         assertThat(moved.path("stages").get(2).path("name").asString()).isEqualTo("코딩테스트");
         JsonNode guides = json(expect(hr.get("/api/recruitments/" + id + "/stage-guides"), 200));
         assertThat(guides.get(1).path("name").asString()).isEqualTo("코딩테스트");
-        assertThat(guides.get(1).path("guide").path("schedule").asString()).isEqualTo("11월 5일");
+        assertThat(guides.get(1).path("guide").path("schedule").asString()).isEqualTo(day(5));
 
         assertThat(json(expect(hr.put(base + "/stages", Map.of("stages", List.of(stage("면접", "INTERVIEW"),
                 stage("면접", "INTERVIEW")))), 400)).path("code").asString()).isEqualTo("DUPLICATE_STAGE_NAME");
@@ -217,7 +218,7 @@ class PostingTests extends IntegrationTest {
         assertThat(answer.path("posting").path("suggestion").isNull()).isTrue();
         String guide = "/api/stages/" + json(expect(hr.get("/api/recruitments/" + id + "/stage-guides"), 200))
                 .get(0).path("stageId").asString() + "/guide";
-        expect(hr.put(guide, Map.of("schedule", "11월 12일 오후 2시", "method", "대면", "place", "본사 5층",
+        expect(hr.put(guide, Map.of("schedule", day(12), "method", "OFFLINE", "place", "본사 5층",
                 "preparation", "", "note", "")), 200);
     }
 
@@ -246,6 +247,50 @@ class PostingTests extends IntegrationTest {
                 "focus", Map.of("field", "preferred", "index", -1))), 400);
     }
 
+    @Test
+    @DisplayName("전형별 안내는 날짜 형식 · 지난 날짜 · 앞뒤 전형 순서 · 진행 방식에 맞지 않는 장소를 막는다")
+    void stageGuideRejectsMismatchedInput() throws Exception {
+        TestApi hr = newHr();
+        String id = json(expect(hr.post("/api/recruitments", null), 201)).path("recruitmentId").asString();
+        expect(hr.put("/api/recruitments/" + id + "/posting/stages", Map.of("stages", List.of(
+                stage("서류 전형", "DOCUMENT"), stage("코딩테스트", "ASSESSMENT"), stage("1차 면접", "INTERVIEW")))), 200);
+        JsonNode guides = json(expect(hr.get("/api/recruitments/" + id + "/stage-guides"), 200));
+        String coding = "/api/stages/" + guides.get(0).path("stageId").asString() + "/guide";
+        String interview = "/api/stages/" + guides.get(1).path("stageId").asString() + "/guide";
+
+        assertThat(guideError(hr, coding, Map.of("schedule", day(-1)))).isEqualTo("GUIDE_DATE_PAST");
+        expect(hr.put(coding, guide(Map.of("schedule", "2026/11/03"))), 400);
+        expect(hr.put(coding, guide(Map.of("schedule", day(5), "method", "OFFLINE", "place", "본사 5층"))), 200);
+        assertThat(guideError(hr, interview, Map.of("schedule", day(5)))).isEqualTo("GUIDE_DATE_ORDER");
+        assertThat(guideError(hr, interview, Map.of("schedule", day(4)))).isEqualTo("GUIDE_DATE_ORDER");
+        assertThat(guideError(hr, interview, Map.of("method", "ONLINE", "place", "meet.example.com")))
+                .isEqualTo("GUIDE_LINK_INVALID");
+        assertThat(guideError(hr, interview, Map.of("method", "OFFLINE"))).isEqualTo("GUIDE_PLACE_REQUIRED");
+        assertThat(guideError(hr, interview, Map.of("place", "본사"))).isEqualTo("GUIDE_METHOD_REQUIRED");
+        expect(hr.put(interview, guide(Map.of("preparation", "x".repeat(501)))), 400);
+
+        expect(hr.put(interview, guide(Map.of("schedule", day(7), "method", "ONLINE",
+                "place", "https://meet.example.com/abc"))), 200);
+        assertThat(guideError(hr, coding, Map.of("schedule", day(8), "method", "OFFLINE", "place", "본사 5층")))
+                .isEqualTo("GUIDE_DATE_ORDER");
+    }
+
+    /** 오늘에서 며칠 뒤 (YYYY-MM-DD). */
+    private static String day(int days) {
+        return LocalDate.now().plusDays(days).toString();
+    }
+
+    /** 안내 요청 본문. 주지 않은 글 칸은 비우고, 일정 · 진행 방식은 정하지 않은 것(null)으로 둔다. */
+    private static Map<String, Object> guide(Map<String, Object> values) {
+        Map<String, Object> guide = new HashMap<>(Map.of("place", "", "preparation", "", "note", ""));
+        guide.putAll(values);
+        return guide;
+    }
+
+    private static String guideError(TestApi hr, String path, Map<String, Object> values) throws Exception {
+        return json(expect(hr.put(path, guide(values)), 400)).path("code").asString();
+    }
+
     private static Map<String, String> stage(String name, String type) {
         return Map.of("name", name, "type", type);
     }
@@ -266,10 +311,10 @@ class PostingTests extends IntegrationTest {
         assertThat(guides.get(0).path("missing").toString())
                 .isEqualTo("[\"일정\",\"진행 방식\",\"장소·접속 링크\",\"준비 사항\"]");
 
-        JsonNode saved = json(expect(hr.put("/api/stages/" + interview + "/guide", Map.of("schedule",
-                " 11월 3일(화) 오후 2시~4시 ", "method", "대면", "place", "", "preparation", "신분증", "note", "")),
-                200));
-        assertThat(saved.path("guide").path("schedule").asString()).isEqualTo("11월 3일(화) 오후 2시~4시");
+        JsonNode saved = json(expect(hr.put("/api/stages/" + interview + "/guide", Map.of("schedule", day(3),
+                "method", "ONLINE", "place", "", "preparation", " 신분증 ", "note", "")), 200));
+        assertThat(saved.path("guide").path("schedule").asString()).isEqualTo(day(3));
+        assertThat(saved.path("guide").path("preparation").asString()).isEqualTo("신분증");
         assertThat(saved.path("missing").toString()).isEqualTo("[\"장소·접속 링크\"]");
         assertThat(saved.path("notifiedCount").asInt()).isZero();
 
@@ -277,14 +322,11 @@ class PostingTests extends IntegrationTest {
         expect(hr.post(base + "/suggestion/apply", null), 200);
         JsonNode changed = json(expect(hr.get("/api/recruitments/" + id + "/stage-guides"), 200));
         assertThat(changed.get(0).path("name").asString()).isEqualTo("코딩테스트");
-        assertThat(changed.get(0).path("guide").path("schedule").asString()).isEmpty();
-        assertThat(changed.get(1).path("guide").path("method").asString()).isEqualTo("대면");
+        assertThat(changed.get(0).path("guide").path("schedule").isNull()).isTrue();
+        assertThat(changed.get(1).path("guide").path("method").asString()).isEqualTo("ONLINE");
 
         String guidePath = "/api/stages/" + changed.get(1).path("stageId").asString() + "/guide";
-        expect(hr.put(guidePath, Map.of("schedule", "x".repeat(201), "method", "", "place", "",
-                "preparation", "", "note", "")), 400);
-        expect(newHr().put(guidePath, Map.of("schedule", "", "method", "", "place", "", "preparation", "",
-                "note", "")), 404);
+        expect(newHr().put(guidePath, Map.of("place", "", "preparation", "", "note", "")), 404);
     }
 
     @Test

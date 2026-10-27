@@ -19,9 +19,12 @@ import com.hiremate.interview.InterviewView;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -226,7 +229,9 @@ class ScreeningTests extends IntegrationTest {
         String guides = "/api/recruitments/" + recruitment + "/stage-guides";
         String guidePath = "/api/stages/"
                 + json(expect(hr.get(guides), 200)).get(0).path("stageId").asString() + "/guide";
-        expect(hr.put(guidePath, Map.of("schedule", "11월 3일(화) 오후 2시~4시", "method", "대면", "place", "",
+        LocalDate first = LocalDate.now().plusDays(10);
+        String firstText = first.format(DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN));
+        expect(hr.put(guidePath, Map.of("schedule", first.toString(), "method", "ONLINE", "place", "",
                 "preparation", "신분증", "note", "11월 1일까지 참석 여부를 알려 주세요.\n\n 건물 주차는 지원되지 않습니다. ")),
                 200);
         expect(hr.post(stage.path() + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
@@ -239,27 +244,29 @@ class ScreeningTests extends IntegrationTest {
                 일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.
 
                 ■ 1차 면접 안내
-                - 일정: 11월 3일(화) 오후 2시~4시
-                - 진행 방식: 대면
+                - 일정: %s
+                - 진행 방식: 온라인
                 - 준비 사항: 신분증
 
                 ※ 11월 1일까지 참석 여부를 알려 주세요.
-                ※ 건물 주차는 지원되지 않습니다.""");
+                ※ 건물 주차는 지원되지 않습니다.""".formatted(firstText));
         assertThat(notices.get(0).path("guideMissing").toString()).isEqualTo("[\"장소·접속 링크\"]");
         assertThat(notices.get(1).path("guide").asString()).isEmpty();
         assertThat(notices.get(1).path("guideMissing").size()).isZero();
         JsonNode preview = json(expect(hr.get(stage.path() + "/notices/PASS/preview"), 200));
         assertThat(preview.path("html").asString()).containsSubsequence("홍길동님", ">1차 면접 안내</td>", ">일정</td>",
-                ">11월 3일(화) 오후 2시~4시</td>", "※ 건물 주차는 지원되지 않습니다.");
+                ">" + firstText + "</td>", "※ 건물 주차는 지원되지 않습니다.");
 
-        expect(hr.put(guidePath, Map.of("schedule", "11월 4일(수) 오전 10시~11시", "method", "", "place", "",
-                "preparation", "", "note", "")), 200);
+        LocalDate second = first.plusDays(1);
+        String secondText = second.format(DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN));
+        expect(hr.put(guidePath, Map.of("schedule", second.toString(), "place", "", "preparation", "", "note", "")),
+                200);
         expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
         assertThat(mail.sent).anySatisfy(message -> assertThat(message)
-                .contains("지원자1님", "다음 전형은 1차 면접입니다.", "■ 1차 면접 안내\n- 일정: 11월 4일(수) 오전 10시~11시")
+                .contains("지원자1님", "다음 전형은 1차 면접입니다.", "■ 1차 면접 안내\n- 일정: " + secondText)
                 .doesNotContain("신분증"));
         assertThat(mail.html).anySatisfy(html -> assertThat(html)
-                .containsSubsequence("지원자1님", ">1차 면접 안내</td>", ">11월 4일(수) 오전 10시~11시</td>"));
+                .containsSubsequence("지원자1님", ">1차 면접 안내</td>", ">" + secondText + "</td>"));
         assertThat(json(expect(hr.get(guides), 200)).get(0).path("notifiedCount").asInt()).isEqualTo(1);
     }
 

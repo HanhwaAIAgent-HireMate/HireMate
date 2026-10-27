@@ -17,19 +17,25 @@ import com.hiremate.notice.domain.Notice;
 import com.hiremate.notice.domain.NoticeDelivery;
 import com.hiremate.notice.domain.NoticeDeliveryRepository;
 import com.hiremate.notice.domain.NoticeRepository;
+import com.hiremate.recruit.GuideMethod;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageGuide;
 import com.hiremate.recruit.StageInfo;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.StageResults;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -45,6 +51,13 @@ public class NoticeService {
     static final String ONBOARDING_LEAD = "입사 일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.";
     static final String ONBOARDING_LATER = "입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.";
     static final String PREVIEW_APPLICANT = "홍길동";
+
+    /** 전형 안내 일정을 오늘과 비교할 때 쓰는 시간대. */
+    private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
+    /** 온라인 전형의 접속 링크. 주소(호스트)가 있고 띄어쓰기가 없어야 한다. */
+    private static final Pattern HTTP_URL = Pattern.compile("^https?://[^\\s/?#]+\\S*$", Pattern.CASE_INSENSITIVE);
+    /** 메일에 쓰는 전형 일정 (예: 2026년 11월 3일(화)). */
+    private static final DateTimeFormatter GUIDE_DATE = DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN);
 
     private final NoticeRepository notices;
     private final NoticeDeliveryRepository deliveries;
@@ -184,8 +197,41 @@ public class NoticeService {
     /** 이미 보낸 메일은 바뀌지 않는다. 화면은 notifiedCount로 받은 사람이 있음을 알린다. */
     @Transactional
     public StageGuideView changeGuide(UUID companyId, UUID stageId, StageGuide guide) {
+        RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
+        checkGuide(recruitment, recruitment.stage(stageId).orElseThrow(), guide);
         StageInfo stage = recruits.changeGuide(companyId, stageId, guide);
         return guideView(companyId, recruits.getByStage(companyId, stageId), stage);
+    }
+
+    /**
+     * 맞지 않는 안내는 저장하지 않는다. 일정은 바꿀 때만 오늘 이후인지 본다(이미 지난 전형의 안내도 고칠 수 있게).
+     * 일정은 앞 전형보다 뒤 · 다음 전형보다 앞이어야 한다(일정을 정한 가장 가까운 전형과 비교한다).
+     * 장소는 진행 방식을 정한 뒤에 쓰고, 온라인이면 http · https 주소, 오프라인이면 꼭 쓴다.
+     */
+    private static void checkGuide(RecruitmentInfo recruitment, StageInfo stage, StageGuide guide) {
+        LocalDate date = guide.schedule();
+        if (date != null && !date.equals(stage.guide().schedule()) && date.isBefore(LocalDate.now(KOREA))) {
+            throw invalidGuide("GUIDE_DATE_PAST", "The schedule is in the past.");
+        }
+        if (date != null && recruitment.stages().stream().anyMatch(other -> other.guide().schedule() != null
+                && (other.seq() < stage.seq() ? !other.guide().schedule().isBefore(date)
+                        : other.seq() > stage.seq() && !other.guide().schedule().isAfter(date)))) {
+            throw invalidGuide("GUIDE_DATE_ORDER", "The schedule must be between the previous and next stages.");
+        }
+        String place = guide.place();
+        if (guide.method() == null && !place.isEmpty()) {
+            throw invalidGuide("GUIDE_METHOD_REQUIRED", "Choose the method before the place.");
+        }
+        if (guide.method() == GuideMethod.OFFLINE && place.isEmpty()) {
+            throw invalidGuide("GUIDE_PLACE_REQUIRED", "An offline stage needs a place.");
+        }
+        if (guide.method() == GuideMethod.ONLINE && !place.isEmpty() && !HTTP_URL.matcher(place).matches()) {
+            throw invalidGuide("GUIDE_LINK_INVALID", "An online stage needs an http or https link.");
+        }
+    }
+
+    private static ApiException invalidGuide(String code, String message) {
+        return new ApiException(HttpStatus.BAD_REQUEST, code, message);
     }
 
     /** 최종 합격 안내의 입사 안내. 입사일은 최종 합격자를 정한 뒤에 정해져, 보내기 전 안내 화면에서 쓴다. */
@@ -272,8 +318,8 @@ public class NoticeService {
     /** 전형 안내 칸 이름과 값. 메일과 화면 경고에 같은 이름을 쓴다. 기타 안내(note)는 이름 없이 ※로 붙여 여기 없다. */
     private static Map<String, String> items(StageGuide guide) {
         Map<String, String> items = new LinkedHashMap<>();
-        items.put("일정", guide.schedule());
-        items.put("진행 방식", guide.method());
+        items.put("일정", guide.schedule() == null ? "" : GUIDE_DATE.format(guide.schedule()));
+        items.put("진행 방식", guide.method() == null ? "" : guide.method().label());
         items.put("장소·접속 링크", guide.place());
         items.put("준비 사항", guide.preparation());
         return items;
