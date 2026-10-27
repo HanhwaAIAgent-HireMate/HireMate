@@ -13,7 +13,7 @@ from hiremate_ai.agents.root.types import (
     PreviousInterview,
     QuestionSource,
 )
-from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.contract import ApplicantDetail, CompanyProfile, InterviewerMemo, PostingContent, StageType
 from hiremate_ai.db.profile import ItemAgent, ItemCategory
 from hiremate_ai.db.profile_store import NewItem, save_profile
 
@@ -21,6 +21,23 @@ type Applicants = dict[str, ApplicantDetail]
 BATCH = "MySQL 정산 테이블을 파티셔닝해 월말 정산 배치 시간을 40% 줄였습니다."
 RETRO = "장애가 나면 원인을 혼자 감추지 않고 회고에서 팀과 공유합니다."
 ASSESSMENT_NOTE = "장애 원인을 로그로 좁혀 가는 과정을 팀원에게 차근차근 설명했어요."
+
+
+def test_interviewer_memo_is_always_check_and_never_another_candidates_evidence(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_for(sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW)
+    application_id = context.candidates[0].application_id
+    text = "태도가 좋지만 본인 작업 범위는 확인하지 못함"
+    memo = InterviewerMemo(stage_id=context.stage_id, stage_name=context.stage_name, text=text)
+    context = context.model_copy(update={"interviewer_memos": {application_id: [memo]}})
+    items, sources, _ = verify_items([item(text, source="면접관메모")], context)
+    assert items[0].status == "CHECK"
+    assert sources == ["면접관메모"]
+    _, wrong_sources, _ = verify_items([item(text, source="면접관메모", candidate="C2")], context)
+    assert wrong_sources == []
+
+
 PARTITION_ANSWER = "파티셔닝 기준을 월 단위로 정했습니다."
 
 

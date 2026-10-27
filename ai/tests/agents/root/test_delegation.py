@@ -25,7 +25,7 @@ from hiremate_ai.agents.root.graph import RootThread, run_plan
 from hiremate_ai.agents.root.toolkit import OUT_OF_SCOPE, AgentEvidence, RootToolContext, default_toolkit
 from hiremate_ai.agents.root.types import ChatContext, Intent, InterviewQuestion, InterviewView, QuestionSource
 from hiremate_ai.config import settings
-from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.contract import ApplicantDetail, CompanyProfile, InterviewerMemo, PostingContent, StageType
 from hiremate_ai.db.analysis_artifact import AnalysisArtifactRecord
 from hiremate_ai.db.analysis_store import DbAnalysisArtifacts
 from hiremate_ai.db.profile import Verification
@@ -37,6 +37,36 @@ DOCUMENT = "MySQL 정산 테이블을 파티셔닝해 월말 정산 배치 시�
 ANSWER = "파티셔닝 기준을 월 단위로 정하고 성능을 측정했습니다."
 STATEMENT = "정산 배치 시간을 줄였어요."
 INTERVIEW_STATEMENT = "파티셔닝 기준을 구체적으로 설명했어요."
+
+
+@pytest.mark.parametrize("with_focus", [True, False])
+async def test_explicit_memo_request_passes_only_verified_candidate_note(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent, with_focus: bool
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    application_id = context.candidates[0].application_id
+    memo = InterviewerMemo(
+        stage_id=context.stage_id,
+        stage_name=context.stage_name,
+        text="파티셔닝 기준을 선택한 대안 비교는 추가 확인이 필요함",
+    )
+    context = context.model_copy(
+        update={"message": "정유민 면접 메모 참고해서 질문 1개 추가해줘", "interviewer_memos": {application_id: [memo]}}
+    )
+    final = reply(questions=True, status="CHECK", source="면접관메모", sentence=memo.text)
+    if not with_focus:
+        final.args["command"]["focus"] = {}
+    llm = FakeLlm(
+        ToolCall("resolve_candidates", {"names": [context.candidates[0].name]}),
+        ToolCall("get_interviewer_memos", {"candidate": "C1"}),
+        ToolCall("get_interview_records", {"candidate": "C1"}),
+        final,
+    )
+    plan = await run_plan(llm, context)
+    assert plan.question_memos == {application_id: memo}
+    assert plan.sources == ["면접관메모"]
+    assert plan.items[0].status == "CHECK"
+    assert "면접관메모" in llm.calls[2].user
 
 
 def interview_context(applicants: Applicants, company: CompanyProfile, posting: PostingContent) -> ChatContext:

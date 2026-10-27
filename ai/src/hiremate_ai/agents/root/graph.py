@@ -187,6 +187,7 @@ def _plan_candidates(plan: ChatPlan) -> set[UUID]:
         set(plan.targets)
         | set(plan.question_targets)
         | set(plan.question_focus)
+        | set(plan.question_memos)
         | {item.application_id for item in plan.items if item.application_id is not None}
     )
 

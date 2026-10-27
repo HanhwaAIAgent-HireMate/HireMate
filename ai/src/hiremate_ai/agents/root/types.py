@@ -16,6 +16,7 @@ from hiremate_ai.contract import (
     ApplicantDocument,
     CompanyProfile,
     ContractModel,
+    InterviewerMemo,
     PostingContent,
     StageType,
 )
@@ -159,6 +160,8 @@ class ChatContext(ContractModel):
     posting: PostingContent
     message: str
 
+    interviewer_memos: dict[UUID, list[InterviewerMemo]] = {}
+
     @model_validator(mode="after")
     def _has_current_stage(self) -> Self:
         if all(stage.id != self.stage_id for stage in self.stages):
@@ -211,6 +214,7 @@ class ChatPlan(ContractModel):
     agents: list[str]
     question_targets: list[UUID]
     question_focus: dict[UUID, str]  # 지원자별로 Interview Agent에 넘길 확인할 점
+    question_memos: dict[UUID, InterviewerMemo] = {}  # 명시적으로 요청해 원문을 확인한 메모만 전달
 
     @classmethod
     def answer(

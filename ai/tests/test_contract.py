@@ -12,7 +12,15 @@ from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, PostingSuggestion
 from hiremate_ai.agents.root.types import ChatApplied, ChatContext, ChatHistoryTurn, ChatPlan, ChatStatus
 from hiremate_ai.api.profile import CandidateProfileView
-from hiremate_ai.contract import ApplicantDetail, CandidateAnalysis, CompanyProfile, Job, JobResult, PostingContent
+from hiremate_ai.contract import (
+    ApplicantDetail,
+    CandidateAnalysis,
+    CompanyProfile,
+    InterviewerMemo,
+    Job,
+    JobResult,
+    PostingContent,
+)
 
 CONTRACT_DIR = Path(__file__).resolve().parents[2] / "contract"
 
@@ -31,6 +39,7 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "InterviewAnalysis": InterviewAnalysis,
     "InterviewView": InterviewView,
     "InterviewQuestionDraft": InterviewQuestionDraft,
+    "InterviewerMemo": InterviewerMemo,
     "InterviewAnalysisInput": InterviewAnalysisInput,
     "InterviewQuestionsRequest": QuestionsRequest,
     "Job": Job,

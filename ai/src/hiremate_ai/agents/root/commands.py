@@ -14,8 +14,10 @@ from hiremate_ai.agents.root.answer import (
     BULK_LIMIT,
     FOCUS_WITH_REQUEST,
     INTERVIEW_AGENT,
+    MEMO_SOURCE,
     AnswerItem,
     _invalid_message,
+    memo_evidence,
     readable,
     verify_items,
 )
@@ -23,7 +25,7 @@ from hiremate_ai.agents.root.edit import plan_edit
 from hiremate_ai.agents.root.stages import blames_later_stage
 from hiremate_ai.agents.root.toolkit import RootToolkit, candidate_ref, resolve_ref, scope_of
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatItem, ChatPlan, EditAction, Intent
-from hiremate_ai.contract import StageType
+from hiremate_ai.contract import InterviewerMemo, StageType
 
 LOCKED = "결과를 확정한 전형이라 선택 지원자를 바꿀 수 없어요. 분석이나 요약은 계속 물어볼 수 있어요."
 DECISION_REPLY = "합격과 불합격 결정, 결과 확정, 공고 게시와 안내 발송은 담당자가 화면에서 직접 실행해 주세요."
@@ -262,11 +264,11 @@ def _require_selectable(context: ChatContext) -> None:
 
 def _check_plan_scope(plan: ChatPlan, context: ChatContext) -> None:
     allowed = {row.application_id for row in context.candidates}
-    used = {*plan.targets, *plan.question_targets, *plan.question_focus}
+    used = {*plan.targets, *plan.question_targets, *plan.question_focus, *plan.question_memos}
     used.update(item.application_id for item in plan.items if item.application_id is not None)
     if used - allowed:
         raise ValueError("검색 결과에 현재 전형 밖의 지원자가 있어요. 현재 전형 안에서 다시 조회하세요.")
-    if plan.edit is not None or plan.question_targets or plan.question_focus:
+    if plan.edit is not None or plan.question_targets or plan.question_focus or plan.question_memos:
         raise ValueError("검색 결과에는 선택 편집이나 면접 질문 명령을 담을 수 없어요.")
 
 
@@ -355,12 +357,24 @@ async def _questions(
     if not rows or len(rows) > BULK_LIMIT:
         raise ValueError(f"질문을 만들 대상 지원자를 1명 이상 {BULK_LIMIT}명 이하로 지정하세요.")
     target_ids = {row.application_id for row in rows}
-    focused = _rows(context, list(command.focus))
+    requested_focus = dict(command.focus)
+    # 모델이 메모 근거 항목을 선택하고 선택적 focus만 비웠다면 그 항목을 그대로 전달한다.
+    # 요청 문장의 낱말로 의도를 재분류하거나 확인 목표를 새로 만들지 않는다.
+    for raw in reply.items:
+        row = resolve_ref(context, raw.candidate) if raw.candidate else None
+        if (
+            row is not None
+            and row.application_id in target_ids
+            and any(memo_evidence(context, row, evidence) is not None for evidence in raw.evidence)
+        ):
+            requested_focus.setdefault(raw.candidate or "", raw.text)
+    focused = _rows(context, list(requested_focus))
     if any(row.application_id not in target_ids for row in focused):
         raise ValueError("질문 대상 지원자에게만 확인할 점을 작성하세요.")
     items, sources, agents = await _items(reply.items, context, toolkit, rows, require_each=False)
     focus: dict[UUID, str] = {}
-    for ref, text in command.focus.items():
+    memos: dict[UUID, InterviewerMemo] = {}
+    for ref, text in requested_focus.items():
         row = resolve_ref(context, ref)
         if row is None:
             raise ValueError("확인할 점의 대상 지원자가 현재 전형에 없어요.")
@@ -375,6 +389,27 @@ async def _questions(
             f"{item.label} ({'근거 확인' if item.status == 'OK' else '추가 확인 필요'}): {item.text}" for _, item in own
         )
         focus[row.application_id] = FOCUS_WITH_REQUEST.format(focus=details, request=context.message)
+        for raw, _ in own:
+            if raw.text != text:
+                continue
+            for evidence in raw.evidence:
+                if memo := memo_evidence(context, row, evidence):
+                    memos[row.application_id] = memo
+                    break
+            if row.application_id in memos:
+                break
+        if (
+            any(
+                "".join(evidence.source.split()) == MEMO_SOURCE
+                for raw, _ in own
+                if raw.text == text
+                for evidence in raw.evidence
+            )
+            and row.application_id not in memos
+        ):
+            raise ValueError("질문에 참고할 해당 지원자의 면접관메모 원문을 확인해 주세요.")
+    if MEMO_SOURCE in sources and not memos:
+        raise ValueError("메모 원문에 연결한 확인할 점을 focus로 전달해 주세요.")
     plan = ChatPlan.answer(
         Intent.ANSWER,
         QUESTIONS_REQUESTED.format(count=len(rows)),
@@ -382,4 +417,10 @@ async def _questions(
         sources,
         list(dict.fromkeys([*agents, INTERVIEW_AGENT])),
     )
-    return plan.model_copy(update={"question_targets": [row.application_id for row in rows], "question_focus": focus})
+    return plan.model_copy(
+        update={
+            "question_targets": [row.application_id for row in rows],
+            "question_focus": focus,
+            "question_memos": memos,
+        }
+    )
