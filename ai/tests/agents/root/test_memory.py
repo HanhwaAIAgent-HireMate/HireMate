@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
-from root_context import make_context
+from root_context import make_context, root_reply
 
 from hiremate_ai.agents.root.agent import root_prompt, run_agent
 from hiremate_ai.agents.root.answer import AnswerEvidence, AnswerItem
@@ -72,26 +72,32 @@ def screen_of(call: LlmCall) -> dict[str, Any]:
     return screen
 
 
-def answer(*candidates: str, message: str = "세부 근거는 추가 확인이 필요해요.") -> RootReply:
-    return RootReply(
-        message=message,
-        command=AnswerCommand(candidates=list(candidates)),
-        items=[
-            AnswerItem(candidate=ref, label="확인할 점", text="추가 확인이 필요해요.", status="CHECK")
-            for ref in candidates
-        ],
+def answer(*candidates: str, message: str = "세부 근거는 추가 확인이 필요해요.") -> ToolCall:
+    return root_reply(
+        RootReply(
+            message=message,
+            command=AnswerCommand(candidates=list(candidates)),
+            items=[
+                AnswerItem(candidate=ref, label="확인할 점", text="추가 확인이 필요해요.", status="CHECK")
+                for ref in candidates
+            ],
+        )
     )
 
 
-def edit(action: EditAction, *candidates: str) -> RootReply:
-    return RootReply(message="선택 요청을 처리했어요.", command=EditCommand(action=action, candidates=list(candidates)))
+def edit(action: EditAction, *candidates: str) -> ToolCall:
+    return root_reply(
+        RootReply(message="선택 요청을 처리했어요.", command=EditCommand(action=action, candidates=list(candidates)))
+    )
 
 
-def questions(focus: str) -> RootReply:
-    return RootReply(
-        message="면접 질문의 확인할 점을 정리했어요.",
-        command=QuestionsCommand(candidates=["C1"], focus={"C1": focus}),
-        items=[AnswerItem(candidate="C1", label="확인할 점", text=focus, status="CHECK")],
+def questions(focus: str) -> ToolCall:
+    return root_reply(
+        RootReply(
+            message="면접 질문의 확인할 점을 정리했어요.",
+            command=QuestionsCommand(candidates=["C1"], focus={"C1": focus}),
+            items=[AnswerItem(candidate="C1", label="확인할 점", text=focus, status="CHECK")],
+        )
     )
 
 
@@ -102,7 +108,7 @@ def search(*, concept: str = "금융 도메인 경험", mode: str = "REPLACE") -
     replies: list[FakeReply] = [ToolCall("search_candidates", {"query": {"concepts": [concept], "mode": mode}})]
     if concept == "금융 도메인 경험":
         replies.append(FINANCE_FOUND)
-    replies.append(RootReply(message="검색 결과예요.", command=FindCommand(result="S1")))
+    replies.append(root_reply(RootReply(message="검색 결과예요.", command=FindCommand(result="S1"))))
     return replies
 
 
@@ -227,7 +233,7 @@ async def test_late_applied_updates_its_turn_without_replacing_newer_result_or_s
     saver, thread = InMemorySaver(), thread_of(interview)
     question = "금융 경험 있는 사람 찾아줘"
     previous = await run_plan(FakeLlm(*search()), ask(interview, question), saver=saver, thread=thread)
-    next_question = RootReply(message="질문을 요청했어요.", command=QuestionsCommand(candidates=["C3"]))
+    next_question = root_reply(RootReply(message="질문을 요청했어요.", command=QuestionsCommand(candidates=["C3"])))
     await run_plan(
         FakeLlm(ToolCall("resolve_candidates", {"names": ["박서준"]}), next_question),
         ask(interview, "박서준 면접 질문 만들어줘"),
@@ -247,7 +253,7 @@ async def test_late_applied_corrects_the_result_carried_through_a_clarification(
     saver, thread = InMemorySaver(), thread_of(context)
     question = "금융 경험 있는 사람 찾아줘"
     previous = await run_plan(FakeLlm(*search()), ask(context, question), saver=saver, thread=thread)
-    clarify = RootReply(message="어떤 내용을 확인할까요?", command=ClarifyCommand())
+    clarify = root_reply(RootReply(message="어떤 내용을 확인할까요?", command=ClarifyCommand()))
     await run_plan(FakeLlm(clarify), ask(context, "확인해줘"), saver=saver, thread=thread)
     final = previous.model_copy(update={"targets": previous.targets[:1], "items": previous.items[:1]})
 
@@ -328,7 +334,7 @@ async def test_applied_repeated_question_corrects_the_new_pending_turn(
 async def test_applied_preserves_a_result_carried_from_legacy_retained_turns(context: ChatContext) -> None:
     saver, thread = InMemorySaver(), thread_of(context)
     found = await run_plan(FakeLlm(*search()), ask(context, "금융 경험자 찾아줘"), saver=saver, thread=thread)
-    clarify = RootReply(message="어떤 내용을 확인할까요?", command=ClarifyCommand())
+    clarify = root_reply(RootReply(message="어떤 내용을 확인할까요?", command=ClarifyCommand()))
     await run_plan(FakeLlm(clarify), ask(context, "확인해줘"), saver=saver, thread=thread)
     values = await saved_values(saver, thread)
     legacy = values["turns"][-1].copy()
@@ -442,7 +448,9 @@ async def test_subject_from_previous_turn(context: ChatContext) -> None:
 
 
 async def test_missing_previous_result_can_be_clarified_by_model(context: ChatContext) -> None:
-    llm = FakeLlm(RootReply(message="앞에서 찾은 지원자가 없어요. 누구를 말씀하세요?", command=ClarifyCommand()))
+    llm = FakeLlm(
+        root_reply(RootReply(message="앞에서 찾은 지원자가 없어요. 누구를 말씀하세요?", command=ClarifyCommand()))
+    )
     plan = await run_plan(
         llm, ask(context, "그중 두 번째 사람 강점은?"), saver=InMemorySaver(), thread=thread_of(context)
     )
@@ -453,17 +461,19 @@ async def test_missing_previous_result_can_be_clarified_by_model(context: ChatCo
 
 async def test_stage_count_after_subject_uses_model_selected_scope(context: ChatContext) -> None:
     saver, thread = InMemorySaver(), thread_of(context)
-    count = RootReply(
-        message="미결정은 8명이에요.",
-        command=AnswerCommand(),
-        items=[
-            AnswerItem(
-                label="인원",
-                text="미결정 지원자 8명",
-                status="OK",
-                evidence=[AnswerEvidence(sentence="미결정 8명", source="전형 결과")],
-            )
-        ],
+    count = root_reply(
+        RootReply(
+            message="미결정은 8명이에요.",
+            command=AnswerCommand(),
+            items=[
+                AnswerItem(
+                    label="인원",
+                    text="미결정 지원자 8명",
+                    status="OK",
+                    evidence=[AnswerEvidence(sentence="미결정 8명", source="전형 결과")],
+                )
+            ],
+        )
     )
     llm = FakeLlm(answer("C2"), ToolCall("get_stage_summary"), count)
     await run_plan(llm, ask(context, "@김하늘 강점은?", mentions=("김하늘",)), saver=saver, thread=thread)
@@ -485,18 +495,20 @@ async def test_stage_ranking_after_subject_reads_backend_evidence(context: ChatC
         }
     )
     saver, thread = InMemorySaver(), thread_of(context)
-    ranking = RootReply(
-        message="김하늘의 경력이 7년으로 가장 많아요.",
-        command=AnswerCommand(candidates=["C2"]),
-        items=[
-            AnswerItem(
-                candidate="C2",
-                label="경력",
-                text="경력 7년",
-                status="OK",
-                evidence=[AnswerEvidence(sentence="경력 7년", source="전형 결과")],
-            )
-        ],
+    ranking = root_reply(
+        RootReply(
+            message="김하늘의 경력이 7년으로 가장 많아요.",
+            command=AnswerCommand(candidates=["C2"]),
+            items=[
+                AnswerItem(
+                    candidate="C2",
+                    label="경력",
+                    text="경력 7년",
+                    status="OK",
+                    evidence=[AnswerEvidence(sentence="경력 7년", source="전형 결과")],
+                )
+            ],
+        )
     )
     llm = FakeLlm(answer("C1"), ToolCall("get_stage_summary"), ranking)
     await run_plan(llm, ask(context, "@정유민 강점은?", mentions=("정유민",)), saver=saver, thread=thread)
@@ -504,7 +516,7 @@ async def test_stage_ranking_after_subject_reads_backend_evidence(context: ChatC
     plan = await run_plan(llm, ask(context, "경력이 가장 많은 사람은?"), saver=saver, thread=thread)
 
     assert plan.intent is Intent.ANSWER
-    assert plan.message == ranking.message
+    assert plan.message == ranking.args["message"]
     assert [(item.application_id, item.status) for item in plan.items] == [(ids(context, "김하늘")[0], "OK")]
     assert plan.sources == ["전형 결과"]
     assert screen_of(llm.calls[1])["직전 대상"] == ["C1"]
@@ -514,7 +526,8 @@ async def test_stage_ranking_after_subject_reads_backend_evidence(context: ChatC
 async def test_remembered_candidate_must_be_in_stage(context: ChatContext) -> None:
     saver, thread = InMemorySaver(), thread_of(context)
     llm = FakeLlm(
-        answer("C2"), RootReply(message="현재 전형에서 해당 지원자를 찾지 못했어요.", command=ClarifyCommand())
+        answer("C2"),
+        root_reply(RootReply(message="현재 전형에서 해당 지원자를 찾지 못했어요.", command=ClarifyCommand())),
     )
     await run_plan(llm, ask(context, "@김하늘 강점은?", mentions=("김하늘",)), saver=saver, thread=thread)
     kim = ids(context, "김하늘")[0]
@@ -619,7 +632,7 @@ async def test_empty_latest_result_is_visible_to_model(context: ChatContext, fol
     llm = FakeLlm(
         *search(),
         *search(concept="양자 컴퓨팅"),
-        RootReply(message="최근 검색 결과가 비어 있어요.", command=ClarifyCommand()),
+        root_reply(RootReply(message="최근 검색 결과가 비어 있어요.", command=ClarifyCommand())),
     )
     await run_plan(llm, ask(context, "금융 경험 있는 사람 찾아줘"), saver=saver, thread=thread)
     await run_plan(llm, ask(context, "양자 컴퓨팅 경험자 찾아줘"), saver=saver, thread=thread)
@@ -692,7 +705,7 @@ async def test_previous_subject_is_remapped_after_candidate_order_changes(contex
 async def test_clarified_screen_targets_survive_cleared_chips_and_candidate_reordering(context: ChatContext) -> None:
     saver, thread = InMemorySaver(), thread_of(context)
     llm = FakeLlm(
-        RootReply(message="어떤 기준으로 검토할까요?", command=ClarifyCommand()),
+        root_reply(RootReply(message="어떤 기준으로 검토할까요?", command=ClarifyCommand())),
         ToolCall("get_previous_turns"),
         answer("C1"),
     )

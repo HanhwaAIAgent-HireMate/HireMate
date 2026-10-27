@@ -1,5 +1,5 @@
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -42,6 +42,7 @@ class FakeLlm:
     """테스트용 LLM. 정해 둔 응답을 차례로 돌려주고 호출을 calls에 기록한다. 응답이 함수면 호출 정보로 응답을 만든다.
 
     도구 루프 Agent는 모델 호출 한 번마다 응답 하나를 쓴다. ToolCall이면 도구를 부르고, output 형식의 값이면 답을 낸다.
+    최종 답을 종류별 도구(forms)로 나눴으면 그 형식의 값이 답이다.
     """
 
     def __init__(self, *responses: FakeResponse, recipe: dict[str, Any] | None = None) -> None:
@@ -67,9 +68,10 @@ class FakeLlm:
         system: str,
         tools: Sequence[BaseTool],
         context: type[Any] | None = None,
+        forms: Mapping[str, type[BaseModel]] | None = None,
     ) -> ToolAgent[T]:
         return build_tool_agent(
-            _FakeChatModel(llm=self, agent=agent, output=output),
+            _FakeChatModel(llm=self, agent=agent, output=output, forms=dict(forms or {})),
             _NoCallLog(),
             output,
             model_name="fake",
@@ -78,6 +80,7 @@ class FakeLlm:
             tools=tools,
             context=context,
             max_calls=settings.llm_agent_max_calls,
+            forms=forms,
         )
 
     def _reply(self, call: LlmCall) -> FakeReply:
@@ -94,6 +97,7 @@ class _FakeChatModel(BaseChatModel):
     llm: FakeLlm
     agent: str
     output: type[BaseModel]
+    forms: dict[str, type[BaseModel]]
 
     @property
     def _llm_type(self) -> str:
@@ -130,7 +134,13 @@ class _FakeChatModel(BaseChatModel):
         return self._generate(messages, stop, **kwargs)
 
     def _message(self, reply: FakeReply, *, step: int) -> AIMessage:
-        if isinstance(reply, BaseModel):
+        if isinstance(reply, BaseModel) and self.forms:
+            # 최종 답을 종류별 도구로 나눴으면 형식이 같은 도구의 호출로 받는다
+            name = next((name for name, form in self.forms.items() if type(reply) is form), None)
+            if name is None:
+                raise AssertionError(f"FakeLlm 응답이 {', '.join(self.forms)} 형식이 아니다 ({type(reply).__name__})")
+            calls = [ToolCall(name, reply.model_dump(mode="json"))]
+        elif isinstance(reply, BaseModel):
             if not isinstance(reply, self.output):
                 raise AssertionError(f"FakeLlm 응답이 {self.output.__name__}가 아니다 ({type(reply).__name__})")
             # 도구 루프 Agent는 답도 output 이름의 도구 호출로 받는다 (ToolStrategy)

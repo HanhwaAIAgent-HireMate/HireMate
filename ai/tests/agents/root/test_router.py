@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
+from root_context import root_reply
 
 from hiremate_ai.agents.root.answer import AnswerEvidence, AnswerItem
 from hiremate_ai.agents.root.commands import AnswerCommand, EditCommand, RootReply
@@ -20,7 +21,7 @@ CONTRACT_DIR = Path(__file__).resolve().parents[4] / "contract"
 def test_plan_endpoint_round_trip() -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
     app.dependency_overrides[get_llm] = lambda: FakeLlm(
-        RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR))
+        root_reply(RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR)))
     )
     app.dependency_overrides[get_saver] = lambda: InMemorySaver()
     try:
@@ -66,8 +67,8 @@ def test_plan_history_and_forget_use_thread() -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
     saver = InMemorySaver()
     llm = FakeLlm(
-        RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR)),
-        RootReply(message="되돌렸어요.", command=EditCommand(action=EditAction.RESTORE)),
+        root_reply(RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR))),
+        root_reply(RootReply(message="되돌렸어요.", command=EditCommand(action=EditAction.RESTORE))),
     )
     app.dependency_overrides[get_llm] = lambda: llm
     app.dependency_overrides[get_saver] = lambda: saver
@@ -100,7 +101,7 @@ def test_forget_stage_endpoint() -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
     saver = InMemorySaver()
     app.dependency_overrides[get_llm] = lambda: FakeLlm(
-        RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR))
+        root_reply(RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR)))
     )
     app.dependency_overrides[get_saver] = lambda: saver
     client = TestClient(app)
@@ -120,18 +121,20 @@ def test_plan_without_thread_does_not_remember() -> None:
     saver = InMemorySaver()
     app.dependency_overrides[get_llm] = lambda: FakeLlm(
         ToolCall("get_stage_summary"),
-        RootReply(
-            message="현재 지원자는 2명이에요.",
-            command=AnswerCommand(),
-            items=[
-                AnswerItem(
-                    candidate=None,
-                    label="지원자 수",
-                    text="현재 전형의 지원자는 2명이에요.",
-                    status="OK",
-                    evidence=[AnswerEvidence(sentence="지원자 2명", source="전형 결과")],
-                )
-            ],
+        root_reply(
+            RootReply(
+                message="현재 지원자는 2명이에요.",
+                command=AnswerCommand(),
+                items=[
+                    AnswerItem(
+                        candidate=None,
+                        label="지원자 수",
+                        text="현재 전형의 지원자는 2명이에요.",
+                        status="OK",
+                        evidence=[AnswerEvidence(sentence="지원자 2명", source="전형 결과")],
+                    )
+                ],
+            )
         ),
     )
     app.dependency_overrides[get_saver] = lambda: saver

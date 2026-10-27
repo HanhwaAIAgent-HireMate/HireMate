@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -447,5 +447,6 @@ class BatchLlm:
         system: str,
         tools: Sequence[BaseTool],
         context: type[Any] | None = None,
+        forms: Mapping[str, type[BaseModel]] | None = None,
     ) -> ToolAgent[T]:
         raise BatchError("배치 모델은 지원서의 structured 호출에만 사용한다")

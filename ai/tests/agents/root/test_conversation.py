@@ -2,7 +2,7 @@ import json
 import re
 
 import pytest
-from root_context import make_context
+from root_context import make_context, root_reply
 
 from hiremate_ai.agents.root.agent import run_agent
 from hiremate_ai.agents.root.commands import RootReply, compile_reply
@@ -20,7 +20,7 @@ type Applicants = dict[str, ApplicantDetail]
 
 
 def conversation(message: str) -> ToolCall:
-    return ToolCall("RootReply", {"message": message, "command": {"kind": "conversation"}})
+    return root_reply({"message": message, "command": {"kind": "conversation"}})
 
 
 @pytest.mark.parametrize(
@@ -263,8 +263,7 @@ async def test_rejected_conversation_is_repaired_using_the_same_react_loop(
         conversation("현재 지원자는 백 명이에요."),
         ConversationReview(allowed=False),
         ToolCall("get_stage_summary"),
-        ToolCall(
-            "RootReply",
+        root_reply(
             {
                 "message": "현재 지원자는 8명이에요.",
                 "command": {"kind": "answer"},

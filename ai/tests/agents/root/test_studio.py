@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from root_context import root_reply
+
 from hiremate_ai.agents.root import studio
 from hiremate_ai.agents.root.commands import EditCommand, RootReply
 from hiremate_ai.agents.root.graph import build_root_graph
@@ -31,7 +33,7 @@ def test_context_defaults_to_sample_and_mentions_follow_message() -> None:
 
 async def test_graph_takes_only_message_as_context() -> None:
     graph = build_root_graph(
-        FakeLlm(RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR))),
+        FakeLlm(root_reply(RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR)))),
         context_schema=StudioContext,
     )
 

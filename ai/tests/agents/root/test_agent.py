@@ -6,10 +6,10 @@ import httpx
 import pytest
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
-from root_context import make_context
+from root_context import make_context, root_reply
 
 from hiremate_ai.agents.root.agent import run_agent
-from hiremate_ai.agents.root.commands import EditCommand, RootReply
+from hiremate_ai.agents.root.commands import REPLY_FORMS, EditCommand, RootReply
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import run_plan
 from hiremate_ai.agents.root.toolkit import default_toolkit
@@ -43,8 +43,7 @@ async def test_portfolio_questions_can_handoff_after_identity_lookup_without_doc
     candidate = f"C{context.candidates.index(target) + 1}"
     llm = FakeLlm(
         ToolCall("resolve_candidates", {"names": [], "source": "mentions"}),
-        ToolCall(
-            "RootReply",
+        root_reply(
             {
                 "kind": "questions",
                 "message": "포트폴리오를 바탕으로 질문을 만들게요.",
@@ -85,8 +84,7 @@ async def test_missing_named_question_targets_are_clarified_without_substitution
     )
     llm = FakeLlm(
         ToolCall("resolve_candidates", {"names": ["김도현", "이서윤"]}),
-        ToolCall(
-            "RootReply",
+        root_reply(
             {
                 "kind": kind,
                 "message": "확인할게요.",
@@ -118,7 +116,7 @@ async def test_mixed_present_and_missing_names_do_not_generate_a_partial_questio
     )
     llm = FakeLlm(
         ToolCall("resolve_candidates", {"names": ["정유민", "김도현"]}),
-        ToolCall("RootReply", {"kind": "questions", "message": "정유민 질문을 만들게요.", "candidates": ["C1"]}),
+        root_reply({"kind": "questions", "message": "정유민 질문을 만들게요.", "candidates": ["C1"]}),
     )
 
     plan = await run_plan(llm, context)
@@ -139,7 +137,7 @@ async def test_unique_named_targets_can_handoff_questions_without_document_reads
     )
     llm = FakeLlm(
         ToolCall("resolve_candidates", {"names": ["정유민", "김하늘"]}),
-        ToolCall("RootReply", {"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1", "C2"]}),
+        root_reply({"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1", "C2"]}),
     )
 
     plan = await run_plan(llm, context)
@@ -176,7 +174,7 @@ async def test_plain_text_question_targets_require_name_resolution_before_handof
         checked=["정유민", "김하늘"],
         stage_type=StageType.INTERVIEW,
     )
-    wrong = ToolCall("RootReply", {"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1", "C2"]})
+    wrong = root_reply({"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1", "C2"]})
     llm = FakeLlm(wrong, ToolCall("resolve_candidates", {"names": ["김도현", "이서윤"]}), wrong)
 
     plan = await run_plan(llm, context)
@@ -202,7 +200,7 @@ async def test_duplicate_named_targets_are_not_resolved_to_the_first_match(
     context = context.model_copy(update={"candidates": [*context.candidates, duplicate]})
     llm = FakeLlm(
         ToolCall("resolve_candidates", {"names": ["정유민"]}),
-        ToolCall("RootReply", {"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1"]}),
+        root_reply({"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1"]}),
     )
 
     plan = await run_plan(llm, context)
@@ -244,7 +242,7 @@ async def test_scoped_question_lookup_cannot_substitute_a_different_screen_sourc
     )
     llm = FakeLlm(
         ToolCall("resolve_candidates", {"names": [], "source": "checked", "candidates": ["C2"]}),
-        ToolCall("RootReply", {"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C2"]}),
+        root_reply({"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C2"]}),
     )
 
     plan = await run_plan(llm, context)
@@ -276,7 +274,7 @@ async def test_question_context_with_a_missing_applicant_requires_an_explicit_va
         args["candidates"] = ["C1"]
     llm = FakeLlm(
         ToolCall("resolve_candidates", args),
-        ToolCall("RootReply", {"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1"]}),
+        root_reply({"kind": "questions", "message": "질문을 만들게요.", "candidates": ["C1"]}),
     )
 
     finished = await run_agent(
@@ -322,18 +320,8 @@ async def test_model_receives_required_search_conditions_and_answer_evidence(
                                     "id": "final",
                                     "type": "function",
                                     "function": {
-                                        "name": "RootReply",
-                                        "arguments": json.dumps(
-                                            {
-                                                "kind": "clarify",
-                                                "message": "어떤 지원자를 말씀하시나요?",
-                                                "items": [],
-                                                "candidates": [],
-                                                "action": None,
-                                                "result": None,
-                                                "focus": {},
-                                            }
-                                        ),
+                                        "name": "clarify",
+                                        "arguments": json.dumps({"message": "어떤 지원자를 말씀하시나요?"}),
                                     },
                                 }
                             ],
@@ -365,11 +353,21 @@ async def test_model_receives_required_search_conditions_and_answer_evidence(
     assert query["properties"]["mode"]["enum"] == ["replace", "add", "within_selected"]
     assert "pool" not in query["properties"]
     assert schemas["search_candidates"]["properties"]["pool"].get("description")
-    reply = schemas["RootReply"]
-    assert "find" in functions["RootReply"]["description"] and "result" in functions["RootReply"]["description"]
-    assert {"kind", "message", "items", "candidates", "action", "result", "focus"} == set(reply["required"])
-    assert "command" not in reply["properties"]
-    item = reply["properties"]["items"]["items"]
+    assert "RootReply" not in schemas
+    replies = {name: schemas[name] for name in REPLY_FORMS}
+    assert {name: set(schema["required"]) for name, schema in replies.items()} == {
+        "answer": {"message", "items", "candidates"},
+        "conversation": {"message"},
+        "find": {"message", "result"},
+        "edit": {"message", "action", "candidates"},
+        "questions": {"message", "items", "candidates", "focus"},
+        "clarify": {"message"},
+        "blocked": {"message"},
+        "decision": {"message"},
+    }
+    assert all(set(schema["properties"]) == set(schema["required"]) for schema in replies.values())
+    assert "보존" in functions["find"]["description"]
+    item = replies["answer"]["properties"]["items"]["items"]
     assert {"candidate", "evidence"} <= set(item["required"])
 
 
@@ -389,6 +387,34 @@ def test_flat_model_response_preserves_the_explicit_selection_command() -> None:
     assert isinstance(reply.command, EditCommand)
     assert reply.command.action is EditAction.ADD
     assert reply.command.candidates == ["C3", "C4"]
+
+
+async def test_final_tool_drops_other_commands_empty_arguments(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="이 사람 어때?")
+    llm = FakeLlm(ToolCall("clarify", {"message": "어떤 지원자를 말씀하시나요?", "action": None, "result": "null"}))
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.CLARIFY
+    assert plan.message == "어떤 지원자를 말씀하시나요?"
+    assert len(llm.calls) == 1
+
+
+async def test_final_tool_with_another_commands_value_is_asked_again(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="이 사람 어때?")
+    llm = FakeLlm(
+        ToolCall("clarify", {"message": "어떤 지원자를 말씀하시나요?", "candidates": ["C1"]}),
+        ToolCall("clarify", {"message": "어떤 지원자를 말씀하시나요?"}),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.CLARIFY
+    assert "사용하지 않는 인자가 있어요: candidates" in llm.calls[1].user
 
 
 @pytest.mark.parametrize(
@@ -421,8 +447,7 @@ async def test_root_chooses_a_read_tool_and_returns_a_command_without_classifica
     context = make_context(sample_applicants, sample_company, sample_posting, message="현재 인원 알려줘")
     llm = FakeLlm(
         ToolCall("get_stage_summary"),
-        ToolCall(
-            "RootReply",
+        root_reply(
             {
                 "message": "현재 지원자는 8명이에요.",
                 "command": {"kind": "answer"},
@@ -459,8 +484,7 @@ async def test_search_result_cannot_be_replaced_with_an_answer_after_reading_bri
         ToolCall("search_candidates", {"query": {"concepts": ["결제"]}, "pool": ["C1"]}),
         RecheckResult(results=[RecheckItem(candidate_no=1, met=True, sentence_nos=[1])]),
         ToolCall("get_candidate_briefs", {"candidates": ["C1"]}),
-        ToolCall(
-            "RootReply",
+        root_reply(
             {
                 "message": "정유민 님의 정산 배치 개선 경험을 확인했어요.",
                 "command": {"kind": "answer", "candidates": ["C1"]},
@@ -475,7 +499,7 @@ async def test_search_result_cannot_be_replaced_with_an_answer_after_reading_bri
                 ],
             },
         ),
-        ToolCall("RootReply", {"message": "검색 결과예요.", "command": {"kind": "find", "result": "S1"}}),
+        root_reply({"message": "검색 결과예요.", "command": {"kind": "find", "result": "S1"}}),
     )
 
     plan = await run_plan(llm, context)
@@ -498,7 +522,7 @@ async def test_reading_summary_does_not_allow_an_answer_without_evidence_items(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="인원 알려줘")
-    answer = ToolCall("RootReply", {"message": "현재 지원자는 100명이에요.", "command": {"kind": "answer"}})
+    answer = root_reply({"message": "현재 지원자는 100명이에요.", "command": {"kind": "answer"}})
 
     plan = await run_plan(FakeLlm(ToolCall("get_stage_summary"), answer, answer), context)
 
@@ -513,15 +537,14 @@ async def test_empty_search_cannot_be_replaced_with_a_candidate_answer(
     llm = FakeLlm(
         ToolCall("search_candidates", {"query": {"concepts": ["양자 컴퓨팅"]}}),
         ToolCall("get_candidate_briefs", {"candidates": ["C1"]}),
-        ToolCall(
-            "RootReply",
+        root_reply(
             {
                 "message": "정유민 님을 확인해 보세요.",
                 "command": {"kind": "answer", "candidates": ["C1"]},
                 "items": [{"candidate": "C1", "label": "확인", "text": "추가 확인이 필요해요.", "status": "CHECK"}],
             },
         ),
-        ToolCall("RootReply", {"message": "검색 결과예요.", "command": {"kind": "find", "result": "S1"}}),
+        root_reply({"message": "검색 결과예요.", "command": {"kind": "find", "result": "S1"}}),
     )
 
     plan = await run_plan(llm, context)
@@ -536,7 +559,7 @@ async def test_empty_stage_answers_must_observe_the_stage_summary(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="인원 알려줘")
-    answer = ToolCall("RootReply", {"message": "현재 지원자는 100명이에요.", "command": {"kind": "answer"}})
+    answer = root_reply({"message": "현재 지원자는 100명이에요.", "command": {"kind": "answer"}})
 
     plan = await run_plan(FakeLlm(answer, answer), context)
 
@@ -548,8 +571,7 @@ async def test_unsubstantiated_stage_items_cannot_bypass_summary_validation(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="인원 알려줘")
-    answer = ToolCall(
-        "RootReply",
+    answer = root_reply(
         {
             "message": "지원자는 100명이에요.",
             "command": {"kind": "answer"},
@@ -571,8 +593,7 @@ async def test_question_confirmation_does_not_repeat_unverified_model_prose(
     )
     llm = FakeLlm(
         ToolCall("resolve_candidates", {"names": ["정유민"]}),
-        ToolCall(
-            "RootReply",
+        root_reply(
             {
                 "message": "정유민은 증권사에서 20년 일했으니 질문을 만들어요.",
                 "command": {"kind": "questions", "candidates": ["C1"]},
@@ -598,8 +619,7 @@ async def test_root_returns_the_models_explicit_edit_targets(
         checked=["김하늘"],
     )
     llm = FakeLlm(
-        ToolCall(
-            "RootReply",
+        root_reply(
             {"message": "선택에서 뺐어요.", "command": {"kind": "edit", "action": "REMOVE", "candidates": ["C1"]}},
         )
     )
@@ -633,12 +653,10 @@ async def test_noop_add_rechecks_decided_previous_subject_before_using_unrelated
         }
     )
     llm = FakeLlm(
-        ToolCall(
-            "RootReply",
+        root_reply(
             {"message": "선택에 넣었어요.", "command": {"kind": "edit", "action": "ADD", "candidates": ["C3", "C4"]}},
         ),
-        ToolCall(
-            "RootReply",
+        root_reply(
             {"message": "선택에 넣을게요.", "command": {"kind": "edit", "action": "ADD", "candidates": ["C1", "C2"]}},
         ),
     )
@@ -678,8 +696,7 @@ async def test_current_mentions_allow_an_explicit_idempotent_add_after_a_decided
         }
     )
     llm = FakeLlm(
-        ToolCall(
-            "RootReply",
+        root_reply(
             {"message": "선택에 넣을게요.", "command": {"kind": "edit", "action": "ADD", "candidates": ["C3"]}},
         )
     )
@@ -711,9 +728,7 @@ async def test_search_with_missing_conditions_is_repaired_before_a_result_is_cre
     llm = FakeLlm(
         ToolCall("search_candidates", {"query": {"mode": "REPLACE", "score_source": "assessment"}}),
         ToolCall("search_candidates", {"query": {"min_score": 80, "score_source": "assessment"}}),
-        ToolCall(
-            "RootReply", {"message": "조건에 맞는 지원자를 선택했어요.", "command": {"kind": "find", "result": "S1"}}
-        ),
+        ToolCall("find", {"message": "조건에 맞는 지원자를 선택했어요.", "result": "S1"}),
     )
 
     plan = await run_plan(llm, context)
@@ -730,10 +745,8 @@ async def test_search_results_cannot_be_replaced_with_arbitrary_edit_targets(
     context = context.model_copy(update={"document_scores": {context.candidates[0].application_id: 90}})
     llm = FakeLlm(
         ToolCall("search_candidates", {"query": {"min_score": 80, "score_source": "document"}}),
-        ToolCall(
-            "RootReply", {"message": "선택했어요.", "command": {"kind": "edit", "action": "ADD", "candidates": ["C2"]}}
-        ),
-        ToolCall("RootReply", {"message": "선택했어요.", "command": {"kind": "find", "result": "S1"}}),
+        ToolCall("edit", {"message": "선택했어요.", "action": "ADD", "candidates": ["C2"]}),
+        root_reply({"message": "선택했어요.", "command": {"kind": "find", "result": "S1"}}),
     )
 
     plan = await run_plan(llm, context)
@@ -762,7 +775,7 @@ async def test_discriminatory_company_or_posting_criteria_are_blocked_before_sea
     context = make_context(sample_applicants, company, posting, message="그 기준에 맞는 분을 찾아줘")
     llm = FakeLlm(
         ToolCall("search_candidates", {"query": query}),
-        ToolCall("RootReply", {"message": "찾았어요.", "command": {"kind": "find", "result": "S1"}}),
+        root_reply({"message": "찾았어요.", "command": {"kind": "find", "result": "S1"}}),
     )
 
     plan = await run_plan(llm, context)

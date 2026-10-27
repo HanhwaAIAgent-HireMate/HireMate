@@ -1,7 +1,7 @@
 from typing import Never
 
 import pytest
-from root_context import make_context
+from root_context import make_context, root_reply
 
 from hiremate_ai.agents.root.commands import ClarifyCommand, RootReply
 from hiremate_ai.agents.root.graph import run_plan
@@ -69,7 +69,7 @@ async def test_nested_search_budget_failure_uses_reserved_answer_without_actions
             ToolCall("search_candidates", {"query": {"concepts": ["결제"]}}),
             ToolCall("search_candidates", {"query": {"concepts": ["금융"]}}),
         ],
-        RootReply(message="검색을 완료하지 못했어요.", command=ClarifyCommand()),
+        root_reply(RootReply(message="검색을 완료하지 못했어요.", command=ClarifyCommand())),
     )
 
     plan = await run_plan(llm, context)

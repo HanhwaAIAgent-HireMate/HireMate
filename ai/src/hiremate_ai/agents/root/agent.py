@@ -13,6 +13,7 @@ from pydantic import Field
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.commands import (
+    REPLY_FORMS,
     AnswerCommand,
     BlockedCommand,
     ConversationCommand,
@@ -115,7 +116,7 @@ query에 넣고 mode, concepts, min_score는 반드시 적는다. 조건이 없�
   pool 없는 within_selected는 화면 선택 목록 안에서 찾는다. 짧은 되묻기 답도 원래 범위를 이어받는다.
 점수만 말하면 현재 전형 점수, 경력은 제출 이력서와 저장 근거를 쓰며 공고 기준과 결정 상태도 구별한다.
 검색 전 brief는 필요 없다. 추가 조회와 조건 수정 후 재검색은 가능하다. 후보와 순서는 도구 결과를 따른다.
-0명이어도 kind=find, result=검색 결과 번호, candidates=[], items=[], action=null, focus={}로 낸다.
+0명이어도 find에 result=검색 결과 번호로 낸다.
 서버가 후보와 근거를 보존하므로 복사하지 않고 brief나 message의 명단, answer로 검색을 대신하지 않는다.
 검색에서 빠진 사람에게 그 경험이 없다고 단정하지 않는다.
 
@@ -148,8 +149,7 @@ query에 넣고 mode, concepts, min_score는 반드시 적는다. 조건이 없�
   대상 확인은 중간 단계다. 기록을 읽고 questions로 연결하거나 확인할 점이 없으면 clarify로 끝낸다.
   '대상을 확인했습니다', '이제 생성할 수 있습니다'만으로 생성 요청을 완료했다고 답하지 않는다.
   생성 이유만 묻는 요청은 기록을 읽고 answer로 답한다.
-RootReply의 kind, message, items, candidates, action, result, focus는 모두 최상위 필드다.
-쓰지 않는 목록은 [], action과 result는 null, focus는 {}로 쓴다. command로 감싸지 않는다.
+최종 명령은 answer, conversation, find, edit, questions, clarify, blocked, decision 도구 중 하나로 낸다.
 message는 담당자에게 하는 짧은 답이며 내부 필드명이나 도구 실행 기록을 노출하지 않는다.
 
 [근거와 검증]
@@ -177,13 +177,13 @@ message는 담당자에게 하는 짧은 답이며 내부 필드명이나 도구
   메모 참고나 회사, 공고 적합성 요청이 없으면 추가 조회 없이 필요한 서류 검토 결과로 확인점을 정리한다.
   예를 들어 조회한 원문에 아래 근거가 실제로 있을 때의 최종 출력은 다음과 같다.
   focus는 items의 text 하나를 그대로 반복한다.
-  {"kind":"questions","message":"1명의 면접 질문 생성을 요청했어요.","candidates":["C1"],"items":[
+  questions {"message":"1명의 면접 질문 생성을 요청했어요.","candidates":["C1"],"items":[
    {"candidate":"C1","label":"본인 역할","text":"팀의 정산 배치 개선에서 본인이 맡은 역할을 확인","status":"CHECK",
     "evidence":[{"sentence":"정산 배치 지연을 줄이기 위해 팀과 함께 처리 구조를 바꿨고","source":"자기소개서"}]},
    {"candidate":"C1","label":"설계 근거","text":"MySQL 파티셔닝 설계와 성능 측정 방법을 확인","status":"CHECK",
     "evidence":[{"sentence":"MySQL 정산 테이블을 파티셔닝해 월말 정산 배치 시간을 40% 줄였습니다.",
                  "source":"이력서"}]}],
-   "focus":{"C1":"팀의 정산 배치 개선에서 본인이 맡은 역할을 확인"},"action":null,"result":null}
+   "focus":{"C1":"팀의 정산 배치 개선에서 본인이 맡은 역할을 확인"}}
   두 항목을 합친 새 문장은 focus에 쓰지 않는다. 검증된 항목 전체는 backend에 전달되며 실제 질문도 backend가 생성한다.
 - 앞서 서류 기준 질문 생성만 요청해 검증 항목과 확인할 점이 없을 때 생성 이유를 물으면,
   기록에 있는 요청 조건을 conversation으로 짧게 설명한다. 예를 들어 '앞서 서류에 맞춘 기술 심화 질문을
@@ -330,7 +330,7 @@ async def run_agent(
         범위 없는 새 조건은 이전 결과와 화면 선택에 관계없이 replace, pool 생략이다.
         체크 명단 검색은 replace와 체크 C번호 pool이다. 추가 조회 없이 화면 번호를 쓴다.
         현재 선택을 좁히기는 within_selected, pool 생략이다. 이전 결과를 좁히기는 within_selected와 그 pool이다.
-        검색 전 brief는 필요 없다. 조회만 수행하며 최종 find는 result로 참조하고 candidates=[], items=[]로 낸다.
+        검색 전 brief는 필요 없다. 조회만 수행하며 최종 find는 result로 참조한다.
         후보와 순서는 반환 결과를 따르고 0명이어도 find다. 탈락한 후보의 경험 부재를 증명한 결과는 아니다.
         """
         scope = runtime.context
@@ -569,6 +569,7 @@ async def run_agent(
         system=ROOT_SYSTEM,
         tools=[*toolkit.answer_tools, get_candidate_briefs, search_candidates, *delegation.tools()],
         context=RootRun,
+        forms=REPLY_FORMS,
     )
     try:
         with model_call_budget(settings.llm_agent_max_calls):

@@ -1,7 +1,7 @@
 from typing import Any, cast
 
 import pytest
-from root_context import extra_row, make_context
+from root_context import extra_row, make_context, root_reply
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY
 from hiremate_ai.agents.root.agent import NOT_FINISHED, root_prompt
@@ -16,7 +16,7 @@ type Applicants = dict[str, ApplicantDetail]
 
 
 def reply(kind: str, **command: Any) -> ToolCall:
-    return ToolCall("RootReply", {"message": "요청을 확인했어요.", "command": {"kind": kind, **command}})
+    return root_reply({"message": "요청을 확인했어요.", "command": {"kind": kind, **command}})
 
 
 async def test_blocked_skips_model(
@@ -58,7 +58,7 @@ async def test_model_can_ask_to_disambiguate_same_names(
     context = make_context(
         sample_applicants, sample_company, sample_posting, message="정유민 빼줘", extra_rows=[extra_row("정유민")]
     )
-    llm = FakeLlm(ToolCall("RootReply", {"message": "어느 정유민 님인가요?", "command": {"kind": "clarify"}}))
+    llm = FakeLlm(root_reply({"message": "어느 정유민 님인가요?", "command": {"kind": "clarify"}}))
 
     plan = await run_plan(llm, context)
 
@@ -101,8 +101,7 @@ async def test_repeated_invalid_answers_emit_no_unverified_items(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="강점 알려줘")
-    invented = ToolCall(
-        "RootReply",
+    invented = root_reply(
         {
             "message": "증권사 경력이 10년이에요.",
             "command": {"kind": "answer", "candidates": ["C1"]},
@@ -138,8 +137,7 @@ async def test_question_command_only_carries_validated_targets_and_focus(
     )
     llm = FakeLlm(
         ToolCall("resolve_candidates", {"names": ["정유민"]}),
-        ToolCall(
-            "RootReply",
+        root_reply(
             {
                 "message": "질문을 만들어요.",
                 "command": {"kind": "questions", "candidates": ["C1"], "focus": {"C1": "본인 역할을 확인"}},
@@ -202,8 +200,7 @@ async def test_stream_finishes_after_verified_items(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="경험 확인해줘")
-    final = ToolCall(
-        "RootReply",
+    final = root_reply(
         {
             "message": "본인 역할은 확인이 필요해요.",
             "command": {"kind": "answer", "candidates": ["C1"]},
