@@ -89,7 +89,7 @@ class BatchDispatcher:
         key = job.job_id, fingerprint
         if key in self._calls:
             return await asyncio.shield(self._calls[key].future)
-        custom_id = "call-" + hashlib.sha256(f"{job.job_id}:{fingerprint}".encode()).hexdigest()
+        custom_id = hashlib.sha256(f"{job.job_id}:{fingerprint}".encode()).hexdigest()
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         future.add_done_callback(_observe_future)
         pending = _Call(job, fingerprint, custom_id, body, future)
@@ -321,7 +321,8 @@ class BatchDispatcher:
     async def _get_batch(self, batch_id: str) -> dict[str, Any] | None:
         try:
             response = await self._client.get(f"batches/{batch_id}")
-            if response.status_code == 429 or response.status_code >= 500:
+            # 접수 직후에는 같은 배치가 잠시 404로 조회될 수 있다. 새로 제출하지 않고 같은 ID를 기다린다.
+            if response.status_code in (404, 429) or response.status_code >= 500:
                 return None
             if response.status_code != 200:
                 raise BatchError(f"배치를 조회할 수 없다 (HTTP {response.status_code})")
