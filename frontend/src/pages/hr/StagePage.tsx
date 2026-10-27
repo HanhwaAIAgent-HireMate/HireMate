@@ -40,10 +40,15 @@ export function StagePage() {
   const { stageId = '' } = useParams()
   const overview = useStageOverview(stageId)
   const selection = useSelection(stageId)
-  const { openId, reset } = useStageUi()
+  const { openId, reset, syncSelection } = useStageUi()
   const layout = useDefaultLayout({ id: 'stage-panels', storage: layoutStorage })
+  const selectedRows = selection.data?.items
 
   useEffect(() => reset(stageId), [reset, stageId])
+  // 지원자 카드를 열어 둔 동안 Chat으로 빼도 체크가 풀리도록 선택 지원자 칸이 아니라 여기서 맞춘다
+  useEffect(() => {
+    if (selectedRows) syncSelection(selectedRows.map((row) => row.applicationId))
+  }, [selectedRows, syncSelection])
   useHeaderCrumb(
     overview.data && {
       title: overview.data.recruitmentTitle,
