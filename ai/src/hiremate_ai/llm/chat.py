@@ -62,13 +62,15 @@ class LlmOutputError(RuntimeError):
 
 
 @dataclass
-class _ModelCallBudget:
+class ModelCallBudget:
+    """요청 하나의 모델 호출 예산. 그래프 노드처럼 실행 context가 나뉘어도 같은 객체를 넘겨 이어 쓴다."""
+
     limit: int
     remaining: int
     interrupted_tools: list[str] = field(default_factory=list)
 
 
-_MODEL_CALL_BUDGET: ContextVar[_ModelCallBudget | None] = ContextVar("model_call_budget", default=None)
+_MODEL_CALL_BUDGET: ContextVar[ModelCallBudget | None] = ContextVar("model_call_budget", default=None)
 _RESERVED_MODEL_CALLS: ContextVar[int] = ContextVar("reserved_model_calls", default=0)
 
 
@@ -78,12 +80,24 @@ def model_call_budget(limit: int) -> Iterator[None]:
 
     이미 예산이 있는 실행 안에서는 기존 예산을 이어 쓴다. 종료하면 호출자 context로 복원한다.
     """
-    if limit < 0:
-        raise ValueError("모델 호출 예산은 0 이상이어야 한다")
+    budget = new_model_call_budget(limit)
     if _MODEL_CALL_BUDGET.get() is not None:
         yield
         return
-    token = _MODEL_CALL_BUDGET.set(_ModelCallBudget(limit=limit, remaining=limit))
+    with using_model_call_budget(budget):
+        yield
+
+
+def new_model_call_budget(limit: int) -> ModelCallBudget:
+    if limit < 0:
+        raise ValueError("모델 호출 예산은 0 이상이어야 한다")
+    return ModelCallBudget(limit=limit, remaining=limit)
+
+
+@contextmanager
+def using_model_call_budget(budget: ModelCallBudget) -> Iterator[None]:
+    """이 블록의 모델 호출이 budget을 쓴다. 블록이 끝나면 호출자 context로 되돌린다."""
+    token = _MODEL_CALL_BUDGET.set(budget)
     try:
         yield
     finally:
