@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -6,21 +7,43 @@ from pydantic import BaseModel
 from root_context import make_context, save_sample_profiles, sessions_of
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from hiremate_ai.agents.analysis.application.types import Actor, ApplicationReview, Fact, Period, Quote
+from hiremate_ai.agents.root.ledger import Ledger
 from hiremate_ai.agents.root.toolkit import (
+    NO_PROFILE,
+    NO_REVIEW,
     AgentEvidence,
+    ProfileLine,
+    ProfileView,
     RootToolContext,
+    application_block,
     cited_agents,
+    company_block,
     context_brief,
+    db_profile_reader,
+    db_review_reader,
     default_toolkit,
     get_toolkit,
+    interview_block,
     keyword_search,
+    memo_block,
     merged_search,
+    profile_block,
     profile_toolkit,
     scope_of,
+    stage_block,
+    turns_block,
 )
 from hiremate_ai.agents.root.turns import Turn, TurnItem
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext
-from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, InterviewQuestion, InterviewView, QuestionSource
+from hiremate_ai.contract import (
+    ApplicantDetail,
+    CompanyProfile,
+    DocumentType,
+    InterviewerMemo,
+    PostingContent,
+    StageType,
+)
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.profile_store import NewItem, save_profile
 from hiremate_ai.db.session import session_factory
@@ -492,3 +515,225 @@ def test_app_toolkit_is_shared() -> None:
 
 def test_default_toolkits_do_not_share_judgments() -> None:
     assert default_toolkit().judged is not default_toolkit().judged
+
+
+# 근거 번호로 읽는 자료 (Root 분석 루프)
+
+
+def _evidence_context(
+    applicants: Applicants, company: CompanyProfile, posting: PostingContent, **kwargs: Any
+) -> ChatContext:
+    return make_context(applicants, company, posting, message="자료 확인", **kwargs)
+
+
+def _caps(ledger: Ledger, refs: Sequence[str]) -> list[str]:
+    return [found.cap for ref in refs if (found := ledger.get(ref)) is not None]
+
+
+def test_profile_block_caps_by_verification(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = _evidence_context(sample_applicants, sample_company, sample_posting)
+    row = context.candidates[0]
+    view = ProfileView(
+        front="분석 상태: 분석 완료",
+        lines=[
+            ProfileLine(
+                "EXPERIENCE", "카드 결제 승인 개발", "카드 승인 API를 개발했다.", "이력서", "EVIDENCED", "application"
+            ),
+            ProfileLine(
+                "EXPERIENCE", "대용량 트래픽 처리", "하루 350만 건을 처리했다.", "이력서", "UNCONFIRMED", "application"
+            ),
+            ProfileLine("CHECK", "Kafka 운영 확인 필요", None, "이력서", "UNCONFIRMED", "application"),
+        ],
+    )
+    ledger = Ledger()
+
+    text = profile_block(ledger, context, row, view)
+
+    assert _caps(ledger, ["E1", "E2", "E3", "E4"]) == ["OK", "OK", "CHECK", "CHECK"]
+    assert "E2 [근거 확인] 카드 결제 승인 개발" in text
+    result = ledger.get("E1")
+    experience = ledger.get("E2")
+    assert result is not None and result.source == "전형 결과"
+    assert experience is not None and experience.agent == "Application Agent"
+
+
+def test_profile_block_without_profile(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = _evidence_context(sample_applicants, sample_company, sample_posting)
+
+    text = profile_block(Ledger(), context, context.candidates[0], None)
+
+    assert NO_PROFILE in text and "E1 [근거 확인]" in text
+
+
+def _review(row: CandidateRow, facts: list[Fact], **fields: Any) -> ApplicationReview:
+    return ApplicationReview(
+        version="test", input_hash="hash", application_id=row.application_id, readable=True, facts=facts, **fields
+    )
+
+
+def _fact(statement: str, actor: Actor) -> Fact:
+    return Fact(
+        kind="EXPERIENCE",
+        statement=statement,
+        actor=actor,
+        quotes=[Quote(document=DocumentType.RESUME, sentence=f"{statement}.")],
+    )
+
+
+def test_application_block_marks_team_facts_check(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = _evidence_context(sample_applicants, sample_company, sample_posting)
+    row = context.candidates[0]
+    period = Period(
+        company="한빛카드",
+        role="백엔드 개발",
+        kind="EMPLOYMENT",
+        start="2022-03",
+        end=None,
+        months=55,
+        quote=Quote(document=DocumentType.RESUME, sentence="한빛카드 2022.03 ~ 현재"),
+    )
+    review = _review(
+        row, [_fact("결제 API를 개발했다", Actor.SELF), _fact("팀이 정산 DB를 이관했다", Actor.TEAM)], periods=[period]
+    )
+    ledger = Ledger()
+
+    text = application_block(ledger, context, row, review)
+
+    own = ledger.get("E1")
+    team = ledger.get("E2")
+    assert own is not None and own.cap == "OK" and own.agent == "Application Agent"
+    assert team is not None and team.cap == "CHECK"
+    assert "E2 [확인 필요] 팀 · 팀이 정산 DB를 이관했다" in text
+    assert "한빛카드" in text
+
+
+def test_application_block_without_review(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = _evidence_context(sample_applicants, sample_company, sample_posting)
+
+    assert application_block(Ledger(), context, context.candidates[0], None).endswith(NO_REVIEW)
+
+
+def test_interview_answers_are_check(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    first = next(iter(sample_applicants.values())).info.application_id
+    question = InterviewQuestion(
+        question_id=uuid4(), text="장애 대응 경험은?", source=QuestionSource.AI, answer="제가 주도했습니다."
+    )
+    view = InterviewView(application_id=first, schedule=None, questions=[question], previous=[])
+    context = _evidence_context(
+        sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW, interviews={first: view}
+    )
+    analysis = ProfileView(
+        front="",
+        lines=[ProfileLine("STRENGTH", "장애 대응 주도", "제가 주도했습니다.", "면접 답변", "CONFIRMED", "interview")],
+    )
+    ledger = Ledger()
+
+    text = interview_block(ledger, context, context.candidates[0], analysis)
+
+    assert "장애 대응 경험은?" in text
+    assert _caps(ledger, ["E1", "E2"]) == ["CHECK", "OK"]
+    answer = ledger.get("E1")
+    assert answer is not None and answer.source == "면접 기록"
+
+
+def test_memo_block_keeps_memo_for_questions(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = _evidence_context(sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW)
+    row = context.candidates[0]
+    memo = InterviewerMemo(stage_id=context.stage_id, stage_name="1차 면접", text="협업 사례의 본인 역할 확인 필요")
+    context = context.model_copy(update={"interviewer_memos": {row.application_id: [memo]}})
+    ledger = Ledger()
+
+    text = memo_block(ledger, context, row)
+
+    found = ledger.get("E1")
+    assert "협업 사례의 본인 역할 확인 필요" in text
+    assert found is not None and found.memo == memo and found.cap == "CHECK" and found.source == "면접관메모"
+
+
+def test_stage_block_lines_are_ok_results(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = _evidence_context(sample_applicants, sample_company, sample_posting)
+    ledger = Ledger()
+
+    text = stage_block(ledger, context)
+
+    refs = [line.split(" ", 1)[0] for line in text.splitlines() if line.startswith("E")]
+    found = [ledger.get(ref) for ref in refs]
+    assert refs and all(each is not None and each.cap == "OK" and each.source == "전형 결과" for each in found)
+    owners = {each.application_id for each in found if each is not None}
+    assert None in owners and context.candidates[0].application_id in owners
+
+
+def test_company_block_lines_are_ok(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = _evidence_context(sample_applicants, sample_company, sample_posting)
+    ledger = Ledger()
+
+    text = company_block(ledger, context)
+
+    assert sample_company.name in text and sample_posting.title in text
+    first = ledger.get("E1")
+    assert first is not None and first.cap == "OK" and first.application_id is None
+
+
+def test_turns_block_keeps_item_status(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = _evidence_context(sample_applicants, sample_company, sample_posting)
+    row = context.candidates[0]
+    turn = Turn(
+        message="협업 경험 어때?",
+        kind="ANSWER",
+        intent="ANSWER",
+        targets=[str(row.application_id)],
+        answer="정리했어요.",
+        items=[
+            TurnItem(application_id=str(row.application_id), label="협업", text="팀 회고를 이끌었다", status="CHECK"),
+            TurnItem(application_id=str(uuid4()), label="범위 밖", text="다른 전형 지원자", status="OK"),
+        ],
+        focus={},
+        total=8,
+        plan={},
+    )
+    ledger = Ledger()
+
+    text = turns_block(ledger, context, [turn])
+
+    found = ledger.get("E1")
+    assert "협업 경험 어때?" in text and "범위 밖" not in text
+    assert found is not None and found.cap == "CHECK" and found.source == "앞 대화 답변"
+    assert found.application_id == row.application_id
+
+
+async def test_db_readers_read_saved_profile_and_missing_review(
+    db_session: AsyncSession,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    await save_sample_profiles(db_session, sample_company, sample_applicants, names=["정유민"])
+    context = _evidence_context(sample_applicants, sample_company, sample_posting)
+    scope = scope_of(context)
+    read = db_profile_reader(sessions_of(db_session))
+    review = db_review_reader(sessions_of(db_session))
+
+    saved = await read(scope, sample_applicants["정유민"].info.application_id)
+    missing = await read(scope, sample_applicants["김하늘"].info.application_id)
+
+    assert saved is not None and saved.lines and saved.front
+    assert missing is None
+    assert await review(scope, sample_applicants["정유민"].info.application_id) is None
