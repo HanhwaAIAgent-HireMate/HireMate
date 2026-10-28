@@ -14,7 +14,17 @@ from hiremate_ai.config import settings
 from hiremate_ai.db.llm_call import LlmCallLog
 from hiremate_ai.llm import chat, client
 from hiremate_ai.llm.call_log import CallRecord, DbCallLog
-from hiremate_ai.llm.chat import LAST_CALL, SHORTER, ChatLlm, LlmOutputError, model_call_budget
+from hiremate_ai.llm.chat import (
+    LAST_CALL,
+    SHORTER,
+    ChatLlm,
+    LlmFailureReason,
+    LlmOutputError,
+    consume_model_call,
+    model_call_budget,
+    new_model_call_budget,
+    using_model_call_budget,
+)
 
 
 class Summary(BaseModel):
@@ -672,3 +682,14 @@ async def test_budget_interrupted_tool_returns_control_for_the_reserved_final_an
     assert len(tool_messages) == 1
     assert "model_call_budget" in tool_messages[0]["content"]
     assert "<data" in tool_messages[0]["content"]
+
+
+def test_shared_budget_continues_across_blocks() -> None:
+    budget = new_model_call_budget(2)
+    with using_model_call_budget(budget):
+        consume_model_call()
+    with using_model_call_budget(budget):
+        consume_model_call()
+        with pytest.raises(LlmOutputError) as raised:
+            consume_model_call()
+    assert raised.value.reason is LlmFailureReason.BUDGET
