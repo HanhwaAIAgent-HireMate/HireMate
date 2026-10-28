@@ -175,7 +175,7 @@ public class ChatService {
                 .replace("{total}", String.valueOf(total));
         ChatPlan finalPlan = new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), message,
                 plan.items(), plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(),
-                plan.questionMemos());
+                plan.questionMemos(), plan.questionReplace());
         if (!context.threadId().isBlank()) {
             try {
                 root.applied(new ChatApplied(context.threadId(), context.message(), previous, finalPlan));
@@ -245,7 +245,8 @@ public class ChatService {
         List<ChatItem> items = plan.items().stream()
                 .filter(item -> item.applicationId() == null || targets.contains(item.applicationId())).toList();
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), targets, message, items,
-                plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos());
+                plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos(),
+                plan.questionReplace());
     }
 
     /**
@@ -281,7 +282,8 @@ public class ChatService {
         List<ChatItem> items = plan.items().isEmpty() ? summaries : plan.items();
         String reply = plan.message() + (shortfalls.isEmpty() ? "" : "\n" + String.join("\n", shortfalls));
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), reply, items,
-                plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos());
+                plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos(),
+                plan.questionReplace());
     }
 
     static int requestedQuestionCount(String message) {
