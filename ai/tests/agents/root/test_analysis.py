@@ -7,6 +7,7 @@ from hiremate_ai.agents.guardrails import BLOCKED_REPLY
 from hiremate_ai.agents.root.analysis import (
     BAD_FIND,
     FOREIGN_REFS,
+    NO_ITEMS,
     UNKNOWN_REFS,
     AnalysisRun,
     AnswerOutput,
@@ -221,3 +222,17 @@ async def test_search_blocks_discriminatory(
     await run_analysis(llm, toolkit_with_profiles(), run_of(context), task="answer", checks="none", progress=Recorder())
 
     assert BLOCKED_REPLY in llm.calls[1].user
+
+
+async def test_message_only_answer_is_rewritten_once(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, message="미결정 몇 명 남았어?")
+    llm = FakeLlm(ToolCall("answer", {"message": "미결정 8명이에요.", "items": []}), answer("E1", candidate=None))
+
+    reply = await run_analysis(
+        llm, toolkit_with_profiles(), run_of(context), task="answer", checks="none", progress=Recorder()
+    )
+
+    assert NO_ITEMS in llm.calls[1].user
+    assert isinstance(reply.form, AnswerOutput) and reply.form.items
