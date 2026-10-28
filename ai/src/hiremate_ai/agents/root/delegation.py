@@ -35,7 +35,7 @@ from hiremate_ai.agents.root.types import CandidateRow
 from hiremate_ai.contract import StageType
 from hiremate_ai.db.analysis_store import AnalysisArtifactReader
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
-from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError, record_interrupted_model_tool
+from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError, record_interrupted_model_tool, reserve_model_calls
 from hiremate_ai.llm.client import LlmClient
 
 REVIEWING_APPLICATION = "서류 Agent가 제출 문서의 근거를 검토하고 있어요"
@@ -43,6 +43,9 @@ REVIEWING_INTERVIEW = "면접 Agent가 답변과 앞선 분석을 검토하고 �
 INVALID_RESULT = "이 지원자의 이번 요청에서 받은 결과 번호만 전달할 수 있어요."
 NO_INTERVIEW = "현재 면접 전형에서 이 지원자의 답변 기록을 불러오지 않았어요."
 SUB_AGENT_FAILED = "{agent}가 검토를 끝내지 못했어요. 저장된 분석으로 답하세요."
+SUB_AGENT_BUDGET = "호출 한도가 남지 않아 {agent} 검토를 하지 못했어요. 지금까지 읽은 자료로 답하세요."
+# 도구 안의 하위 Agent가 쓰지 않고 남기는 호출: 분석 루프의 최종 답 한 번, 근거 검토 한 번
+KEEP_CALLS = 2
 NOT_FINISHED = "(호출 한도로 검토를 끝까지 마치지 못했어요)"
 _AGENT_LABELS = {ItemAgent.APPLICATION: "서류 Agent", ItemAgent.INTERVIEW: "면접 Agent"}
 _ACTOR_LABELS = {Actor.SELF: "본인", Actor.TEAM: "팀", Actor.UNCLEAR: "역할 불분명"}
@@ -107,11 +110,10 @@ class Delegation:
         if not _readable(scope, row):
             return NO_DOCUMENTS
         try:
-            key = await self._application(scope, row)
+            with reserve_model_calls(KEEP_CALLS):
+                key = await self._application(scope, row)
         except LlmOutputError as error:
-            if error.reason is LlmFailureReason.BUDGET:
-                raise
-            return SUB_AGENT_FAILED.format(agent=_AGENT_LABELS[ItemAgent.APPLICATION])
+            return _failure(error, ItemAgent.APPLICATION, "review_documents")
         return self._lines(key, scope)
 
     async def interview_review(self, scope: RootToolContext, candidate: str, previous: Sequence[str] | None) -> str:
@@ -123,11 +125,10 @@ class Delegation:
         if problem is not None:
             return problem
         try:
-            key = await self._interview(scope, row, earlier)
+            with reserve_model_calls(KEEP_CALLS):
+                key = await self._interview(scope, row, earlier)
         except LlmOutputError as error:
-            if error.reason is LlmFailureReason.BUDGET:
-                raise
-            return SUB_AGENT_FAILED.format(agent=_AGENT_LABELS[ItemAgent.INTERVIEW])
+            return _failure(error, ItemAgent.INTERVIEW, "review_interview")
         return self._lines(key, scope)
 
     async def _application(self, scope: RootToolContext, row: CandidateRow) -> str:
@@ -274,6 +275,14 @@ class Delegation:
         key = f"D{len(self.results) + 1}"
         self.results[key] = result
         return key
+
+
+def _failure(error: LlmOutputError, agent: ItemAgent, tool_name: str) -> str:
+    """하위 Agent 실패는 요청을 끝내지 않고 도구 결과로 알린다. 호출 한도면 검토를 끝내지 못한 도구로 남긴다."""
+    if error.reason is LlmFailureReason.BUDGET:
+        record_interrupted_model_tool(tool_name)
+        return SUB_AGENT_BUDGET.format(agent=_AGENT_LABELS[agent])
+    return SUB_AGENT_FAILED.format(agent=_AGENT_LABELS[agent])
 
 
 def _readable(scope: RootToolContext, row: CandidateRow) -> bool:

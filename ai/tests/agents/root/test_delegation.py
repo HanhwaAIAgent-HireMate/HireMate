@@ -1,17 +1,16 @@
 from uuid import uuid4
 
-import pytest
 from root_context import make_context
 
 from hiremate_ai.agents.analysis.application.extract import ExtractedFacts
 from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
 from hiremate_ai.agents.analysis.interview.types import FindingDraft, InterviewDraft
-from hiremate_ai.agents.root.delegation import INVALID_RESULT, SUB_AGENT_FAILED, Delegation
+from hiremate_ai.agents.root.delegation import INVALID_RESULT, SUB_AGENT_BUDGET, SUB_AGENT_FAILED, Delegation
 from hiremate_ai.agents.root.ledger import Ledger
 from hiremate_ai.agents.root.toolkit import scope_of
 from hiremate_ai.agents.root.types import ChatContext, InterviewQuestion, InterviewView, QuestionSource
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
-from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
+from hiremate_ai.llm.chat import LlmOutputError, new_model_call_budget, reserve_model_calls, using_model_call_budget
 from hiremate_ai.llm.fake import FakeLlm, FakeReply, LlmCall
 
 type Applicants = dict[str, ApplicantDetail]
@@ -147,15 +146,16 @@ async def test_sub_agent_failure_is_tool_text(
     assert await delegation.documents_review(scope_of(context), "C1") == SUB_AGENT_FAILED.format(agent="서류 Agent")
 
 
-async def test_sub_agent_budget_error_is_raised(
+async def test_sub_agent_keeps_the_loop_answer_and_review_calls(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
+    """하위 Agent는 분석 루프의 최종 답과 근거 검토가 쓸 호출 두 번을 남긴다. 모자라면 실패 대신 안내를 돌려준다."""
     context = interview_context(sample_applicants, sample_company, sample_posting)
+    delegation, _ = ledger_delegation(FakeLlm(extraction(), review()))
+    budget = new_model_call_budget(3)
 
-    def exhausted(call: LlmCall) -> FakeReply:
-        raise LlmOutputError("예산 초과", reason=LlmFailureReason.BUDGET)
+    with using_model_call_budget(budget), reserve_model_calls(1):
+        text = await delegation.documents_review(scope_of(context), "C1")
 
-    delegation, _ = ledger_delegation(FakeLlm(exhausted))
-
-    with pytest.raises(LlmOutputError):
-        await delegation.documents_review(scope_of(context), "C1")
+    assert text == SUB_AGENT_BUDGET.format(agent="서류 Agent")
+    assert budget.remaining == 2

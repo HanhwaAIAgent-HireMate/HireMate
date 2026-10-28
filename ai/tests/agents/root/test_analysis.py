@@ -8,6 +8,7 @@ from hiremate_ai.agents.root.analysis import (
     BAD_FIND,
     FOREIGN_REFS,
     NO_ITEMS,
+    SEARCH_BUDGET,
     UNKNOWN_REFS,
     AnalysisRun,
     AnswerOutput,
@@ -19,6 +20,7 @@ from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.toolkit import ProfileLine, ProfileView, RootToolContext, RootToolkit, keyword_search
 from hiremate_ai.agents.root.types import ChatContext
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, InterviewerMemo, PostingContent, StageType
+from hiremate_ai.llm.chat import model_call_budget
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
@@ -150,6 +152,22 @@ async def test_search_then_find_returns_search_number(
 
     assert isinstance(reply.form, FindOutput) and reply.form.result == "S1"
     assert "S1" in run.searches and run.queries["S1"].concepts == ["결제"]
+
+
+async def test_search_recheck_keeps_the_answer_and_review_calls(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, mentions=["정유민"])
+    query = {"mode": "replace", "concepts": ["결제"], "min_score": None}
+    llm = FakeLlm(ToolCall("search_candidates", {"query": query}), answer("E2"))
+
+    with model_call_budget(3):
+        reply = await run_analysis(
+            llm, toolkit_with_profiles(), run_of(context, "정유민"), task="answer", checks="none", progress=Recorder()
+        )
+
+    assert SEARCH_BUDGET in llm.calls[1].user
+    assert isinstance(reply.form, AnswerOutput)
 
 
 async def test_unknown_ref_is_rewritten_once(
