@@ -21,14 +21,17 @@ from hiremate_ai.agents.analysis.interview.types import (
     InterviewDraft,
 )
 from hiremate_ai.agents.root.commands import ClarifyCommand, RootReply
+from hiremate_ai.agents.root.delegation import INVALID_RESULT, SUB_AGENT_FAILED, Delegation
 from hiremate_ai.agents.root.graph import RootThread, run_plan
-from hiremate_ai.agents.root.toolkit import OUT_OF_SCOPE, AgentEvidence, RootToolContext, default_toolkit
+from hiremate_ai.agents.root.ledger import Ledger
+from hiremate_ai.agents.root.toolkit import OUT_OF_SCOPE, AgentEvidence, RootToolContext, default_toolkit, scope_of
 from hiremate_ai.agents.root.types import ChatContext, Intent, InterviewQuestion, InterviewView, QuestionSource
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, InterviewerMemo, PostingContent, StageType
 from hiremate_ai.db.analysis_artifact import AnalysisArtifactRecord
 from hiremate_ai.db.analysis_store import DbAnalysisArtifacts
 from hiremate_ai.db.profile import Verification
+from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
 from hiremate_ai.llm.fake import FakeLlm, FakeReply, LlmCall, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
@@ -648,3 +651,99 @@ async def test_three_cached_documents_and_interview_finish_within_eight_calls(
     assert plan.agents == ["Application Agent", "Interview Agent"]
     assert plan.sources == ["이력서", "면접 기록"]
     assert await db_session.scalar(select(func.count()).select_from(AnalysisArtifactRecord)) == 3
+
+
+# 근거 번호로 받는 서류, 면접 Agent 결과 (분석 루프)
+
+
+def ledger_delegation(llm: FakeLlm) -> tuple[Delegation, Ledger]:
+    ledger = Ledger()
+    return Delegation(llm, ledger=ledger), ledger
+
+
+async def test_review_documents_adds_team_facts_as_check(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    delegation, ledger = ledger_delegation(FakeLlm(extraction(actor="TEAM"), review()))
+
+    text = await delegation.documents_review(scope_of(context), "C1")
+
+    found = ledger.get("E1")
+    assert found is not None and found.cap == "CHECK" and found.agent == "Application Agent"
+    assert found.quote == DOCUMENT and found.source == "이력서"
+    assert f"팀 · {STATEMENT}" in text and text.startswith("D1 ")
+
+
+async def test_review_documents_keeps_supported_own_fact_ok(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    delegation, ledger = ledger_delegation(FakeLlm(extraction(), review()))
+
+    await delegation.documents_review(scope_of(context), "C1")
+
+    found = ledger.get("E1")
+    assert found is not None and found.cap == "OK"
+
+
+async def test_same_candidate_is_reviewed_once(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    llm = FakeLlm(extraction(), review())
+    delegation, _ = ledger_delegation(llm)
+
+    first = await delegation.documents_review(scope_of(context), "C1")
+    again = await delegation.documents_review(scope_of(context), "C1")
+
+    assert first == again and len(llm.calls) == 2
+
+
+async def test_review_interview_previous_must_be_same_candidate(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    delegation, _ = ledger_delegation(FakeLlm())
+
+    assert await delegation.interview_review(scope_of(context), "C1", ["D9"]) == INVALID_RESULT
+
+
+async def test_review_interview_registers_findings(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+    delegation, ledger = ledger_delegation(FakeLlm(interview_draft(confirmed=False)))
+
+    text = await delegation.interview_review(scope_of(context), "C1", None)
+
+    found = ledger.get("E1")
+    assert INTERVIEW_STATEMENT in text
+    assert found is not None and found.cap == "CHECK" and found.agent == "Interview Agent" and found.quote == ANSWER
+
+
+async def test_sub_agent_failure_is_tool_text(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+
+    def broken(call: LlmCall) -> FakeReply:
+        raise LlmOutputError("형식에 맞는 답을 받지 못했다")
+
+    delegation, _ = ledger_delegation(FakeLlm(broken))
+
+    assert await delegation.documents_review(scope_of(context), "C1") == SUB_AGENT_FAILED.format(agent="서류 Agent")
+
+
+async def test_sub_agent_budget_error_is_raised(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = interview_context(sample_applicants, sample_company, sample_posting)
+
+    def exhausted(call: LlmCall) -> FakeReply:
+        raise LlmOutputError("예산 초과", reason=LlmFailureReason.BUDGET)
+
+    delegation, _ = ledger_delegation(FakeLlm(exhausted))
+
+    with pytest.raises(LlmOutputError):
+        await delegation.documents_review(scope_of(context), "C1")
