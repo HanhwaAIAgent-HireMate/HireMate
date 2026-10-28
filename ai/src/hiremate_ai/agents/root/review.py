@@ -25,6 +25,7 @@ from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 MESSAGE_FALLBACK = "확인한 내용을 정리했어요."
+REVIEW_INCOMPLETE = "근거 검토를 끝내지 못해 지원자 항목은 확인 필요로 표시했어요."
 NO_EVIDENCE = "근거를 확인하지 못했어요. 조건을 좁혀 다시 말씀해 주세요."
 FOCUS_LABEL = "확인할 점"
 
@@ -56,12 +57,16 @@ async def review_items(
 ) -> tuple[str, list[Checked]]:
     """(보여 줄 답, 검토를 통과한 항목)을 돌려준다. 호출 예산이 남지 않았으면 지원자 항목을 확인 필요로 둔다."""
     checked = [each for draft in drafts if (each := _capped(context, ledger, draft)) is not None]
-    message = readable(message, context)
-    owned = [index for index, each in enumerate(checked) if each.item.application_id is not None]
-    if not owned:
+    message = without_later_gaps(context, readable(message, context)) or MESSAGE_FALLBACK
+    # 지원자 항목과 지원자별 근거를 인용한 공통 항목은 지원자에 대한 주장이다. 답 문장이 지원자를 말해도 판정한다
+    claimed = [index for index, each in enumerate(checked) if _about_candidates(each)]
+    if not claimed and not any(row.name in message for row in context.candidates):
         return message, checked
-    claims = [(f"I{number}", checked[index]) for number, index in enumerate(owned, start=1)]
-    listing = [f"{key}. 문장: {each.item.text}\n   근거: {_quotes(each.evidence)}" for key, each in claims]
+    keys = {index: f"I{number}" for number, index in enumerate(claimed, start=1)}
+    listing = [
+        f"{keys[index]}. 문장: {checked[index].item.text}\n   근거: {_quotes(checked[index].evidence)}"
+        for index in claimed
+    ]
     listing.append(f"M. 문장: {message}\n   근거: {_quotes([e for each in checked for e in each.evidence])}")
     claims_text = data_block("claims", "\n".join(listing))
     try:
@@ -72,16 +77,17 @@ async def review_items(
             user=f"{claims_text}\n\n문장마다 근거가 받쳐 주는지 판정해 줘.",
         )
     except LlmOutputError:
-        return message, [_lowered(each) if each.item.application_id is not None else each for each in checked]
+        lowered = [_lowered(each) if index in keys else each for index, each in enumerate(checked)]
+        return f"{MESSAGE_FALLBACK} {REVIEW_INCOMPLETE}", lowered
+    # 판정이 빠진 문장은 받쳐 준다고 보지 않는다
     verdicts = {verdict.id: verdict.verdict for verdict in judgement.verdicts}
     kept: list[Checked] = []
-    by_index = {index: key for key, index in zip((key for key, _ in claims), owned, strict=True)}
     for index, each in enumerate(checked):
-        verdict = verdicts.get(by_index[index]) if index in by_index else "SUPPORTED"
+        verdict = verdicts.get(keys[index], "OVERSTATED") if index in keys else "SUPPORTED"
         if verdict == "UNRELATED":
             continue
         kept.append(_lowered(each) if verdict == "OVERSTATED" else each)
-    if verdicts.get("M") == "OVERSTATED":
+    if verdicts.get("M") != "SUPPORTED":
         message = MESSAGE_FALLBACK
     return message, kept
 
@@ -155,9 +161,16 @@ def _capped(context: ChatContext, ledger: Ledger, draft: ItemDraft) -> Checked |
     if row is None and not evidence:
         status = None
     else:
-        status = "OK" if draft.status == "OK" and evidence and all(each.cap == "OK" for each in evidence) else "CHECK"
+        # 지원자 항목은 그 지원자의 근거가 하나 이상 있어야 OK다. 회사 소개나 공고만으로는 그 사람의 사실이 아니다
+        own = row is None or any(each.application_id == owner for each in evidence)
+        sure = draft.status == "OK" and bool(evidence) and own and all(each.cap == "OK" for each in evidence)
+        status = "OK" if sure else "CHECK"
     item = ChatItem(application_id=owner, label=readable(draft.label, context), text=text, status=status)
     return Checked(item, evidence)
+
+
+def _about_candidates(each: Checked) -> bool:
+    return each.item.application_id is not None or any(e.application_id is not None for e in each.evidence)
 
 
 def _lowered(each: Checked) -> Checked:
