@@ -238,6 +238,7 @@ def has_condition(query: SearchQuery) -> bool:
         or query.score_gap
         or query.area_scores
         or query.grades
+        or query.min_career_years is not None
         or query.use_talents
         or query.posting_criteria != "none"
     )
