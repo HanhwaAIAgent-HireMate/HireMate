@@ -124,6 +124,20 @@ async def test_item_without_refs_is_check_and_foreign_ref_is_ignored(
     assert checked[1].evidence == []
 
 
+async def test_common_item_keeps_candidate_lines_as_evidence(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    ledger = Ledger()
+    line = ledger.add(context.candidates[0].application_id, "C1 정유민, 미결정", source="전형 결과", cap="OK")
+    total = ledger.add(None, "지원자 8명: 미결정 8명", source="전형 결과", cap="OK")
+    llm = FakeLlm()
+
+    _, checked = await review_items(llm, context, ledger, "8명이에요.", [draft(total, line, candidate=None)])
+
+    assert checked[0].item.status == "OK" and len(checked[0].evidence) == 2 and llm.calls == []
+
+
 def test_nothing_left_is_none() -> None:
     assert answer_plan("답", []) is None
 
