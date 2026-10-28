@@ -23,6 +23,8 @@ export function StageStepper({
     ...overview.steps.map((step) => ({
       key: step.stageId,
       label: step.name,
+      type: step.type,
+      icon: step.icon,
       count: step.targetCount,
       state:
         step.stageId === overview.stageId

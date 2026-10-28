@@ -1,13 +1,14 @@
 import type { StageType } from '@/features/recruit/labels'
+import type { StageIconName } from '@/features/recruit/StageIcon'
 
 /** 공고 작성 화면에서 HR이 직접 고치는 전형 하나 */
-export type StageForm = { name: string; type: StageType }
+export type StageForm = { name: string; type: StageType; icon?: StageIconName | null }
 
 /** 전형 절차에 넣을 수 있는 전형 수 */
 export const MAX_STAGES = 10
 
 export function toStageForms(stages: StageForm[]): StageForm[] {
-  return stages.map(({ name, type }) => ({ name, type }))
+  return stages.map(({ name, type, icon }) => ({ name, type, icon: icon ?? null }))
 }
 
 /** 저장할 수 없는 이유. 전형 안내가 이름으로 이어지기 때문에 같은 이름을 막는다 */

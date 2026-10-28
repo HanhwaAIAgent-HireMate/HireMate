@@ -1,5 +1,6 @@
 package com.hiremate.posting;
 
+import com.hiremate.recruit.StageIcon;
 import com.hiremate.recruit.StageType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
@@ -11,7 +12,8 @@ public record PublicPostingView(UUID postingId, String companyName, PostingConte
         List<PublicStage> stages, List<RequiredDocument> documents, Instant openAt, Instant closeAt, State state,
         @Schema(nullable = true) PosterDesign poster) {
 
-    public record PublicStage(String name, StageType type) {
+    public record PublicStage(String name, StageType type,
+            @Schema(nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED) StageIcon icon) {
     }
 
     /** 접수 전 · 접수 중 · 마감. 마감 후에는 지원하기를 막는다. */

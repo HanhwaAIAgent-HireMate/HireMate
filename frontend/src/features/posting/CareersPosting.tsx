@@ -7,7 +7,7 @@ import { LogoMark } from '@/app/LogoMark'
 import { Button } from '@/components/ui/button'
 import type { PublicPosting } from '@/features/posting/api'
 import { conditionRows } from '@/features/posting/conditions'
-import { StageFlow } from '@/features/posting/StageFlow'
+import { StageProcess } from '@/features/recruit/StageProcess'
 import { PostingPoster } from '@/features/posting/PostingPoster'
 import { exportPosterPdf } from '@/features/posting/poster-design'
 import { errorMessage } from '@/lib/api/client'
@@ -140,7 +140,7 @@ export function CareersPosting({
           </Block>
         )}
         <Block title="전형 절차">
-          <StageFlow stages={posting.stages} showType={false} />
+          <StageProcess stages={posting.stages} color={posting.poster?.color} includeFinal />
         </Block>
         <Block title="제출 서류">
           <div className="flex flex-wrap gap-2">

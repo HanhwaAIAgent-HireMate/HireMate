@@ -1,7 +1,9 @@
 package com.hiremate.posting.api;
 
 import com.hiremate.recruit.StageDraft;
+import com.hiremate.recruit.StageIcon;
 import com.hiremate.recruit.StageType;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -16,9 +18,10 @@ import java.util.List;
 public record StagesRequest(@NotNull @Size(min = 1, max = 10) List<@NotNull @Valid StageItem> stages) {
 
     public List<StageDraft> toDrafts() {
-        return stages.stream().map(stage -> new StageDraft(stage.name().strip(), stage.type())).toList();
+        return stages.stream().map(stage -> new StageDraft(stage.name().strip(), stage.type(), stage.icon())).toList();
     }
 
-    public record StageItem(@NotBlank @Size(max = 50) String name, @NotNull StageType type) {
+    public record StageItem(@NotBlank @Size(max = 50) String name, @NotNull StageType type,
+            @Schema(nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED) StageIcon icon) {
     }
 }

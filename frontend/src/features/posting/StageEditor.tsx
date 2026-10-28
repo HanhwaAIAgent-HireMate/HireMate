@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { MAX_STAGES, moveStage, type StageForm } from '@/features/posting/stages'
 import { STAGE_TYPE_LABELS, type StageType } from '@/features/recruit/labels'
+import { StageIcon } from '@/features/recruit/StageIcon'
+import { STAGE_ICONS } from '@/features/recruit/stage-icons'
 import { cn } from '@/lib/utils'
 
 const TYPES = Object.keys(STAGE_TYPE_LABELS) as StageType[]
@@ -73,8 +75,9 @@ export function StageEditor({
                     <button
                       type="button"
                       aria-label={`${label} 고치기`}
-                      className="px-1 py-1 hover:text-foreground"
+                      className="inline-flex items-center gap-1 px-1 py-1 hover:text-foreground"
                     >
+                      <StageIcon type={stage.type} icon={stage.icon} />
                       {names[index] || '이름 없음'}
                       <span className="font-semibold text-ai">
                         {' '}
@@ -82,7 +85,7 @@ export function StageEditor({
                       </span>
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-64 space-y-3">
+                  <PopoverContent align="start" className="w-72 space-y-3">
                     <label className="block space-y-1 text-xs text-muted-foreground">
                       이름
                       <Input
@@ -117,6 +120,33 @@ export function StageEditor({
                         ))}
                       </div>
                     </div>
+                    <fieldset className="space-y-2">
+                      <legend className="text-xs text-muted-foreground">아이콘</legend>
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {STAGE_ICONS.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            aria-label={`아이콘: ${item.label}`}
+                            aria-pressed={(stage.icon ?? 'AUTO') === item.id}
+                            onClick={() => change(index, { icon: item.id })}
+                            className={cn(
+                              'flex flex-col items-center gap-1 rounded-md border px-1 py-2 text-[10px]',
+                              (stage.icon ?? 'AUTO') === item.id
+                                ? 'border-foreground bg-muted font-semibold'
+                                : 'text-muted-foreground hover:bg-muted',
+                            )}
+                          >
+                            {item.id === 'NONE' ? (
+                              <X className="size-4" aria-hidden="true" />
+                            ) : (
+                              <StageIcon type={stage.type} icon={item.id} className="size-4" />
+                            )}
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
                   </PopoverContent>
                 </Popover>
                 <button

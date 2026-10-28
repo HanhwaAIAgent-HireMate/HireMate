@@ -1,6 +1,7 @@
 package com.hiremate.screening;
 
 import com.hiremate.recruit.RecruitmentStatus;
+import com.hiremate.recruit.StageIcon;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -17,7 +18,8 @@ public record StageOverview(UUID stageId, String name, StageType type, StageStat
 
     /** Stepper의 전형 한 칸. 시작하지 않은 전형은 대상 인원이 없다. */
     public record StageStep(UUID stageId, String name, StageType type, StageStatus status,
-            @Schema(nullable = true) Long targetCount) {
+            @Schema(nullable = true) Long targetCount,
+            @Schema(nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED) StageIcon icon) {
     }
 
     public record DecisionCounts(long pending, long pass, long fail, long total) {

@@ -95,7 +95,7 @@ public class ScreeningService {
         List<StageCandidate> current = byStage.getOrDefault(stageId, List.of());
         List<StageOverview.StageStep> steps = recruitment.stages().stream()
                 .map(step -> new StageOverview.StageStep(step.id(), step.name(), step.type(), step.status(),
-                        byStage.containsKey(step.id()) ? (long) byStage.get(step.id()).size() : null))
+                        byStage.containsKey(step.id()) ? (long) byStage.get(step.id()).size() : null, step.icon()))
                 .toList();
         return new StageOverview(stageId, stage.name(), stage.type(), stage.status(),
                 recruitment.isLastStage(stageId), recruitment.id(), recruitment.title(), recruitment.status(),

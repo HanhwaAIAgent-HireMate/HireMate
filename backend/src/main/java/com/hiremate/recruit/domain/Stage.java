@@ -2,6 +2,7 @@ package com.hiremate.recruit.domain;
 
 import com.hiremate.recruit.GuideMethod;
 import com.hiremate.recruit.StageGuide;
+import com.hiremate.recruit.StageIcon;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import jakarta.persistence.Column;
@@ -40,6 +41,10 @@ public class Stage {
     private StageType type;
 
     @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private StageIcon icon;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private StageStatus status;
 
@@ -69,11 +74,16 @@ public class Stage {
     private String guideNote = "";
 
     public Stage(UUID recruitmentId, int seq, String name, StageType type, StageGuide guide) {
+        this(recruitmentId, seq, name, type, guide, null);
+    }
+
+    public Stage(UUID recruitmentId, int seq, String name, StageType type, StageGuide guide, StageIcon icon) {
         this.id = UUID.randomUUID();
         this.recruitmentId = recruitmentId;
         this.seq = seq;
         this.name = name;
         this.type = type;
+        this.icon = icon;
         this.status = StageStatus.PENDING;
         changeGuide(guide);
     }

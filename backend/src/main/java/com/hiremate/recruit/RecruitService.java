@@ -163,7 +163,7 @@ public class RecruitService {
         for (int i = 0; i < plan.size(); i++) {
             StageDraft draft = plan.get(i);
             created.add(new Stage(recruitmentId, i + 1, draft.name(), draft.type(),
-                    guides.getOrDefault(draft.name(), StageGuide.EMPTY)));
+                    guides.getOrDefault(draft.name(), StageGuide.EMPTY), draft.icon()));
         }
         stages.saveAll(created);
     }
@@ -205,6 +205,6 @@ public class RecruitService {
     private static StageInfo toInfo(Stage stage) {
         return new StageInfo(stage.getId(), stage.getRecruitmentId(), stage.getSeq(), stage.getName(),
                 stage.getType(), stage.getStatus(), stage.getConfirmedAt(), stage.getConfirmedByName(),
-                stage.getDoneAt(), stage.guide());
+                stage.getDoneAt(), stage.guide(), stage.getIcon());
     }
 }
