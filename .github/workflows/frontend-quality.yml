@@ -1,0 +1,40 @@
+name: frontend-quality
+
+on:
+  pull_request:
+    paths:
+      - frontend/**
+      - .editorconfig
+      - .github/workflows/frontend-quality.yml
+  # PR에서 통과한 코드는 main에서 다시 검사하지 않는다. 의존성이 바뀐 채 머지되면 한 번 돌려 PR이 받아 쓸 캐시를 만든다.
+  push:
+    branches: [main]
+    paths:
+      - frontend/package-lock.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: frontend 품질 검사
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 의존성 설치
+        run: npm ci
+      - name: ESLint, Prettier, 테스트 및 빌드
+        run: npm run check

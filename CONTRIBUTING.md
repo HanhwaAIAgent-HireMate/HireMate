@@ -75,11 +75,16 @@ ci: 커밋 메시지 검사 추가
 | push | `main` 직접 push 차단 | `.githooks/pre-push` |
 | PR | PR 제목 형식 | `.github/workflows/commit-convention.yml` |
 | PR, `main` push | 비밀키 유출 (gitleaks) | `.github/workflows/secret-scan.yml` |
-| PR, `main` push | backend, frontend, ai 코드 품질 및 테스트 | `.github/workflows/code-quality.yml` |
+| PR | backend 코드 품질 및 테스트 | `.github/workflows/backend-quality.yml` |
+| PR | frontend 코드 품질 및 테스트 | `.github/workflows/frontend-quality.yml` |
+| PR | ai 코드 품질 및 테스트 | `.github/workflows/ai-quality.yml` |
 | 빌드 | Java 코드 스타일 (Checkstyle) | `backend/config/checkstyle/` |
 
-코드 품질 CI는 변경한 경로와 관계없이 세 영역을 병렬 검사한다. backend의 `./gradlew check`는
-Checkstyle과 테스트를 실행하며, Testcontainers가 러너의 Docker로 PostgreSQL과 Redis를 띄운다.
+코드 품질 CI는 PR에서 바꾼 영역만 검사한다. `contract/`를 바꾸면 backend와 ai를 함께 검사한다.
+PR에서 통과한 코드는 머지 후 `main`에서 다시 검사하지 않고, 의존성 파일이 바뀐 채 머지된 영역만
+`main`에서 한 번 더 돌려 PR이 받아 쓸 캐시를 만든다. private 저장소의 Actions 무료 사용 시간(월 2,000분)
+안에서 돌리기 위해서다. backend의 `./gradlew check`는 Checkstyle과 테스트를 실행하며,
+Testcontainers가 러너의 Docker로 PostgreSQL과 Redis를 띄운다.
 
 GitHub Free 플랜의 private 저장소라 서버에서 브랜치 보호를 강제할 수 없다. 검사를 우회하지 않는 것이 팀 규칙이다.
 
