@@ -8,6 +8,7 @@ import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
+import com.hiremate.interview.KeptQuestions;
 import com.hiremate.job.JobQueue;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.PostingService;
@@ -15,7 +16,9 @@ import com.hiremate.screening.ScreeningService;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -85,9 +88,15 @@ public class InterviewAiService {
                         .filter(question -> !question.text().equals(InterviewService.INTRO)).limit(1).toList());
     }
 
-    /** 지금 카드에 있는 질문 수. */
-    public int count(UUID companyId, UUID stageId, UUID applicationId) {
-        return interviews.view(companyId, stageId, applicationId).questions().size();
+    /** 지금 카드에 있는 질문의 id. */
+    public Set<UUID> questionIds(UUID companyId, UUID stageId, UUID applicationId) {
+        return interviews.view(companyId, stageId, applicationId).questions().stream()
+                .map(InterviewView.Question::questionId).collect(Collectors.toSet());
+    }
+
+    /** Chat의 질문 교체. 답변 없는 AI 질문만 지운다. */
+    public KeptQuestions clearAiQuestions(UUID companyId, UUID stageId, UUID applicationId) {
+        return interviews.clearAiQuestions(companyId, stageId, applicationId);
     }
 
     /** HR의 명시적인 재생성 요청. 추가 요청과 달리 최초 면접 구성을 다시 만든다. */
