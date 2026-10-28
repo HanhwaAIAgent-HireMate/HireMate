@@ -1,0 +1,42 @@
+name: backend-quality
+
+on:
+  pull_request:
+    paths:
+      - backend/**
+      - contract/**
+      - .github/workflows/backend-quality.yml
+  # PR에서 통과한 코드는 main에서 다시 검사하지 않는다. 의존성이 바뀐 채 머지되면 한 번 돌려 PR이 받아 쓸 캐시를 만든다.
+  push:
+    branches: [main]
+    paths:
+      - backend/*.gradle
+      - backend/gradle/wrapper/gradle-wrapper.properties
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend 품질 검사
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: corretto
+          java-version: '25'
+          cache: gradle
+          cache-dependency-path: |
+            backend/*.gradle
+            backend/gradle/wrapper/gradle-wrapper.properties
+      - name: Checkstyle 및 테스트
+        run: ./gradlew --no-daemon check
