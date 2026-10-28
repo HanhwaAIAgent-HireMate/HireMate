@@ -1,8 +1,7 @@
-"""Root가 전문 Agent를 직접 호출한다. 자료와 반환 결과는 이번 요청 안에서만 쓴다."""
+"""Root 분석 루프가 서류, 면접 Agent를 직접 부른다. 자료와 반환 결과는 이번 요청 안에서만 쓴다."""
 
-import json
 from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from langchain.tools import ToolRuntime, tool
@@ -20,21 +19,19 @@ from hiremate_ai.agents.analysis.interview import (
     analyze_interview,
 )
 from hiremate_ai.agents.analysis.interview.store import interview_recipe
-from hiremate_ai.agents.root.answer import INTERVIEW_SOURCE, AnswerEvidence, AnswerItem, _canonical_source
-from hiremate_ai.agents.root.ledger import Ledger
+from hiremate_ai.agents.root.answer import AnswerEvidence
+from hiremate_ai.agents.root.ledger import INTERVIEW_SOURCE, Ledger
 from hiremate_ai.agents.root.progress import SILENT, Progress
 from hiremate_ai.agents.root.toolkit import (
     AGENT_NAMES,
     DOUBTFUL,
     NO_DOCUMENTS,
     OUT_OF_SCOPE,
-    AgentEvidence,
     RootToolContext,
-    RootToolkit,
     candidate_ref,
     resolve_ref,
 )
-from hiremate_ai.agents.root.types import CandidateRow, ChatItem
+from hiremate_ai.agents.root.types import CandidateRow
 from hiremate_ai.contract import StageType
 from hiremate_ai.db.analysis_store import AnalysisArtifactReader
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
@@ -110,7 +107,7 @@ class Delegation:
         if not _readable(scope, row):
             return NO_DOCUMENTS
         try:
-            key = await self._application(scope, row, force_review=False)
+            key = await self._application(scope, row)
         except LlmOutputError as error:
             if error.reason is LlmFailureReason.BUDGET:
                 raise
@@ -126,65 +123,17 @@ class Delegation:
         if problem is not None:
             return problem
         try:
-            key = await self._interview(scope, row, earlier, force_review=False)
+            key = await self._interview(scope, row, earlier)
         except LlmOutputError as error:
             if error.reason is LlmFailureReason.BUDGET:
                 raise
             return SUB_AGENT_FAILED.format(agent=_AGENT_LABELS[ItemAgent.INTERVIEW])
         return self._lines(key, scope)
 
-    def tools(self) -> tuple[BaseTool, ...]:
-        @tool
-        async def consult_application(
-            candidate: str, runtime: ToolRuntime[RootToolContext], force_review: bool = False
-        ) -> str:
-            """서류의 사실과 원문 근거에 전문 검토가 필요할 때 쓴다. candidate는 C1 같은 지원자 번호다.
-
-            반환한 이번 요청의 결과 번호를 같은 지원자의 consult_interview.previous_results에 넣을 수 있다.
-            팀 성과와 확인되지 않은 주장은 CHECK다. 원문 인용만으로 본인의 확정 실무로 강화하지 않는다.
-            점수, 저장된 분석과 업무 상태는 바꾸지 않는다. 질문 생성 자체에는 필요 없다.
-            새로 검토해 달라는 명시적 요청은 force_review=true로 저장 추출과 이번 요청의 재사용을 생략한다.
-            """
-            scope = runtime.context
-            row = resolve_ref(scope.chat, candidate)
-            if row is None:
-                return OUT_OF_SCOPE
-            if not _readable(scope, row) and (
-                force_review or not self._cached(row.application_id, ItemAgent.APPLICATION)
-            ):
-                return NO_DOCUMENTS
-            return self._render(await self._application(scope, row, force_review=force_review), scope)
-
-        @tool
-        async def consult_interview(
-            candidate: str,
-            runtime: ToolRuntime[RootToolContext],
-            previous_results: list[str] | None = None,
-            force_review: bool = False,
-        ) -> str:
-            """현재 면접 답변의 전문 분석이 필요할 때 쓴다. candidate는 C1 같은 지원자 번호다.
-
-            previous_results에는 같은 지원자의 이번 요청에서 받은 결과 번호만 넣는다. 임의 분석은 넣지 않는다.
-            앞선 결과는 비교 맥락이며 이번 면접 답변 원문으로 검증한다. CHECK와 미확인 역할은 확정하지 않는다.
-            질문 생성이나 업무 상태 저장은 하지 않는다. 질문 생성은 최종 questions 명령으로 요청한다.
-            새 검토를 명시적으로 요청하면 force_review=true로 기존 결과를 쓰지 않는다.
-            """
-            scope = runtime.context
-            row = resolve_ref(scope.chat, candidate)
-            if row is None:
-                return OUT_OF_SCOPE
-            previous = tuple(dict.fromkeys(previous_results or []))
-            problem = self._interview_problem(scope, row, previous)
-            if problem is not None:
-                return problem
-            return self._render(await self._interview(scope, row, previous, force_review=force_review), scope)
-
-        return consult_application, consult_interview
-
-    async def _application(self, scope: RootToolContext, row: CandidateRow, *, force_review: bool) -> str:
+    async def _application(self, scope: RootToolContext, row: CandidateRow) -> str:
         """서류 Agent의 검토 결과 번호. 같은 요청에서 이미 검토했으면 다시 부르지 않는다."""
         cached = self._cached(row.application_id, ItemAgent.APPLICATION)
-        if cached and not force_review:
+        if cached:
             return cached
         documents = scope.chat.documents.get(row.application_id, [])
         self.progress.status(REVIEWING_APPLICATION)
@@ -202,7 +151,7 @@ class Delegation:
                 else None
                 for document in documents
             ]
-            if self.artifacts is not None and recipe is not None and not force_review
+            if self.artifacts is not None and recipe is not None
             else None
         )
         facts = await review_application_documents(self.llm, documents, extracted=extracted)
@@ -233,12 +182,10 @@ class Delegation:
             return NO_INTERVIEW
         return None
 
-    async def _interview(
-        self, scope: RootToolContext, row: CandidateRow, previous: tuple[str, ...], *, force_review: bool
-    ) -> str:
+    async def _interview(self, scope: RootToolContext, row: CandidateRow, previous: tuple[str, ...]) -> str:
         """면접 분석 Agent의 결과 번호. 같은 요청에서 같은 비교 자료로 분석했으면 다시 부르지 않는다."""
         cached = self._cached(row.application_id, ItemAgent.INTERVIEW, previous)
-        if cached and not force_review:
+        if cached:
             return cached
         view = scope.chat.interviews[row.application_id]
         references = [
@@ -271,13 +218,13 @@ class Delegation:
         recipe = interview_recipe(self.llm)
         analysis = (
             await self.artifacts.find_interview(data, recipe_hash=recipe)
-            if self.artifacts is not None and recipe is not None and not previous and not force_review
+            if self.artifacts is not None and recipe is not None and not previous
             else None
         )
         if analysis is None:
             analysis = await analyze_interview(data, self.llm, references=references)
         if analysis.interrupted:
-            record_interrupted_model_tool("consult_interview")
+            record_interrupted_model_tool("review_interview")
         items = [
             DelegatedItem(
                 text=item.content,
@@ -313,65 +260,6 @@ class Delegation:
             lines.append(NOT_FINISHED)
         return "\n".join(lines)
 
-    def with_evidence(self, toolkit: RootToolkit) -> RootToolkit:
-        """최종 항목 검증에도 전문 Agent가 반환한 미확인 상태와 출처를 보존한다."""
-
-        async def evidence(scope: RootToolContext, application_ids: Sequence[UUID]) -> dict[UUID, list[AgentEvidence]]:
-            found = await toolkit.evidence(scope, application_ids)
-            result = {application_id: list(items) for application_id, items in found.items()}
-            allowed = set(application_ids) & scope.application_ids
-            transient: dict[UUID, list[AgentEvidence]] = {}
-            for consultation in self.results.values():
-                if consultation.application_id not in allowed:
-                    continue
-                for item in consultation.items:
-                    for quote in item.evidence:
-                        transient.setdefault(consultation.application_id, []).append(
-                            AgentEvidence(
-                                sentence=quote.sentence,
-                                source=quote.source,
-                                agent=consultation.agent,
-                                verification=item.verification,
-                            )
-                        )
-            for application_id, items in transient.items():
-                doubtful = [item for item in items if item.verification in DOUBTFUL]
-                combined = [*result.get(application_id, []), *items]
-                result[application_id] = [
-                    replace(item, verification=Verification.UNCONFIRMED)
-                    if any(_same_quote(item, uncertain) for uncertain in doubtful)
-                    else item
-                    for item in combined
-                ]
-            return result
-
-        return replace(toolkit, evidence=evidence)
-
-    def validate_items(self, originals: Sequence[AnswerItem], checked: Sequence[ChatItem]) -> None:
-        """다른 출처를 함께 인용해도 이번 검토의 미확인 주장과 근거를 확정하지 않는다."""
-        for original, item in zip(originals, checked, strict=True):
-            if item.status != "OK" or item.application_id is None:
-                continue
-            for result in self.results.values():
-                if result.application_id != item.application_id:
-                    continue
-                for prior in result.items:
-                    if prior.verification not in DOUBTFUL:
-                        continue
-                    same_claim = "".join(original.text.split()) == "".join(prior.text.split())
-                    cited = any(
-                        _same_quote(
-                            AgentEvidence(sentence=quote.sentence, source=quote.source, agent=""),
-                            AgentEvidence(sentence=earlier.sentence, source=earlier.source, agent=""),
-                        )
-                        for quote in original.evidence
-                        for earlier in prior.evidence
-                    )
-                    if same_claim or cited:
-                        raise ValueError(
-                            "전문 Agent가 확인 필요로 남긴 내용과 근거는 다른 출처를 붙여도 CHECK로 유지하세요."
-                        )
-
     def _cached(self, application_id: UUID, agent: ItemAgent, previous: tuple[str, ...] = ()) -> str | None:
         return next(
             (
@@ -387,32 +275,6 @@ class Delegation:
         self.results[key] = result
         return key
 
-    def _render(self, key: str, scope: RootToolContext) -> str:
-        result = self.results[key]
-        return json.dumps(
-            {
-                "result": key,
-                "candidate": candidate_ref(scope.chat, result.application_id),
-                "agent": result.agent,
-                "complete": not result.interrupted,
-                "items": [
-                    {**item.model_dump(mode="json"), "status": "CHECK" if item.verification in DOUBTFUL else "OK"}
-                    for item in result.items
-                ],
-            },
-            ensure_ascii=False,
-        )
-
 
 def _readable(scope: RootToolContext, row: CandidateRow) -> bool:
     return any(document.text.strip() for document in scope.chat.documents.get(row.application_id, []))
-
-
-def _same_quote(left: AgentEvidence, right: AgentEvidence) -> bool:
-    left_text = "".join(left.sentence.split())
-    right_text = "".join(right.sentence.split())
-    return (
-        _canonical_source(left.source) == _canonical_source(right.source)
-        and bool(left_text and right_text)
-        and (left_text in right_text or right_text in left_text)
-    )

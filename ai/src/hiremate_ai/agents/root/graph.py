@@ -1,12 +1,15 @@
-"""Root 그래프. 요청 차단, ReAct 도구 루프, 검증된 결과 기록을 연결한다.
+"""Root 그래프. 요청 차단 → 계획 → (찾기 | 편집 | 면접 질문 | 분석 → 근거 검토 | 고정 답) → 기록.
 
-문서와 도구 실행 상태는 실행 context에만 두고 대화방에는 최근 질문과 검증한 결과만 보관한다.
+계획 한 번으로 종류와 대상을 정하고(라우팅), 다음 단계를 미리 알 수 있는 요청은 정해진 흐름으로,
+자료를 읽어 봐야 다음 단계를 알 수 있는 요청만 분석 루프로 처리한다. 요청 하나의 모델 호출 예산과 근거 번호표는
+저장하지 않는 상태 채널(run)로 노드 사이에 넘기고, 대화방에는 최근 질문과 검증한 결과만 남긴다.
 """
 
+import logging
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
@@ -16,8 +19,21 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
-from hiremate_ai.agents.root.agent import run_agent
+from hiremate_ai.agents.root.analysis import (
+    AnswerOutput,
+    ClarifyOutput,
+    FindOutput,
+    QuestionsOutput,
+    analysis_run,
+    run_analysis,
+)
+from hiremate_ai.agents.root.answer import readable
+from hiremate_ai.agents.root.handlers import Handled, handle_edit, handle_find, handle_questions, handle_reply, precheck
+from hiremate_ai.agents.root.plan import EditPlan, FindPlan, QuestionsPlan, make_plan
 from hiremate_ai.agents.root.progress import StepRecorder, writer_progress
+from hiremate_ai.agents.root.review import NO_EVIDENCE, answer_plan, focus_drafts, questions_plan, review_items
+from hiremate_ai.agents.root.scope import expand_scope
+from hiremate_ai.agents.root.state import RootRun, RootState
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
 from hiremate_ai.agents.root.turns import Turn, next_result, remember, turn_of, update_turn
 from hiremate_ai.agents.root.types import (
@@ -31,18 +47,27 @@ from hiremate_ai.agents.root.types import (
     SelectionMode,
 )
 from hiremate_ai.config import settings
+from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError, new_model_call_budget, using_model_call_budget
 from hiremate_ai.llm.client import LlmClient
 
+__all__ = ["RootState", "RootThread", "apply_plan", "build_root_graph", "run_plan", "stream_plan"]
 
-class RootState(TypedDict, total=False):
-    plan: ChatPlan | None
-    kind: str
-    mode: SelectionMode | None
-    turns: list[Turn]
-    result: list[str] | None
-    subject: list[str]
-    steps: list[str]  # 이번 턴에 낸 단계 문구
-    started: float  # 이번 턴을 시작한 시각 (time.monotonic)
+logger = logging.getLogger(__name__)
+
+CHECKING = "요청을 확인하고 있어요"
+NOT_FINISHED = "답변을 올바른 형식으로 완성하지 못했어요. 잠시 후 다시 요청해 주세요."
+VALIDATION_FAILED = "답변의 근거와 실행 조건을 확인하지 못했어요. 질문을 다시 말씀해 주세요."
+BUDGET_EXHAUSTED = "한 번에 확인할 수 있는 처리 한도에 도달했어요. 요청을 나눠 다시 말씀해 주세요."
+NOT_IN_STAGE = "현재 전형에서 멘션한 지원자를 찾을 수 없어요. 지원자 목록에서 대상을 골라 다시 말씀해 주세요."
+FAILURE_MESSAGES = {
+    LlmFailureReason.FORMAT: NOT_FINISHED,
+    LlmFailureReason.VALIDATION: VALIDATION_FAILED,
+    LlmFailureReason.BUDGET: BUDGET_EXHAUSTED,
+}
+
+type PlanEvent = tuple[Literal["status", "item", "done"], ChatStatus | ChatItem | ChatPlan]
+
+_NEW_TURN: RootState = {"plan": None, "kind": "", "mode": None, "steps": [], "run": None}
 
 
 @dataclass(frozen=True)
@@ -54,11 +79,6 @@ class RootThread:
     stage_id: UUID
 
 
-_NEW_TURN: RootState = {"plan": None, "kind": "", "mode": None, "steps": []}
-CHECKING = "요청을 확인하고 있어요"
-type PlanEvent = tuple[Literal["status", "item", "done"], ChatStatus | ChatItem | ChatPlan]
-
-
 def build_root_graph(
     llm: LlmClient,
     toolkit: RootToolkit | None = None,
@@ -66,37 +86,151 @@ def build_root_graph(
     *,
     context_schema: type[ChatContext] = ChatContext,
 ) -> CompiledStateGraph[RootState, ChatContext, RootState, RootState]:
-    """하나의 도구 루프가 맥락을 해석한다. 그래프는 의미별 실행 경로를 정하지 않는다."""
     tools = toolkit or default_toolkit()
 
     def guard(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         writer_progress(runtime.stream_writer).status(CHECKING)
-        started: RootState = {"steps": [CHECKING], "started": time.monotonic()}
-        if blocked_attribute(runtime.context.message):
+        context = runtime.context
+        run = RootRun(budget=new_model_call_budget(settings.llm_agent_max_calls))
+        started: RootState = {"steps": [CHECKING], "started": time.monotonic(), "run": run}
+        if blocked_attribute(context.message):
             return {**started, "plan": ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY)}
+        if set(context.mentions) - {row.application_id for row in context.candidates}:
+            return {**started, "plan": ChatPlan.answer(Intent.CLARIFY, NOT_IN_STAGE)}
         return started
 
-    async def agent(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
-        progress = StepRecorder(writer_progress(runtime.stream_writer), state.get("steps"))
-        finished = await run_agent(
-            llm,
-            runtime.context,
-            tools,
-            state.get("turns") or [],
-            state.get("result"),
-            state.get("subject") or [],
-            progress=progress,
+    async def plan(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        context, run = runtime.context, _run(state)
+        progress = _progress(state, runtime)
+        result, subject = state.get("result"), state.get("subject") or []
+        try:
+            with using_model_call_budget(run.budget):
+                root_plan = await make_plan(llm, context, state.get("turns") or [], result, subject)
+        except LlmOutputError as error:
+            return _failed(error, progress)
+        scope = root_plan.scope
+        if scope is not None and not scope.empty:
+            expanded = expand_scope(scope, context, result, subject)
+            if isinstance(expanded, str):
+                return {"plan": ChatPlan.answer(Intent.CLARIFY, expanded), "kind": "ANSWER", "steps": progress.steps}
+            run.rows = expanded
+        checked = precheck(context, root_plan, run.rows)
+        if checked is not None:
+            return {"plan": checked, "kind": "ANSWER", "steps": progress.steps}
+        run.plan = root_plan
+        return {"steps": progress.steps}
+
+    def after_plan(state: RootState) -> Literal["find", "edit", "questions", "analyze", "reply", "record"]:
+        if state.get("plan") is not None:
+            return "record"
+        root_plan = _run(state).plan
+        if root_plan is None:
+            raise TypeError("계획 없이 처리 노드로 갈 수 없다")
+        match root_plan.kind:
+            case "find":
+                return "find"
+            case "edit":
+                return "edit"
+            case "questions":
+                form = root_plan.form
+                return "questions" if isinstance(form, QuestionsPlan) and form.checks == "none" else "analyze"
+            case "answer":
+                return "analyze"
+            case _:
+                return "reply"
+
+    async def find(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        run, progress = _run(state), _progress(state, runtime)
+        form = _form(run, FindPlan)
+        rows = run.rows if not form.scope.empty else None
+        try:
+            with using_model_call_budget(run.budget):
+                handled = await handle_find(llm, runtime.context, tools, form, rows, progress=progress)
+        except LlmOutputError as error:
+            return _failed(error, progress)
+        return _handled(handled, progress)
+
+    def edit(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        run = _run(state)
+        form = _form(run, EditPlan)
+        handled = handle_edit(runtime.context, form, run.rows, all_scope="all" in form.scope.sources)
+        return _handled(handled, _progress(state, runtime))
+
+    def questions(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        run = _run(state)
+        return _handled(
+            handle_questions(runtime.context, _form(run, QuestionsPlan), run.rows), _progress(state, runtime)
         )
-        for item in finished.plan.items:
-            progress.item(item)
-        return {"plan": finished.plan, "kind": finished.kind, "mode": finished.mode, "steps": progress.steps}
+
+    def reply(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        root_plan = _run(state).plan
+        if root_plan is None:
+            raise TypeError("계획 없이 답할 수 없다")
+        return _handled(handle_reply(runtime.context, root_plan), _progress(state, runtime))
+
+    async def analyze(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        context, run, progress = runtime.context, _run(state), _progress(state, runtime)
+        root_plan = run.plan
+        if root_plan is None:
+            raise TypeError("계획 없이 분석할 수 없다")
+        form = root_plan.form
+        checks = form.checks if isinstance(form, QuestionsPlan) else "none"
+        run.analysis = analysis_run(
+            context, run.rows, state.get("turns") or [], state.get("result"), state.get("subject") or []
+        )
+        try:
+            with using_model_call_budget(run.budget):
+                answered = await run_analysis(
+                    llm,
+                    tools,
+                    run.analysis,
+                    task="questions" if isinstance(form, QuestionsPlan) else "answer",
+                    checks=checks,
+                    progress=progress,
+                )
+        except LlmOutputError as error:
+            return _failed(error, progress)
+        output = answered.form
+        if isinstance(output, FindOutput):
+            found = run.analysis.searches[output.result]
+            mode = run.analysis.queries[output.result].mode
+            kind = "FIND" if found.intent in (Intent.FIND, Intent.ANSWER) else "ANSWER"
+            return {"plan": found, "kind": kind, "mode": mode, "steps": progress.steps}
+        if isinstance(output, ClarifyOutput):
+            clarify = ChatPlan.answer(Intent.CLARIFY, readable(output.message, context))
+            return {"plan": clarify, "kind": "ANSWER", "steps": progress.steps}
+        run.reply = answered
+        return {"steps": progress.steps}
+
+    def after_analyze(state: RootState) -> Literal["review", "record"]:
+        return "record" if state.get("plan") is not None else "review"
+
+    async def review(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        context, run, progress = runtime.context, _run(state), _progress(state, runtime)
+        if run.reply is None or run.analysis is None or run.plan is None:
+            raise TypeError("분석 답 없이 근거를 검토할 수 없다")
+        output, ledger = run.reply.form, run.analysis.ledger
+        with using_model_call_budget(run.budget):
+            if isinstance(output, AnswerOutput):
+                message, checked = await review_items(llm, context, ledger, output.message, output.items)
+                reviewed = answer_plan(message, checked)
+            elif isinstance(output, QuestionsOutput) and isinstance(run.plan.form, QuestionsPlan):
+                _, checked = await review_items(llm, context, ledger, output.message, focus_drafts(output.focus))
+                reviewed = questions_plan(context, run.rows, run.plan.form, checked)
+            else:
+                raise TypeError(f"근거를 검토하지 않는 답이다: {run.reply.kind}")
+        final = reviewed or ChatPlan.answer(Intent.CLARIFY, NO_EVIDENCE)
+        return {"plan": final, "kind": "ANSWER", "steps": progress.steps}
 
     def record(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
-        plan = state.get("plan")
-        if plan is None:
-            raise TypeError("검증된 최종 명령 없이 턴을 남기려 했다")
+        final = state.get("plan")
+        if final is None:
+            raise TypeError("검증된 계획 없이 턴을 남기려 했다")
+        writer = writer_progress(runtime.stream_writer)
+        for item in final.items:
+            writer.item(item)
         kind = state.get("kind") or ""
-        turn = turn_of(runtime.context, None, plan, kind)
+        turn = turn_of(runtime.context, None, final, kind)
         mode = state.get("mode")
         turn["mode"] = mode.value if mode is not None else None
         turn["result_before"] = state.get("result")
@@ -107,25 +241,66 @@ def build_root_graph(
             turn["seconds"] = round(time.monotonic() - started)
         return {
             "turns": remember(state.get("turns") or [], turn, settings.root_memory_turns),
-            "result": next_result(state.get("result"), kind, state.get("mode"), plan),
+            "result": next_result(state.get("result"), kind, mode, final),
             "subject": turn["targets"] or state.get("subject") or [],
             **_NEW_TURN,
         }
 
-    def after_guard(state: RootState) -> Literal["record", "agent"]:
-        return "record" if state.get("plan") is not None else "agent"
+    def after_guard(state: RootState) -> Literal["record", "plan"]:
+        return "record" if state.get("plan") is not None else "plan"
 
     graph: StateGraph[RootState, ChatContext, RootState, RootState] = StateGraph(
         RootState, context_schema=context_schema
     )
     graph.add_node("guard", guard)
-    graph.add_node("agent", agent)
+    graph.add_node("plan", plan)
+    graph.add_node("find", find)
+    graph.add_node("edit", edit)
+    graph.add_node("questions", questions)
+    graph.add_node("reply", reply)
+    graph.add_node("analyze", analyze)
+    graph.add_node("review", review)
     graph.add_node("record", record)
     graph.add_edge(START, "guard")
     graph.add_conditional_edges("guard", after_guard)
-    graph.add_edge("agent", "record")
+    graph.add_conditional_edges("plan", after_plan)
+    graph.add_conditional_edges("analyze", after_analyze)
+    for node in ("find", "edit", "questions", "reply", "review"):
+        graph.add_edge(node, "record")
     graph.add_edge("record", END)
     return graph.compile(checkpointer=checkpointer)
+
+
+def _run(state: RootState) -> RootRun:
+    run = state.get("run")
+    if run is None:
+        raise TypeError("요청 상태(run) 없이 처리할 수 없다")
+    return run
+
+
+def _form[T](run: RootRun, kind: type[T]) -> T:
+    form = run.plan.form if run.plan is not None else None
+    if not isinstance(form, kind):
+        raise TypeError(f"{kind.__name__} 계획이 아니다")
+    return form
+
+
+def _progress(state: RootState, runtime: Runtime[ChatContext]) -> StepRecorder:
+    return StepRecorder(writer_progress(runtime.stream_writer), state.get("steps"))
+
+
+def _handled(handled: Handled, progress: StepRecorder) -> RootState:
+    return {"plan": handled.plan, "kind": handled.kind, "mode": handled.mode, "steps": progress.steps}
+
+
+def _failed(error: LlmOutputError, progress: StepRecorder) -> RootState:
+    """원인을 구분해 기록하고 원인에 맞는 안내를 낸다. 검증되지 않은 모델 출력은 보이지 않는다."""
+    logger.warning("Root 답변을 완료하지 못했다 (reason=%s)", error.reason.value)
+    return {
+        "plan": ChatPlan.answer(Intent.CLARIFY, FAILURE_MESSAGES[error.reason]),
+        "kind": "",
+        "steps": progress.steps,
+    }
 
 
 async def apply_plan(llm: LlmClient, saver: BaseCheckpointSaver[Any], applied: ChatApplied) -> bool:
@@ -173,10 +348,10 @@ async def apply_plan(llm: LlmClient, saver: BaseCheckpointSaver[Any], applied: C
         saved_turn = updated[position]
         saved_turn = {**saved_turn, "result_before": result, "subject_before": subject}
         updated[position] = saved_turn
-        plan = ChatPlan.model_validate(saved_turn["plan"])
-        saved_mode = saved_turn.get("mode", plan.mode)
+        saved_plan = ChatPlan.model_validate(saved_turn["plan"])
+        saved_mode = saved_turn.get("mode", saved_plan.mode)
         mode = SelectionMode(saved_mode) if saved_mode is not None else None
-        result = next_result(result, saved_turn["kind"], mode, plan)
+        result = next_result(result, saved_turn["kind"], mode, saved_plan)
         subject = saved_turn["targets"] or subject
     metadata: dict[str, Any] = dict(snapshot.metadata or {})
     await graph.aupdate_state(

@@ -10,11 +10,9 @@ from langchain_core.runnables import RunnableLambda
 from langgraph.checkpoint.memory import InMemorySaver
 from langsmith import Client, get_current_run_tree
 from pydantic import SecretStr
-from root_context import root_reply
+from root_context import form_call
 
-from hiremate_ai.agents.root.commands import EditCommand, RootReply
 from hiremate_ai.agents.root.memory import get_saver
-from hiremate_ai.agents.root.types import EditAction
 from hiremate_ai.config import settings
 from hiremate_ai.llm import tracing
 from hiremate_ai.llm.client import get_llm
@@ -66,9 +64,7 @@ def test_without_name_each_langchain_run_is_a_trace(langsmith: MagicMock) -> Non
 
 def test_sse_request_is_one_trace_closed_after_stream(langsmith: MagicMock) -> None:
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
-    app.dependency_overrides[get_llm] = lambda: FakeLlm(
-        root_reply(RootReply(message="비웠어요.", command=EditCommand(action=EditAction.CLEAR)))
-    )
+    app.dependency_overrides[get_llm] = lambda: FakeLlm(form_call("edit", action="CLEAR", scope={}))
     app.dependency_overrides[get_saver] = lambda: InMemorySaver()
     try:
         response = TestClient(app).post("/agents/root/plan", json={"context": context})
