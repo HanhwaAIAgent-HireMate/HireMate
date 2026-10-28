@@ -2,13 +2,10 @@ import json
 import re
 
 import pytest
-from root_context import make_context, root_reply
+from root_context import form_call, make_context
 
-from hiremate_ai.agents.root.agent import run_agent
-from hiremate_ai.agents.root.commands import RootReply, compile_reply
 from hiremate_ai.agents.root.conversation import ConversationReview, review_conversation
 from hiremate_ai.agents.root.graph import run_plan
-from hiremate_ai.agents.root.toolkit import default_toolkit
 from hiremate_ai.agents.root.turns import turn_of
 from hiremate_ai.agents.root.types import ChatItem, ChatPlan, Intent
 from hiremate_ai.config import settings
@@ -20,7 +17,7 @@ type Applicants = dict[str, ApplicantDetail]
 
 
 def conversation(message: str) -> ToolCall:
-    return root_reply({"message": message, "command": {"kind": "conversation"}})
+    return form_call("conversation", message=message)
 
 
 @pytest.mark.parametrize(
@@ -49,24 +46,7 @@ async def test_general_conversation_answers_without_business_reads(
     assert plan.message == response
     assert plan.targets == plan.question_targets == plan.items == plan.sources == []
     assert plan.edit is None
-    assert [call.output.__name__ for call in llm.calls] == ["RootReply", "ConversationReview"]
-
-
-async def test_previous_general_explanation_can_be_rephrased_without_fetching_current_data(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = make_context(sample_applicants, sample_company, sample_posting, message="방금 설명을 더 쉽게 말해줘")
-    previous = context.model_copy(update={"message": "선택과 합격은 어떻게 달라?"})
-    prior = turn_of(previous, None, ChatPlan.answer(Intent.ANSWER, "선택은 검토할 지원자를 모으는 것이에요."), "ANSWER")
-    llm = FakeLlm(conversation("선택은 나중에 살펴볼 사람을 담아두는 목록이에요."), ConversationReview(allowed=True))
-
-    result = await run_agent(llm, context, default_toolkit(), turns=[prior])
-
-    assert result.plan.intent is Intent.ANSWER
-    assert result.plan.message == "선택은 나중에 살펴볼 사람을 담아두는 목록이에요."
-    assert "선택은 검토할 지원자를 모으는 것이에요." in llm.calls[-1].user
-    assert "선택과 합격은 어떻게 달라?" in llm.calls[-1].user
-    assert len(llm.calls) == 2
+    assert [call.output.__name__ for call in llm.calls] == ["RootPlan", "ConversationReview"]
 
 
 async def test_conversation_review_preserves_verified_items_and_their_uncertainty(
@@ -109,73 +89,6 @@ async def test_conversation_review_preserves_verified_items_and_their_uncertaint
             ],
         }
     ]
-
-
-async def test_named_question_handoff_can_be_explained_only_after_history_review(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    previous = make_context(
-        sample_applicants, sample_company, sample_posting, message="@정유민 서류 기준으로 기술 심화 질문 만들어줘"
-    )
-    application_id = sample_applicants["정유민"].info.application_id
-    plan = ChatPlan.answer(Intent.ANSWER, "1명의 면접 질문 생성을 요청했어요.").model_copy(
-        update={"question_targets": [application_id]}
-    )
-    prior = turn_of(previous, [application_id], plan, "ANSWER")
-    context = previous.model_copy(update={"message": "방금 만든 질문은 왜 만든 거야?"})
-    answer = "정유민의 서류 기준으로 기술 심화 질문을 요청하셔서 그 조건으로 생성을 전달했어요."
-    llm = FakeLlm(conversation(answer), ConversationReview(allowed=True))
-
-    result = await run_agent(llm, context, default_toolkit(), turns=[prior])
-
-    assert result.plan.intent is Intent.ANSWER
-    assert result.plan.message == answer
-    assert not result.plan.items and not result.plan.targets and not result.plan.question_targets
-    assert len(llm.calls) == 2
-    assert '"targets": ["C1 정유민"]' in llm.calls[-1].user
-    assert sample_applicants["정유민"].documents[0].text not in llm.calls[-1].user
-
-
-@pytest.mark.parametrize("expired", [False, True])
-async def test_history_review_cannot_authorize_an_unreviewed_or_expired_subject(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent, expired: bool
-) -> None:
-    context = make_context(sample_applicants, sample_company, sample_posting, message="앞서 요청한 이유를 설명해줘")
-    remembered = sample_applicants["정유민" if expired else "김하늘"].info.application_id
-    prior = turn_of(context, [remembered], ChatPlan.answer(Intent.ANSWER, "요청한 조건을 전달했어요."), "ANSWER")
-    turns = [prior]
-    if expired:
-        turns += [turn_of(context, [], ChatPlan.answer(Intent.ANSWER, "일반 안내예요."), "ANSWER") for _ in range(3)]
-    answer = "정유민에 대한 앞 요청을 전달했어요."
-    llm = FakeLlm(conversation(answer), ConversationReview(allowed=True), conversation(answer))
-
-    result = await run_agent(llm, context, default_toolkit(), turns=turns)
-
-    assert result.plan.intent is Intent.CLARIFY
-    assert result.plan.message != answer
-    assert not result.plan.items and not result.plan.targets
-
-
-async def test_named_history_does_not_bypass_uncertainty_review(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = make_context(sample_applicants, sample_company, sample_posting, message="앞 내용을 다시 설명해줘")
-    application_id = sample_applicants["정유민"].info.application_id
-    previous = ChatPlan.answer(
-        Intent.ANSWER,
-        "확인할 점이에요.",
-        [ChatItem(application_id=application_id, label="본인 역할", text="본인 기여 확인 필요", status="CHECK")],
-    )
-    prior = turn_of(context, [application_id], previous, "ANSWER")
-    answer = "정유민이 혼자 결제 장애를 해결한 경력이 확정됐어요."
-    llm = FakeLlm(conversation(answer), ConversationReview(allowed=False), conversation(answer))
-
-    result = await run_agent(llm, context, default_toolkit(), turns=[prior])
-
-    assert result.plan.intent is Intent.CLARIFY
-    assert result.plan.message != answer
-    assert '"subject": "C1 정유민"' in llm.calls[1].user
-    assert '"status": "CHECK"' in llm.calls[1].user
 
 
 async def test_conversation_review_keeps_recent_clarifications_as_context(
@@ -233,7 +146,7 @@ async def test_conversation_review_does_not_receive_candidate_documents_or_scree
     check = llm.calls[-1]
     assert UNTRUSTED_RULE in check.system
     assert "안녕" in check.user
-    assert "screen" not in check.user
+    assert "[전형]" not in check.user
     assert sample_applicants["정유민"].documents[0].text not in check.user
     assert str(context.company.company_id) not in check.user
 
@@ -245,14 +158,21 @@ async def test_business_claims_disguised_as_conversation_are_rejected_without_ef
     text: str, sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="지금 상황을 알려줘")
-    llm = FakeLlm(conversation(text), ConversationReview(allowed=False), conversation(text))
+    llm = FakeLlm(
+        conversation(text), ConversationReview(allowed=False), conversation(text), ConversationReview(allowed=False)
+    )
 
     plan = await run_plan(llm, context)
 
     assert plan.intent is Intent.CLARIFY
     assert plan.targets == plan.question_targets == plan.items == []
     assert text not in plan.message
-    assert [call.output.__name__ for call in llm.calls] == ["RootReply", "ConversationReview", "RootReply"]
+    assert [call.output.__name__ for call in llm.calls] == [
+        "RootPlan",
+        "ConversationReview",
+        "RootPlan",
+        "ConversationReview",
+    ]
 
 
 async def test_rejected_conversation_is_repaired_using_the_same_react_loop(
@@ -262,21 +182,19 @@ async def test_rejected_conversation_is_repaired_using_the_same_react_loop(
     llm = FakeLlm(
         conversation("현재 지원자는 백 명이에요."),
         ConversationReview(allowed=False),
-        ToolCall("get_stage_summary"),
-        root_reply(
-            {
-                "message": "현재 지원자는 8명이에요.",
-                "command": {"kind": "answer"},
-                "items": [
-                    {
-                        "candidate": None,
-                        "label": "지원자 수",
-                        "text": "현재 전형의 지원자는 8명이에요.",
-                        "status": "OK",
-                        "evidence": [{"sentence": "지원자 8명", "source": "전형 결과"}],
-                    }
-                ],
-            },
+        form_call("answer", scope={}),
+        form_call(
+            "answer",
+            message="현재 지원자는 8명이에요.",
+            items=[
+                {
+                    "candidate": None,
+                    "label": "지원자 수",
+                    "text": "현재 전형의 지원자는 8명이에요.",
+                    "status": "OK",
+                    "refs": ["E1"],
+                }
+            ],
         ),
     )
 
@@ -288,33 +206,6 @@ async def test_rejected_conversation_is_repaired_using_the_same_react_loop(
     assert plan.sources == ["전형 결과"]
     assert len(llm.calls) == 4
     assert "미결정 8명" in llm.calls[-1].user
-
-
-@pytest.mark.parametrize("message", ["C1은 결제 경험이 풍부해요.", "정유민은 결제 경험이 풍부해요."])
-async def test_conversation_cannot_hide_candidate_facts_in_the_message(
-    message: str, sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = make_context(sample_applicants, sample_company, sample_posting, message="이 사람 어때?")
-    reply = RootReply.model_validate({"message": message, "command": {"kind": "conversation"}})
-
-    with pytest.raises(ValueError, match="대상과 근거"):
-        await compile_reply(reply, context, default_toolkit(), {})
-
-
-async def test_conversation_cannot_smuggle_analysis_items(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = make_context(sample_applicants, sample_company, sample_posting, message="안녕")
-    reply = RootReply.model_validate(
-        {
-            "message": "안녕하세요.",
-            "command": {"kind": "conversation"},
-            "items": [{"candidate": "C1", "label": "검토", "text": "자료 확인 필요", "status": "CHECK"}],
-        }
-    )
-
-    with pytest.raises(ValueError, match="일반 대화"):
-        await compile_reply(reply, context, default_toolkit(), {})
 
 
 async def test_conversation_output_review_shares_the_request_budget(

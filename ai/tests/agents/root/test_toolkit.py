@@ -3,7 +3,6 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from pydantic import BaseModel
 from root_context import make_context, save_sample_profiles, sessions_of
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,11 +14,9 @@ from hiremate_ai.agents.root.toolkit import (
     AgentEvidence,
     ProfileLine,
     ProfileView,
-    RootToolContext,
     application_block,
     cited_agents,
     company_block,
-    context_brief,
     db_profile_reader,
     db_review_reader,
     default_toolkit,
@@ -28,6 +25,8 @@ from hiremate_ai.agents.root.toolkit import (
     keyword_search,
     memo_block,
     merged_search,
+    no_profile,
+    no_review,
     profile_block,
     profile_toolkit,
     scope_of,
@@ -46,8 +45,6 @@ from hiremate_ai.contract import (
 )
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.profile_store import NewItem, save_profile
-from hiremate_ai.db.session import session_factory
-from hiremate_ai.llm.fake import FakeLlm, ToolCall
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
 from hiremate_ai.tools.scope import ToolScope
 
@@ -146,24 +143,7 @@ def test_default_toolkit_uses_keyword_search() -> None:
     toolkit = default_toolkit()
 
     assert toolkit.search is keyword_search
-    assert {tool.name for tool in toolkit.answer_tools} == {
-        "resolve_candidates",
-        "get_candidate_documents",
-        "get_stage_results",
-        "get_interview_records",
-        "get_interviewer_memos",
-        "get_company_profile",
-        "get_posting",
-        "get_stage_summary",
-        "get_previous_turns",
-    }
-
-
-def test_profile_toolkit_adds_profile_tool() -> None:
-    toolkit = profile_toolkit(session_factory("postgresql+psycopg://unused@localhost/unused"))
-
-    tools = {tool.name for tool in toolkit.answer_tools}
-    assert tools == {tool.name for tool in default_toolkit().answer_tools} | {"get_candidate_profile"}
+    assert toolkit.profile is no_profile and toolkit.review is no_review
 
 
 def test_english_synonyms() -> None:
@@ -305,139 +285,6 @@ def turn_with(application_id: UUID, focus: str, item_text: str) -> Turn:
         total=8,
         plan={},
     )
-
-
-async def test_brief_has_documents_and_result(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    # 첫 서류 전형에는 면접 기록이 아직 생기지 않았다. 없는 자료로 읽지 않게 넣지 않는다
-    context = make_context(
-        sample_applicants, sample_company, sample_posting, message="찾아줘", later_types=(StageType.INTERVIEW,)
-    )
-
-    brief = await context_brief(scope_of(context), row_of(context, "정유민"))
-
-    assert brief.startswith("C1 정유민")
-    assert '<data kind="document"' in brief
-    assert "한빛카드 결제플랫폼팀" in brief
-    assert "결정: 미결정" in brief
-    assert '<data kind="interview"' not in brief
-    assert "면접" not in brief
-    assert "새솔은행" not in brief
-
-
-async def test_brief_has_interview_in_interview_stage(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = make_context(
-        sample_applicants, sample_company, sample_posting, message="찾아줘", stage_type=StageType.INTERVIEW
-    )
-
-    brief = await context_brief(scope_of(context), row_of(context, "정유민"))
-
-    assert '<data kind="interview"' in brief
-
-
-async def test_brief_has_previous_notes(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = context_of(sample_applicants, sample_company, sample_posting)
-    jung, kim = row_of(context, "정유민"), row_of(context, "김하늘")
-    turns = [
-        turn_with(jung.application_id, "정산 배치 설계 판단 확인", "배치 시간을 줄인 근거"),
-        turn_with(kim.application_id, "계정계 장애 대응 확인", "이체 장애 당번"),
-    ]
-
-    brief = await context_brief(scope_of(context, turns), jung)
-
-    assert '<data kind="previous"' in brief
-    assert "정산 배치 설계 판단 확인" in brief
-    assert "배치 시간을 줄인 근거" in brief
-    assert "계정계 장애 대응 확인" not in brief
-
-
-@pytest.mark.parametrize("renderer", ["brief", "previous_turns"])
-@pytest.mark.parametrize("stored_status", ["CHECK", "legacy_check", "missing"])
-async def test_previous_material_preserves_uncertainty(
-    sample_applicants: Applicants,
-    sample_company: CompanyProfile,
-    sample_posting: PostingContent,
-    renderer: str,
-    stored_status: str,
-) -> None:
-    context = context_of(sample_applicants, sample_company, sample_posting)
-    row = row_of(context, "정유민")
-    text = "팀 성과에서 본인 기여 범위 확인 필요"
-    turn = turn_with(row.application_id, text, text)
-    if stored_status == "CHECK":
-        turn["items"][0]["status"] = "CHECK"
-    elif stored_status == "legacy_check":
-        turn["plan"] = {
-            "items": [{"applicationId": str(row.application_id), "label": "확인할 점", "text": text, "status": "CHECK"}]
-        }
-    scope = scope_of(context, [turn])
-    if renderer == "brief":
-        material = await context_brief(scope, row)
-    else:
-
-        class Probe(BaseModel):
-            text: str
-
-        llm = FakeLlm(ToolCall("get_previous_turns", {"candidates": ["C1"]}), Probe(text="끝"))
-        await llm.tool_agent(
-            Probe, agent="root", system="", tools=default_toolkit().answer_tools, context=RootToolContext
-        ).run("앞서 확인할 점을 읽는다", context=scope)
-        material = llm.calls[-1].user
-
-    item_line = next(line for line in material.splitlines() if line.startswith("항목 ["))
-    assert text in item_line
-    assert "CHECK" in item_line
-    assert "OK" not in item_line
-
-
-async def test_brief_without_previous_turns_has_no_previous_block(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = context_of(sample_applicants, sample_company, sample_posting)
-
-    brief = await context_brief(scope_of(context), row_of(context, "정유민"))
-
-    assert '<data kind="previous"' not in brief
-
-
-async def test_brief_without_documents(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = context_of(sample_applicants, sample_company, sample_posting)
-
-    brief = await context_brief(scope_of(context), row_of(context, "윤태오"))
-
-    assert "읽을 수 있는 제출 문서 본문이 없어요" in brief
-
-
-def test_default_toolkit_has_brief() -> None:
-    assert default_toolkit().brief is context_brief
-
-
-async def test_profile_brief_adds_profile_after_context(
-    db_session: AsyncSession,
-    sample_applicants: Applicants,
-    sample_company: CompanyProfile,
-    sample_posting: PostingContent,
-) -> None:
-    # 지원서 분석을 마친 지원자는 정유민뿐이다
-    await save_sample_profiles(db_session, sample_company, sample_applicants, names=["정유민"])
-    context = context_of(sample_applicants, sample_company, sample_posting)
-    brief = profile_toolkit(sessions_of(db_session)).brief
-    scope = scope_of(context)
-    jung, kim = row_of(context, "정유민"), row_of(context, "김하늘")
-
-    jung_brief = await brief(scope, jung)
-
-    assert jung_brief.startswith(await context_brief(scope, jung))
-    assert '<data kind="profile">' in jung_brief
-    assert '[도메인] 금융 (카드 결제 · 정산) — 근거: "한빛카드 결제플랫폼팀 2022.03 ~ 현재" (이력서)' in jung_brief
-    assert await brief(scope, kim) == await context_brief(scope, kim)
 
 
 def test_cited_agents_names_agents_of_matching_sentences() -> None:

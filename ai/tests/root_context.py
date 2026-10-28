@@ -12,7 +12,6 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hiremate_ai.agents.root.commands import RootReply
 from hiremate_ai.agents.root.types import (
     CandidateRow,
     ChatContext,
@@ -169,13 +168,6 @@ class Recorder:
         self.items.append(item)
 
 
-def root_reply(reply: RootReply | Mapping[str, Any]) -> ToolCall:
-    """테스트가 적은 최종 명령을 모델이 부르는 종류별 최종 답 도구 호출로 바꾼다.
-
-    RootReply 값, {"message", "items", "command": {"kind", ...}} 또는 kind를 최상위에 둔 dict를 받는다.
-    값은 검증하지 않고 옮겨 잘못된 명령도 그대로 모델 응답이 된다.
-    """
-    value = reply.model_dump(mode="json") if isinstance(reply, RootReply) else dict(reply)
-    command = value.pop("command", {})
-    args = {**value, **command}
-    return ToolCall(str(args.pop("kind")), args)
+def form_call(kind: str, **args: Any) -> ToolCall:
+    """모델이 종류별 최종 답 도구(계획이나 분석 루프의 forms)를 부르는 응답. 값은 검증하지 않고 그대로 옮긴다."""
+    return ToolCall(kind, dict(args))
