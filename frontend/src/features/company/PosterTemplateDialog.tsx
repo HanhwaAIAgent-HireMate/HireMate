@@ -47,6 +47,7 @@ export function PosterTemplateDialog({ brand }: { brand: PosterBrand }) {
     documents: [],
     notices: [],
     content: {
+      roles: [],
       title: '채용 공고',
       jobCategory: '',
       employmentType: '',

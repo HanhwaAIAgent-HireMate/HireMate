@@ -7,6 +7,7 @@ import { posterPalette, type PosterDesign } from '@/features/posting/poster-desi
 import { formatDateTime } from '@/lib/format'
 import type { StageIconName } from '@/features/recruit/StageIcon'
 import type { StageType } from '@/features/recruit/labels'
+import { PostingRolesTable } from '@/features/posting/PostingRolesTable'
 import { StageProcess } from '@/features/recruit/StageProcess'
 
 import './posting-poster.css'
@@ -30,7 +31,18 @@ export function PostingPoster({
   careersUrl?: string
   compact?: boolean
 }) {
-  const content = posting.content
+  const roles = posting.content.roles ?? []
+  const content =
+    roles.length === 1
+      ? {
+          ...posting.content,
+          jobCategory: roles[0].name,
+          career: roles[0].career || posting.content.career,
+          duties: roles[0].duties,
+          qualifications: roles[0].qualifications,
+          preferred: roles[0].preferred,
+        }
+      : posting.content
   const hasLogo = Boolean(design.showLogo && design.logoFileId && logoUrl)
   const [logoMetrics, setLogoMetrics] = useState<{ source: string; wordmark: boolean } | null>(null)
   const conditions = [
@@ -40,6 +52,7 @@ export function PostingPoster({
     ...conditionRows(content),
   ].filter((row) => row.value)
   const blocks: { label: string; kind: string; children: ReactNode }[] = []
+  const multipleRoles = roles.length >= 2
   if (content.intro.trim())
     blocks.push({ label: '회사 소개', kind: 'intro', children: <p>{content.intro}</p> })
   for (const [key, label] of [
@@ -48,6 +61,7 @@ export function PostingPoster({
     ['preferred', '우대 사항'],
     ['benefits', '복지 및 혜택'],
   ] as const) {
+    if (multipleRoles && key !== 'benefits') continue
     if (content[key].length)
       blocks.push({
         label,
@@ -64,6 +78,12 @@ export function PostingPoster({
         ),
       })
   }
+  if (multipleRoles)
+    blocks.splice(content.intro.trim() ? 1 : 0, 0, {
+      label: '모집 내용',
+      kind: 'roles',
+      children: <PostingRolesTable roles={roles} />,
+    })
   if (posting.stages.length)
     blocks.push({
       label: '전형 절차',

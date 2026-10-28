@@ -15,6 +15,7 @@ from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
 
 CONTENT = {
+    "roles": [],
     "title": "결제 플랫폼 백엔드 개발자",
     "jobCategory": "백엔드 개발",
     "employmentType": "정규직",

@@ -41,6 +41,13 @@ def blocked_terms(content: PostingContent, changed: list[str]) -> list[str]:
     for name in JUDGED_FIELDS:
         if name in changed:
             terms += [term for item in getattr(content, name) if (term := blocked_attribute(item))]
+    if "roles" in changed:
+        terms += [
+            term
+            for role in content.roles
+            for item in [role.name, role.career, *role.qualifications, *role.preferred]
+            if (term := blocked_attribute(item))
+        ]
     return list(dict.fromkeys(terms))
 
 
@@ -53,6 +60,17 @@ def problems(
     if not content.title:
         found.append("채용명이 비어 있다")
     for name in changed:
+        if name == "roles":
+            names = [role.name.strip() for role in content.roles]
+            if len(names) != len(set(names)):
+                found.append("직무 이름이 중복된다")
+            for role in content.roles:
+                for line in [*role.duties, *role.qualifications, *role.preferred]:
+                    if len(line) > 300:
+                        found.append("직무별 모집 내용이 한 줄 300자를 넘는다")
+                    if any(_compact(money) not in given for money in _MONEY.findall(line)):
+                        found.append("직무별 모집 내용에 주어진 정보에 없는 금액을 썼다")
+            continue
         label = labels[name]
         value = getattr(content, name)
         if value is None or isinstance(value, int):

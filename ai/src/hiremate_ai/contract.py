@@ -10,7 +10,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 
@@ -168,6 +168,14 @@ class ApplicantDetail(ContractModel):
     documents: list[ApplicantDocument]
 
 
+class PostingRole(ContractModel):
+    name: str = Field(min_length=1, max_length=100)
+    career: str = Field(max_length=50)
+    duties: list[str] = Field(max_length=10)
+    qualifications: list[str] = Field(max_length=10)
+    preferred: list[str] = Field(max_length=10)
+
+
 class PostingContent(ContractModel):
     """공고 본문 (posting.PostingContent).
 
@@ -190,6 +198,7 @@ class PostingContent(ContractModel):
     education: str = ""
     work_hours: str = ""
     salary: str = ""
+    roles: list[PostingRole] = Field(default_factory=list, max_length=10)
 
 
 class Talent(ContractModel):

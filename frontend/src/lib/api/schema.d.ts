@@ -1417,6 +1417,14 @@ export interface components {
             education: string | null;
             workHours: string | null;
             salary: string | null;
+            roles: components["schemas"]["PostingRole"][];
+        };
+        PostingRole: {
+            name: string;
+            career: string;
+            duties: string[];
+            qualifications: string[];
+            preferred: string[];
         };
         PosterDesign: {
             /** @enum {string} */
@@ -1450,6 +1458,7 @@ export interface components {
             education: string;
             workHours: string;
             salary: string;
+            roles: components["schemas"]["PostingRole"][];
         };
         PostingStage: {
             /** Format: uuid */

@@ -1,7 +1,9 @@
 package com.hiremate.posting.api;
 
 import com.hiremate.posting.PostingContent;
+import com.hiremate.posting.PostingRole;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -28,12 +30,14 @@ public record PostingContentRequest(
         @Schema(nullable = true) @Size(max = 50) String position,
         @Schema(nullable = true) @Size(max = 50) String education,
         @Schema(nullable = true) @Size(max = 100) String workHours,
-        @Schema(nullable = true) @Size(max = 100) String salary) {
+        @Schema(nullable = true) @Size(max = 100) String salary,
+        @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        @Size(max = 10) List<@NotNull @Valid PostingRole> roles) {
 
     PostingContent toContent() {
         return new PostingContent(title.trim(), jobCategory.trim(), employmentType.trim(), career.trim(),
                 location.trim(), intro, clean(duties), clean(qualifications), clean(preferred), clean(benefits),
-                headcount, trim(position), trim(education), trim(workHours), trim(salary));
+                headcount, trim(position), trim(education), trim(workHours), trim(salary), roles);
     }
 
     private static String trim(String value) {

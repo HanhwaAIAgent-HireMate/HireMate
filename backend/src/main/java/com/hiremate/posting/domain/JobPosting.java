@@ -4,6 +4,7 @@ import com.hiremate.global.JsonText;
 import com.hiremate.global.StringListConverter;
 import com.hiremate.posting.PosterDesign;
 import com.hiremate.posting.PostingContent;
+import com.hiremate.posting.PostingRole;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -81,6 +82,11 @@ public class JobPosting {
     @Column(nullable = false, length = 100)
     private String salary = "";
 
+    private String roleContent;
+
+    public record Roles(List<PostingRole> items) {
+    }
+
     /** 설정의 필수 안내 문구. 공고를 만들 때 채우고 HR 요청으로만 바뀐다. */
     @Convert(converter = StringListConverter.class)
     @Column(nullable = false)
@@ -133,7 +139,8 @@ public class JobPosting {
     public PostingContent content() {
         return new PostingContent(title, jobCategory, employmentType, career, location, intro, List.copyOf(duties),
                 List.copyOf(qualifications), List.copyOf(preferred), List.copyOf(benefits), headcount, position,
-                education, workHours, salary);
+                education, workHours, salary,
+                roleContent == null ? List.of() : JsonText.read(roleContent, Roles.class).items());
     }
 
     public void update(PostingContent content) {
@@ -152,6 +159,7 @@ public class JobPosting {
         this.education = content.education();
         this.workHours = content.workHours();
         this.salary = content.salary();
+        this.roleContent = JsonText.write(new Roles(content.roles()));
         this.updatedAt = Instant.now();
     }
 
