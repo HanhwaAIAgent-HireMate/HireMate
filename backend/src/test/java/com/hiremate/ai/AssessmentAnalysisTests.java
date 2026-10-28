@@ -40,22 +40,10 @@ class AssessmentAnalysisTests extends IntegrationTest {
     @DisplayName("평가 결과를 수동 입력하면 점수 · 등급 · URL · 메모를 그대로 Assessment Agent에 넘기고, 빈 NCS 영역은 null로 둔다")
     void manualResultReachesAssessmentAgent() throws Exception {
         TestApi hr = newHr();
-        TestFixtures.Posting posting = TestFixtures.publish(hr, false, "전형은 서류, 직무역량 평가 순으로 해줘");
-        Map<String, Object> form = TestFixtures.form("applicant@example.com", false);
-        form.put("name", "지원자1");
-        expect(anonymous().multipart(posting.applyPath(), form), 201);
-        UUID recruitmentId = UUID.fromString(posting.recruitmentId());
-        UUID applicationId = awaitApplicant(hr.companyId(), recruitmentId);
-        applications.recordAnalysis(applicationId,
-                ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
-        JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
-        String document = "/api/stages/" + closed.path("stages").get(0).path("id").asString();
-        expect(hr.post(document + "/decisions",
-                Map.of("applicationIds", List.of(applicationId.toString()), "decision", "PASS")), 204);
-        expect(hr.post(document + "/confirm", null), 200);
-        expect(hr.post(document + "/notices/prepare", null), 200);
-        expect(hr.post(document + "/notices/PASS/send", null), 200);
-        String stageId = json(expect(hr.post(document + "/finish", null), 200)).path("nextStageId").asString();
+        AssessmentStage stage = startAssessment(hr);
+        UUID recruitmentId = stage.recruitmentId();
+        UUID applicationId = stage.applicationId();
+        String stageId = stage.stageId();
 
         Map<String, Object> manual = new HashMap<>();
         manual.put("total", 82.5);
@@ -80,6 +68,48 @@ class AssessmentAnalysisTests extends IntegrationTest {
         assertThat(input.grade()).isEqualTo("B");
         assertThat(input.url()).isEqualTo("https://github.com/example/assignment");
         assertThat(input.note()).isEqualTo("코드 구조 설명이 명확했음");
+    }
+
+    @Test
+    @DisplayName("결과 리포트 PDF를 올리면 파일 이름과 추출한 본문을 Assessment Agent에 넘긴다")
+    void attachedReportTextReachesAssessmentAgent() throws Exception {
+        TestApi hr = newHr();
+        AssessmentStage stage = startAssessment(hr);
+
+        expect(hr.multipart("/api/stages/" + stage.stageId() + "/assessment/results/" + stage.applicationId()
+                + "/file", Map.of("file", new TestApi.FilePart("report.pdf", "application/pdf",
+                TestFixtures.pdf("Problem solving score is the highest")))), 200);
+
+        ArgumentCaptor<AssessmentInput> sent = ArgumentCaptor.forClass(AssessmentInput.class);
+        verify(agent, timeout(10_000)).analyze(sent.capture());
+        AssessmentInput.Submission submission = sent.getValue().submission();
+        assertThat(submission).isNotNull();
+        assertThat(submission.fileName()).isEqualTo("report.pdf");
+        assertThat(submission.text()).contains("Problem solving score is the highest");
+    }
+
+    /** 지원자 한 명을 서류 전형에서 합격시키고 직무역량 평가 전형을 시작한다. */
+    private AssessmentStage startAssessment(TestApi hr) throws Exception {
+        TestFixtures.Posting posting = TestFixtures.publish(hr, false, "전형은 서류, 직무역량 평가 순으로 해줘");
+        Map<String, Object> form = TestFixtures.form("applicant@example.com", false);
+        form.put("name", "지원자1");
+        expect(anonymous().multipart(posting.applyPath(), form), 201);
+        UUID recruitmentId = UUID.fromString(posting.recruitmentId());
+        UUID applicationId = awaitApplicant(hr.companyId(), recruitmentId);
+        applications.recordAnalysis(applicationId,
+                ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
+        JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
+        String document = "/api/stages/" + closed.path("stages").get(0).path("id").asString();
+        expect(hr.post(document + "/decisions",
+                Map.of("applicationIds", List.of(applicationId.toString()), "decision", "PASS")), 204);
+        expect(hr.post(document + "/confirm", null), 200);
+        expect(hr.post(document + "/notices/prepare", null), 200);
+        expect(hr.post(document + "/notices/PASS/send", null), 200);
+        String stageId = json(expect(hr.post(document + "/finish", null), 200)).path("nextStageId").asString();
+        return new AssessmentStage(recruitmentId, applicationId, stageId);
+    }
+
+    private record AssessmentStage(UUID recruitmentId, UUID applicationId, String stageId) {
     }
 
     private UUID awaitApplicant(UUID companyId, UUID recruitmentId) throws InterruptedException {

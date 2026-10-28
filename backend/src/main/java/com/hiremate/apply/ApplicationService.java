@@ -1,12 +1,12 @@
 package com.hiremate.apply;
 
-import com.hiremate.apply.application.PdfText;
 import com.hiremate.apply.domain.ApplicationDocument;
 import com.hiremate.apply.domain.ApplicationDocumentRepository;
 import com.hiremate.apply.domain.JobApplication;
 import com.hiremate.apply.domain.JobApplicationRepository;
 import com.hiremate.file.FileContent;
 import com.hiremate.file.FileService;
+import com.hiremate.file.PdfText;
 import com.hiremate.file.StoredFileInfo;
 import com.hiremate.global.ApiException;
 import com.hiremate.posting.ApplicationTarget;
