@@ -99,7 +99,6 @@ def questions(focus: str) -> list[FakeReply]:
             message="면접 질문의 확인할 점을 정리했어요.",
             focus=[{"candidate": "C1", "text": focus, "refs": ["E1"]}],
         ),
-        supported(1),
     ]
 
 

@@ -25,6 +25,9 @@ PICKS_INVALID = "picks에는 화면 요약에 나온 C번호만 쓰세요."
 EMPTY_FIND = "찾기 조건이 비었어요. 현재 요청과 앞 대화의 조건을 query에 넣으세요."
 NO_SCOPE = "대상 범위를 scope에 적으세요."
 NO_MESSAGE = "message에 담당자에게 보여 줄 답을 쓰세요."
+NO_MENTIONS_HINT = (
+    "멘션한 지원자가 없어요. 생략된 주어가 직전 대상이면 sources에 subject를 쓰고, 그 밖에는 clarify로 물으세요."
+)
 _DECISIONS = {Decision.PENDING: "미결정", Decision.PASS: "합격", Decision.FAIL: "불합격"}
 
 PLAN_SYSTEM = """[역할]
@@ -227,6 +230,9 @@ def check_plan(
         referable = _referable(context, result, subject)
         if any(pick.strip().upper() not in referable for pick in scope.picks):
             return PICKS_INVALID
+    # 멘션이 없는데 멘션을 가리키면 직전 대상을 가리킨 것일 수 있다. 직전 대상이 있을 때만 한 번 다시 고르게 한다
+    if scope is not None and "mentions" in scope.sources and not context.mentions and subject:
+        return NO_MENTIONS_HINT
     form = plan.form
     if isinstance(form, FindPlan) and not has_condition(form.query):
         return EMPTY_FIND

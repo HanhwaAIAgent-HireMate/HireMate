@@ -211,13 +211,37 @@ async def test_questions_with_checks_go_through_analysis(
     llm = FakeLlm(
         form_call("questions", scope={"sources": ["mentions"]}, checks="documents", replace=True),
         form_call("questions", message="정리했어요.", focus=focus),
-        supported("I1", "M"),
     )
 
     plan = await run_plan(llm, context)
 
+    # 확인할 점은 사실 주장이 아니라 물어볼 점이라 근거 판정 모델을 부르지 않는다
+    assert [call.output.__name__ for call in llm.calls] == ["RootPlan", "AnalysisReply"]
     assert plan.question_targets == context.mentions and plan.question_replace is True
     assert "결제 경험의 본인 역할" in plan.question_focus[context.mentions[0]]
+
+
+async def test_questions_fall_back_to_plain_generation_when_no_focus_is_left(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(
+        sample_applicants,
+        sample_company,
+        sample_posting,
+        stage_type=StageType.INTERVIEW,
+        later_types=[StageType.ASSESSMENT],
+        mentions=["정유민"],
+    )
+    focus = [{"candidate": "C1", "text": "평가 결과가 없어요.", "refs": ["E1"]}]
+    llm = FakeLlm(
+        form_call("questions", scope={"sources": ["mentions"]}, checks="documents", replace=True),
+        form_call("questions", message="정리했어요.", focus=focus),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert plan.intent is Intent.ANSWER and plan.question_targets == context.mentions
+    assert plan.question_replace is True and plan.question_focus == {}
 
 
 async def test_nothing_left_after_review_asks_back(

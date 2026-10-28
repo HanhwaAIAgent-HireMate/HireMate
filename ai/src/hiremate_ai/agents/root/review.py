@@ -56,7 +56,7 @@ async def review_items(
     llm: LlmClient, context: ChatContext, ledger: Ledger, message: str, drafts: Sequence[ItemDraft]
 ) -> tuple[str, list[Checked]]:
     """(보여 줄 답, 검토를 통과한 항목)을 돌려준다. 호출 예산이 남지 않았으면 지원자 항목을 확인 필요로 둔다."""
-    checked = [each for draft in drafts if (each := _capped(context, ledger, draft)) is not None]
+    checked = cap_items(context, ledger, drafts)
     message = without_later_gaps(context, readable(message, context)) or MESSAGE_FALLBACK
     # 지원자 항목과 지원자별 근거를 인용한 공통 항목은 지원자에 대한 주장이다. 답 문장이 지원자를 말해도 판정한다
     claimed = [index for index, each in enumerate(checked) if _about_candidates(each)]
@@ -90,6 +90,11 @@ async def review_items(
     if verdicts.get("M") != "SUPPORTED":
         message = MESSAGE_FALLBACK
     return message, kept
+
+
+def cap_items(context: ChatContext, ledger: Ledger, drafts: Sequence[ItemDraft]) -> list[Checked]:
+    """근거 번호를 원문 문장과 출처로 바꾸고, 항목 상태를 인용한 근거의 최고 상태 이하로 둔다. 모델을 부르지 않는다."""
+    return [each for draft in drafts if (each := _capped(context, ledger, draft)) is not None]
 
 
 def answer_plan(message: str, checked: Sequence[Checked]) -> ChatPlan | None:
