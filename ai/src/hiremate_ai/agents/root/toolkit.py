@@ -30,7 +30,7 @@ from hiremate_ai.agents.root.ledger import (
 from hiremate_ai.agents.root.stages import StageData, not_yet, stage_data, stage_plan
 from hiremate_ai.agents.root.turns import Turn, verified_turn_items
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion, StageStatus
-from hiremate_ai.contract import ApplicantDocument, StageType
+from hiremate_ai.contract import StageType
 from hiremate_ai.db.analysis_store import AnalysisArtifactReader, DbAnalysisArtifacts
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.session import session_factory
@@ -48,17 +48,10 @@ from hiremate_ai.tools.scope import ToolScope
 
 @dataclass(frozen=True)
 class RootToolContext(ToolScope):
-    """Root의 도구가 받는 범위. 임시 도구는 chat을 읽고, 다른 역할의 도구는 ToolScope 필드만 읽는다.
-
-    called에는 도구 루프에서 부른 도구 이름이 쌓인다.
-    """
+    """Root의 도구가 받는 범위. 임시 도구는 chat을 읽고, 다른 역할의 도구는 ToolScope 필드만 읽는다."""
 
     chat: ChatContext
-    called: list[str] = field(default_factory=list)
     turns: list[Turn] = field(default_factory=list)  # 대화방의 앞 턴 기록 (대화 기억이 없으면 비어 있다)
-    resolved_names: dict[str, list[str]] = field(default_factory=dict)  # 이번 요청에서 조회한 이름과 일치하는 C번호
-    resolved_context: list[str] = field(default_factory=list)
-    resolution_errors: list[str] = field(default_factory=list)
     previous_result: list[str] | None = None
     previous_subject: list[str] = field(default_factory=list)
 
@@ -228,8 +221,8 @@ def _best_sentences(sentences: list[SourcedSentence], terms: list[str]) -> list[
 
 
 OUT_OF_SCOPE = (
-    "조회 범위 밖의 지원자예요. 이름은 resolve_candidates로 확인하세요. "
-    "일치하는 대상이 없거나 동명이인이면 clarify로 되묻고, 다른 지원자 번호로 바꾸지 마세요."
+    "조회 범위 밖의 지원자예요. 대상과 자료에 나온 C번호만 쓰세요. "
+    "대상이 불분명하면 clarify로 되묻고, 다른 지원자 번호로 바꾸지 마세요."
 )
 NO_DOCUMENTS = "읽을 수 있는 제출 문서 본문이 없어요."
 NO_INTERVIEW_STAGE = "이 채용에는 면접 전형이 없어요."
@@ -750,10 +743,6 @@ def _who(context: ChatContext, row: CandidateRow) -> str:
 
 def _career(row: CandidateRow) -> str:
     return "알 수 없음" if row.career_years is None else "신입" if row.career_years == 0 else f"{row.career_years}년"
-
-
-def _readable_documents(chat: ChatContext, row: CandidateRow) -> list[ApplicantDocument]:
-    return [document for document in chat.documents.get(row.application_id, []) if document.text.strip()]
 
 
 def _questions(questions: Sequence[InterviewQuestion], blank: str) -> str:
