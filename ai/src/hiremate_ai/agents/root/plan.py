@@ -98,7 +98,13 @@ class FindPlan(Form):
 
     query: SearchQuery = Field(description="찾기 조건. 현재 요청과 앞 대화에서 정해진 조건을 모두 넣는다")
     scope: Scope = Field(description="요청이 말한 검색 범위. 범위를 말하지 않았으면 비운다(전형 전체)")
-    remove: bool = Field(default=False, description="선택된 사람 가운데 조건에 맞는 사람을 빼는 요청이면 true")
+    remove: bool = Field(
+        default=False,
+        description=(
+            "선택된 사람 가운데 조건에 맞는 사람을 빼는 요청이면 true. "
+            "이때 query는 남길 사람이 아니라 뺄 사람의 조건이다. '경력 2년 이하는 빼줘'면 max_career_years=2"
+        ),
+    )
 
 
 class AnswerPlan(Form):
