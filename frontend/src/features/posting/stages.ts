@@ -31,3 +31,14 @@ export function moveStage(stages: StageForm[], index: number, delta: number): St
   ;[next[index], next[target]] = [next[target], next[index]]
   return next
 }
+
+/**
+ * from의 전형을 끌어 slot 자리에 놓는다. slot은 전형 사이의 틈으로, 0은 맨 앞, stages.length는 맨 뒤다.
+ * 제자리에 놓으면 그대로다
+ */
+export function placeStage(stages: StageForm[], from: number, slot: number): StageForm[] {
+  if (slot === from || slot === from + 1) return stages
+  const next = stages.filter((_, i) => i !== from)
+  next.splice(slot > from ? slot - 1 : slot, 0, stages[from])
+  return next
+}
