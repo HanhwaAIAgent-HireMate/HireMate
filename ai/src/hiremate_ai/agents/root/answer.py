@@ -16,6 +16,10 @@ _REF = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)(?![0-9])")
 _REF_WITH_NAME = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)\s+([^\s,.!?]+)")
 _GLUED_REF = re.compile(r"(?<![A-Za-z0-9])[a-z]+C(\d+)(?![0-9])")
 _THINK = re.compile(r"<think>.*?</think>|</?think>", re.DOTALL)
+# 근거 번호(E1)는 내부 참조라 화면에 내보내지 않는다. "(E2, E3)"는 지우고 "E4(내용)"은 내용만 남긴다
+_EVIDENCE_GROUP = re.compile(r"\s*\(\s*E\d+(?:\s*[,·/]\s*E\d+)*\s*\)")
+_EVIDENCE_WITH_NOTE = re.compile(r"(?<![A-Za-z0-9])E\d+\s*\(([^()]*)\)")
+_EVIDENCE = re.compile(r"(?<![A-Za-z0-9])E\d+(?![0-9A-Za-z])\s*")
 
 
 class AnswerEvidence(BaseModel):
@@ -28,7 +32,7 @@ class AnswerEvidence(BaseModel):
 def readable(text: str, context: ChatContext) -> str:
     """담당자가 읽을 글의 지원자 번호(C2)를 이름으로 바꾼다. "C2 김하늘"처럼 이름이 뒤따르면 번호만 뺀다.
 
-    모델이 흘린 생각 태그는 지운다.
+    모델이 흘린 생각 태그와 근거 번호(E1)는 지운다.
     """
 
     def with_name(match: re.Match[str]) -> str:
@@ -40,7 +44,9 @@ def readable(text: str, context: ChatContext) -> str:
         return row.name if row is not None else match.group(0)
 
     text = _GLUED_REF.sub(name_only, _THINK.sub("", text).strip())
-    return _REF.sub(name_only, _REF_WITH_NAME.sub(with_name, text))
+    text = _REF.sub(name_only, _REF_WITH_NAME.sub(with_name, text))
+    text = _EVIDENCE.sub("", _EVIDENCE_WITH_NOTE.sub(r"\1", _EVIDENCE_GROUP.sub("", text)))
+    return re.sub(r"\s{2,}", " ", text).strip()
 
 
 def shorten(text: str) -> str:
