@@ -81,6 +81,12 @@
   "documentScores": {
     "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": 88
   },
+  "assessments": {
+    "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": {
+      "areas": {"의사소통능력": 94, "수리능력": 91, "문제해결능력": null, "정보능력": 93, "기술능력": 95},
+      "grade": "A"
+    }
+  },
   "interviews": {
     "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": {
       "applicationId": "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60",

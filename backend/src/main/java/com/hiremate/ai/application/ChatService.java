@@ -1,6 +1,7 @@
 package com.hiremate.ai.application;
 
 import com.hiremate.apply.ApplicationService;
+import com.hiremate.assessment.AssessmentService;
 import com.hiremate.company.CompanyService;
 import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewView;
@@ -50,10 +51,11 @@ public class ChatService {
     private final RootAgent root;
     private final InterviewAiService interviews;
     private final AiSettings settings;
+    private final AssessmentService assessments;
 
     public ChatService(ScreeningService screening, RecruitService recruits, ApplicationService applications,
             CompanyService companies, PostingService postings, RootAgent root, InterviewAiService interviews,
-            AiSettings settings) {
+            AiSettings settings, AssessmentService assessments) {
         this.screening = screening;
         this.recruits = recruits;
         this.applications = applications;
@@ -62,6 +64,7 @@ public class ChatService {
         this.root = root;
         this.interviews = interviews;
         this.settings = settings;
+        this.assessments = assessments;
     }
 
     /** 전형을 확인하고 Root에 넘길 자료를 모은다. 다른 기업의 전형이면 찾을 수 없다. 스트림을 열기 전에 부른다. */
@@ -85,13 +88,20 @@ public class ChatService {
             candidates.forEach(candidate -> interviewerMemos.put(candidate.applicationId(),
                     interviews.memos(companyId, stageId, candidate.applicationId())));
         }
+        Map<UUID, ChatContext.Assessment> assessmentScores = new HashMap<>();
+        if (stage.type() == StageType.ASSESSMENT) {
+            candidates.forEach(candidate -> assessments.find(companyId, stageId, candidate.applicationId())
+                    .ifPresent(result -> assessmentScores.put(candidate.applicationId(),
+                            new ChatContext.Assessment(AssessmentAnalysisListener.areas(result), result.grade()))));
+        }
         // 대화는 전형 종료까지만 보관한다. 끝난 전형에서 물으면 대화방 없이 답한다
         String threadId = stage.status() == StageStatus.DONE ? "" : threadId(companyId, stageId, memberId);
         ChatContext context = new ChatContext(stageId, recruitment.id(), threadId, stage.name(),
                 stage.status() == StageStatus.ACTIVE, stage.type(), stages,
                 candidates, applications.documents(companyId, recruitment.id()), documentScores, interviewViews,
                 mentions, checked, companies.profile(companyId),
-                postings.draftContext(companyId, recruitment.id()).content(), message, interviewerMemos);
+                postings.draftContext(companyId, recruitment.id()).content(), message, interviewerMemos,
+                assessmentScores);
         return new ChatInput(companyId, stageId, stage.status(), candidates, context);
     }
 

@@ -7,6 +7,7 @@ import com.hiremate.posting.PostingContent;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.CandidateRow;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,7 @@ import java.util.UUID;
  * @param stages 채용의 전형 전체를 순서대로. 현재 전형도 들어 있다. 아직 진행하지 않은 전형의 자료를 없는 자료와 나눈다
  * @param documentScores 서류 점수. 평가 결과와 지원서를 맞춰 볼 때 쓴다
  * @param interviews 면접 전형이면 지원자별 현재 · 이전 면접 질문과 답변, 아니면 비어 있다
+ * @param assessments 평가 전형이면 지원자별 영역 점수 · 등급, 아니면 비어 있다. 총점은 candidates의 score다
  */
 public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
         StageType stageType,
@@ -28,7 +30,7 @@ public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, Str
         List<CandidateRow> candidates, Map<UUID, List<ApplicantDocument>> documents,
         Map<UUID, BigDecimal> documentScores, Map<UUID, InterviewView> interviews, List<UUID> mentions,
         List<UUID> checked, CompanyProfile company, PostingContent posting, String message,
-        Map<UUID, List<InterviewerMemo>> interviewerMemos) {
+        Map<UUID, List<InterviewerMemo>> interviewerMemos, Map<UUID, Assessment> assessments) {
 
     public ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
             StageType stageType, List<Stage> stages, List<CandidateRow> candidates,
@@ -36,7 +38,12 @@ public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, Str
             Map<UUID, InterviewView> interviews, List<UUID> mentions, List<UUID> checked,
             CompanyProfile company, PostingContent posting, String message) {
         this(stageId, recruitmentId, threadId, stageName, selectable, stageType, stages, candidates,
-                documents, documentScores, interviews, mentions, checked, company, posting, message, Map.of());
+                documents, documentScores, interviews, mentions, checked, company, posting, message, Map.of(),
+                Map.of());
+    }
+
+    /** 평가 전형 결과 한 명분. 영역 이름을 키로 쓰고, 점수가 없는 영역은 null이다. */
+    public record Assessment(Map<String, BigDecimal> areas, @Schema(nullable = true) String grade) {
     }
 
     /** 채용의 전형 하나. */

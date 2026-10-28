@@ -140,6 +140,16 @@ class ChatStage(ContractModel):
     status: StageStatus
 
 
+class AssessmentScores(ContractModel):
+    """평가 전형 결과 한 명분 (ai.application.ChatContext.Assessment). 점수 · 등급은 backend가 저장한 값 그대로다.
+
+    areas는 영역 이름(예: 의사소통능력)을 키로 쓰고, 점수가 없는 영역은 null이다.
+    """
+
+    areas: dict[str, float | None]
+    grade: str | None
+
+
 class ChatContext(ContractModel):
     """Root Agent가 받는 요청 범위: 현재 채용 · 전형 + 대상(@멘션 · 체크) + 질문 (ai.application.ChatContext)."""
 
@@ -161,6 +171,7 @@ class ChatContext(ContractModel):
     message: str
 
     interviewer_memos: dict[UUID, list[InterviewerMemo]] = {}
+    assessments: dict[UUID, AssessmentScores] = {}  # 현재 평가 전형의 영역 점수 · 등급. 평가 전형일 때만 채워진다
 
     @model_validator(mode="after")
     def _has_current_stage(self) -> Self:
