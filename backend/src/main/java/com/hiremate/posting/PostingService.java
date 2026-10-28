@@ -263,7 +263,8 @@ public class PostingService {
                 pick(fields, "position", current.position(), suggested.position()),
                 pick(fields, "education", current.education(), suggested.education()),
                 pick(fields, "workHours", current.workHours(), suggested.workHours()),
-                pick(fields, "salary", current.salary(), suggested.salary()));
+                pick(fields, "salary", current.salary(), suggested.salary()),
+                pick(fields, "roles", current.roles(), suggested.roles()));
     }
 
     private static <T> T pick(Set<String> fields, String name, T current, T suggested) {

@@ -33,6 +33,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
     LineEdit,
     NcsDraft,
     NcsPick,
+    RoleChanges,
     Route,
     SourcedItem,
     StageEdit,
@@ -45,7 +46,7 @@ from hiremate_ai.agents.generation.posting.types import (
     RecruitmentStatus,
     StageDraft,
 )
-from hiremate_ai.contract import DocumentType, PostingContent, StageType
+from hiremate_ai.contract import DocumentType, PostingContent, PostingRole, StageType
 from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.tools.ncs import ncs_data, survey_score, unit_by_code
 
@@ -95,6 +96,22 @@ def posting(**overrides: Any) -> PostingDraftContext:
 
 def route(*targets: Any, question: str | None = None, writes_posting: bool = False) -> Route:
     return Route(targets=list(targets), question=question, writes_posting=writes_posting)
+
+
+async def test_multiple_roles_are_separate_proposals_and_keep_common_data() -> None:
+    roles = [
+        PostingRole(
+            name=name, career="신입", duties=["기초 업무 수행"], qualifications=["직무 기초 지식"], preferred=[]
+        )
+        for name in ["백엔드", "인사", "생산관리"]
+    ]
+    llm = FakeLlm(route("ROLES", writes_posting=True), RoleChanges(roles=roles))
+    result = await revise_posting(llm, posting(), "", "신입 백엔드, 인사, 생산관리 세 직무 모집 표로 만들어줘")
+    assert result.suggestion is not None
+    assert result.suggestion.changed_fields == ["roles"]
+    assert result.suggestion.content.roles == roles
+    assert result.suggestion.content.benefits == CONTENT.benefits
+    assert result.suggestion.stages is None
 
 
 async def test_stage_icon_changes_keep_order_and_other_icons() -> None:

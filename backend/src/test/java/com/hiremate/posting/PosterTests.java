@@ -24,6 +24,34 @@ import tools.jackson.databind.JsonNode;
 class PosterTests extends IntegrationTest {
 
     @Test
+    @DisplayName("직무별 모집 표와 전형 아이콘을 저장하고 게시한 공고에도 유지한다")
+    void rolesAndStageIconsSurvivePublishing() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String base = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
+        List<PostingRole> roles = List.of("백엔드", "인사", "생산관리").stream()
+                .map(name -> new PostingRole(name, "신입", List.of(name + " 업무"),
+                        List.of("직무 기초 지식"), List.of())).toList();
+        PostingContent content = new PostingContent("신입 공개채용", "여러 직무", "정규직", "신입", "서울", "",
+                List.of(), List.of(), List.of(), List.of(), null, "", "", "", "", roles);
+        expect(hr.put(base, content), 200);
+        expect(hr.put(base + "/stages", Map.of("stages", List.of(Map.of("name", "코딩테스트",
+                "type", "ASSESSMENT", "icon", "CODE")))), 200);
+        JsonNode saved = json(expect(hr.get(base), 200));
+        assertThat(saved.path("content").path("roles").size()).isEqualTo(3);
+        assertThat(saved.path("stages").get(0).path("icon").asString()).isEqualTo("CODE");
+        expect(hr.put(base + "/stages", Map.of("stages", List.of(Map.of("name", "코딩테스트",
+                "type", "ASSESSMENT", "icon", "ARBITRARY_HTML")))), 400);
+        expect(hr.post(base + "/publish", Map.of("openAt", Instant.now().minusSeconds(60).toString(),
+                "closeAt", Instant.now().plusSeconds(3600).toString())), 200);
+        JsonNode published = json(expect(anonymous().get("/api/public/postings/"
+                + draft.path("postingId").asString()), 200));
+        assertThat(published.path("content").path("roles")).isEqualTo(saved.path("content").path("roles"));
+        assertThat(published.path("stages").get(0).path("icon").asString()).isEqualTo("CODE");
+        expect(hr.put(base, content), 409);
+    }
+
+    @Test
     @DisplayName("기업 템플릿을 추가하고 기본값 저장에도 보존하며 다른 기업과 공유하지 않는다")
     void companyTemplatesAreScopedAndPreserved() throws Exception {
         TestApi hr = newHr();

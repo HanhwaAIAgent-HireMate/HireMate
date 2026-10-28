@@ -6,9 +6,24 @@
   "selectable": true,
   "stageType": "INTERVIEW",
   "stages": [
-    {"id": "7b6a5f4e-3d2c-4b1a-8f0e-9d8c7b6a5f43", "name": "서류 전형", "type": "DOCUMENT", "status": "DONE"},
-    {"id": "8c7b6a5f-4e3d-4c2b-9a1f-0e9d8c7b6a52", "name": "1차 면접", "type": "INTERVIEW", "status": "DONE"},
-    {"id": "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b61", "name": "최종 면접", "type": "INTERVIEW", "status": "ACTIVE"}
+    {
+      "id": "7b6a5f4e-3d2c-4b1a-8f0e-9d8c7b6a5f43",
+      "name": "서류 전형",
+      "type": "DOCUMENT",
+      "status": "DONE"
+    },
+    {
+      "id": "8c7b6a5f-4e3d-4c2b-9a1f-0e9d8c7b6a52",
+      "name": "1차 면접",
+      "type": "INTERVIEW",
+      "status": "DONE"
+    },
+    {
+      "id": "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b61",
+      "name": "최종 면접",
+      "type": "INTERVIEW",
+      "status": "ACTIVE"
+    }
   ],
   "candidates": [
     {
@@ -69,10 +84,25 @@
   "interviews": {
     "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": {
       "applicationId": "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60",
-      "schedule": {"scheduledAt": "2026-11-05T05:00:00Z", "interviewers": "면접관 2명"},
+      "schedule": {
+        "scheduledAt": "2026-11-05T05:00:00Z",
+        "interviewers": "면접관 2명"
+      },
       "questions": [
-        {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c41", "text": "정산 배치 시간을 줄일 때 가장 어려웠던 결정은?", "source": "AI", "answer": "파티셔닝 기준을 월 단위로 정한 것", "reason": null},
-        {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c42", "text": "장애 회고는 어떻게 진행했나요?", "source": "MANUAL", "answer": "", "reason": null}
+        {
+          "questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c41",
+          "text": "정산 배치 시간을 줄일 때 가장 어려웠던 결정은?",
+          "source": "AI",
+          "answer": "파티셔닝 기준을 월 단위로 정한 것",
+          "reason": null
+        },
+        {
+          "questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c42",
+          "text": "장애 회고는 어떻게 진행했나요?",
+          "source": "MANUAL",
+          "answer": "",
+          "reason": null
+        }
       ],
       "previous": [
         {
@@ -80,13 +110,21 @@
           "stageName": "1차 면접",
           "schedule": null,
           "questions": [
-            {"questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c43", "text": "결제 승인 서버의 응답 시간을 어떻게 줄였나요?", "source": "AI", "answer": "짧음", "reason": null}
+            {
+              "questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c43",
+              "text": "결제 승인 서버의 응답 시간을 어떻게 줄였나요?",
+              "source": "AI",
+              "answer": "짧음",
+              "reason": null
+            }
           ]
         }
       ]
     }
   },
-  "mentions": ["3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"],
+  "mentions": [
+    "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60"
+  ],
   "checked": [],
   "company": {
     "companyId": "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c52",
@@ -94,10 +132,19 @@
     "intro": "온 · 오프라인 결제와 정산을 제공하는 핀테크 회사입니다.",
     "culture": "작게 나눠 빠르게 배포하고, 장애는 숨기지 않고 함께 회고합니다.",
     "talents": [
-      {"title": "고객 신뢰를 최우선으로", "description": "고객의 돈과 정보를 다룬다는 책임감"},
-      {"title": "함께 성장", "description": "지식을 나누고 동료의 성장을 돕는 태도"}
+      {
+        "title": "고객 신뢰를 최우선으로",
+        "description": "고객의 돈과 정보를 다룬다는 책임감"
+      },
+      {
+        "title": "함께 성장",
+        "description": "지식을 나누고 동료의 성장을 돕는 태도"
+      }
     ],
-    "benefits": ["유연 근무", "자기계발비 지원"]
+    "benefits": [
+      "유연 근무",
+      "자기계발비 지원"
+    ]
   },
   "posting": {
     "title": "결제 플랫폼 백엔드 개발자",
@@ -106,15 +153,28 @@
     "career": "경력 3년 이상",
     "location": "서울 중구",
     "intro": "카드 결제와 정산을 처리하는 플랫폼을 함께 만들 백엔드 개발자를 찾습니다.",
-    "duties": ["결제 승인 · 정산 API 개발", "대용량 트랜잭션 처리 구조 개선"],
-    "qualifications": ["Java · Spring Boot 기반 서버 개발 경력 3년 이상", "RDBMS 설계와 운영 경험"],
-    "preferred": ["금융 도메인 경험", "대용량 트래픽 처리 경험"],
-    "benefits": ["유연 근무", "자기계발비 지원"],
+    "duties": [
+      "결제 승인 · 정산 API 개발",
+      "대용량 트랜잭션 처리 구조 개선"
+    ],
+    "qualifications": [
+      "Java · Spring Boot 기반 서버 개발 경력 3년 이상",
+      "RDBMS 설계와 운영 경험"
+    ],
+    "preferred": [
+      "금융 도메인 경험",
+      "대용량 트래픽 처리 경험"
+    ],
+    "benefits": [
+      "유연 근무",
+      "자기계발비 지원"
+    ],
     "headcount": null,
     "position": "",
     "education": "",
     "workHours": "",
-    "salary": ""
+    "salary": "",
+    "roles": []
   },
   "message": "@정유민 빼줘",
   "interviewerMemos": {}

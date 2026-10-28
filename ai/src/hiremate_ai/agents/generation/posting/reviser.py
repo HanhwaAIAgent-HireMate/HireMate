@@ -31,7 +31,7 @@ from hiremate_ai.agents.generation.posting.types import (
     StageIcon,
 )
 from hiremate_ai.agents.guardrails import blocked_attribute
-from hiremate_ai.contract import DocumentType, PostingContent, StageType
+from hiremate_ai.contract import DocumentType, PostingContent, PostingRole, StageType
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.tools.ncs import NcsUnit, ncs_data, subdivisions, survey_score, unit_by_code, units_of
 
@@ -54,6 +54,7 @@ FIELD_LABELS = {
     "qualifications": "자격 요건",
     "preferred": "우대 사항",
     "benefits": "복지",
+    "roles": "직무별 모집 내용",
 }
 """공고 본문 칸 → 화면 이름. 순서는 공고 편집 화면 순서다."""
 
@@ -208,7 +209,7 @@ _PARTICLE_SPACE = re.compile(
     r"(?<=[A-Za-z0-9+#)])\s+(?=(?:와|과|를|을|는|은|이|가|의|으로|로|에서|에|도|만|까지|부터)(?:[\s,.·)]|$))"
 )
 
-Target = Literal["CONTENT", "STAGES", "REQUIRED_EXTRAS", "NCS_REQUIREMENTS"]
+Target = Literal["CONTENT", "STAGES", "REQUIRED_EXTRAS", "NCS_REQUIREMENTS", "ROLES"]
 PROCESS_TARGETS: frozenset[Target] = frozenset({"STAGES", "REQUIRED_EXTRAS"})
 """게시한 뒤에는 바꿀 수 없는 대상."""
 
@@ -239,6 +240,10 @@ class FieldChange(BaseModel):
 
 class ContentChanges(BaseModel):
     changes: list[FieldChange] = Field(description="요청이 바꾸라는 본문 칸만")
+
+
+class RoleChanges(BaseModel):
+    roles: list[PostingRole] = Field(max_length=10)
 
 
 class StageEdit(BaseModel):
@@ -314,6 +319,8 @@ SYSTEM = """너는 기업 인사팀의 채용 공고 편집을 돕는 Posting Ag
   CERTIFICATE(자격증)뿐이다.
 - NCS_REQUIREMENTS: 자격 요건이나 우대 사항을 새로 쓰거나 전체를 다시 쓰기. NCS 능력단위를 근거로 쓴다.
   항목 하나를 더하거나 고치는 정도면 CONTENT다.
+- ROLES: 백엔드·인사·생산관리처럼 여러 모집 직무를 한 공고의 직무별 표로 작성하거나 그 표를 수정한다.
+  여러 직무를 채용한다고 하면 CONTENT와 ROLES를 함께 선택한다. 전형 절차나 팀 문화의 목록과 혼동하지 않는다.
 
 규칙:
 1. 요청하지 않은 대상과 칸은 바꾸지 않는다.
@@ -382,6 +389,7 @@ class _Edit:
     required_extras: list[str] | None = None
     cited: list[NcsUnit] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    roles: list[PostingRole] | None = None
 
 
 @dataclass(frozen=True)
@@ -419,7 +427,12 @@ async def revise_posting(
     if "CONTENT" in targets and _writes_whole_list(posting.content, request):
         targets.add("NCS_REQUIREMENTS")
     # 공고 전체를 써 달라는 요청이면 자격 요건 · 우대 사항을 말하지 않았어도 비어 있는 목록을 NCS 근거로 쓴다
-    fills_empty = route.writes_posting and not _NCS_WORDS.search(request) and _has_empty_list(posting.content)
+    fills_empty = (
+        route.writes_posting
+        and "ROLES" not in targets
+        and not _NCS_WORDS.search(request)
+        and _has_empty_list(posting.content)
+    )
     if fills_empty:
         targets.add("NCS_REQUIREMENTS")
     elif not _NCS_WORDS.search(request):
@@ -555,6 +568,20 @@ async def _write(
             )
         step += f"\n이번에 반영할 HR 요청: {request}"
         changes = (await _ask(llm, ContentChanges, context, step, found)).changes
+    roles = None
+    if "ROLES" in targets:
+        roles = (
+            await _ask(
+                llm,
+                RoleChanges,
+                context,
+                "지금 할 일: 요청한 모집 직무를 roles의 별도 행으로 나눠 작성한다. name은 HR이 말한 직무 이름, "
+                "career는 요청한 신입/경력 구분이다. 경력을 말하지 않았으면 빈 문자열이다. duties, qualifications, "
+                "preferred는 직무별 일반적인 초안을 각각 3~5개 쓴다. 급여, 복지, 인원이나 회사만의 기술·실적은 "
+                "지어내지 않는다. 수정하지 않은 직무는 기존대로 보존한다. 삭제 요청은 해당 행을 뺀 목록을 반환한다.",
+                found,
+            )
+        ).roles
     if "NCS_REQUIREMENTS" in targets and (plan := _ncs_plan(posting.content, request, fills_empty)):
         pick = await _ask(llm, NcsPick, context, _ncs_pick_step(), found)
         if units := _chosen_units(pick.ncs_codes):
@@ -573,7 +600,7 @@ async def _write(
     extras: list[str] | None = None
     if "REQUIRED_EXTRAS" in targets:
         extras = list((await _ask(llm, ExtrasPlan, context, EXTRAS_STEP, found)).required_extras)
-    return _Edit(changes=changes, stages=stages, required_extras=extras, cited=cited, notes=notes)
+    return _Edit(changes=changes, stages=stages, required_extras=extras, cited=cited, notes=notes, roles=roles)
 
 
 async def _ask[T: BaseModel](
@@ -701,6 +728,9 @@ def _count_notes(plan: dict[str, int], counts: dict[str, int], written: dict[str
 
 def _draft(posting: PostingDraftContext, edit: _Edit, request: str) -> _Draft:
     content, changed = _apply(posting.content, _requested_facts(edit.changes, request))
+    if edit.roles is not None and edit.roles != content.roles:
+        content = content.model_copy(update={"roles": edit.roles})
+        changed.append("roles")
     stages: list[StageDraft] | None = None
     unknown: list[str] = []
     if edit.stages is not None:

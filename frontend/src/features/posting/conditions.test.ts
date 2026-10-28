@@ -4,6 +4,7 @@ import type { PostingContent } from './api'
 import { conditionRows, toHeadcount } from './conditions'
 
 const content: PostingContent = {
+  roles: [],
   title: '결제 백엔드 개발자',
   jobCategory: '',
   employmentType: '',

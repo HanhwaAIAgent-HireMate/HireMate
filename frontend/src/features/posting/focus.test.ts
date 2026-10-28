@@ -4,6 +4,7 @@ import type { PostingContent } from './api'
 import { focusLabel, hasLine, toServerFocus } from './focus'
 
 const content: PostingContent = {
+  roles: [],
   title: '결제 백엔드 개발자',
   jobCategory: '',
   employmentType: '',
