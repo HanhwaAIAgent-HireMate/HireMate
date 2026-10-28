@@ -7,6 +7,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from hiremate_ai.agents.analysis.application.score import allotted, zeroed_scores
 from hiremate_ai.agents.analysis.application.types import (
     VERDICT_LABEL,
+    Actor,
     ApplicationAnalysis,
     ApplicationReview,
     Fact,
@@ -25,7 +26,7 @@ from hiremate_ai.contract import (
     SummarySection,
     Verdict,
 )
-from hiremate_ai.db.profile import ItemCategory, ProfileStatus
+from hiremate_ai.db.profile import ItemCategory, ProfileStatus, Verification
 from hiremate_ai.db.profile_store import NewItem, ProfileFields
 
 AGENT_NAME = "Application Agent"
@@ -168,12 +169,14 @@ def to_profile(review: ApplicationReview) -> tuple[ProfileFields, list[NewItem]]
         )
         for result in review.criteria
     ]
+    # 팀 성과와 역할이 불분명한 사실은 원문에 근거가 있어도 본인 경험으로 확인되지 않았다 (규칙 7)
     items += [
         NewItem(
             category=ItemCategory.SKILL if fact.kind == "SKILL" else ItemCategory.EXPERIENCE,
             content=fact.statement,
             evidence=fact.quotes[0].sentence,
             source=fact.quotes[0].document.label,
+            verification=None if fact.actor is Actor.SELF else Verification.UNCONFIRMED,
         )
         for fact in review.facts
         if fact.supported and fact.kind in ("SKILL", "EXPERIENCE", "PROJECT", "ACHIEVEMENT")
