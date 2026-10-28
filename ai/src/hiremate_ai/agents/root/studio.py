@@ -11,7 +11,8 @@ from typing import Any
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import TypeAdapter, create_model, model_validator
 
-from hiremate_ai.agents.root.graph import RootState, build_root_graph
+from hiremate_ai.agents.root.graph import build_root_graph
+from hiremate_ai.agents.root.state import RootInput, RootOutput, RootState
 from hiremate_ai.agents.root.toolkit import default_toolkit
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext
 from hiremate_ai.llm.client import get_llm
@@ -40,6 +41,6 @@ StudioContext = create_model("StudioContext", __base__=_MentionsFromMessage, **_
 """모든 필드의 기본값이 샘플인 ChatContext. Studio가 보낸 값만 샘플 위에 덮어쓴다."""
 
 
-def make_graph() -> CompiledStateGraph[RootState, ChatContext, RootState, RootState]:
+def make_graph() -> CompiledStateGraph[RootState, ChatContext, RootInput, RootOutput]:
     """langgraph.json이 부르는 그래프 팩토리. 대화방 저장은 Studio 서버의 체크포인터가 맡는다."""
     return build_root_graph(get_llm(), default_toolkit(), context_schema=StudioContext)

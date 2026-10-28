@@ -8,7 +8,7 @@
 import logging
 import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
 from uuid import UUID
 
@@ -33,10 +33,11 @@ from hiremate_ai.agents.root.plan import EditPlan, FindPlan, QuestionsPlan, make
 from hiremate_ai.agents.root.progress import StepRecorder, writer_progress
 from hiremate_ai.agents.root.review import NO_EVIDENCE, answer_plan, focus_drafts, questions_plan, review_items
 from hiremate_ai.agents.root.scope import expand_scope
-from hiremate_ai.agents.root.state import RootRun, RootState
+from hiremate_ai.agents.root.state import RootInput, RootOutput, RootRun, RootState
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
 from hiremate_ai.agents.root.turns import Turn, next_result, remember, turn_of, update_turn
 from hiremate_ai.agents.root.types import (
+    CandidateRow,
     ChatApplied,
     ChatContext,
     ChatItem,
@@ -67,7 +68,7 @@ FAILURE_MESSAGES = {
 
 type PlanEvent = tuple[Literal["status", "item", "done"], ChatStatus | ChatItem | ChatPlan]
 
-_NEW_TURN: RootState = {"plan": None, "kind": "", "mode": None, "steps": [], "run": None}
+_NEW_TURN: RootInput = {"plan": None, "kind": "", "mode": None, "steps": []}
 
 
 @dataclass(frozen=True)
@@ -85,7 +86,7 @@ def build_root_graph(
     checkpointer: BaseCheckpointSaver[Any] | None = None,
     *,
     context_schema: type[ChatContext] = ChatContext,
-) -> CompiledStateGraph[RootState, ChatContext, RootState, RootState]:
+) -> CompiledStateGraph[RootState, ChatContext, RootInput, RootOutput]:
     tools = toolkit or default_toolkit()
 
     def guard(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
@@ -109,16 +110,16 @@ def build_root_graph(
         except LlmOutputError as error:
             return _failed(error, progress)
         scope = root_plan.scope
+        rows: list[CandidateRow] = []
         if scope is not None and not scope.empty:
             expanded = expand_scope(scope, context, result, subject)
             if isinstance(expanded, str):
                 return {"plan": ChatPlan.answer(Intent.CLARIFY, expanded), "kind": "ANSWER", "steps": progress.steps}
-            run.rows = expanded
-        checked = precheck(context, root_plan, run.rows)
+            rows = expanded
+        checked = precheck(context, root_plan, rows)
         if checked is not None:
             return {"plan": checked, "kind": "ANSWER", "steps": progress.steps}
-        run.plan = root_plan
-        return {"steps": progress.steps}
+        return {"run": replace(run, plan=root_plan, rows=rows), "steps": progress.steps}
 
     def after_plan(state: RootState) -> Literal["find", "edit", "questions", "analyze", "reply", "record"]:
         if state.get("plan") is not None:
@@ -175,7 +176,7 @@ def build_root_graph(
             raise TypeError("계획 없이 분석할 수 없다")
         form = root_plan.form
         checks = form.checks if isinstance(form, QuestionsPlan) else "none"
-        run.analysis = analysis_run(
+        analysis = analysis_run(
             context, run.rows, state.get("turns") or [], state.get("result"), state.get("subject") or []
         )
         try:
@@ -183,7 +184,7 @@ def build_root_graph(
                 answered = await run_analysis(
                     llm,
                     tools,
-                    run.analysis,
+                    analysis,
                     task="questions" if isinstance(form, QuestionsPlan) else "answer",
                     checks=checks,
                     progress=progress,
@@ -192,15 +193,14 @@ def build_root_graph(
             return _failed(error, progress)
         output = answered.form
         if isinstance(output, FindOutput):
-            found = run.analysis.searches[output.result]
-            mode = run.analysis.queries[output.result].mode
+            found = analysis.searches[output.result]
+            mode = analysis.queries[output.result].mode
             kind = "FIND" if found.intent in (Intent.FIND, Intent.ANSWER) else "ANSWER"
             return {"plan": found, "kind": kind, "mode": mode, "steps": progress.steps}
         if isinstance(output, ClarifyOutput):
             clarify = ChatPlan.answer(Intent.CLARIFY, readable(output.message, context))
             return {"plan": clarify, "kind": "ANSWER", "steps": progress.steps}
-        run.reply = answered
-        return {"steps": progress.steps}
+        return {"run": replace(run, analysis=analysis, reply=answered), "steps": progress.steps}
 
     def after_analyze(state: RootState) -> Literal["review", "record"]:
         return "record" if state.get("plan") is not None else "review"
@@ -244,13 +244,14 @@ def build_root_graph(
             "result": next_result(state.get("result"), kind, mode, final),
             "subject": turn["targets"] or state.get("subject") or [],
             **_NEW_TURN,
+            "run": None,
         }
 
     def after_guard(state: RootState) -> Literal["record", "plan"]:
         return "record" if state.get("plan") is not None else "plan"
 
-    graph: StateGraph[RootState, ChatContext, RootState, RootState] = StateGraph(
-        RootState, context_schema=context_schema
+    graph: StateGraph[RootState, ChatContext, RootInput, RootOutput] = StateGraph(
+        RootState, context_schema=context_schema, input_schema=RootInput, output_schema=RootOutput
     )
     graph.add_node("guard", guard)
     graph.add_node("plan", plan)
