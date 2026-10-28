@@ -23,6 +23,7 @@ from hiremate_ai.llm.chat import (
     consume_model_call,
     model_call_budget,
     new_model_call_budget,
+    reserve_model_calls,
     using_model_call_budget,
 )
 
@@ -387,6 +388,22 @@ async def test_shared_budget_last_call_can_only_answer() -> None:
     assert result.text == "확인한 만큼 답"
     assert [entry["function"]["name"] for entry in requests[-1]["tools"]] == ["Summary"]
     assert requests[-1]["messages"][-1] == {"role": "user", "content": LAST_CALL}
+
+
+async def test_reserved_calls_make_the_earlier_call_answer() -> None:
+    """뒤 단계(근거 검토)를 위해 남겨 둔 호출은 쓰지 않는다. 남은 호출에서 예약을 뺀 마지막 호출이 답을 낸다."""
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(
+        [tool_completion(("career", {"item": "경력"})), tool_completion(("Summary", {"text": "확인한 만큼 답"}))],
+        RecordingCallLog(),
+        requests,
+    )
+
+    with model_call_budget(3), reserve_model_calls(1):
+        result = await llm.tool_agent(Summary, agent="root", system="", tools=[career]).run("경력")
+
+    assert result.text == "확인한 만큼 답"
+    assert [entry["function"]["name"] for entry in requests[1]["tools"]] == ["Summary"]
 
 
 async def test_tool_agent_cut_retry_consumes_shared_budget() -> None:

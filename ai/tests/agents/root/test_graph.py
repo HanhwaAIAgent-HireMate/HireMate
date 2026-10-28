@@ -23,7 +23,7 @@ from hiremate_ai.agents.root.review import ClaimJudgement, ClaimVerdict
 from hiremate_ai.agents.root.types import ChatContext, ChatItem, ChatPlan, ChatStatus, EditAction, Intent
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
-from hiremate_ai.llm.chat import LlmOutputError
+from hiremate_ai.llm.chat import LAST_CALL, LlmOutputError
 from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
 
 type Applicants = dict[str, ApplicantDetail]
@@ -113,6 +113,28 @@ async def test_budget_exceeded_message(
     plan = await run_plan(llm, context)
 
     assert plan.message == BUDGET_EXHAUSTED and plan.items == []
+
+
+async def test_analysis_leaves_one_call_for_review(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_applicants: Applicants,
+    sample_company: CompanyProfile,
+    sample_posting: PostingContent,
+) -> None:
+    monkeypatch.setattr(settings, "llm_agent_max_calls", 3)
+    context = context_of(sample_applicants, sample_company, sample_posting, mentions=["정유민"])
+    item = {"candidate": "C1", "label": "결정", "text": "아직 미결정이에요.", "status": "OK", "refs": ["E1"]}
+    llm = FakeLlm(
+        form_call("answer", scope={"sources": ["mentions"]}),
+        form_call("answer", message="정리했어요.", items=[item]),
+        supported("I1", "M"),
+    )
+
+    plan = await run_plan(llm, context)
+
+    assert LAST_CALL in llm.calls[1].user
+    assert [call.output.__name__ for call in llm.calls] == ["RootPlan", "AnalysisReply", "ClaimJudgement"]
+    assert plan.items[0].status == "OK"
 
 
 async def test_decision_only_guides_the_user_to_the_screen(
