@@ -1,0 +1,10 @@
+{
+  "template": "CLASSIC",
+  "mood": "CLEAR",
+  "color": "#167ca7",
+  "decoration": 1,
+  "enabled": true,
+  "showLogo": false,
+  "logoFileId": null,
+  "backgroundStyle": "SOLID"
+}

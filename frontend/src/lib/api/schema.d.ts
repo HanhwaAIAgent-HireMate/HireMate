@@ -148,6 +148,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/poster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["poster"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/receipt-template": {
         parameters: {
             query?: never;
@@ -189,6 +205,22 @@ export interface paths {
         };
         get: operations["postingSettings"];
         put: operations["updatePostingSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/poster-brand": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_1"];
+        put: operations["update_1"];
         post?: never;
         delete?: never;
         options?: never;
@@ -596,6 +628,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/poster/ai-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["design"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/posting/close": {
         parameters: {
             query?: never;
@@ -660,7 +708,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/companies/me/mail-style/logo": {
+    "/api/companies/me/poster-brand/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/poster-brand/logo": {
         parameters: {
             query?: never;
             header?: never;
@@ -668,6 +732,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["logo"];
+        put?: never;
+        post: operations["upload"];
+        delete: operations["delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/mail-style/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["logo_1"];
         put?: never;
         post: operations["uploadLogo"];
         delete: operations["deleteLogo"];
@@ -948,6 +1028,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/poster/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["posterLogo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/applications": {
         parameters: {
             query?: never;
@@ -988,6 +1084,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["publicPosting"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/postings/{postingId}/poster/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["publicPosterLogo"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1102,7 +1214,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete: operations["delete"];
+        delete: operations["delete_1"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1306,6 +1418,21 @@ export interface components {
             workHours: string | null;
             salary: string | null;
         };
+        PosterDesign: {
+            /** @enum {string} */
+            template: "CLASSIC" | "EDITORIAL" | "BOLD" | "PREMIUM" | "NATURAL" | "TICKET";
+            /** @enum {string} */
+            mood: "TRUST" | "CLEAR" | "WARM" | "PREMIUM" | "LIVELY" | "NATURAL";
+            color: string;
+            /** Format: int32 */
+            decoration: number;
+            enabled: boolean;
+            showLogo: boolean;
+            /** Format: uuid */
+            logoFileId: string | null;
+            /** @enum {string} */
+            backgroundStyle: "SOLID" | "SOFT_GRADIENT";
+        };
         PostingContent: {
             title: string;
             jobCategory: string;
@@ -1360,6 +1487,7 @@ export interface components {
             /** Format: date-time */
             closedAt: string | null;
             suggestion: components["schemas"]["PostingSuggestionView"] | null;
+            poster: components["schemas"]["PosterDesign"] | null;
         };
         RequiredDocument: {
             /** @enum {string} */
@@ -1416,6 +1544,33 @@ export interface components {
             sections: string[];
             writingStyle: string;
             requiredNotices: string[];
+        };
+        PosterBrandRequest: {
+            template: string;
+            mood: string;
+            color: string;
+            /** Format: int32 */
+            decoration: number;
+        };
+        PosterBrand: {
+            template: string;
+            mood: string;
+            color: string;
+            /** Format: int32 */
+            decoration: number;
+            /** Format: uuid */
+            logoFileId: string | null;
+            templates: components["schemas"]["PosterTemplate"][];
+        };
+        PosterTemplate: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            template: string;
+            mood: string;
+            color: string;
+            /** Format: int32 */
+            decoration: number;
         };
         NoticeTemplateRequest: {
             subject: string;
@@ -1546,6 +1701,26 @@ export interface components {
             /** Format: date-time */
             closeAt: string;
         };
+        PosterAiRequest: {
+            message: string;
+            design: components["schemas"]["PosterDesign"] | null;
+            history: components["schemas"]["PosterTurn"][];
+        };
+        PosterTurn: {
+            /** @enum {string} */
+            role: "USER" | "ASSISTANT";
+            text: string;
+            design: components["schemas"]["PosterDesign"] | null;
+            recommendations: components["schemas"]["Recommendation"][];
+        };
+        Recommendation: {
+            design: components["schemas"]["PosterDesign"];
+            reason: string;
+        };
+        PosterProposal: {
+            reply: string;
+            recommendations: components["schemas"]["Recommendation"][];
+        };
         PostingAiRequest: {
             message: string;
             focus: components["schemas"]["PostingFocus"] | null;
@@ -1567,6 +1742,11 @@ export interface components {
             name: string;
             companyName: string;
             postingTitle: string;
+        };
+        PosterTemplateRequest: {
+            name: string;
+            template: string;
+            color: string;
         };
         CompanyFileInfo: {
             /** Format: uuid */
@@ -1926,6 +2106,7 @@ export interface components {
             closeAt: string;
             /** @enum {string} */
             state: "UPCOMING" | "OPEN" | "CLOSED";
+            poster: components["schemas"]["PosterDesign"] | null;
         };
         PublicStage: {
             name: string;
@@ -1933,9 +2114,9 @@ export interface components {
             type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
         };
         CsrfToken: {
-            parameterName: string;
             token: string;
             headerName: string;
+            parameterName: string;
         };
         CsrfResponse: {
             token: string;
@@ -2234,6 +2415,32 @@ export interface operations {
             };
         };
     };
+    poster: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PosterDesign"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PostingView"];
+                };
+            };
+        };
+    };
     template: {
         parameters: {
             query?: never;
@@ -2362,6 +2569,50 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PostingSettings"];
+                };
+            };
+        };
+    };
+    get_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PosterBrand"];
+                };
+            };
+        };
+    };
+    update_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PosterBrandRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PosterBrand"];
                 };
             };
         };
@@ -3079,6 +3330,32 @@ export interface operations {
             };
         };
     };
+    design: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PosterAiRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PosterProposal"];
+                };
+            };
+        };
+    };
     close: {
         parameters: {
             query?: never;
@@ -3188,7 +3465,98 @@ export interface operations {
             };
         };
     };
+    addTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PosterTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PosterBrand"];
+                };
+            };
+        };
+    };
     logo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+        };
+    };
+    upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PosterBrand"];
+                };
+            };
+        };
+    };
+    delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PosterBrand"];
+                };
+            };
+        };
+    };
+    logo_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -3674,6 +4042,28 @@ export interface operations {
             };
         };
     };
+    posterLogo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+        };
+    };
     list: {
         parameters: {
             query?: {
@@ -3741,6 +4131,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PublicPostingView"];
+                };
+            };
+        };
+    };
+    publicPosterLogo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
                 };
             };
         };
@@ -3871,7 +4283,7 @@ export interface operations {
             };
         };
     };
-    delete: {
+    delete_1: {
         parameters: {
             query?: never;
             header?: never;

@@ -1,0 +1,18 @@
+{
+  "reply": "청량한 배색과 은은한 물결을 사용한 디자인 수정안을 만들었어요.",
+  "recommendations": [
+    {
+      "design": {
+        "template": "CLASSIC",
+        "mood": "CLEAR",
+        "color": "#167ca7",
+        "decoration": 1,
+        "enabled": true,
+        "showLogo": false,
+        "logoFileId": null,
+        "backgroundStyle": "SOLID"
+      },
+      "reason": "정보를 정돈한 구조에 밝은 배색을 적용한 디자인이에요."
+    }
+  ]
+}

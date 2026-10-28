@@ -11,6 +11,8 @@ import com.hiremate.file.FileContent;
 import com.hiremate.file.FileService;
 import com.hiremate.file.StoredFileInfo;
 import com.hiremate.global.ApiException;
+import com.hiremate.global.JsonText;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +70,41 @@ public class CompanyService {
     public PostingSettings updatePostingSettings(UUID companyId, String writingStyle, List<String> requiredNotices) {
         company(companyId).updatePostingSettings(writingStyle, requiredNotices);
         return postingSettings(companyId);
+    }
+
+    @Transactional(readOnly = true)
+    public PosterBrand posterBrand(UUID companyId) {
+        PosterBrand saved = JsonText.read(company(companyId).getPosterBrand(), PosterBrand.class);
+        return saved == null ? PosterBrand.DEFAULT : saved;
+    }
+
+    @Transactional
+    public PosterBrand updatePosterBrand(UUID companyId, PosterBrand brand) {
+        company(companyId).changePosterBrand(JsonText.write(brand));
+        return brand;
+    }
+
+    /** 현재 기업 안에만 새 템플릿을 추가한다. 공고에는 디자인 값을 복사하므로 기존 공고를 바꾸지 않는다. */
+    @Transactional
+    public PosterBrand addPosterTemplate(UUID companyId, String name, String template, String color) {
+        PosterBrand brand = posterBrand(companyId);
+        String title = name.strip();
+        if (brand.templates().size() >= 12 || brand.templates().stream()
+                .anyMatch(item -> item.name().equalsIgnoreCase(title))) {
+            throw new ApiException(HttpStatus.CONFLICT, "POSTER_TEMPLATE_CONFLICT",
+                    "템플릿은 12개까지 저장할 수 있고 이름은 중복될 수 없어요.");
+        }
+        String mood = switch (template) {
+            case "EDITORIAL" -> "WARM";
+            case "BOLD" -> "LIVELY";
+            case "PREMIUM" -> "PREMIUM";
+            case "NATURAL" -> "NATURAL";
+            default -> "TRUST";
+        };
+        List<PosterTemplate> templates = new ArrayList<>(brand.templates());
+        templates.add(new PosterTemplate(UUID.randomUUID(), title, template, mood, color, 1));
+        return updatePosterBrand(companyId, new PosterBrand(brand.template(), brand.mood(), brand.color(),
+                brand.decoration(), brand.logoFileId(), templates));
     }
 
     /** 네 가지 유형을 모두 돌려준다. 등록하지 않은 유형은 기본 양식이다. */

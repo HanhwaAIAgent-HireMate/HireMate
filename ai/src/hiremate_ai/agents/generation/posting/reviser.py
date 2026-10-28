@@ -103,8 +103,8 @@ NCS_DETAIL_CHARS = 3000
 """두 번째 호출에 넣는 능력단위 정의와 수행준거의 글자 수 한도. 능력단위 하나에 평균 700자라 다 넣으면
 노트북 모델이 한 번에 읽는 양(약 4천 토큰)을 넘는다. 지식 · 기술은 일반적인 말이라 공고 문장에는 넣지 않는다."""
 
-DEFAULT_ITEMS = 10
-"""요청에 개수가 없을 때 NCS 근거로 쓰는 자격 요건 · 우대 사항의 최대 수. HR이 많은 후보에서 추리도록 넉넉히 쓰되,
+DEFAULT_ITEMS = 5
+"""요청에 개수가 없을 때 NCS 근거로 쓰는 자격 요건 · 우대 사항의 최대 수. 읽기 쉬운 분량으로 제한하되,
 근거를 찾을 수 있는 만큼만 쓰고 개수를 채우려고 지어내지 않는다."""
 
 MAX_DRAFT_ITEMS = 10
@@ -322,7 +322,12 @@ CONTENT_STEP = (
     "지금 할 일: 본문 칸 중 요청이 바꾸라는 칸만 changes에 쓴다. field에는 칸 이름(예: 근무지, 우대 사항)을 쓴다. "
     "글 칸(채용명, 직무, 고용 형태, 경력, 근무지, 채용 인원, 직급, 학력, 근무 일시, 급여, 회사 소개)은 text에 "
     "새 내용을, 목록 칸(주요 업무, 자격 요건, 우대 사항, 복지)은 items에 그대로 둘 항목까지 넣은 바꾼 뒤 목록 전체를 "
-    "쓰고, 다른 하나는 null로 둔다. 채용 인원은 숫자만 쓴다(예: 3)."
+    "쓰고, 다른 하나는 null로 둔다. 채용 인원은 숫자만 쓴다(예: 3). "
+    "text에는 현재 값을 복사하지 않고 요청한 새 값을 쓴다. "
+    "예: 현재 근무지가 서울이고 '근무지만 부산으로 바꿔줘'라는 요청이면 field='근무지', text='부산'이다. "
+    "경력 조건을 바꾸면 자격 요건과 우대 사항에 같은 이전 경력 조건이 있는지 확인하고 함께 맞춘다. "
+    "예: 경력 3년 이상을 5년 이상으로 변경하면 '서버 개발 경력 3년 이상'도 5년 이상으로 고친다. "
+    "별도의 기술별 경력이나 다른 조건은 유지한다."
 )
 STAGES_STEP = (
     "지금 할 일: 바꾼 뒤의 전형 절차 전체를 순서대로 stages에 쓴다. 이름만으로 종류를 알 수 없는 전형"
@@ -422,6 +427,9 @@ async def revise_posting(
         if blocked_terms(draft.content, draft.changed):
             return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
         found = problems(draft.content, draft.changed, draft.stages, FIELD_LABELS, source=context)
+        found += career_conflicts(posting.content, draft.content)
+        if fills_empty and not posting.content.duties and not draft.content.duties:
+            found.append("공고 전체 작성 요청인데 주요 업무가 비어 있다. 직무의 일반적인 주요 업무 초안을 3~5개 쓴다")
         if not found:
             return _result(draft, edit, locked)
     return RevisionResult(reply=CHECK_FAILED_REPLY, suggestion=None)
@@ -522,7 +530,15 @@ async def _write(
     cited: list[NcsUnit] = []
     notes: list[str] = []
     if "CONTENT" in targets:
-        changes = (await _ask(llm, ContentChanges, context, CONTENT_STEP, found)).changes
+        step = CONTENT_STEP
+        if fills_empty and not posting.content.duties:
+            step += (
+                " 공고 전체 작성 요청이다. 주요 업무가 비어 있다. "
+                "직무에 맞는 일반적인 업무 초안을 3~5개 반드시 쓴다. "
+                "회사의 실제 업무나 기술로 단정하지 않고 회사 고유 정보는 만들지 않는다."
+            )
+        step += f"\n이번에 반영할 HR 요청: {request}"
+        changes = (await _ask(llm, ContentChanges, context, step, found)).changes
     if "NCS_REQUIREMENTS" in targets and (plan := _ncs_plan(posting.content, request, fills_empty)):
         pick = await _ask(llm, NcsPick, context, _ncs_pick_step(), found)
         if units := _chosen_units(pick.ncs_codes):
@@ -744,6 +760,27 @@ def _requested_facts(changes: list[FieldChange], request: str) -> list[FieldChan
         change
         for change in changes
         if (words := FACT_WORDS.get(LABEL_FIELDS[change.field])) is None or words.search(request)
+    ]
+
+
+def career_conflicts(before: PostingContent, after: PostingContent) -> list[str]:
+    """전체 경력 조건을 바꿀 때 기존의 동일한 경력 문구가 남았는지 검사한다.
+
+    기술별로 별도 지정한 경력은 자동 치환하지 않는다. 검사 실패는 모델에 전달해 수정안을 다시 검토한다.
+    """
+    if before.career == after.career:
+        return []
+    years = re.search(r"(\d+)\s*년\s*이상", before.career)
+    wanted = re.search(r"(\d+)\s*년\s*이상", after.career)
+    if not years or not wanted or years.group(1) == wanted.group(1):
+        return []
+    old = re.compile(r"경력\s*" + years.group(1) + r"\s*년\s*이상")
+    return [
+        f"{FIELD_LABELS[name]} {index + 1}번에 이전 경력 조건이 남아 있다: {line}. "
+        f"새 경력 조건({after.career})과 맞추고 다른 내용은 유지한다"
+        for name in ("qualifications", "preferred")
+        for index, line in enumerate(getattr(after, name))
+        if old.search(line) and any(old.search(previous) for previous in getattr(before, name))
     ]
 
 

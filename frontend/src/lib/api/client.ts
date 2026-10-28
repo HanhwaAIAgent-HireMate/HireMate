@@ -70,6 +70,7 @@ const MESSAGES: Record<string, string> = {
   EMAIL_ALREADY_EXISTS: '이미 가입한 이메일이에요.',
   INVALID_INPUT: '입력한 내용을 다시 확인해 주세요.',
   INVALID_FILE: 'PDF 파일만 올릴 수 있어요.',
+  POSTER_TEMPLATE_CONFLICT: '같은 이름의 템플릿이 있거나 저장 가능한 12개를 채웠어요.',
   UNAUTHENTICATED: '다시 로그인해 주세요.',
   FORBIDDEN: '이 작업을 할 권한이 없어요.',
   INVALID_CSRF: '보안 토큰이 만료됐어요. 다시 시도해 주세요.',

@@ -1,13 +1,18 @@
 package com.hiremate.posting.api;
 
+import com.hiremate.file.FileContent;
 import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.mail.MailPreview;
+import com.hiremate.posting.PosterDesign;
 import com.hiremate.posting.PostingService;
 import com.hiremate.posting.PostingView;
 import com.hiremate.posting.PublicPostingView;
 import jakarta.validation.Valid;
 import java.util.UUID;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,6 +47,27 @@ public class PostingController {
     public PostingView update(AuthenticatedMember member, @PathVariable UUID recruitmentId,
             @Valid @RequestBody PostingContentRequest request) {
         return postings.updateContent(member.companyId(), recruitmentId, request.toContent());
+    }
+
+    @PutMapping("/api/recruitments/{recruitmentId}/posting/poster")
+    public PostingView poster(AuthenticatedMember member, @PathVariable UUID recruitmentId,
+            @Valid @RequestBody PosterDesign design) {
+        return postings.updatePoster(member.companyId(), recruitmentId, design);
+    }
+
+    @GetMapping("/api/recruitments/{recruitmentId}/posting/poster/logo")
+    public ResponseEntity<byte[]> posterLogo(AuthenticatedMember member, @PathVariable UUID recruitmentId) {
+        return image(postings.posterLogo(member.companyId(), recruitmentId));
+    }
+
+    @GetMapping("/api/public/postings/{postingId}/poster/logo")
+    public ResponseEntity<byte[]> publicPosterLogo(@PathVariable UUID postingId) {
+        return image(postings.publicPosterLogo(postingId));
+    }
+
+    private static ResponseEntity<byte[]> image(FileContent file) {
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(file.info().contentType()))
+                .cacheControl(CacheControl.noStore()).body(file.bytes());
     }
 
     /** HR이 전형 절차를 직접 정한다. 게시 전에만 바꿀 수 있고, 이름이 같은 전형은 입력해 둔 안내를 이어 받는다. */

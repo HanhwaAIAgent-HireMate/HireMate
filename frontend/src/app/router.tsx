@@ -8,6 +8,7 @@ import { LoginPage } from '@/pages/hr/LoginPage'
 import { NoticeEditorPage } from '@/pages/hr/NoticeEditorPage'
 import { PostingEditorPage } from '@/pages/hr/PostingEditorPage'
 import { PostingPublishPage } from '@/pages/hr/PostingPublishPage'
+import { PostingPosterPage } from '@/pages/hr/PostingPosterPage'
 import { PostingStatusPage } from '@/pages/hr/PostingStatusPage'
 import { ReportPage } from '@/pages/hr/ReportPage'
 import { SettingsPage } from '@/pages/hr/SettingsPage'
@@ -28,6 +29,7 @@ export const routes: RouteObject[] = [
       { path: 'settings/:section?', element: <SettingsPage /> },
       { path: 'recruitments/new', element: <PostingEditorPage /> },
       { path: 'recruitments/:recruitmentId/posting', element: <PostingEditorPage /> },
+      { path: 'recruitments/:recruitmentId/posting/poster', element: <PostingPosterPage /> },
       { path: 'recruitments/:recruitmentId/posting/publish', element: <PostingPublishPage /> },
       { path: 'recruitments/:recruitmentId/posting/status', element: <PostingStatusPage /> },
       { path: 'recruitments/:recruitmentId/stages/:stageId', element: <StagePage /> },

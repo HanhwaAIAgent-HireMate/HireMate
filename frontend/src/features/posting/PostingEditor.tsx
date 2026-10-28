@@ -1,4 +1,4 @@
-import { FileText, Lock, Settings } from 'lucide-react'
+import { ArrowRight, FileText, Lock, Settings } from 'lucide-react'
 import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
@@ -21,6 +21,8 @@ import { BulletListField, LineBullet } from '@/features/posting/BulletListField'
 import { focusLabel, hasLine, toServerFocus, type LineFocus } from '@/features/posting/focus'
 import { StageEditor } from '@/features/posting/StageEditor'
 import { StageFlow } from '@/features/posting/StageFlow'
+import { PostingStepHeader } from '@/features/posting/PostingStepHeader'
+import { usePostingRecovery } from '@/features/posting/usePostingRecovery'
 import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/stages'
 import {
   CONDITION_FIELDS,
@@ -75,11 +77,19 @@ export function PostingEditor({
 }) {
   const navigate = useNavigate()
   const id = posting.recruitmentId
-  const [draft, setDraft] = useState<PostingContent>(posting.content)
-  const [dirty, setDirty] = useState(false)
+  const contentRecovery = usePostingRecovery(
+    `${id}:content`,
+    posting.content,
+    posting.status === 'DRAFT',
+  )
+  const { value: draft, setValue: setDraft, dirty } = contentRecovery
   // 전형 절차는 게시 전에 HR이 직접 고친다. 저장하면 전형이 새로 만들어져 안내는 이름으로 이어 받는다
-  const [stages, setStages] = useState<StageForm[]>(() => toStageForms(posting.stages))
-  const [stagesDirty, setStagesDirty] = useState(false)
+  const stageRecovery = usePostingRecovery(
+    `${id}:stages`,
+    toStageForms(posting.stages),
+    posting.status === 'DRAFT',
+  )
+  const { value: stages, setValue: setStages, dirty: stagesDirty } = stageRecovery
   const [stagesError, setStagesError] = useState<string | null>(null)
   const save = useSavePosting(id)
   const saveStages = useSaveStages(id)
@@ -100,7 +110,6 @@ export function PostingEditor({
 
   const update = (patch: Partial<PostingContent>) => {
     setDraft((current) => ({ ...current, ...patch }))
-    setDirty(true)
   }
 
   /** 줄 앞의 ·을 누르면 그 줄을 고르고, 고른 줄을 다시 누르면 푼다 */
@@ -115,7 +124,6 @@ export function PostingEditor({
 
   const changeStages = (next: StageForm[]) => {
     setStages(next)
-    setStagesDirty(true)
     setStagesError(null)
   }
 
@@ -138,11 +146,9 @@ export function PostingEditor({
           stages.map((stage) => ({ name: stage.name.trim(), type: stage.type })),
         )
         setStages(toStageForms(saved.stages))
-        setStagesDirty(false)
       }
       if (dirty) {
         await save.mutateAsync({ ...draft, title: draft.title.trim() })
-        setDirty(false)
       }
       if (!silent) toast.success('저장했어요.')
       return true
@@ -191,7 +197,6 @@ export function PostingEditor({
         setDraft({ ...draft, ...pick(updated.content, targets) })
         if (accept && targets.has('stages')) {
           setStages(toStageForms(updated.stages))
-          setStagesDirty(false)
         }
       },
       onError: (error) => toast.error(errorMessage(error)),
@@ -199,7 +204,7 @@ export function PostingEditor({
   }
 
   const goPublish = async () => {
-    if (await saveDraft(true)) await navigate(`/hr/recruitments/${id}/posting/publish`)
+    if (await saveDraft(true)) await navigate(`/hr/recruitments/${id}/posting/poster`)
   }
 
   /**
@@ -207,11 +212,23 @@ export function PostingEditor({
    * 모집 조건(채용 인원 · 직급 · 학력 · 급여 · 근무 일시)은 각각 한 덩어리로 처리한다
    */
   const actions = (field: string) => {
-    const fields = BASIC_FIELDS.includes(field)
+    let fields = BASIC_FIELDS.includes(field)
       ? BASIC_FIELDS
       : CONDITION_KEYS.includes(field)
         ? CONDITION_KEYS
         : [field]
+    if (
+      changed.has('career') &&
+      fields.some((name) => ['career', 'qualifications', 'preferred'].includes(name))
+    ) {
+      fields = [
+        ...new Set([
+          ...fields,
+          'career',
+          ...['qualifications', 'preferred'].filter((name) => changed.has(name)),
+        ]),
+      ]
+    }
     return (
       fields.some((name) => changed.has(name)) && (
         <SuggestionActions
@@ -224,39 +241,54 @@ export function PostingEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-b px-6 py-4">
-        <h1 className="text-xl font-bold">{isDraft ? '공고 작성' : '게시한 공고'}</h1>
-        <span className="text-sm text-muted-foreground">기본 Template</span>
-        <div className="ml-auto flex gap-2">
-          {editable && (
-            <Button
-              variant="outline"
-              onClick={() => void saveDraft()}
-              disabled={!(dirty || stagesDirty) || saving}
-            >
-              {isDraft ? '임시 저장' : '저장'}
+      <PostingStepHeader title={isDraft ? '공고 작성' : '게시한 공고'} caption="기본 Template">
+        {editable && (
+          <Button
+            variant="outline"
+            className="min-w-20"
+            onClick={() => void saveDraft()}
+            disabled={!(dirty || stagesDirty) || saving}
+          >
+            {isDraft ? '임시 저장' : '저장'}
+          </Button>
+        )}
+        {isDraft ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  className="min-w-20"
+                  onClick={() => void goPublish()}
+                  disabled={Boolean(suggestion)}
+                >
+                  다음
+                  <ArrowRight />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {suggestion && (
+              <TooltipContent>AI 수정안을 적용하거나 되돌린 뒤 게시해요</TooltipContent>
+            )}
+          </Tooltip>
+        ) : (
+          <>
+            <Button variant="outline" asChild>
+              <Link to={`/hr/recruitments/${id}/posting/poster`}>포스터 · PDF</Link>
             </Button>
-          )}
-          {isDraft ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button onClick={() => void goPublish()} disabled={Boolean(suggestion)}>
-                    승인 및 게시
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {suggestion && (
-                <TooltipContent>AI 수정안을 적용하거나 되돌린 뒤 게시해요</TooltipContent>
-              )}
-            </Tooltip>
-          ) : (
             <Button asChild>
               <Link to={`/hr/recruitments/${id}/posting/status`}>접수 현황</Link>
             </Button>
-          )}
-        </div>
-      </div>
+          </>
+        )}
+      </PostingStepHeader>
+      {editable && (dirty || stagesDirty) && (
+        <p role="status" className="border-b bg-muted px-6 py-2 text-xs text-muted-foreground">
+          {contentRecovery.restored || stageRecovery.restored
+            ? '저장하지 않은 편집을 복구했어요. '
+            : ''}
+          변경 내용은 이 탭에 임시 보관돼요. 공고에 반영하려면 임시 저장을 눌러 주세요.
+        </p>
+      )}
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-auto">
           <div className="mx-auto max-w-[760px] space-y-6 px-6 py-6">

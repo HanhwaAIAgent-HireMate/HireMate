@@ -51,6 +51,12 @@ public class Company {
     @Column(nullable = false)
     private List<String> requiredNotices = new ArrayList<>();
 
+    private String posterBrand;
+
+    public void changePosterBrand(String value) {
+        this.posterBrand = value;
+    }
+
     public Company(String name) {
         this.id = UUID.randomUUID();
         this.name = name;

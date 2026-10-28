@@ -6,6 +6,7 @@ import { CompanyProfileForm } from '@/features/company/CompanyProfileForm'
 import { MailStyleForm } from '@/features/company/MailStyleForm'
 import { NoticeTemplateForm } from '@/features/company/NoticeTemplateForm'
 import { PostingSettingsForm } from '@/features/company/PostingSettingsForm'
+import { PosterBrandForm } from '@/features/company/PosterBrandForm'
 import { cn } from '@/lib/utils'
 
 const SECTIONS = [
@@ -53,7 +54,10 @@ export function SettingsPage() {
       </aside>
       <div className="min-w-0 flex-1 overflow-auto">
         {section === 'posting' ? (
-          <PostingSettingsForm />
+          <>
+            <PostingSettingsForm />
+            <PosterBrandForm />
+          </>
         ) : section === 'mail' ? (
           <>
             <MailStyleForm />

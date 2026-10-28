@@ -1,6 +1,8 @@
 package com.hiremate.posting.domain;
 
+import com.hiremate.global.JsonText;
 import com.hiremate.global.StringListConverter;
+import com.hiremate.posting.PosterDesign;
 import com.hiremate.posting.PostingContent;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -91,6 +93,17 @@ public class JobPosting {
 
     /** 적용 전 AI 수정안 (JSON). */
     private String pendingSuggestion;
+
+    private String posterDesign;
+
+    public PosterDesign design() {
+        return JsonText.read(posterDesign, PosterDesign.class);
+    }
+
+    public void changeDesign(PosterDesign design) {
+        this.posterDesign = JsonText.write(design);
+        this.updatedAt = Instant.now();
+    }
 
     private Instant openAt;
 
