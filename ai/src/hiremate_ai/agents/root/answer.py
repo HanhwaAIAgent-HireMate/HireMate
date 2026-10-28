@@ -132,7 +132,7 @@ def verify_items(
             ChatItem(
                 application_id=row.application_id if row else None,
                 label=readable(item.label, context),
-                text=_shorten(readable(item.text, context)),
+                text=shorten(readable(item.text, context)),
                 status=status,
             )
         )
@@ -289,6 +289,6 @@ def _in_interviews(context: ChatContext, row: CandidateRow, sentence: str) -> bo
     return bool(needle) and needle in text
 
 
-def _shorten(text: str) -> str:
+def shorten(text: str) -> str:
     trimmed = " ".join(text.split())
     return trimmed if len(trimmed) <= TEXT_LENGTH else trimmed[: TEXT_LENGTH - 1] + "…"
