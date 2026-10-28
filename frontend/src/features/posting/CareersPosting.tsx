@@ -1,5 +1,5 @@
-import { FileText, Share2 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { FileDown, FileText, Share2 } from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 
@@ -8,6 +8,9 @@ import { Button } from '@/components/ui/button'
 import type { PublicPosting } from '@/features/posting/api'
 import { conditionRows } from '@/features/posting/conditions'
 import { StageFlow } from '@/features/posting/StageFlow'
+import { PostingPoster } from '@/features/posting/PostingPoster'
+import { exportPosterPdf } from '@/features/posting/poster-design'
+import { errorMessage } from '@/lib/api/client'
 import { dDay, formatDateTime, formatMonthDay } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -21,7 +24,7 @@ export function CareersHeader({
 }) {
   const link = (hash: string) => (postingPath ? `${postingPath}#${hash}` : `#${hash}`)
   return (
-    <header className="flex h-14 shrink-0 items-center gap-8 border-b px-6">
+    <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-8 gap-y-3 border-b px-6 py-3">
       <div className="flex items-center gap-2">
         <LogoMark />
         <span className="font-semibold">{companyName}</span>
@@ -47,13 +50,30 @@ export function CareersPosting({
   posting,
   applyPath,
   narrow,
+  posterLogoUrl,
 }: {
   posting: PublicPosting
   applyPath?: string
   /** 모바일 미리보기처럼 좁은 화면 */
   narrow?: boolean
+  posterLogoUrl?: string
 }) {
   const { content } = posting
+  const posterRef = useRef<HTMLDivElement>(null)
+  const [exporting, setExporting] = useState(false)
+  const pdf = async () => {
+    const element = posterRef.current?.firstElementChild
+    if (!(element instanceof HTMLElement)) return
+    setExporting(true)
+    try {
+      await exportPosterPdf(element, content.title)
+      toast.info('인쇄 대상에서 ‘PDF로 저장’을 선택해 주세요.')
+    } catch (error) {
+      toast.error(errorMessage(error))
+    } finally {
+      setExporting(false)
+    }
+  }
   const open = posting.state === 'OPEN'
   const tags = [content.employmentType, content.career, content.location].filter(Boolean)
   const conditions = conditionRows(content)
@@ -69,7 +89,10 @@ export function CareersPosting({
   }
 
   return (
-    <div id="posting" className={cn('flex gap-8', narrow ? 'flex-col' : 'items-start')}>
+    <div
+      id="posting"
+      className={cn('flex gap-8', narrow ? 'flex-col' : 'flex-col items-start md:flex-row')}
+    >
       <article className="min-w-0 flex-1 space-y-6">
         <div className="space-y-3 border-b pb-5">
           <p className="text-xs text-muted-foreground">채용 공고{category && ` › ${category}`}</p>
@@ -85,6 +108,20 @@ export function CareersPosting({
             </span>
           </div>
         </div>
+        {posting.poster?.enabled && (
+          <div ref={posterRef}>
+            <PostingPoster
+              posting={posting}
+              design={posting.poster}
+              careersUrl={
+                applyPath
+                  ? new URL(`/careers/${posting.postingId}`, window.location.origin).href
+                  : undefined
+              }
+              logoUrl={posterLogoUrl ?? `/api/public/postings/${posting.postingId}/poster/logo`}
+            />
+          </div>
+        )}
         {content.intro && (
           <Block id="company" title="회사 소개">
             <p className="text-sm leading-6 whitespace-pre-wrap">{content.intro}</p>
@@ -128,7 +165,7 @@ export function CareersPosting({
       <aside
         className={cn(
           'shrink-0 rounded-xl border p-5',
-          narrow ? 'w-full' : 'sticky top-6 w-[260px]',
+          narrow ? 'w-full' : 'w-full md:sticky md:top-6 md:w-[260px]',
         )}
       >
         <h2 className="font-semibold">{content.title}</h2>
@@ -152,6 +189,17 @@ export function CareersPosting({
             <Share2 />
             공유하기
           </Button>
+          {posting.poster?.enabled && (
+            <Button
+              variant="outline"
+              className="h-10 w-full"
+              onClick={() => void pdf()}
+              disabled={exporting}
+            >
+              <FileDown />
+              PDF 내보내기
+            </Button>
+          )}
         </div>
       </aside>
     </div>

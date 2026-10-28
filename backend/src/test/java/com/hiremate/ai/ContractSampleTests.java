@@ -20,6 +20,9 @@ import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.job.Job;
 import com.hiremate.job.JobResult;
+import com.hiremate.posting.PosterDesign;
+import com.hiremate.posting.PosterProposal;
+import com.hiremate.posting.PosterTurn;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.PostingDraftContext;
 import com.hiremate.posting.PostingFocus;
@@ -70,6 +73,9 @@ class ContractSampleTests {
             Map.entry("Job", Job.class),
             Map.entry("JobResult", JobResult.class),
             Map.entry("PostingContent", PostingContent.class),
+            Map.entry("PosterDesign", PosterDesign.class),
+            Map.entry("PosterProposal", PosterProposal.class),
+            Map.entry("PosterTurn", PosterTurn.class),
             Map.entry("PostingDraftContext", PostingDraftContext.class),
             Map.entry("PostingFocus", PostingFocus.class),
             Map.entry("PostingSuggestion", PostingSuggestion.class),

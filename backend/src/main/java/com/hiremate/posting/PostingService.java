@@ -3,8 +3,11 @@ package com.hiremate.posting;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.company.CompanyService;
 import com.hiremate.company.MailStyleService;
+import com.hiremate.company.PosterBrand;
 import com.hiremate.company.ReceiptTemplate;
 import com.hiremate.company.ReceiptTemplateService;
+import com.hiremate.file.FileContent;
+import com.hiremate.file.FileService;
 import com.hiremate.global.ApiException;
 import com.hiremate.global.JsonText;
 import com.hiremate.mail.MailPreview;
@@ -45,10 +48,11 @@ public class PostingService {
     private final ReceiptTemplateService receiptTemplates;
     private final ApplicationEventPublisher events;
     private final DummyScreeningRubric dummyRubric;
+    private final FileService files;
 
     public PostingService(JobPostingRepository postings, RecruitService recruits, CompanyService companies,
             MailStyleService mailStyles, ReceiptTemplateService receiptTemplates, ApplicationEventPublisher events,
-            DummyScreeningRubric dummyRubric) {
+            DummyScreeningRubric dummyRubric, FileService files) {
         this.postings = postings;
         this.recruits = recruits;
         this.companies = companies;
@@ -56,6 +60,7 @@ public class PostingService {
         this.receiptTemplates = receiptTemplates;
         this.events = events;
         this.dummyRubric = dummyRubric;
+        this.files = files;
     }
 
     @Transactional
@@ -64,6 +69,10 @@ public class PostingService {
         RecruitmentInfo recruitment = recruits.create(companyId, DEFAULT_TITLE, DEFAULT_STAGES);
         JobPosting posting = postings.save(new JobPosting(recruitment.id(), companyId, DEFAULT_TITLE,
                 profile.intro(), profile.benefits(), companies.postingSettings(companyId).requiredNotices()));
+        PosterBrand brand = companies.posterBrand(companyId);
+        posting.changeDesign(new PosterDesign(PosterDesign.Template.valueOf(brand.template()),
+                PosterDesign.Mood.valueOf(brand.mood()), brand.color(), brand.decoration(), false,
+                brand.logoFileId() != null, brand.logoFileId()));
         return toView(posting, recruitment, profile.name());
     }
 
@@ -101,6 +110,40 @@ public class PostingService {
         posting.update(content);
         recruits.rename(companyId, recruitmentId, content.title());
         return view(companyId, recruitmentId);
+    }
+
+    /** 디자인 변경도 공고 게시 전에 HR이 실행한다. 타 기업 파일 ID를 주입할 수 없다. */
+    @Transactional
+    public PostingView updatePoster(UUID companyId, UUID recruitmentId, PosterDesign design) {
+        JobPosting posting = posting(companyId, recruitmentId);
+        requireDraft(recruits.get(companyId, recruitmentId));
+        UUID logo = design.logoFileId();
+        UUID oldLogo = posting.design() == null ? null : posting.design().logoFileId();
+        if (logo != null && !logo.equals(oldLogo) && !logo.equals(companies.posterBrand(companyId).logoFileId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_POSTER_LOGO", "등록한 기업 로고만 사용할 수 있어요.");
+        }
+        posting.changeDesign(design);
+        return view(companyId, recruitmentId);
+    }
+
+    @Transactional(readOnly = true)
+    public FileContent posterLogo(UUID companyId, UUID recruitmentId) {
+        JobPosting posting = posting(companyId, recruitmentId);
+        PosterDesign design = posting.design();
+        if (design == null || !design.showLogo() || design.logoFileId() == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "LOGO_NOT_FOUND", "공고 로고가 없어요.");
+        }
+        return files.read(companyId, design.logoFileId());
+    }
+
+    @Transactional(readOnly = true)
+    public FileContent publicPosterLogo(UUID postingId) {
+        PublicPostingView published = publicView(postingId);
+        if (published.poster() == null || !published.poster().enabled()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "LOGO_NOT_FOUND", "공고 로고가 없어요.");
+        }
+        JobPosting posting = postings.findById(postingId).orElseThrow();
+        return posterLogo(posting.getCompanyId(), posting.getRecruitmentId());
     }
 
     @Transactional
@@ -292,7 +335,7 @@ public class PostingService {
                         .map(stage -> new PublicPostingView.PublicStage(stage.name(), stage.type()))
                         .toList(),
                 documents(requiredExtras(posting)), posting.getOpenAt(), posting.getCloseAt(),
-                state(posting, Instant.now()));
+                state(posting, Instant.now()), posting.design());
     }
 
     /** 지원서 접수에 필요한 공고 정보. 접수 중이 아니면 409다. */
@@ -359,6 +402,6 @@ public class PostingService {
         return new PostingView(posting.getId(), recruitment.id(), companyName, recruitment.status(),
                 posting.content(), List.copyOf(posting.getNotices()), stages, documents(requiredExtras(posting)),
                 posting.getOpenAt(), posting.getCloseAt(), posting.getPublishedAt(), posting.getClosedAt(),
-                suggestionView);
+                suggestionView, posting.design());
     }
 }

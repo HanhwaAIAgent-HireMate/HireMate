@@ -41,6 +41,22 @@ cd ai && uv sync && uv run alembic upgrade head && uv run uvicorn hiremate_ai.ma
 cd ai && uv run python -m hiremate_ai.worker
 ```
 
+## 공고·포스터 실제 AI 연결
+
+기본 실행은 고정 예시를 반환하는 `stub` 모드다. 본문 생성과 포스터 추천·수정을 실제 모델로
+확인하려면 AI 서버의 모델 설정을 채운 뒤 backend에 `HIREMATE_AI_AGENTS_POSTING=remote`를 지정한다.
+AI 서버 주소가 기본값과 다르면 `HIREMATE_AI_BASE_URL`도 지정한다. 다른 Agent의 모드는 그대로 유지된다.
+Windows에서 `--reload` 없이 AI 서버를 실행할 때 psycopg 이벤트 루프 오류가 나면
+`--loop asyncio:SelectorEventLoop`를 지정한다.
+
+포스터의 이전 추천은 현재 공고의 최근 12개 대화 턴과 디자인 식별자로 참조한다.
+본문·전형·포스터의 미저장 편집과 포스터 대화는 같은 탭의 `sessionStorage`에 임시 보관한다.
+새로고침과 화면 이동 후 같은 공고를 열면 복구하며, 서버 내용이 바뀌었거나 게시한 공고에는 복구본을 적용하지 않는다.
+탭을 닫거나 다른 기기에서 이어 쓰려면 먼저 화면의 임시 저장을 눌러야 한다.
+
+실제 모델의 공고 회귀 평가는 AI 폴더에서 `LLM_EVAL=true uv run pytest tests/eval/test_posting_eval.py -v`로 실행한다.
+설정된 모델을 실제 호출하며, 근무지 표현 변형·경력 조건 일치·초안 분량·추천 복원·기록 없는 요청을 검사한다.
+
 ## 규칙
 
 - 브랜치 · 커밋 · PR: [CONTRIBUTING.md](CONTRIBUTING.md)

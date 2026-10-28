@@ -51,7 +51,7 @@ export function AiRequestPanel({
 
   return (
     <aside className="flex min-h-0 w-[300px] shrink-0 flex-col border-l">
-      <div className="flex items-center justify-between px-4 py-3">
+      <div className="flex h-12 shrink-0 items-center justify-between px-4">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Sparkles className="size-4 text-ai" />
           AI 수정 요청

@@ -152,8 +152,10 @@ async def test_every_call_shares_system_and_context_and_ends_with_its_step() -> 
     assert first.output is Route
     assert second.output is ContentChanges
     assert first.user.endswith(ROUTE_STEP)
-    assert second.user.endswith(CONTENT_STEP)
-    assert first.user.removesuffix(ROUTE_STEP) == second.user.removesuffix(CONTENT_STEP)
+    assert second.user.endswith(CONTENT_STEP + "\n이번에 반영할 HR 요청: 근무지 성남")
+    assert first.user.removesuffix(ROUTE_STEP) == second.user.removesuffix(
+        CONTENT_STEP + "\n이번에 반영할 HR 요청: 근무지 성남"
+    )
 
 
 # 공고 본문
@@ -210,6 +212,7 @@ async def test_revise_tidies_text_bullets_and_number_spacing() -> None:
         content(
             location="  경기 성남시 ",
             career="경력 5 년 이상",
+            qualifications=["Java · Spring Boot 기반 서버 개발 경력 5년 이상"],
             benefits=["- 유연 근무", "", "  ", "2. 식대 지원", "• 연 1 회 건강검진"],
         ),
     )
@@ -220,6 +223,26 @@ async def test_revise_tidies_text_bullets_and_number_spacing() -> None:
     assert result.suggestion.content.location == "경기 성남시"
     assert result.suggestion.content.career == "경력 5년 이상"
     assert result.suggestion.content.benefits == ["유연 근무", "식대 지원", "연 1회 건강검진"]
+
+
+async def test_career_change_retries_when_related_requirement_still_has_old_condition() -> None:
+    llm = FakeLlm(
+        route("CONTENT"),
+        content(career="경력 5년 이상"),
+        content(career="경력 5년 이상", qualifications=["Java · Spring Boot 기반 서버 개발 경력 5년 이상"]),
+    )
+    result = await revise_posting(llm, posting(), "", "경력 5년 이상으로 바꿔줘")
+    assert result.suggestion is not None
+    assert result.suggestion.changed_fields == ["career", "qualifications"]
+    assert "이전 경력 조건이 남아 있다" in llm.calls[2].user
+    assert result.suggestion.content.duties == CONTENT.duties
+
+
+async def test_career_conflict_is_not_returned_as_an_applicable_suggestion() -> None:
+    llm = FakeLlm(route("CONTENT"), content(career="경력 5년 이상"), content(career="경력 5년 이상"))
+    result = await revise_posting(llm, posting(), "", "경력 5년 이상으로 바꿔줘")
+    assert result.suggestion is None
+    assert result.reply == CHECK_FAILED_REPLY
 
 
 async def test_revise_attaches_particles_after_english_words() -> None:
@@ -440,7 +463,7 @@ async def test_revise_retries_the_writing_steps_once_with_reasons() -> None:
     assert result.suggestion.content.benefits == ["유연 근무", "성과급"]
     assert len(llm.calls) == 3
     assert "복지에 주어진 정보에 없는 금액을 썼다: 6000만원" in llm.calls[2].user
-    assert llm.calls[2].user.endswith(CONTENT_STEP)
+    assert llm.calls[2].user.endswith(CONTENT_STEP + "\n이번에 반영할 HR 요청: 복지에 성과급 추가해 줘")
 
 
 async def test_revise_gives_up_after_one_retry() -> None:
@@ -640,14 +663,14 @@ def items(count: int) -> list[SourcedItem]:
 @pytest.mark.parametrize(
     ("current", "request_text", "task"),
     [
-        (EMPTY_LISTS, "NCS 기반으로 자격 요건과 우대 사항 써 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
-        (CONTENT, "NCS 기반으로 다시 써 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
+        (EMPTY_LISTS, "NCS 기반으로 자격 요건과 우대 사항 써 줘", "자격 요건 5개, 우대 사항 5개를 쓴다."),
+        (CONTENT, "NCS 기반으로 다시 써 줘", "자격 요건 5개, 우대 사항 5개를 쓴다."),
         (EMPTY_LISTS, "자격 요건 3개, 우대 사항 4개로 써 줘", "자격 요건 3개, 우대 사항 4개를 쓴다."),
         (EMPTY_LISTS, "자격 요건과 우대 사항을 각각 세 개씩 써 줘", "자격 요건 3개, 우대 사항 3개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건은 7개로 써 줘", "자격 요건 7개, 우대 사항 10개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건 만들어 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건은 7개로 써 줘", "자격 요건 7개, 우대 사항 5개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건 만들어 줘", "자격 요건 5개, 우대 사항 5개를 쓴다."),
         (CONTENT, "자격 요건은 7개로 써 줘", "자격 요건 7개를 쓴다. 우대 사항은 쓰지 않고 빈 목록으로 둔다."),
-        (EMPTY_LISTS, "우대 사항만 써 줘", "우대 사항 10개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다."),
+        (EMPTY_LISTS, "우대 사항만 써 줘", "우대 사항 5개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다."),
         (
             EMPTY_LISTS,
             "자격 요건은 그대로 두고 우대 사항 다섯 가지 써 줘",
@@ -663,7 +686,7 @@ def items(count: int) -> list[SourcedItem]:
 async def test_revise_tells_ncs_writer_which_lists_to_write_and_how_many(
     current: PostingContent, request_text: str, task: str
 ) -> None:
-    """말한 목록은 요청대로(개수가 없으면 10개까지), 말하지 않은 목록은 비어 있을 때만 쓴다."""
+    """말한 목록은 요청대로(개수가 없으면 5개까지), 말하지 않은 목록은 비어 있을 때만 쓴다."""
     llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft([]))
 
     await revise_posting(llm, posting(content=current), "", request_text)
@@ -849,7 +872,7 @@ async def test_revise_fills_empty_lists_with_ncs_when_asked_to_write_the_whole_p
 
     assert result.suggestion is not None
     assert result.suggestion.changed_fields == ["duties", "qualifications", "preferred"]
-    assert llm.calls[3].user.endswith("지금 할 일: 자격 요건 10개, 우대 사항 10개를 쓴다.")
+    assert llm.calls[3].user.endswith("지금 할 일: 자격 요건 5개, 우대 사항 5개를 쓴다.")
     assert "자격 요건은 근거를 찾을 수 있는 3개만 썼어요." in result.reply
 
 
@@ -863,7 +886,7 @@ async def test_revise_fills_only_the_empty_list_for_a_whole_posting_request() ->
 
     assert result.suggestion is not None
     assert result.suggestion.content.qualifications == CONTENT.qualifications
-    assert llm.calls[3].user.endswith("지금 할 일: 우대 사항 10개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.")
+    assert llm.calls[3].user.endswith("지금 할 일: 우대 사항 5개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.")
 
 
 async def test_revise_does_not_rewrite_filled_lists_for_a_whole_posting_request() -> None:

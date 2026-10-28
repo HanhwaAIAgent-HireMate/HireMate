@@ -1,4 +1,4 @@
-import { Copy } from 'lucide-react'
+import { ArrowLeft, Copy } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -25,6 +25,7 @@ import {
   type Posting,
 } from '@/features/posting/api'
 import { CareersHeader, CareersPosting } from '@/features/posting/CareersPosting'
+import { PostingStepHeader } from '@/features/posting/PostingStepHeader'
 import { careersPath } from '@/features/recruit/labels'
 import { errorMessage } from '@/lib/api/client'
 import { formatDateTime, toLocalInput } from '@/lib/format'
@@ -101,23 +102,23 @@ function PublishForm({ posting }: { posting: Posting }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center border-b px-6 py-4">
-        <h1 className="text-xl font-bold">공고 게시</h1>
-        <div className="ml-auto flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => void navigate(`/hr/recruitments/${posting.recruitmentId}/posting`)}
-          >
-            이전
-          </Button>
-          <Button
-            onClick={() => setConfirming(true)}
-            disabled={!valid || posting.status !== 'DRAFT'}
-          >
-            게시하기
-          </Button>
-        </div>
-      </div>
+      <PostingStepHeader title="공고 게시">
+        <Button
+          variant="outline"
+          className="min-w-20"
+          onClick={() => void navigate(`/hr/recruitments/${posting.recruitmentId}/posting/poster`)}
+        >
+          <ArrowLeft />
+          이전
+        </Button>
+        <Button
+          className="min-w-20"
+          onClick={() => setConfirming(true)}
+          disabled={!valid || posting.status !== 'DRAFT'}
+        >
+          게시하기
+        </Button>
+      </PostingStepHeader>
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-auto bg-surface/60 p-6">
           <div className="mb-3 flex items-center justify-between">
@@ -149,6 +150,7 @@ function PublishForm({ posting }: { posting: Posting }) {
             <div className="p-6">
               <CareersPosting
                 narrow={device === 'mobile'}
+                posterLogoUrl={`/api/recruitments/${posting.recruitmentId}/posting/poster/logo`}
                 posting={{
                   postingId: posting.postingId,
                   companyName: posting.companyName,
@@ -159,6 +161,7 @@ function PublishForm({ posting }: { posting: Posting }) {
                   openAt: new Date(period.open || initial.open).toISOString(),
                   closeAt: new Date(period.close || initial.close).toISOString(),
                   state: 'OPEN',
+                  poster: posting.poster,
                 }}
               />
             </div>
