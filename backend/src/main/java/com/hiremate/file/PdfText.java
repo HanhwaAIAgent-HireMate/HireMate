@@ -1,11 +1,14 @@
-package com.hiremate.apply.application;
+package com.hiremate.file;
 
 import java.io.IOException;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 
-/** 제출 PDF의 본문을 꺼낸다. 문서 안의 지시문은 분석 자료로만 쓰고 실행하지 않는다 (아키텍처 규칙 5). */
+/**
+ * 제출 PDF의 본문을 꺼낸다. 지원서 문서와 평가 전형 제출물이 같이 쓴다.
+ * 문서 안의 지시문은 분석 자료로만 쓰고 실행하지 않는다 (아키텍처 규칙 5).
+ */
 public final class PdfText {
 
     private static final int MAX_LENGTH = 50_000;
