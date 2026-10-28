@@ -23,6 +23,28 @@ class RootRun:
     reply: AnalysisReply | None = None
 
 
+class RootInput(TypedDict, total=False):
+    """그래프 입력. 턴마다 비우는 값만 받는다. 요청 하나 동안의 값(run)은 입력으로 받지 않는다."""
+
+    plan: ChatPlan | None
+    kind: str
+    mode: SelectionMode | None
+    steps: list[str]
+
+
+class RootOutput(TypedDict, total=False):
+    """그래프 출력. 대화방에 남는 값이고 run은 내보내지 않는다."""
+
+    plan: ChatPlan | None
+    kind: str
+    mode: SelectionMode | None
+    turns: list[Turn]
+    result: list[str] | None
+    subject: list[str]
+    steps: list[str]
+    started: float
+
+
 class RootState(TypedDict, total=False):
     plan: ChatPlan | None  # 검증을 마친 계획. 정해지면 record로 간다
     kind: str  # 턴 기록의 종류 (FIND, EDIT, ANSWER, 실패면 빈 값)

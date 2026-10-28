@@ -301,3 +301,28 @@ def test_graph_draws_every_branch() -> None:
         ("analyze", "record"),
         ("review", "record"),
     } <= edges
+
+
+def test_graph_input_and_output_hide_the_request_values() -> None:
+    graph = build_root_graph(FakeLlm())
+
+    assert "run" not in graph.get_input_jsonschema().get("properties", {})
+    assert "run" not in graph.get_output_jsonschema().get("properties", {})
+
+
+async def test_nodes_return_request_values_as_state_updates(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, mentions=["정유민"])
+    llm = FakeLlm(form_call("edit", action="ADD", scope={"sources": ["mentions"]}))
+    graph = build_root_graph(llm)
+
+    updates = [
+        update
+        async for update in graph.astream(
+            {"plan": None, "kind": "", "mode": None, "steps": []}, context=context, stream_mode="updates"
+        )
+    ]
+
+    planned = next(update["plan"] for update in updates if "plan" in update)
+    assert planned["run"].plan is not None and planned["run"].rows == [context.candidates[0]]
