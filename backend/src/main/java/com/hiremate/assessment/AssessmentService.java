@@ -134,6 +134,21 @@ public class AssessmentService {
         return files.read(companyId, result.getFileId());
     }
 
+    /**
+     * 평가 전형 대상 중 아직 결과가 없는 지원자의 이메일과 지원서 ID. 더미 결과가 HR이 넣은 결과를 덮어쓰지 않게 한다.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, UUID> withoutResults(UUID companyId, UUID stageId) {
+        Map<String, UUID> keys = keys(companyId, assessmentStage(companyId, stageId, false), IdentifierType.EMAIL);
+        Map<String, UUID> pending = new LinkedHashMap<>();
+        keys.forEach((email, applicationId) -> {
+            if (results.findByStageIdAndApplicationIdAndCompanyId(stageId, applicationId, companyId).isEmpty()) {
+                pending.put(email, applicationId);
+            }
+        });
+        return pending;
+    }
+
     private void recorded(UUID companyId, Stage stage, UUID applicationId) {
         events.publishEvent(
                 new AssessmentResultRecorded(companyId, stage.recruitmentId(), stage.stageId(), applicationId));

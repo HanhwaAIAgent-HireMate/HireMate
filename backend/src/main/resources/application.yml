@@ -72,6 +72,11 @@ hiremate:
     # 분석 중인 지원서가 이 시간이 지나도록 대기열에 없으면(Redis를 비웠거나 넣지 못했으면) 다시 넣는다
     recover-after: 10m
   dummy:
+    # 평가 전형 결과 더미 (resources/dummy/assessment-results.csv, 데모 시드의 가상 지원자 30명).
+    # 앞 전형을 종료해 평가 전형이 시작되면 넘어온 합격자 모두에게 넣는다. 표에 이메일이 있으면 그 값, 없으면 지원서 ID로 만든 점수.
+    # 외부 평가 업체 연동(API)이 생기거나 시연이 아닐 때는 false로 둔다
+    assessment-results:
+      enabled: ${HIREMATE_DUMMY_ASSESSMENT:true}
     # 서류 평가 기준 더미. 공고 작성 화면에서 평가 기준을 입력하고 확정하기 전까지 모든 채용에 쓴다.
     # text는 공고 본문의 자격요건 · 우대사항과 같아야 짝이 맞는다. important(중요 표시) · criterion-type은 사람이 정하고
     # Agent는 바꾸지 않는다. 서류 점수에서는 important와 상관없이 영역 안의 항목이 모두 같은 비중이다. criterion-type: CONDITION(조건형 0 · 1) · SINGLE(단일 능력 · 경험형 0 · 1) ·
