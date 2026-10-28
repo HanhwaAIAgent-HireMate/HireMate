@@ -172,6 +172,10 @@ class SearchQuery(BaseModel):
             "특정 직무나 도메인의 경력 내용은 concepts에 함께 적는다. 경력 연수 조건이 없으면 null"
         ),
     )
+    max_career_years: int | None = Field(
+        default=None,
+        description="전체 경력 연수 상한으로 같은 연수도 포함한다. 신입은 0, '경력 3년 이하'는 3. 조건이 없으면 null",
+    )
     score_gap: bool = Field(
         default=False, description="서류 점수와 현재 평가 점수의 차이가 15점 이상인 지원자를 찾으면 true"
     )
@@ -253,13 +257,20 @@ def score_filter(
     if query.grades:
         wanted = {grade.strip().upper() for grade in query.grades}
         rows = [row for row in rows if (_grade(context, row) or "").upper() in wanted]
-    if (minimum_years := query.min_career_years) is not None:
+    minimum_years, maximum_years = query.min_career_years, query.max_career_years
+    if minimum_years is not None or maximum_years is not None:
         # 경력 연수는 분석이 정리한 숫자로 거른다. 경력을 알 수 없는 지원자는 조건을 충족한다고 보지 않는다
-        rows = [row for row in rows if row.career_years is not None and row.career_years >= minimum_years]
+        rows = [
+            row
+            for row in rows
+            if (years := row.career_years) is not None
+            and (minimum_years is None or years >= minimum_years)
+            and (maximum_years is None or years <= maximum_years)
+        ]
     for row in rows:
         parts: list[str] = []
-        if minimum_years is not None and row.career_years is not None:
-            parts.append(f"경력 {row.career_years}년")
+        if (minimum_years is not None or maximum_years is not None) and row.career_years is not None:
+            parts.append("신입" if row.career_years == 0 else f"경력 {row.career_years}년")
         if on_document:
             if (document := context.document_scores.get(row.application_id)) is not None:
                 parts.append(f"서류 {_points(document)}점")
@@ -320,6 +331,7 @@ async def plan_find(
         or bool(query.area_scores)
         or bool(query.grades)
         or query.min_career_years is not None
+        or query.max_career_years is not None
     )
     score_sources = _score_sources(query)
     if not concepts:
@@ -680,7 +692,7 @@ def _score_sources(query: SearchQuery) -> list[str]:
         for source, used in (
             ("평가 결과", _uses_assessment(query)),
             ("서류 점수", query.score_gap or (has_filter and query.score_source == "document")),
-            ("전형 결과", query.min_career_years is not None),
+            ("전형 결과", query.min_career_years is not None or query.max_career_years is not None),
         )
         if used
     ]

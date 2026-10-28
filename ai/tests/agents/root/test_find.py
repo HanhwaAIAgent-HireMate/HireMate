@@ -1159,3 +1159,19 @@ async def test_min_career_years_filters_registered_career_without_model(
 
     assert names(context, plan) == ["김하늘", "한예린"]
     assert llm.calls == [] and "전형 결과" in plan.sources
+
+
+async def test_max_career_years_finds_newcomers_in_selection(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="신입은 빼줘", selected=["정유민", "이도윤"]
+    )
+    careers = {"정유민": 4, "이도윤": 0}
+    rows = [row.model_copy(update={"career_years": careers.get(row.name)}) for row in context.candidates]
+    context = context.model_copy(update={"candidates": rows})
+    query = SearchQuery(mode=SelectionMode.NARROW, max_career_years=0)
+
+    plan = await plan_find(FakeLlm(), query, context, default_toolkit())
+
+    assert names(context, plan) == ["이도윤"]

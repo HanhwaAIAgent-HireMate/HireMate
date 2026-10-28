@@ -14,6 +14,17 @@ def test_readable_replaces_candidate_numbers_with_names(
     assert readable("C1 정유민과 C2를 비교했어요.", context) == "정유민과 김하늘를 비교했어요."
 
 
+def test_readable_drops_number_in_parentheses_after_the_name(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="요청")
+
+    assert (
+        readable("서민재(C8)는 협업을 강조했어요. (C2)도 봤어요.", context)
+        == "서민재는 협업을 강조했어요. (김하늘)도 봤어요."
+    )
+
+
 def test_readable_drops_evidence_numbers(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
