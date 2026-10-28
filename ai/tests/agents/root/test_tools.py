@@ -18,6 +18,7 @@ from hiremate_ai.agents.root.toolkit import (
     stage_result_text,
 )
 from hiremate_ai.agents.root.types import (
+    AssessmentScores,
     ChatContext,
     InterviewQuestion,
     InterviewView,
@@ -434,3 +435,20 @@ async def test_previous_turn_lookup_rejects_missing_numbers_instead_of_reading_e
     result = llm.calls[-1].user
     assert "현재 대화 목록에 없는 번호" in result
     assert "읽으면 안 되는 대화" not in result
+
+
+async def test_stage_result_lists_assessment_areas_and_grade(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(
+        sample_applicants, sample_company, sample_posting, message="수리능력 몇 점?", stage_type=StageType.ASSESSMENT
+    )
+    row = context.candidates[0].model_copy(update={"score": 90.0})
+    scores = AssessmentScores(areas={"의사소통능력": 94.0, "수리능력": None}, grade="A")
+    context = context.model_copy(update={"assessments": {row.application_id: scores}})
+
+    result = stage_result_text(context, row)
+
+    assert "평가 점수: 90점" in result
+    assert "평가 영역 점수: 의사소통능력 94점 · 수리능력 없음" in result
+    assert "평가 등급: A" in result

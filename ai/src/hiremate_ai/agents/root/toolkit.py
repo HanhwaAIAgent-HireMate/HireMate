@@ -262,6 +262,11 @@ def stage_result_text(chat: ChatContext, row: CandidateRow) -> str:
         case StageData.CURRENT:
             missing = "아직 입력하지 않음" if chat.stage_status is StageStatus.ACTIVE else "없음"
             lines.append(f"평가 점수: {f'{row.score:g}점' if row.score is not None else missing}")
+            if (scores := chat.assessments.get(row.application_id)) is not None:
+                areas = " · ".join(
+                    f"{name} {'없음' if value is None else f'{value:g}점'}" for name, value in scores.areas.items()
+                )
+                lines += [f"평가 영역 점수: {areas}", f"평가 등급: {scores.grade or '없음'}"]
         case StageData.EARLIER:
             lines.append(f"평가 점수: {EARLIER_SCORE}")
     lines += [
@@ -409,7 +414,7 @@ async def get_candidate_documents(candidate: str, runtime: ToolRuntime[RootToolC
 
 @tool
 async def get_stage_results(candidate: str, runtime: ToolRuntime[RootToolContext]) -> str:
-    """지원자의 전형 결과(결정 상태, 평가 점수, 서류 점수, 경력, 서류 기준선)를 읽는다.
+    """지원자의 전형 결과(결정 상태, 평가 점수 · 영역 점수 · 등급, 서류 점수, 경력, 서류 기준선)를 읽는다.
 
     candidate는 C1 같은 지원자 번호다. 전형 전체 집계와 순위는 get_stage_summary로 확인한다.
     불러오지 못한 앞 전형 점수는 점수가 없다는 뜻이 아니다.

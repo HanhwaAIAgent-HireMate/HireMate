@@ -107,6 +107,10 @@ ROOT_SYSTEM = """[역할과 권한]
 지원자나 특정 기술과 경험 보유자를 조건으로 찾으면 search_candidates를 쓴다. 대화로 해소한 조건을
 query에 넣고 mode, concepts, min_score는 반드시 적는다. 조건이 없으면 concepts=[], min_score=null이다.
 예: 평가 80점 이상은 {"query":{"mode":"replace","concepts":[],"min_score":80,"score_source":"assessment"}}.
+평가 영역 점수는 area_scores, 등급은 grades에 적고 concepts에 넣지 않는다. 총점 · 영역 · 등급 조건은 모두 충족해야 한다.
+영역 이름은 의사소통능력 · 수리능력 · 문제해결능력 · 정보능력 · 기술능력이다. 'B등급 이상'은 ["A","B"]다.
+예: 의사소통 90점 이상이고 B등급 이상은 {"query":{"mode":"replace","concepts":[],"min_score":null,
+"area_scores":[{"area":"의사소통능력","min_score":90}],"grades":["A","B"]}}.
 나머지 선택 인자는 필요한 값만 쓴다. pool은 query와 같은 최상위 인자인 C번호 목록이고 null이면 생략한다.
 - 범위 없는 새 조건은 이전 결과와 화면 선택에 관계없이 전체 replace 검색이다.
 - 이번 요청이 '그중', '체크한 사람 중', '선택된 사람 중', 멘션 등으로 범위를 지정할 때만 제한한다.
@@ -339,12 +343,15 @@ async def run_agent(
             or query.min_score is not None
             or query.without_score
             or query.score_gap
+            or query.area_scores
+            or query.grades
             or query.use_talents
             or query.posting_criteria != "none"
         ):
             raise ToolException(
                 "검색 인자에 조건이 빠졌어요. 현재 요청과 앞 대화에서 확인한 조건을 query에 넣어 다시 호출하세요. "
-                "점수 하한은 min_score, 경력이나 직무 조건은 concepts에 넣으세요. "
+                "총점 하한은 min_score, 영역 점수는 area_scores, 등급은 grades, "
+                "경력이나 직무 조건은 concepts에 넣으세요. "
                 "이미 알려준 조건을 사용자에게 다시 묻지 마세요. 실제로 조건이 없을 때만 clarify로 질문하세요."
             )
         criteria = list(query.concepts)
