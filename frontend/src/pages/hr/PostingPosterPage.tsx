@@ -517,9 +517,6 @@ function PosterEditor({ posting }: { posting: Posting }) {
                 최신 기업 설정 가져오기
               </Button>
             </fieldset>
-            <p className="text-xs leading-5 text-muted-foreground">
-              분위기와 장식은 AI 챗에 “더 고급스럽게”, “물결을 줄여줘”처럼 요청해 주세요.
-            </p>
           </div>
         </aside>
         <section
