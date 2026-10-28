@@ -53,6 +53,7 @@ BAD_FIND = "find에는 search_candidates가 돌려준 S번호를 쓰세요."
 OUTSIDE_TARGETS = "확인할 점은 대상 지원자에게만 쓰세요."
 NO_FOCUS = "확인할 점을 focus에 지원자별로 쓰세요."
 NO_MESSAGE = "message에 담당자에게 보여 줄 답을 쓰세요."
+NO_ITEMS = "근거 번호를 단 항목을 items에 하나 이상 쓰세요."
 NO_TURNS = "앞 대화가 없어요."
 
 ANALYSIS_SYSTEM = """[역할]
@@ -227,6 +228,8 @@ def check_reply(reply: AnalysisReply, run: AnalysisRun) -> str | None:
         return None
     if not form.message.strip():
         return NO_MESSAGE
+    if not form.items:
+        return NO_ITEMS
     for item in form.items:
         row = resolve_ref(run.chat, item.candidate) if item.candidate is not None else None
         if item.candidate is not None and row is None:
