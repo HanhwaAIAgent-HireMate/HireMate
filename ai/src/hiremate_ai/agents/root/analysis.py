@@ -74,7 +74,8 @@ ANALYSIS_SYSTEM = """[역할]
 - 읽은 결과로 조건 검색이 필요하면 search_candidates로 찾은 뒤 find에 그 결과 번호를 낸다.
 - questions에는 지원자별 확인할 점과 그 근거 번호를 낸다.
 - 대상이나 조건을 정할 수 없으면 clarify로 묻는다.
-- message는 한두 문장 요약이다. 분석 내용은 items에 쓴다."""
+- message는 한두 문장 요약이다. 분석 내용은 items에 쓴다.
+- message와 text는 '~요'로 끝나는 존댓말로 쓴다. 앞 대화에서 말투를 바꿔 달라고 했으면 그 말투를 쓴다."""
 
 
 class ItemDraft(BaseModel):

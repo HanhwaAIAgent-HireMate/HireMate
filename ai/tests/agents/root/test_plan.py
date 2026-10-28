@@ -142,6 +142,7 @@ async def test_allowed_conversation_passes(
 
 def test_career_years_alone_is_a_find_condition() -> None:
     assert has_condition(SearchQuery(min_career_years=3))
+    assert has_condition(SearchQuery(max_career_years=0))
 
 
 def test_prompt_length_and_invented_names() -> None:

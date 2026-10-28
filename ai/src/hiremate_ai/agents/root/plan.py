@@ -40,12 +40,15 @@ PLAN_SYSTEM = """[역할]
   현재 요청이 앞서 되물은 것에 대한 답이면 앞 요청의 종류와 조건에 합친다.
 
 [종류 고르기]
-- find: 조건으로 지원자를 찾아 선택 지원자를 바꾼다. 선택된 사람 가운데 조건에 맞는 사람을 빼면 remove=true다.
+- find: 조건으로 지원자를 찾아 선택 지원자를 바꾼다. 경력 연수나 신입도 조건이다.
+  선택된 사람 가운데 조건에 맞는 사람을 빼면 remove=true다.
 - edit: 정해진 지원자를 선택에 넣거나 빼거나, 선택을 비우거나 되돌린다.
-- answer: 지원자, 회사, 공고, 전형에 대한 사실, 분석, 비교. 자료를 읽어 본 뒤 찾기로 이어지는 질문도 answer다.
-- questions: 면접 질문 생성. 서류에서 확인할 점이 필요하면 checks=documents, 면접관 메모를 반영하면 memos,
-  그 밖에는 none이다. 기존 AI 질문을 다시 만들거나 바꾸라고 하면 replace=true다.
+- answer: 지원자, 회사, 공고, 전형에 대한 사실, 분석, 비교. 서류에서 확인할 점이나 이상한 점을 묻는 질문,
+  자료를 읽어 본 뒤 찾기로 이어지는 질문도 answer다.
+- questions: 면접 질문을 만들어 달라는 요청. 서류에서 확인할 점을 바탕으로 만들면 checks=documents,
+  면접관 메모를 반영하면 memos, 그 밖에는 none이다. 기존 AI 질문을 다시 만들거나 바꾸라고 하면 replace=true다.
 - conversation: 인사, 감사, 기능 안내, 말투 변경처럼 자료가 필요 없는 답. message에 짧게 답한다.
+  message는 '~요'로 끝나는 존댓말로 쓰고, 앞 대화에서 말투를 바꿔 달라고 했으면 그 말투를 쓴다.
 - clarify: 요청, 화면, 앞 대화로도 정할 수 없는 것이 있을 때만 묻는다. 이미 정해진 조건은 다시 묻지 않는다.
 - blocked: 나이, 성별, 출신 지역, 혼인 여부, 신체 조건으로 찾거나 고르는 요청.
 - decision: 채용 결정의 실행 요청.
@@ -239,6 +242,7 @@ def has_condition(query: SearchQuery) -> bool:
         or query.area_scores
         or query.grades
         or query.min_career_years is not None
+        or query.max_career_years is not None
         or query.use_talents
         or query.posting_criteria != "none"
     )

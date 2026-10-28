@@ -14,6 +14,7 @@ INTERVIEW_AGENT = "Interview Agent"
 
 _REF = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)(?![0-9])")
 _REF_WITH_NAME = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)\s+([^\s,.!?]+)")
+_NAME_WITH_REF = re.compile(r"([가-힣A-Za-z]+)\s*\(\s*[Cc](\d+)\s*\)")
 _GLUED_REF = re.compile(r"(?<![A-Za-z0-9])[a-z]+C(\d+)(?![0-9])")
 _THINK = re.compile(r"<think>.*?</think>|</?think>", re.DOTALL)
 # 근거 번호(E1)는 내부 참조라 화면에 내보내지 않는다. "(E2, E3)"는 지우고 "E4(내용)"은 내용만 남긴다
@@ -43,7 +44,12 @@ def readable(text: str, context: ChatContext) -> str:
         row = resolve_ref(context, match.group(1))
         return row.name if row is not None else match.group(0)
 
-    text = _GLUED_REF.sub(name_only, _THINK.sub("", text).strip())
+    def name_before(match: re.Match[str]) -> str:
+        row = resolve_ref(context, match.group(2))
+        return match.group(1) if row is not None and match.group(1).startswith(row.name) else match.group(0)
+
+    text = _NAME_WITH_REF.sub(name_before, _THINK.sub("", text).strip())
+    text = _GLUED_REF.sub(name_only, text)
     text = _REF.sub(name_only, _REF_WITH_NAME.sub(with_name, text))
     text = _EVIDENCE.sub("", _EVIDENCE_WITH_NOTE.sub(r"\1", _EVIDENCE_GROUP.sub("", text)))
     return re.sub(r"\s{2,}", " ", text).strip()
