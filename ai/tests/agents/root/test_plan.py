@@ -1,8 +1,12 @@
+import json
+from pathlib import Path
 from typing import Any
 
 from root_context import make_context
 
+from hiremate_ai.agents.root.analysis import ANALYSIS_SYSTEM
 from hiremate_ai.agents.root.conversation import ConversationReview
+from hiremate_ai.agents.root.find import SearchQuery
 from hiremate_ai.agents.root.plan import (
     EMPTY_FIND,
     NO_SCOPE,
@@ -10,6 +14,7 @@ from hiremate_ai.agents.root.plan import (
     PLAN_SYSTEM,
     AnswerPlan,
     FindPlan,
+    has_condition,
     make_plan,
     screen_text,
 )
@@ -135,6 +140,18 @@ async def test_allowed_conversation_passes(
     assert plan.kind == "conversation" and len(llm.calls) == 2
 
 
+def test_career_years_alone_is_a_find_condition() -> None:
+    assert has_condition(SearchQuery(min_career_years=3))
+
+
 def test_prompt_length_and_invented_names() -> None:
     assert 1700 <= len(PLAN_SYSTEM) <= 2300
     assert not any(name in PLAN_SYSTEM for name in SAMPLE_NAMES)
+
+
+def test_prompt_has_no_eval_message() -> None:
+    cases = json.loads((Path(__file__).parents[2] / "eval" / "root_cases.json").read_text(encoding="utf-8"))
+    messages = [turn["message"] for case in cases for turn in case["turns"]]
+
+    assert messages
+    assert not any(message in PLAN_SYSTEM or message in ANALYSIS_SYSTEM for message in messages)

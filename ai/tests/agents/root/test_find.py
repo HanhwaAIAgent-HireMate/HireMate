@@ -1144,3 +1144,18 @@ async def test_assessment_area_without_assessment_stage_asks_back(
     plan = await plan_find(FakeLlm(), query, context, default_toolkit())
 
     assert (plan.intent, plan.message) == (Intent.CLARIFY, NO_ASSESSMENT)
+
+
+async def test_min_career_years_filters_registered_career_without_model(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="경력 5년 이상만")
+    careers = {"정유민": 4, "김하늘": 7, "한예린": 5, "이도윤": 0}
+    rows = [row.model_copy(update={"career_years": careers.get(row.name)}) for row in context.candidates]
+    context = context.model_copy(update={"candidates": rows})
+    llm = FakeLlm()
+
+    plan = await plan_find(llm, SearchQuery(min_career_years=5), context, default_toolkit())
+
+    assert names(context, plan) == ["김하늘", "한예린"]
+    assert llm.calls == [] and "전형 결과" in plan.sources
