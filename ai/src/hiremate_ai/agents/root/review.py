@@ -142,10 +142,11 @@ def _capped(context: ChatContext, ledger: Ledger, draft: ItemDraft) -> Checked |
     if draft.candidate is not None and row is None:
         return None
     owner = row.application_id if row is not None else None
+    # 지원자 항목은 그 지원자와 공통 자료의 근거만, 공통 항목(전형 집계 등)은 지원자별 줄도 근거로 남긴다
     evidence = [
         found
         for ref in dict.fromkeys(ref.strip().upper() for ref in draft.refs)
-        if (found := ledger.get(ref)) is not None and found.application_id in (None, owner)
+        if (found := ledger.get(ref)) is not None and (owner is None or found.application_id in (None, owner))
     ]
     text = shorten(without_later_gaps(context, readable(draft.text, context)))
     if not text:

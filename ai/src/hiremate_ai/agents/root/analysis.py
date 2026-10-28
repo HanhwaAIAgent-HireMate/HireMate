@@ -72,6 +72,8 @@ ANALYSIS_SYSTEM = """[역할]
 - 근거가 말하는 만큼만 쓴다. 팀 성과, 교육, 개인 프로젝트, 역할이 불분명한 경험을 본인 실무로 올리지 않는다.
 - 근거를 찾지 못한 것은 '없다'가 아니라 확인 필요다.
 - 읽은 결과로 조건 검색이 필요하면 search_candidates로 찾은 뒤 find에 그 결과 번호를 낸다.
+  find는 선택 지원자를 바꾸므로 담당자가 지원자를 더 찾아 달라고 한 요청에만 낸다.
+  앞에서 찾은 이유나 결과 설명을 묻는 질문은 previous_turns를 읽고 answer로 답한다.
 - questions에는 지원자별 확인할 점과 그 근거 번호를 낸다.
 - 대상이나 조건을 정할 수 없으면 clarify로 묻는다.
 - message는 한두 문장 요약이다. 분석 내용은 items에 쓴다.
@@ -233,12 +235,12 @@ def check_reply(reply: AnalysisReply, run: AnalysisRun) -> str | None:
 
 
 def _refs_problem(run: AnalysisRun, row: CandidateRow | None, refs: Sequence[str]) -> str | None:
-    owner = row.application_id if row is not None else None
+    """지원자 항목은 그 지원자와 공통 자료의 근거만 쓴다. 공통 항목(전형 집계 등)은 지원자별 줄도 근거로 쓸 수 있다."""
     for ref in refs:
         evidence = run.ledger.get(ref.strip().upper())
         if evidence is None:
             return UNKNOWN_REFS
-        if evidence.application_id is not None and evidence.application_id != owner:
+        if row is not None and evidence.application_id not in (None, row.application_id):
             return FOREIGN_REFS
     return None
 

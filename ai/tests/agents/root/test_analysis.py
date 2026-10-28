@@ -182,6 +182,20 @@ async def test_foreign_ref_is_rewritten(
     assert FOREIGN_REFS in llm.calls[1].user
 
 
+async def test_common_item_can_cite_candidate_lines(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, message="미결정 몇 명이야?")
+    run = run_of(context)
+    llm = FakeLlm(answer("E1", "E6", candidate=None))
+
+    reply = await run_analysis(llm, toolkit_with_profiles(), run, task="answer", checks="none", progress=Recorder())
+
+    line = run.ledger.get("E6")
+    assert line is not None and line.application_id == context.candidates[0].application_id
+    assert isinstance(reply.form, AnswerOutput) and len(llm.calls) == 1
+
+
 async def test_unknown_search_number_is_rewritten(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
