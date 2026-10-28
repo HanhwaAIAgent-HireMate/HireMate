@@ -1,0 +1,140 @@
+from typing import Any
+
+from root_context import make_context
+
+from hiremate_ai.agents.root.conversation import ConversationReview
+from hiremate_ai.agents.root.plan import (
+    EMPTY_FIND,
+    NO_SCOPE,
+    PICKS_INVALID,
+    PLAN_SYSTEM,
+    AnswerPlan,
+    FindPlan,
+    make_plan,
+    screen_text,
+)
+from hiremate_ai.agents.root.types import ChatContext
+from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
+from hiremate_ai.llm.fake import FakeLlm, ToolCall
+
+type Applicants = dict[str, ApplicantDetail]
+
+SAMPLE_NAMES = ("정유민", "김하늘", "박서준", "이도윤", "최지우", "한예린", "윤태오", "서민재")
+FIND_KAFKA = {
+    "query": {"mode": "replace", "concepts": ["Kafka 운영"], "min_score": None},
+    "scope": {},
+    "remove": False,
+}
+
+
+def context_of(applicants: Applicants, company: CompanyProfile, posting: PostingContent, **kwargs: Any) -> ChatContext:
+    return make_context(applicants, company, posting, **{"message": "요청", **kwargs})
+
+
+async def test_plan_reads_find_form(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, message="Kafka 운영 경험자 찾아줘")
+
+    plan = await make_plan(FakeLlm(ToolCall("find", FIND_KAFKA)), context, [], None, [])
+
+    assert plan.kind == "find"
+    assert isinstance(plan.form, FindPlan) and plan.form.query.concepts == ["Kafka 운영"]
+
+
+def test_screen_lists_referable_people_only(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, mentions=["정유민"], selected=["김하늘"])
+    result = [str(sample_applicants["한예린"].info.application_id)]
+
+    text = screen_text(context, [], result, [])
+
+    assert "[멘션] C1 정유민" in text
+    assert "[선택] C2 김하늘" in text
+    assert "[이전 결과] 1. C6 한예린" in text
+    assert "[현재 요청] 요청" in text
+    assert "박서준" not in text
+
+
+def test_screen_tells_empty_result_from_no_record(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+
+    assert "[이전 결과] 없음" in screen_text(context, [], None, [])
+    assert "[이전 결과] 0명" in screen_text(context, [], [], [])
+
+
+async def test_unknown_pick_is_rewritten_once(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    llm = FakeLlm(
+        ToolCall("answer", {"scope": {"picks": ["C99"]}}),
+        ToolCall("answer", {"scope": {"sources": ["all"]}}),
+    )
+
+    plan = await make_plan(llm, context, [], None, [])
+
+    assert isinstance(plan.form, AnswerPlan) and plan.form.scope.sources == ["all"]
+    assert PICKS_INVALID in llm.calls[1].user
+
+
+async def test_find_without_condition_is_rewritten(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    empty = {"query": {"mode": "replace", "concepts": [], "min_score": None}, "scope": {}, "remove": False}
+    llm = FakeLlm(ToolCall("find", empty), ToolCall("find", FIND_KAFKA))
+
+    plan = await make_plan(llm, context, [], None, [])
+
+    assert plan.kind == "find" and EMPTY_FIND in llm.calls[1].user
+
+
+async def test_edit_without_scope_is_rewritten(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, mentions=["정유민"])
+    llm = FakeLlm(
+        ToolCall("edit", {"action": "ADD", "scope": {}}),
+        ToolCall("edit", {"action": "ADD", "scope": {"sources": ["mentions"]}}),
+    )
+
+    plan = await make_plan(llm, context, [], None, [])
+
+    assert plan.kind == "edit" and NO_SCOPE in llm.calls[1].user
+
+
+async def test_conversation_failing_review_is_rewritten(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(
+        sample_applicants, sample_company, sample_posting, message="이 지원자 경력 요약해 줘", mentions=["정유민"]
+    )
+    llm = FakeLlm(
+        ToolCall("conversation", {"message": "자료를 확인해서 요약해 드릴게요."}),
+        ConversationReview(allowed=False),
+        ToolCall("answer", {"scope": {"sources": ["mentions"]}}),
+    )
+
+    plan = await make_plan(llm, context, [], None, [])
+
+    assert plan.kind == "answer"
+
+
+async def test_allowed_conversation_passes(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, message="고마워")
+    llm = FakeLlm(ToolCall("conversation", {"message": "천만에요."}), ConversationReview(allowed=True))
+
+    plan = await make_plan(llm, context, [], None, [])
+
+    assert plan.kind == "conversation" and len(llm.calls) == 2
+
+
+def test_prompt_length_and_invented_names() -> None:
+    assert 1700 <= len(PLAN_SYSTEM) <= 2300
+    assert not any(name in PLAN_SYSTEM for name in SAMPLE_NAMES)
