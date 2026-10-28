@@ -1,10 +1,10 @@
-import { ArrowLeft, ArrowRight, ChevronRight, Plus, X } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, ArrowRight, ChevronRight, GripVertical, Plus, X } from 'lucide-react'
+import { useState, type DragEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { MAX_STAGES, moveStage, type StageForm } from '@/features/posting/stages'
+import { MAX_STAGES, moveStage, placeStage, type StageForm } from '@/features/posting/stages'
 import { STAGE_TYPE_LABELS, type StageType } from '@/features/recruit/labels'
 import { cn } from '@/lib/utils'
 
@@ -12,7 +12,8 @@ const TYPES = Object.keys(STAGE_TYPE_LABELS) as StageType[]
 
 /**
  * 전형 절차를 지원자가 볼 흐름 그대로 가로로 보여 주며 HR이 직접 고친다.
- * ← → 로 순서를 바꾸고 × 로 빼며, 전형을 누르면 이름과 종류를 고친다. 끝의 [전형 추가]로 더한다
+ * 전형을 끌어 놓아 순서를 바꾸고 × 로 빼며, 전형을 누르면 이름과 종류를 고친다. 끝의 [전형 추가]로 더한다.
+ * 끌 수 없는 사람(키보드, 화면 낭독기, 손 떨림)도 옮길 수 있게 고치는 창에 앞으로 · 뒤로 버튼을 둔다
  */
 export function StageEditor({
   stages,
@@ -28,46 +29,91 @@ export function StageEditor({
   const names = stages.map((stage) => stage.name.trim())
   const change = (index: number, patch: Partial<StageForm>) =>
     onChange(stages.map((stage, i) => (i === index ? { ...stage, ...patch } : stage)))
+  /** 끌고 있는 전형과, 놓으면 들어갈 틈(0은 맨 앞, stages.length는 맨 뒤) */
+  const [dragging, setDragging] = useState<number | null>(null)
+  const [slot, setSlot] = useState<number | null>(null)
+  /** 창의 버튼으로 옮긴 방향. 옮긴 전형의 창을 다시 열고 초점을 그 버튼에 둬서 이어서 옮길 수 있게 한다 */
+  const [movedBy, setMovedBy] = useState<number | null>(null)
+  const open = (index: number | null) => {
+    setOpened(index)
+    setMovedBy(null)
+  }
   const move = (index: number, delta: number) => {
-    setOpened(null)
     onChange(moveStage(stages, index, delta))
+    setOpened(index + delta)
+    setMovedBy(delta)
+  }
+  /** 같은 방향으로 더 갈 수 없으면 반대 버튼에 초점을 둔다 */
+  const focusBack = (index: number) => (movedBy === -1 ? index > 0 : index === stages.length - 1)
+  const startDrag = (event: DragEvent, index: number) => {
+    open(null)
+    setDragging(index)
+    event.dataTransfer.effectAllowed = 'move'
+    // Firefox는 실을 자료가 없으면 끌기를 시작하지 않는다
+    event.dataTransfer.setData('text/plain', String(index))
+  }
+  /** 전형의 왼쪽 절반 위면 그 앞, 오른쪽 절반 위면 그 뒤 틈에 놓는다. 제자리면 표시하지 않는다 */
+  const dragOver = (event: DragEvent, index: number) => {
+    if (dragging === null) return
+    event.preventDefault()
+    const box = event.currentTarget.getBoundingClientRect()
+    const next = event.clientX < box.left + box.width / 2 ? index : index + 1
+    setSlot(next === dragging || next === dragging + 1 ? null : next)
+  }
+  const endDrag = () => {
+    setDragging(null)
+    setSlot(null)
+  }
+  const drop = (event: DragEvent) => {
+    if (dragging === null || slot === null) return
+    event.preventDefault()
+    onChange(placeStage(stages, dragging, slot))
+    endDrag()
   }
   const remove = (index: number) => {
-    setOpened(null)
+    open(null)
     onChange(stages.filter((_, i) => i !== index))
   }
   const add = () => {
     onChange([...stages, { name: '', type: 'INTERVIEW' }])
-    setOpened(stages.length)
+    open(stages.length)
   }
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div
+        className="flex flex-wrap items-center gap-1.5"
+        onDragOver={(event) => dragging !== null && event.preventDefault()}
+        onDrop={drop}
+      >
         {stages.map((stage, index) => {
           const label = names[index] || `전형 ${index + 1}`
           const invalid = !names[index] || names.indexOf(names[index]) !== index
           return (
             <span key={index} className="inline-flex items-center gap-1.5">
               {index > 0 && <ChevronRight className="size-3 text-muted-foreground" />}
+              {slot === index && <DropMark />}
               <span
+                draggable
+                onDragStart={(event) => startDrag(event, index)}
+                onDragOver={(event) => dragOver(event, index)}
+                onDragEnd={endDrag}
                 className={cn(
                   'inline-flex items-center rounded-full bg-muted text-xs text-muted-foreground',
                   invalid && 'ring-1 ring-destructive',
+                  dragging === index && 'opacity-40',
                 )}
               >
-                <button
-                  type="button"
-                  aria-label={`${label} 앞으로`}
-                  disabled={index === 0}
-                  onClick={() => move(index, -1)}
-                  className="rounded-l-full py-1 pr-0.5 pl-2 hover:text-foreground disabled:opacity-30"
+                <span
+                  aria-hidden
+                  title="끌어서 순서 바꾸기"
+                  className="cursor-grab py-1 pl-1.5 hover:text-foreground active:cursor-grabbing"
                 >
-                  <ArrowLeft className="size-3" />
-                </button>
+                  <GripVertical className="size-3" />
+                </span>
                 <Popover
                   open={opened === index}
-                  onOpenChange={(open) => setOpened(open ? index : null)}
+                  onOpenChange={(isOpen) => open(isOpen ? index : null)}
                 >
                   <PopoverTrigger asChild>
                     <button
@@ -82,11 +128,16 @@ export function StageEditor({
                       </span>
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-64 space-y-3">
+                  <PopoverContent
+                    align="start"
+                    className="w-64 space-y-3"
+                    // 옮겨서 닫힌 창은 초점을 이제 다른 전형이 된 칩으로 돌려보내지 않는다
+                    onCloseAutoFocus={(event) => movedBy !== null && event.preventDefault()}
+                  >
                     <label className="block space-y-1 text-xs text-muted-foreground">
                       이름
                       <Input
-                        autoFocus
+                        autoFocus={movedBy === null}
                         aria-label="전형 이름"
                         value={stage.name}
                         maxLength={50}
@@ -117,17 +168,37 @@ export function StageEditor({
                         ))}
                       </div>
                     </div>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">순서</p>
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7"
+                          aria-label={`${label} 앞으로`}
+                          autoFocus={movedBy !== null && focusBack(index)}
+                          disabled={index === 0}
+                          onClick={() => move(index, -1)}
+                        >
+                          <ArrowLeft />
+                          앞으로
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7"
+                          aria-label={`${label} 뒤로`}
+                          autoFocus={movedBy !== null && !focusBack(index)}
+                          disabled={index === stages.length - 1}
+                          onClick={() => move(index, 1)}
+                        >
+                          뒤로
+                          <ArrowRight />
+                        </Button>
+                      </div>
+                    </div>
                   </PopoverContent>
                 </Popover>
-                <button
-                  type="button"
-                  aria-label={`${label} 뒤로`}
-                  disabled={index === stages.length - 1}
-                  onClick={() => move(index, 1)}
-                  className="py-1 pr-1 pl-0.5 hover:text-foreground disabled:opacity-30"
-                >
-                  <ArrowRight className="size-3" />
-                </button>
                 <button
                   type="button"
                   aria-label={`${label} 빼기`}
@@ -141,6 +212,7 @@ export function StageEditor({
             </span>
           )
         })}
+        {slot === stages.length && <DropMark />}
         <ChevronRight className="size-3 text-muted-foreground" />
         <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
           최종 합격
@@ -159,4 +231,9 @@ export function StageEditor({
       {problem && <p className="text-xs text-destructive">{problem}</p>}
     </div>
   )
+}
+
+/** 끌고 있는 전형이 들어갈 자리 */
+function DropMark() {
+  return <span aria-hidden className="h-5 w-0.5 rounded-full bg-foreground" />
 }
