@@ -54,7 +54,7 @@ public class DashboardService {
         Map<UUID, StageOverview.DecisionCounts> stageCounts = screening.stageCounts(companyId, recruitment.id());
         List<DashboardView.DashboardStep> steps = recruitment.stages().stream()
                 .map(stage -> new DashboardView.DashboardStep(stage.id(), stage.name(), stage.type(), stage.status(),
-                        stageCounts.containsKey(stage.id()) ? stageCounts.get(stage.id()).total() : null))
+                        stageCounts.containsKey(stage.id()) ? stageCounts.get(stage.id()).total() : null, stage.icon()))
                 .toList();
         return new DashboardView.RecruitmentCard(recruitment.id(), posting.postingId(), recruitment.title(),
                 recruitment.status(), applications.count(companyId, recruitment.id()), posting.closeAt(),

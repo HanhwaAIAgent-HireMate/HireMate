@@ -97,6 +97,26 @@ def route(*targets: Any, question: str | None = None, writes_posting: bool = Fal
     return Route(targets=list(targets), question=question, writes_posting=writes_posting)
 
 
+async def test_stage_icon_changes_keep_order_and_other_icons() -> None:
+    stages = [
+        StageDraft(name="서류", type=StageType.DOCUMENT, icon="FILE_TEXT"),
+        StageDraft(name="실무면접", type=StageType.INTERVIEW, icon="CHAIR"),
+    ]
+    llm = FakeLlm(
+        route("STAGES"),
+        StagePlan(
+            stages=[
+                StageEdit(name="서류", type=StageType.DOCUMENT),
+                StageEdit(name="실무면접", type=StageType.INTERVIEW, icon="USERS"),
+            ]
+        ),
+    )
+    result = await revise_posting(llm, posting(stages=stages), "", "실무면접 아이콘만 사람으로 바꿔줘")
+    assert result.suggestion is not None
+    assert result.suggestion.changed_fields == ["stages"]
+    assert result.suggestion.stages == [stages[0], stages[1].model_copy(update={"icon": "USERS"})]
+
+
 def content(**fields: str | list[str]) -> ContentChanges:
     """본문 칸 이름(title, preferred 등)으로 바꿀 값을 받아 모델 답을 만든다."""
     return ContentChanges(

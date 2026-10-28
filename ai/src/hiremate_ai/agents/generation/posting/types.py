@@ -19,11 +19,28 @@ class RecruitmentStatus(StrEnum):
     CLOSED = "CLOSED"
 
 
+StageIcon = Literal[
+    "AUTO",
+    "FILE_TEXT",
+    "CLIPBOARD_CHECK",
+    "CODE",
+    "PRESENTATION",
+    "MESSAGES",
+    "USERS",
+    "VIDEO",
+    "BADGE_CHECK",
+    "CHAIR",
+    "HEALTH",
+    "NONE",
+]
+
+
 class StageDraft(ContractModel):
     """공고에서 정한 전형 하나 (recruit.StageDraft). 이름은 기업이 부르는 그대로 쓴다."""
 
     name: str
     type: StageType
+    icon: StageIcon | None = None
 
 
 class PostingDraftContext(ContractModel):

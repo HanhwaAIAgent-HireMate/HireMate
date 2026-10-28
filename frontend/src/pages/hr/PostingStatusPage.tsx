@@ -56,6 +56,8 @@ function StatusView({ posting }: { posting: Posting }) {
   const stages = posting.stages.map((stage) => ({
     key: stage.id,
     label: stage.name,
+    type: stage.type,
+    icon: stage.icon,
     state:
       stage.status === 'DONE'
         ? ('done' as const)

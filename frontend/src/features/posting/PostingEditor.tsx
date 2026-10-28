@@ -143,7 +143,11 @@ export function PostingEditor({
       // 본문을 저장하면 편집 화면을 새로 열어, 전형 절차를 먼저 저장한다
       if (stagesDirty) {
         const saved = await saveStages.mutateAsync(
-          stages.map((stage) => ({ name: stage.name.trim(), type: stage.type })),
+          stages.map((stage) => ({
+            name: stage.name.trim(),
+            type: stage.type,
+            icon: stage.icon ?? null,
+          })),
         )
         setStages(toStageForms(saved.stages))
       }

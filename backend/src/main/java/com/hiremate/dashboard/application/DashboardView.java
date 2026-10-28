@@ -1,6 +1,7 @@
 package com.hiremate.dashboard.application;
 
 import com.hiremate.recruit.RecruitmentStatus;
+import com.hiremate.recruit.StageIcon;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -21,6 +22,7 @@ public record DashboardView(StatusCounts counts, List<RecruitmentCard> items) {
 
     /** 끝난 전형은 회색, 진행 중인 전형은 대상 인원과 함께 강조한다. */
     public record DashboardStep(UUID stageId, String name, StageType type, StageStatus status,
-            @Schema(nullable = true) Long targetCount) {
+            @Schema(nullable = true) Long targetCount,
+            @Schema(nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED) StageIcon icon) {
     }
 }

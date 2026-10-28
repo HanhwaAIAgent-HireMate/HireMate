@@ -6,10 +6,23 @@
     "career": "경력 3년 이상",
     "location": "서울 중구",
     "intro": "카드 결제와 정산을 처리하는 플랫폼을 함께 만들 백엔드 개발자를 찾습니다.",
-    "duties": ["결제 승인 · 정산 API 개발", "대용량 트랜잭션 처리 구조 개선"],
-    "qualifications": ["Java · Spring Boot 기반 서버 개발 경력 3년 이상", "RDBMS 설계와 운영 경험"],
-    "preferred": ["금융 도메인 경험", "대용량 트래픽 처리 경험", "결제 · 정산 시스템 운영 경험"],
-    "benefits": ["유연 근무", "자기계발비 지원"],
+    "duties": [
+      "결제 승인 · 정산 API 개발",
+      "대용량 트랜잭션 처리 구조 개선"
+    ],
+    "qualifications": [
+      "Java · Spring Boot 기반 서버 개발 경력 3년 이상",
+      "RDBMS 설계와 운영 경험"
+    ],
+    "preferred": [
+      "금융 도메인 경험",
+      "대용량 트래픽 처리 경험",
+      "결제 · 정산 시스템 운영 경험"
+    ],
+    "benefits": [
+      "유연 근무",
+      "자기계발비 지원"
+    ],
     "headcount": 2,
     "position": "사원~대리",
     "education": "학력 무관",
@@ -17,9 +30,20 @@
     "salary": "회사 내규에 따름"
   },
   "stages": [
-    { "name": "서류 전형", "type": "DOCUMENT" },
-    { "name": "1차 면접", "type": "INTERVIEW" }
+    {
+      "name": "서류 전형",
+      "type": "DOCUMENT",
+      "icon": null
+    },
+    {
+      "name": "1차 면접",
+      "type": "INTERVIEW",
+      "icon": "USERS"
+    }
   ],
   "requiredExtras": null,
-  "changedFields": ["preferred", "stages"]
+  "changedFields": [
+    "preferred",
+    "stages"
+  ]
 }

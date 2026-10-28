@@ -88,7 +88,8 @@ public class PostingService {
         JobPosting posting = posting(companyId, recruitmentId);
         RecruitmentInfo recruitment = recruits.get(companyId, recruitmentId);
         return new PostingDraftContext(recruitmentId, recruitment.status(), posting.content(),
-                recruitment.stages().stream().map(stage -> new StageDraft(stage.name(), stage.type())).toList(),
+                recruitment.stages().stream()
+                        .map(stage -> new StageDraft(stage.name(), stage.type(), stage.icon())).toList(),
                 requiredExtras(posting));
     }
 
@@ -332,7 +333,7 @@ public class PostingService {
         return new PublicPostingView(posting.getId(), companies.profile(posting.getCompanyId()).name(),
                 posting.content(), List.copyOf(posting.getNotices()),
                 recruitment.stages().stream()
-                        .map(stage -> new PublicPostingView.PublicStage(stage.name(), stage.type()))
+                        .map(stage -> new PublicPostingView.PublicStage(stage.name(), stage.type(), stage.icon()))
                         .toList(),
                 documents(requiredExtras(posting)), posting.getOpenAt(), posting.getCloseAt(),
                 state(posting, Instant.now()), posting.design());
@@ -387,7 +388,8 @@ public class PostingService {
 
     private PostingView toView(JobPosting posting, RecruitmentInfo recruitment, String companyName) {
         List<PostingView.PostingStage> stages = recruitment.stages().stream()
-                .map(stage -> new PostingView.PostingStage(stage.id(), stage.name(), stage.type(), stage.status()))
+                .map(stage -> new PostingView.PostingStage(stage.id(), stage.name(), stage.type(), stage.status(),
+                        stage.icon()))
                 .toList();
         PostingSuggestion suggestion = JsonText.read(posting.getPendingSuggestion(), PostingSuggestion.class);
         PostingView.PostingSuggestionView suggestionView = suggestion == null
@@ -395,7 +397,8 @@ public class PostingService {
                 : new PostingView.PostingSuggestionView(
                 suggestion.content(),
                 suggestion.stages() == null ? null : suggestion.stages().stream()
-                        .map(stage -> new PostingView.PostingStage(null, stage.name(), stage.type(), null))
+                        .map(stage -> new PostingView.PostingStage(
+                                null, stage.name(), stage.type(), null, stage.icon()))
                         .toList(),
                 suggestion.requiredExtras() == null ? null : documents(suggestion.requiredExtras()),
                 suggestion.changedFields());

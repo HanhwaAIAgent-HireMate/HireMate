@@ -1459,6 +1459,8 @@ export interface components {
             type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
             /** @enum {string|null} */
             status: "PENDING" | "ACTIVE" | "CONFIRMED" | "DONE" | null;
+            /** @enum {string|null} */
+            icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         PostingSuggestionView: {
             content: components["schemas"]["PostingContent"];
@@ -1500,6 +1502,8 @@ export interface components {
             name: string;
             /** @enum {string} */
             type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
+            /** @enum {string|null} */
+            icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         StagesRequest: {
             stages: components["schemas"]["StageItem"][];
@@ -1821,6 +1825,8 @@ export interface components {
             status: "PENDING" | "ACTIVE" | "CONFIRMED" | "DONE";
             /** Format: int64 */
             targetCount: number | null;
+            /** @enum {string|null} */
+            icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         CandidatePage: {
             /** Format: int64 */
@@ -2009,6 +2015,8 @@ export interface components {
             status: "PENDING" | "ACTIVE" | "CONFIRMED" | "DONE";
             /** Format: int64 */
             targetCount: number | null;
+            /** @enum {string|null} */
+            icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         DashboardView: {
             counts: components["schemas"]["StatusCounts"];
@@ -2112,6 +2120,8 @@ export interface components {
             name: string;
             /** @enum {string} */
             type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
+            /** @enum {string|null} */
+            icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         CsrfToken: {
             token: string;

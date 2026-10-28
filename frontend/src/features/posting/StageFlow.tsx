@@ -2,8 +2,9 @@ import { ChevronRight } from 'lucide-react'
 
 import { STAGE_TYPE_LABELS, type StageType } from '@/features/recruit/labels'
 import { cn } from '@/lib/utils'
+import { StageIcon, type StageIconName } from '@/features/recruit/StageIcon'
 
-type Stage = { name: string; type: StageType }
+type Stage = { name: string; type: StageType; icon?: StageIconName | null }
 
 /** 전형 절차를 가로로 나열한다. 종류는 "· 서류"처럼 이름 옆에 붙인다 (기획 v7 §4). */
 export function StageFlow({
@@ -19,7 +20,7 @@ export function StageFlow({
 }) {
   const items = [
     ...stages.map((stage) => ({ ...stage, final: false })),
-    { name: '최종 합격', type: null, final: true },
+    { name: '최종 합격', type: null, icon: 'BADGE_CHECK' as const, final: true },
   ]
   return (
     <div className={cn('flex flex-wrap items-center gap-1.5', className)}>
@@ -34,6 +35,7 @@ export function StageFlow({
                 : 'bg-muted text-muted-foreground',
             )}
           >
+            <StageIcon type={stage.type ?? 'INTERVIEW'} icon={stage.icon} />
             {stage.name}
             {showType && stage.type && (
               <span className="font-semibold text-ai">· {STAGE_TYPE_LABELS[stage.type]}</span>

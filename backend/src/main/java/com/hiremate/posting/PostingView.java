@@ -1,6 +1,7 @@
 package com.hiremate.posting;
 
 import com.hiremate.recruit.RecruitmentStatus;
+import com.hiremate.recruit.StageIcon;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -17,7 +18,8 @@ public record PostingView(UUID postingId, UUID recruitmentId, String companyName
         @Schema(nullable = true) PosterDesign poster) {
 
     /** status는 전형 진행 상태다. 수정안의 단계는 아직 전형이 없어 null이다. */
-    public record PostingStage(UUID id, String name, StageType type, @Schema(nullable = true) StageStatus status) {
+    public record PostingStage(UUID id, String name, StageType type, @Schema(nullable = true) StageStatus status,
+            @Schema(nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED) StageIcon icon) {
     }
 
     /** 적용 전 수정안. 바꾼 칸만 값이 있다. */

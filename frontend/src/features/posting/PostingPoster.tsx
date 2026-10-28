@@ -5,13 +5,16 @@ import type { Posting } from '@/features/posting/api'
 import { conditionRows } from '@/features/posting/conditions'
 import { posterPalette, type PosterDesign } from '@/features/posting/poster-design'
 import { formatDateTime } from '@/lib/format'
+import type { StageIconName } from '@/features/recruit/StageIcon'
+import type { StageType } from '@/features/recruit/labels'
+import { StageProcess } from '@/features/recruit/StageProcess'
 
 import './posting-poster.css'
 
 export type PosterPosting = Pick<
   Posting,
   'companyName' | 'content' | 'notices' | 'documents' | 'openAt' | 'closeAt'
-> & { stages: { name: string }[] }
+> & { stages: { name: string; type?: StageType; icon?: StageIconName | null }[] }
 
 /** 편집/지원자 페이지/PDF가 모두 같은 데이터와 컴포넌트를 사용한다. */
 export function PostingPoster({
@@ -65,16 +68,7 @@ export function PostingPoster({
     blocks.push({
       label: '전형 절차',
       kind: 'stages',
-      children: (
-        <ol className="poster-steps">
-          {posting.stages.map((stage, index) => (
-            <li className="poster-step" key={`${index}-${stage.name}`}>
-              <small>{String(index + 1).padStart(2, '0')}</small>
-              <span>{stage.name}</span>
-            </li>
-          ))}
-        </ol>
-      ),
+      children: <StageProcess stages={posting.stages} color={design.color} />,
     })
   if (posting.documents.length)
     blocks.push({
