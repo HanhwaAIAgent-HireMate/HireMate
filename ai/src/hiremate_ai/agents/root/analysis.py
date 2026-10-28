@@ -15,7 +15,7 @@ from langchain_core.tools import BaseTool, ToolException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
-from hiremate_ai.agents.root.delegation import Delegation
+from hiremate_ai.agents.root.delegation import KEEP_CALLS, Delegation
 from hiremate_ai.agents.root.find import SearchQuery, plan_find
 from hiremate_ai.agents.root.handlers import search_criteria
 from hiremate_ai.agents.root.ledger import Ledger
@@ -38,7 +38,7 @@ from hiremate_ai.agents.root.toolkit import (
 )
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan
-from hiremate_ai.llm.chat import reserve_model_calls
+from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError, record_interrupted_model_tool, reserve_model_calls
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import data_block
 
@@ -55,6 +55,7 @@ NO_FOCUS = "확인할 점을 focus에 지원자별로 쓰세요."
 NO_MESSAGE = "message에 담당자에게 보여 줄 답을 쓰세요."
 NO_ITEMS = "근거 번호를 단 항목을 items에 하나 이상 쓰세요."
 NO_TURNS = "앞 대화가 없어요."
+SEARCH_BUDGET = "호출 한도가 남지 않아 검색 후보를 다시 확인하지 못했어요. 지금까지 읽은 자료로 답하세요."
 
 ANALYSIS_SYSTEM = """[역할]
 너는 Root Agent의 분석 단계다. 계획 단계가 정한 과제와 대상을 받아, 필요한 자료만 도구로 확인하고
@@ -340,7 +341,15 @@ def _tools(llm: LlmClient, toolkit: RootToolkit, progress: Progress) -> list[Bas
             return OUT_OF_SCOPE
         progress.status(SEARCHING)
         ids = [row.application_id for row in rows if row is not None] if rows is not None else None
-        found = await plan_find(llm, query, run.chat, toolkit, pool=ids)
+        try:
+            # 후보 재확인은 루프의 최종 답과 근거 검토가 쓸 호출을 남긴다
+            with reserve_model_calls(KEEP_CALLS):
+                found = await plan_find(llm, query, run.chat, toolkit, pool=ids)
+        except LlmOutputError as error:
+            if error.reason is not LlmFailureReason.BUDGET:
+                raise
+            record_interrupted_model_tool("search_candidates")
+            return SEARCH_BUDGET
         key = f"S{len(run.searches) + 1}"
         run.searches[key] = found
         run.queries[key] = query
