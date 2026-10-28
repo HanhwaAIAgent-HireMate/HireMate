@@ -70,7 +70,8 @@ ANALYSIS_SYSTEM = """[역할]
 
 [답 쓰기]
 - 항목마다 지원자 한 명과 그 지원자의 근거 번호를 refs에 적는다. 비교도 지원자마다 항목을 나눈다.
-- C번호와 E번호는 candidate와 refs에만 쓴다. message와 text에는 이름과 내용으로 쓴다.
+- C번호와 E번호는 candidate와 refs에만, S번호는 find의 result에만, D번호는 review_interview의 previous에만 쓴다.
+  message와 text에는 이름과 내용으로 쓴다.
 - 근거가 말하는 만큼만 쓴다. 팀 성과, 교육, 개인 프로젝트, 역할이 불분명한 경험을 본인 실무로 올리지 않는다.
 - 근거를 찾지 못한 것은 '없다'가 아니라 확인 필요다.
 - 읽은 결과로 조건 검색이 필요하면 search_candidates로 찾은 뒤 find에 그 결과 번호를 낸다.

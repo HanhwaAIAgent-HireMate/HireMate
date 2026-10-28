@@ -11,6 +11,7 @@ from hiremate_ai.agents.root.ledger import Ledger
 from hiremate_ai.agents.root.toolkit import (
     NO_PROFILE,
     NO_REVIEW,
+    OUT_OF_SCOPE,
     AgentEvidence,
     ProfileLine,
     ProfileView,
@@ -78,7 +79,11 @@ def test_scope_of_context(
     )
     assert scope.application_ids == frozenset(row.application_id for row in context.candidates)
     assert scope.chat is context
-    assert scope.called == []
+
+
+def test_out_of_scope_points_only_at_existing_steps() -> None:
+    # 모델에게 없는 도구를 부르라고 하지 않는다
+    assert "resolve_candidates" not in OUT_OF_SCOPE and "clarify" in OUT_OF_SCOPE
 
 
 async def test_finance_search_has_recall(
