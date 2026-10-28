@@ -11,6 +11,14 @@ from hiremate_ai.contract import InterviewerMemo
 
 type Cap = Literal["OK", "CHECK"]
 
+# 근거 출처. 지원자 제출 문서는 문서 종류 이름(이력서, 자기소개서 등)을 쓴다
+RESULT_SOURCE = "전형 결과"
+INTERVIEW_SOURCE = "면접 기록"
+MEMO_SOURCE = "면접관메모"
+COMPANY_SOURCE = "회사 소개"
+POSTING_SOURCE = "공고"
+TURN_SOURCE = "앞 대화 답변"
+
 _CAP_LABELS: dict[Cap, str] = {"OK": "근거 확인", "CHECK": "확인 필요"}
 
 

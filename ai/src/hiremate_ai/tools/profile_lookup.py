@@ -89,16 +89,23 @@ def profile_text(profile: CandidateProfile) -> str:
     [도메인] 금융 (카드 결제 · 정산) — 근거: "한빛카드 결제플랫폼팀 2022.03 ~ 현재" (이력서)
     [확인 필요] 대용량 트래픽 수치 확인 필요 — 근거 문장 없음 (이력서)
     """
-    # 1) 카드 앞면: 상태 · 요약 · 숫자. 값이 없으면 "알 수 없음"으로 적어 모델이 지어내지 않게 한다
+    lines = [profile_front(profile)]
+    lines += [_item_line(item) for item in ordered_items(profile)] or ["(정리된 항목이 없어요)"]
+    return "\n".join(lines)
+
+
+def profile_front(profile: CandidateProfile) -> str:
+    """카드 앞면: 상태 · 요약 · 숫자. 값이 없으면 "알 수 없음"으로 적어 모델이 지어내지 않게 한다."""
     lines = [f"분석 상태: {_STATUS_LABELS.get(ProfileStatus(profile.status), profile.status)}"]
     if profile.summary:
         lines.append(f"요약: {profile.summary}")
     lines.append(" · ".join(_front_values(profile)))
-
-    # 2) 카드 뒷면: 항목을 분류 순서대로, 같은 분류 안에서는 저장된 순서대로
-    items = sorted(profile.items, key=lambda item: (_category_rank(item), item.created_at, item.id))
-    lines += [_item_line(item) for item in items] or ["(정리된 항목이 없어요)"]
     return "\n".join(lines)
+
+
+def ordered_items(profile: CandidateProfile) -> list[ProfileItem]:
+    """카드 뒷면 항목: 분류 순서대로, 같은 분류 안에서는 저장된 순서대로."""
+    return sorted(profile.items, key=lambda item: (_category_rank(item), item.created_at, item.id))
 
 
 def profile_tool(sessions: Sessions, *, resolve: ResolveRef) -> BaseTool:

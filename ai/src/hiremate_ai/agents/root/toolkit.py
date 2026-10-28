@@ -17,16 +17,36 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from hiremate_ai.agents.analysis.application.present import CATEGORY_LABEL
+from hiremate_ai.agents.analysis.application.store import DbReviewStore
+from hiremate_ai.agents.analysis.application.types import VERDICT_LABEL, Actor, ApplicationReview, Verdict
+from hiremate_ai.agents.root.ledger import (
+    COMPANY_SOURCE,
+    INTERVIEW_SOURCE,
+    MEMO_SOURCE,
+    POSTING_SOURCE,
+    RESULT_SOURCE,
+    TURN_SOURCE,
+    Cap,
+    Ledger,
+)
 from hiremate_ai.agents.root.stages import StageData, not_yet, reached, stage_data, stage_plan
 from hiremate_ai.agents.root.turns import Turn, verified_turn_items
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion, StageStatus
 from hiremate_ai.contract import ApplicantDocument, StageType
 from hiremate_ai.db.analysis_store import AnalysisArtifactReader, DbAnalysisArtifacts
-from hiremate_ai.db.profile import ItemAgent, Verification
+from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block, documents_block
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
-from hiremate_ai.tools.profile_lookup import Sessions, profile_text, profile_tool, read_profile
+from hiremate_ai.tools.profile_lookup import (
+    Sessions,
+    ordered_items,
+    profile_front,
+    profile_text,
+    profile_tool,
+    read_profile,
+)
 from hiremate_ai.tools.profile_search import profile_search
 from hiremate_ai.tools.scope import ToolScope
 
@@ -696,10 +716,253 @@ def cited_agents(recorded: Mapping[UUID, Sequence[AgentEvidence]], cited: Iterab
     return names
 
 
+NO_PROFILE = "저장된 지원자 프로필이 없어요."
+NO_REVIEW = "저장된 서류 분석이 없어요. 필요하면 review_documents로 검토하세요."
+NO_MEMOS = "저장된 면접관 메모가 없어요."
+_ACTOR_LABELS = {Actor.SELF: "본인", Actor.TEAM: "팀", Actor.UNCLEAR: "역할 불분명"}
+_SURE: frozenset[str] = frozenset({Verification.EVIDENCED, Verification.CONFIRMED})
+
+
+@dataclass(frozen=True)
+class ProfileLine:
+    """지원자 프로필 항목 한 줄. 분석 Agent가 저장한 값 그대로다."""
+
+    category: str  # ItemCategory 값
+    content: str
+    evidence: str | None
+    source: str
+    verification: str  # Verification 값
+    agent: str  # ItemAgent 값
+
+
+@dataclass(frozen=True)
+class ProfileView:
+    front: str  # 분석 상태, 요약, 경력 · 마지막 회사 · 서류 점수
+    lines: list[ProfileLine]
+
+
+type ProfileReader = Callable[[RootToolContext, UUID], Awaitable[ProfileView | None]]
+type ReviewReader = Callable[[RootToolContext, UUID], Awaitable[ApplicationReview | None]]
+
+
+async def no_profile(scope: RootToolContext, application_id: UUID) -> ProfileView | None:
+    """프로필 없이 도는 묶음."""
+    return None
+
+
+async def no_review(scope: RootToolContext, application_id: UUID) -> ApplicationReview | None:
+    """서류 분석 원본 없이 도는 묶음."""
+    return None
+
+
+def db_profile_reader(sessions: Sessions) -> ProfileReader:
+    """AI 워커의 분석 Agent들이 저장한 지원자 프로필을 읽는다. 범위 밖 지원자는 읽지 않는다."""
+
+    async def read(scope: RootToolContext, application_id: UUID) -> ProfileView | None:
+        async with sessions() as session:
+            profile = await read_profile(session, scope, application_id)
+            if profile is None:
+                return None
+            lines = [
+                ProfileLine(item.category, item.content, item.evidence, item.source, item.verification, item.agent)
+                for item in ordered_items(profile)
+            ]
+            return ProfileView(front=profile_front(profile), lines=lines)
+
+    return read
+
+
+def db_review_reader(sessions: Sessions) -> ReviewReader:
+    """AI 워커의 서류 Agent가 저장한 가장 최근 분석 원본을 읽는다. 범위 밖 지원자는 읽지 않는다."""
+    store = DbReviewStore(sessions)
+
+    async def read(scope: RootToolContext, application_id: UUID) -> ApplicationReview | None:
+        if application_id not in scope.application_ids:
+            return None
+        return await store.latest(application_id, company_id=scope.company_id, recruitment_id=scope.recruitment_id)
+
+    return read
+
+
+def _profile_cap(line: ProfileLine) -> Cap:
+    return "OK" if line.verification in _SURE and line.category != ItemCategory.CHECK else "CHECK"
+
+
+def _profile_refs(ledger: Ledger, row: CandidateRow, lines: Iterable[ProfileLine]) -> list[str]:
+    return [
+        ledger.line(
+            ledger.add(
+                row.application_id,
+                line.content,
+                quote=line.evidence,
+                source=line.source,
+                cap=_profile_cap(line),
+                agent=AGENT_NAMES.get(line.agent),
+            )
+        )
+        for line in lines
+    ]
+
+
+def profile_block(ledger: Ledger, chat: ChatContext, row: CandidateRow, view: ProfileView | None) -> str:
+    """전형 결과 한 줄과 분석 Agent들이 정리한 프로필 항목. 항목마다 근거 번호를 붙인다."""
+    result = " · ".join(stage_result_text(chat, row).splitlines()[1:])
+    lines = [_who(chat, row), ledger.line(ledger.add(row.application_id, result, source=RESULT_SOURCE, cap="OK"))]
+    if view is None:
+        lines.append(NO_PROFILE)
+    else:
+        lines += [view.front] if view.front else []
+        lines += _profile_refs(ledger, row, view.lines)
+    return data_block("profile", "\n".join(lines))
+
+
+def summary_line(chat: ChatContext, row: CandidateRow) -> str:
+    """여러 명을 미리 넣을 때 쓰는 한 줄: 번호, 이름, 결정, 점수, 경력, 선택 여부와 분석 상태."""
+    return f"{candidate_summary_text(chat, row)}, 분석 상태: {row.analysis_status.value}"
+
+
+def application_block(ledger: Ledger, chat: ChatContext, row: CandidateRow, review: ApplicationReview | None) -> str:
+    """서류 Agent가 저장한 분석 원본. 사실은 본인 · 팀 · 역할 불분명을 붙이고, 본인 사실만 OK로 올릴 수 있다."""
+    if review is None:
+        return f"{_who(chat, row)}: {NO_REVIEW}"
+    agent = AGENT_NAMES[ItemAgent.APPLICATION]
+    lines = [_who(chat, row)]
+
+    def add(text: str, quote: str | None, source: str, cap: Cap) -> None:
+        lines.append(
+            ledger.line(ledger.add(row.application_id, text, quote=quote, source=source, cap=cap, agent=agent))
+        )
+
+    for fact in review.facts:
+        first = fact.quotes[0] if fact.quotes else None
+        cap: Cap = "OK" if fact.actor is Actor.SELF and fact.supported else "CHECK"
+        source = first.document.label if first else "제출 문서"
+        add(f"{_ACTOR_LABELS[fact.actor]} · {fact.statement}", first.sentence if first else None, source, cap)
+    for period in review.periods:
+        span = f"{period.start} ~ {period.end or '현재'}"
+        text = f"경력 기간 · {period.company} {period.role} {span} ({period.months}개월)"
+        add(text, period.quote.sentence, period.quote.document.label, "OK")
+    for result in review.criteria:
+        parts = [
+            f"{label}: {', '.join(values)}"
+            for label, values in (
+                ("충족", result.satisfied_parts),
+                ("미충족", result.unsatisfied_parts),
+                ("확인 안 됨", result.unknown_parts),
+            )
+            if values
+        ]
+        text = f"{CATEGORY_LABEL[result.category]} {result.text}: {VERDICT_LABEL[result.verdict]}"
+        text += f" ({'; '.join(parts)})" if parts else ""
+        first = result.quotes[0] if result.quotes else None
+        cap = "CHECK" if result.verdict is Verdict.UNKNOWN else "OK"
+        add(text, first.sentence if first else None, first.document.label if first else POSTING_SOURCE, cap)
+    for section in review.sections:
+        first = section.quotes[0] if section.quotes else None
+        add(
+            f"{section.document.label} '{section.title}' 요약 · {section.summary}",
+            first.sentence if first else None,
+            section.document.label,
+            "OK",
+        )
+    for note in [*review.holds, *review.checks]:
+        add(note.text, None, note.source, "CHECK")
+    return data_block("application", "\n".join(lines))
+
+
+def interview_block(ledger: Ledger, chat: ChatContext, row: CandidateRow, view: ProfileView | None) -> str:
+    """면접 질문과 답변 원문(확인 필요)과 면접 분석 Agent가 정리한 항목."""
+    records = chat.interviews.get(row.application_id)
+    answered = [
+        (stage, question)
+        for stage, questions in (
+            *((previous.stage_name, previous.questions) for previous in (records.previous if records else [])),
+            (chat.stage_name, records.questions if records else []),
+        )
+        for question in questions
+        if question.answer.strip()
+    ]
+    if not answered:
+        lines = [interview_text(chat, row)]
+    else:
+        lines = [_who(chat, row)]
+        lines += [
+            ledger.line(
+                ledger.add(
+                    row.application_id,
+                    f"[{stage}] 질문: {question.text}",
+                    quote=question.answer.strip(),
+                    source=INTERVIEW_SOURCE,
+                    cap="CHECK",
+                )
+            )
+            for stage, question in answered
+        ]
+    if view is not None:
+        lines += _profile_refs(ledger, row, [line for line in view.lines if line.agent == ItemAgent.INTERVIEW])
+    return data_block("interview", "\n".join(lines))
+
+
+def memo_block(ledger: Ledger, chat: ChatContext, row: CandidateRow) -> str:
+    """담당자의 면접관 메모. 지원자의 발언이나 확인된 사실이 아니므로 언제나 확인 필요다."""
+    memos = chat.interviewer_memos.get(row.application_id, [])
+    if not memos:
+        return f"{_who(chat, row)}: {NO_MEMOS}"
+    lines = [_who(chat, row)]
+    lines += [
+        ledger.line(
+            ledger.add(
+                row.application_id, f"[{memo.stage_name}] {memo.text}", source=MEMO_SOURCE, cap="CHECK", memo=memo
+            )
+        )
+        for memo in memos
+    ]
+    return data_block("memos", "\n".join(lines))
+
+
+def stage_block(ledger: Ledger, chat: ChatContext) -> str:
+    """전형 전체의 공식 집계와 지원자별 한 줄. 지원자 줄은 그 지원자의 근거다."""
+    owners = {candidate_summary_text(chat, row): row.application_id for row in chat.candidates}
+    lines = [
+        ledger.line(ledger.add(owners.get(line), line, source=RESULT_SOURCE, cap="OK"))
+        for line in stage_summary_text(chat).splitlines()
+        if line.strip()
+    ]
+    return data_block("stage", "\n".join(lines))
+
+
+def company_block(ledger: Ledger, chat: ChatContext) -> str:
+    """회사 소개와 공고. 각 줄이 공통 근거다."""
+    lines = [
+        ledger.line(ledger.add(None, line.strip(), source=source, cap="OK"))
+        for text, source in ((company_text(chat), COMPANY_SOURCE), (posting_text(chat), POSTING_SOURCE))
+        for line in text.splitlines()
+        if line.strip()
+    ]
+    return data_block("company", "\n".join(lines))
+
+
+def turns_block(ledger: Ledger, chat: ChatContext, turns: Sequence[Turn]) -> str:
+    """앞 대화의 질문, 답과 검증된 항목. 항목 상태는 그때 검증한 상태 그대로다. 범위 밖 지원자의 항목은 뺀다."""
+    in_scope = {str(row.application_id): row.application_id for row in chat.candidates}
+    lines: list[str] = []
+    for turn in turns:
+        lines += [f"질문: {turn['message']}", f"답: {turn['answer']}"]
+        for item in verified_turn_items(turn):
+            owner = item["application_id"]
+            if owner is not None and owner not in in_scope:
+                continue
+            cap: Cap = "OK" if item.get("status") == "OK" else "CHECK"
+            text = f"{item['label']}: {item['text']}"
+            lines.append(ledger.line(ledger.add(in_scope[owner] if owner else None, text, source=TURN_SOURCE, cap=cap)))
+    return data_block("history", "\n".join(lines)) if lines else ""
+
+
 @dataclass(frozen=True)
 class RootToolkit:
     """search는 찾기, answer_tools는 도구 루프, brief는 여러 명 분석, evidence는 답 근거 확인이 쓴다.
 
+    profile과 review는 AI 워커가 미리 저장한 지원자 프로필과 서류 분석 원본을 읽는다.
     judged는 찾기 재확인의 판정 기억이다. 같은 입력이면 앞 판정을 다시 써 같은 질문에 같은 후보를 낸다.
     """
 
@@ -709,6 +972,8 @@ class RootToolkit:
     evidence: ProfileEvidence = no_profile_evidence
     judged: dict[str, dict[str, Any]] = field(default_factory=dict, compare=False)
     artifacts: AnalysisArtifactReader | None = None
+    profile: ProfileReader = no_profile
+    review: ReviewReader = no_review
 
 
 def default_toolkit() -> RootToolkit:
@@ -730,6 +995,8 @@ def profile_toolkit(sessions: async_sessionmaker[AsyncSession]) -> RootToolkit:
         brief=profile_brief(sessions),
         evidence=profile_evidence(sessions),
         artifacts=DbAnalysisArtifacts(sessions),
+        profile=db_profile_reader(sessions),
+        review=db_review_reader(sessions),
     )
 
 
