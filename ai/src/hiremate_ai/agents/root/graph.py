@@ -31,7 +31,14 @@ from hiremate_ai.agents.root.answer import readable
 from hiremate_ai.agents.root.handlers import Handled, handle_edit, handle_find, handle_questions, handle_reply, precheck
 from hiremate_ai.agents.root.plan import EditPlan, FindPlan, QuestionsPlan, make_plan
 from hiremate_ai.agents.root.progress import StepRecorder, writer_progress
-from hiremate_ai.agents.root.review import NO_EVIDENCE, answer_plan, focus_drafts, questions_plan, review_items
+from hiremate_ai.agents.root.review import (
+    NO_EVIDENCE,
+    answer_plan,
+    cap_items,
+    focus_drafts,
+    questions_plan,
+    review_items,
+)
 from hiremate_ai.agents.root.scope import expand_scope
 from hiremate_ai.agents.root.state import RootInput, RootOutput, RootRun, RootState
 from hiremate_ai.agents.root.toolkit import RootToolkit, default_toolkit
@@ -215,8 +222,12 @@ def build_root_graph(
                 message, checked = await review_items(llm, context, ledger, output.message, output.items)
                 reviewed = answer_plan(message, checked)
             elif isinstance(output, QuestionsOutput) and isinstance(run.plan.form, QuestionsPlan):
-                _, checked = await review_items(llm, context, ledger, output.message, focus_drafts(output.focus))
-                reviewed = questions_plan(context, run.rows, run.plan.form, checked)
+                # 확인할 점은 사실 주장이 아니라 물어볼 점이라 판정 모델 없이 근거 상태만 맞춘다.
+                # 남은 확인할 점이 없으면 요청 문장으로 질문을 만들게 한다
+                checked = cap_items(context, ledger, focus_drafts(output.focus))
+                reviewed = questions_plan(context, run.rows, run.plan.form, checked) or (
+                    handle_questions(context, run.plan.form, run.rows).plan
+                )
             else:
                 raise TypeError(f"근거를 검토하지 않는 답이다: {run.reply.kind}")
         final = reviewed or ChatPlan.answer(Intent.CLARIFY, NO_EVIDENCE)

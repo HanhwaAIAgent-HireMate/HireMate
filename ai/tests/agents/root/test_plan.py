@@ -9,6 +9,7 @@ from hiremate_ai.agents.root.conversation import ConversationReview
 from hiremate_ai.agents.root.find import SearchQuery
 from hiremate_ai.agents.root.plan import (
     EMPTY_FIND,
+    NO_MENTIONS_HINT,
     NO_SCOPE,
     PICKS_INVALID,
     PLAN_SYSTEM,
@@ -96,6 +97,22 @@ async def test_find_without_condition_is_rewritten(
     plan = await make_plan(llm, context, [], None, [])
 
     assert plan.kind == "find" and EMPTY_FIND in llm.calls[1].user
+
+
+async def test_missing_mentions_with_previous_subject_is_rewritten_once(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, message="그 사람 선택에서 빼줘")
+    subject = [str(sample_applicants["서민재"].info.application_id)]
+    llm = FakeLlm(
+        ToolCall("edit", {"action": "REMOVE", "scope": {"sources": ["mentions"]}}),
+        ToolCall("edit", {"action": "REMOVE", "scope": {"sources": ["subject"]}}),
+    )
+
+    plan = await make_plan(llm, context, [], None, subject)
+
+    assert plan.scope is not None and plan.scope.sources == ["subject"]
+    assert NO_MENTIONS_HINT in llm.calls[1].user
 
 
 async def test_edit_without_scope_is_rewritten(
