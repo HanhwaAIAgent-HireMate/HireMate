@@ -30,15 +30,15 @@ def plan_edit(action: EditAction, context: ChatContext, rows: Sequence[Candidate
         return ChatPlan.answer(Intent.CLARIFY, NO_TARGET)
     if action is EditAction.REMOVE:
         return _edit(EditAction.REMOVE, [row.application_id for row in rows], REMOVED.format(names=_names(rows)))
-    selectable = [row for row in rows if _selectable(context, row)]
-    reasons = _unselectable(context, [row for row in rows if row not in selectable])
-    if not selectable:
+    allowed = [row for row in rows if selectable(context, row)]
+    reasons = _unselectable(context, [row for row in rows if row not in allowed])
+    if not allowed:
         return ChatPlan.answer(Intent.CLARIFY, " ".join(reasons))
-    message = " ".join([ADDED.format(names=_names(selectable)), *reasons])
-    return _edit(EditAction.ADD, [row.application_id for row in selectable], message, reasons)
+    message = " ".join([ADDED.format(names=_names(allowed)), *reasons])
+    return _edit(EditAction.ADD, [row.application_id for row in allowed], message, reasons)
 
 
-def _selectable(context: ChatContext, row: CandidateRow) -> bool:
+def selectable(context: ChatContext, row: CandidateRow) -> bool:
     """backend가 선택 지원자에 넣는 지원자: 미결정이고, 서류 전형이면 기준선 위(올린 지원자 포함)다."""
     return row.decision is Decision.PENDING and (context.stage_type is not StageType.DOCUMENT or row.above_line)
 

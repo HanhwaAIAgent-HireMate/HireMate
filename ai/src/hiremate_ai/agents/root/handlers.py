@@ -1,0 +1,150 @@
+"""정해진 흐름의 처리기: 찾기, 선택 편집, 확인할 점 없는 면접 질문, 고정 답. 계획이 정한 인자만 쓴다.
+
+데이터 사실(결과를 확정한 전형, 면접 전형이 아님, 메모 없음)은 모델에게 다시 묻지 않고 바로 안내한다.
+"""
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
+from hiremate_ai.agents.root.answer import BULK_LIMIT, INTERVIEW_AGENT, readable
+from hiremate_ai.agents.root.edit import plan_edit, selectable
+from hiremate_ai.agents.root.find import LOCKED, SearchQuery, plan_find
+from hiremate_ai.agents.root.plan import (
+    BlockedPlan,
+    ClarifyPlan,
+    ConversationPlan,
+    DecisionPlan,
+    EditPlan,
+    FindPlan,
+    QuestionsPlan,
+    RootPlan,
+)
+from hiremate_ai.agents.root.progress import Progress
+from hiremate_ai.agents.root.scope import NO_SELECTED
+from hiremate_ai.agents.root.toolkit import NO_MEMOS, RootToolkit
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan, EditAction, Intent, SelectionMode
+from hiremate_ai.contract import StageType
+from hiremate_ai.llm.client import LlmClient
+
+DECISION_REPLY = "합격과 불합격 결정, 결과 확정, 공고 게시와 안내 발송은 담당자가 화면에서 직접 실행해 주세요."
+QUESTIONS_REQUESTED = "{count}명의 면접 질문 생성을 요청했어요."
+NOT_INTERVIEW = "면접 질문은 면접 전형에서 만들 수 있어요."
+TOO_MANY = f"면접 질문은 한 번에 {BULK_LIMIT}명까지 만들 수 있어요."
+NOTHING_TO_ADD = "선택 지원자에 넣을 수 있는 미선택 지원자가 없어요."
+NOTHING_TO_REMOVE = "선택 지원자 가운데 조건에 맞는 사람이 없어요. 선택 지원자는 그대로예요."
+
+
+@dataclass(frozen=True)
+class Handled:
+    plan: ChatPlan
+    kind: str  # 턴 기록의 종류: FIND, EDIT, ANSWER
+    mode: SelectionMode | None = None
+
+
+def precheck(context: ChatContext, plan: RootPlan, rows: Sequence[CandidateRow]) -> ChatPlan | None:
+    """처리 전에 화면과 전형 상태만으로 정해지는 안내. 실행할 수 있으면 None."""
+    form = plan.form
+    if isinstance(form, EditPlan) and not context.selectable:
+        return ChatPlan.answer(Intent.CLARIFY, LOCKED)
+    if isinstance(form, FindPlan) and form.remove and not context.selectable:
+        return ChatPlan.answer(Intent.CLARIFY, LOCKED)
+    if isinstance(form, QuestionsPlan):
+        if context.stage_type is not StageType.INTERVIEW:
+            return ChatPlan.answer(Intent.CLARIFY, NOT_INTERVIEW)
+        if len(rows) > BULK_LIMIT:
+            return ChatPlan.answer(Intent.CLARIFY, TOO_MANY)
+        if form.checks == "memos" and not any(context.interviewer_memos.get(row.application_id) for row in rows):
+            return ChatPlan.answer(Intent.CLARIFY, NO_MEMOS)
+    return None
+
+
+def search_criteria(query: SearchQuery, context: ChatContext) -> list[str]:
+    """찾기에 실제로 쓰일 조건 전부. 차별 조건 검사에 쓴다 (규칙 6)."""
+    criteria = list(query.concepts)
+    if query.use_talents:
+        criteria += [f"{talent.title} {talent.description}" for talent in context.company.talents]
+    if query.posting_criteria in ("qualifications", "both"):
+        criteria += context.posting.qualifications
+    if query.posting_criteria in ("preferred", "both"):
+        criteria += context.posting.preferred
+    return criteria
+
+
+async def handle_find(
+    llm: LlmClient,
+    context: ChatContext,
+    toolkit: RootToolkit,
+    form: FindPlan,
+    rows: Sequence[CandidateRow] | None,
+    *,
+    progress: Progress,
+) -> Handled:
+    """rows는 요청이 말한 검색 범위다. None이면 전형 전체다."""
+    if blocked_attribute(" ".join(search_criteria(form.query, context))):
+        return Handled(ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY), "ANSWER")
+    if form.remove:
+        return await _remove_matching(llm, context, toolkit, form.query, rows, progress)
+    pool = [row.application_id for row in rows] if rows is not None else None
+    found = await plan_find(llm, form.query, context, toolkit, pool=pool, progress=progress)
+    kind = "FIND" if found.intent in (Intent.FIND, Intent.ANSWER) else "ANSWER"
+    return Handled(found, kind, form.query.mode)
+
+
+async def _remove_matching(
+    llm: LlmClient,
+    context: ChatContext,
+    toolkit: RootToolkit,
+    query: SearchQuery,
+    rows: Sequence[CandidateRow] | None,
+    progress: Progress,
+) -> Handled:
+    pool = list(rows) if rows else [row for row in context.candidates if row.selected]
+    if not pool:
+        return Handled(ChatPlan.answer(Intent.CLARIFY, NO_SELECTED), "ANSWER")
+    narrowed = query.model_copy(update={"mode": SelectionMode.NARROW})
+    found = await plan_find(
+        llm, narrowed, context, toolkit, pool=[row.application_id for row in pool], progress=progress
+    )
+    if found.intent in (Intent.CLARIFY, Intent.BLOCKED):
+        return Handled(found, "ANSWER")
+    matched = set(found.targets)
+    removing = [row for row in pool if row.application_id in matched]
+    if not removing:
+        return Handled(ChatPlan.answer(Intent.ANSWER, NOTHING_TO_REMOVE), "ANSWER")
+    plan = plan_edit(EditAction.REMOVE, context, removing)
+    return Handled(
+        plan.model_copy(update={"items": found.items, "sources": found.sources, "agents": found.agents}), "EDIT"
+    )
+
+
+def handle_edit(context: ChatContext, form: EditPlan, rows: Sequence[CandidateRow], all_scope: bool) -> Handled:
+    """전형 전체를 넣으라는 요청은 넣을 수 있는 미선택자만 남긴다. 넣을 수 없는 사람을 하나하나 나열하지 않는다."""
+    targets = list(rows)
+    if form.action is EditAction.ADD and all_scope:
+        targets = [row for row in targets if not row.selected and selectable(context, row)]
+        if not targets:
+            return Handled(ChatPlan.answer(Intent.CLARIFY, NOTHING_TO_ADD), "ANSWER")
+    plan = plan_edit(form.action, context, targets)
+    return Handled(plan, "EDIT" if plan.intent is Intent.EDIT else "ANSWER")
+
+
+def handle_questions(context: ChatContext, form: QuestionsPlan, rows: Sequence[CandidateRow]) -> Handled:
+    """확인할 점 없이 만드는 면접 질문. backend가 요청 문장을 그대로 질문 생성 Agent에 넘긴다."""
+    plan = ChatPlan.answer(Intent.ANSWER, QUESTIONS_REQUESTED.format(count=len(rows)), agents=[INTERVIEW_AGENT])
+    update = {"question_targets": [row.application_id for row in rows], "question_replace": form.replace}
+    return Handled(plan.model_copy(update=update), "ANSWER")
+
+
+def handle_reply(context: ChatContext, plan: RootPlan) -> Handled:
+    """자료 없이 내는 답: 일반 대화, 되묻기, 차단, 결정 안내."""
+    form = plan.form
+    if isinstance(form, ConversationPlan):
+        return Handled(ChatPlan.answer(Intent.ANSWER, readable(form.message, context)), "ANSWER")
+    if isinstance(form, ClarifyPlan):
+        return Handled(ChatPlan.answer(Intent.CLARIFY, readable(form.message, context)), "ANSWER")
+    if isinstance(form, BlockedPlan):
+        return Handled(ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY), "ANSWER")
+    if isinstance(form, DecisionPlan):
+        return Handled(ChatPlan.answer(Intent.ANSWER, DECISION_REPLY), "ANSWER")
+    raise TypeError(f"고정 답으로 처리하지 않는 종류다: {plan.kind}")
