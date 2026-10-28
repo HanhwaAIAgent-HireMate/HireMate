@@ -10,7 +10,7 @@ from hiremate_ai.agents.root.types import ChatContext, ChatStage, StageStatus
 from hiremate_ai.contract import StageType
 
 STAGE_LABELS = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
-_STATUS_LABELS = {
+STATUS_LABELS = {
     StageStatus.PENDING: "시작 전",
     StageStatus.ACTIVE: "진행 중",
     StageStatus.CONFIRMED: "결과 확정",
@@ -75,9 +75,7 @@ def stage_plan(context: ChatContext) -> str:
     steps = []
     for index, stage in enumerate(context.stages):
         current = ", 현재" if index == context.stage_index else ""
-        steps.append(
-            f"{index + 1}. {stage.name} ({STAGE_LABELS[stage.type]} · {_STATUS_LABELS[stage.status]}{current})"
-        )
+        steps.append(f"{index + 1}. {stage.name} ({STAGE_LABELS[stage.type]} · {STATUS_LABELS[stage.status]}{current})")
     return " → ".join(steps)
 
 
