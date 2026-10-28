@@ -38,6 +38,7 @@ from hiremate_ai.agents.root.toolkit import (
 )
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan
+from hiremate_ai.llm.chat import reserve_model_calls
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import data_block
 
@@ -200,7 +201,9 @@ async def run_analysis(
         return check_reply(reply, run)
 
     user = await _prompt(toolkit, run, task, checks)
-    return await agent.run(user, context=run, validate=validate)
+    # 근거 검토가 쓸 호출 한 번은 남긴다. 루프와 하위 Agent는 그 전까지만 쓴다
+    with reserve_model_calls(1):
+        return await agent.run(user, context=run, validate=validate)
 
 
 def check_reply(reply: AnalysisReply, run: AnalysisRun) -> str | None:

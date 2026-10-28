@@ -531,7 +531,9 @@ class _LastCallAnswers(AgentMiddleware[Any, Any, Any]):
         # 실행은 질문 하나로 시작하므로 앞선 AI 메시지 수가 이번 실행에서 부른 모델 호출 수다
         called = sum(isinstance(message, AIMessage) for message in request.messages)
         budget = _MODEL_CALL_BUDGET.get()
-        if called + 1 >= self._max_calls or (budget is not None and budget.remaining <= 1):
+        # 뒤 단계를 위해 예약한 호출은 쓸 수 없으므로 남은 호출에서 뺀다
+        usable = budget.remaining - _RESERVED_MODEL_CALLS.get() if budget is not None else None
+        if called + 1 >= self._max_calls or (usable is not None and usable <= 1):
             request = request.override(tools=[], messages=[*request.messages, HumanMessage(LAST_CALL)])
         return await handler(request)
 
