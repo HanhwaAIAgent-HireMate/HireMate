@@ -162,6 +162,25 @@ public class InterviewService {
         return view(companyId, stageId, question.getApplicationId());
     }
 
+    /** Chat의 질문 교체. 답변이 없는 AI 질문만 지우고, 직접 넣은 질문과 답변을 기록한 질문은 남긴다. */
+    @Transactional
+    public KeptQuestions clearAiQuestions(UUID companyId, UUID stageId, UUID applicationId) {
+        StageInfo stage = interviewStage(companyId, stageId, applicationId);
+        if (stage.status() != StageStatus.ACTIVE) {
+            throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "Only active interviews can regenerate.");
+        }
+        List<InterviewQuestion> existing = questions.findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(stageId,
+                applicationId, companyId);
+        questions.deleteAll(existing.stream()
+                .filter(question -> question.getSource() == QuestionSource.AI && question.getAnswer().isBlank())
+                .toList());
+        int manual = (int) existing.stream().filter(question -> question.getSource() == QuestionSource.MANUAL).count();
+        int answered = (int) existing.stream()
+                .filter(question -> question.getSource() == QuestionSource.AI && !question.getAnswer().isBlank())
+                .count();
+        return new KeptQuestions(manual, answered);
+    }
+
     /** 담당자가 요청한 현재 면접 질문만 백업 없이 제거한다. 이전 면접 기록은 유지한다. */
     @Transactional
     public void clearQuestions(UUID companyId, UUID stageId, UUID applicationId) {

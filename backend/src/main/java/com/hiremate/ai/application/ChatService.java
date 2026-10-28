@@ -4,7 +4,9 @@ import com.hiremate.apply.ApplicationService;
 import com.hiremate.assessment.AssessmentService;
 import com.hiremate.company.CompanyService;
 import com.hiremate.global.ApiException;
+import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
+import com.hiremate.interview.KeptQuestions;
 import com.hiremate.posting.PostingService;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
@@ -42,6 +44,7 @@ public class ChatService {
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
     private static final Pattern QUESTION_COUNT = Pattern.compile("(?<!\\d)(\\d+)\\s*(?:개|문항)");
     private static final int CANDIDATE_PAGE_SIZE = 200;
+    private static final String KEPT_QUESTIONS = "직접 넣은 질문 %d개와 답변을 기록한 질문 %d개는 남겼어요.";
 
     private final ScreeningService screening;
     private final RecruitService recruits;
@@ -257,19 +260,28 @@ public class ChatService {
             String message, ChatProgress progress) {
         List<ChatItem> summaries = new ArrayList<>();
         List<String> shortfalls = new ArrayList<>();
+        List<String> kept = new ArrayList<>();
         int limit = requestedQuestionCount(message);
         for (UUID applicationId : plan.questionTargets()) {
             String name = candidates.stream().filter(row -> row.applicationId().equals(applicationId))
                     .map(CandidateRow::name).findFirst().orElse("지원자");
             progress.status(name + " 면접 질문을 만들고 있어요");
-            int before = interviews.count(companyId, stageId, applicationId);
+            if (plan.questionReplace()) {
+                KeptQuestions left = interviews.clearAiQuestions(companyId, stageId, applicationId);
+                if (left.any()) {
+                    String note = KEPT_QUESTIONS.formatted(left.manual(), left.answered());
+                    kept.add(plan.questionTargets().size() > 1 ? name + ": " + note : note);
+                }
+            }
+            Set<UUID> before = interviews.questionIds(companyId, stageId, applicationId);
             String focus = plan.questionFocus().getOrDefault(applicationId, message);
             InterviewerMemo memo = plan.questionMemos().get(applicationId);
             InterviewView view = memo == null
                     ? interviews.generate(companyId, stageId, applicationId, focus, limit)
                     : interviews.generateFromMemo(companyId, stageId, applicationId, focus, memo);
-            List<InterviewView.Question> added = view.questions().subList(Math.min(before, view.questions().size()),
-                    view.questions().size());
+            List<InterviewView.Question> added = view.questions().stream()
+                    .filter(question -> !before.contains(question.questionId()))
+                    .filter(question -> !question.text().equals(InterviewService.INTRO)).toList();
             if (memo != null && added.isEmpty()) {
                 shortfalls.add(name + ": 메모에서 실제 면접 기록과 연결되는 새 확인 사항을 찾지 못해 질문을 추가하지 않았어요.");
             } else if (added.size() < limit) {
@@ -280,7 +292,9 @@ public class ChatService {
                     : added.getFirst().text() + (added.size() > 1 ? " 외 " + (added.size() - 1) + "문항" : ""), null));
         }
         List<ChatItem> items = plan.items().isEmpty() ? summaries : plan.items();
-        String reply = plan.message() + (shortfalls.isEmpty() ? "" : "\n" + String.join("\n", shortfalls));
+        List<String> notes = new ArrayList<>(shortfalls);
+        notes.addAll(kept);
+        String reply = plan.message() + (notes.isEmpty() ? "" : "\n" + String.join("\n", notes));
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), reply, items,
                 plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos(),
                 plan.questionReplace());
