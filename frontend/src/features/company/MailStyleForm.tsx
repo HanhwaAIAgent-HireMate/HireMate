@@ -29,19 +29,11 @@ import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg']
+// 서버가 메일에 맞는 크기로 줄여 저장해서 큰 그림도 받는다
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024
 const IMAGES = {
-  logo: {
-    url: '/api/companies/me/mail-style/logo',
-    maxBytes: 500 * 1024,
-    size: '500KB',
-    name: '로고',
-  },
-  banner: {
-    url: '/api/companies/me/mail-style/banner',
-    maxBytes: 1024 * 1024,
-    size: '1MB',
-    name: '배너',
-  },
+  logo: { url: '/api/companies/me/mail-style/logo', name: '로고' },
+  banner: { url: '/api/companies/me/mail-style/banner', name: '배너' },
 } as const
 
 // 모든 안내 메일과 접수 확인 메일의 색, 머리와 안내 상자 모양, 로고, 배너. 고르는 동안 예시 메일에 바로 보여 준다
@@ -159,7 +151,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
           kind="logo"
           has={saved.hasLogo}
           version={version}
-          hint="PNG · JPG, 500KB까지. 메일 머리에 들어가요. 올리지 않으면 회사 이름을 글자로 써요."
+          hint="PNG · JPG, 5MB까지. 메일 머리에 맞게 줄여서 저장해요. 올리지 않으면 회사 이름을 글자로 써요."
         />
       </SettingsRow>
       <SettingsRow label="배너">
@@ -167,7 +159,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
           kind="banner"
           has={saved.hasBanner}
           version={version}
-          hint="PNG · JPG, 1MB까지. 가로 1200px 정도의 넓은 그림이 좋아요. 머리 모양이 '배너 그림'일 때 들어가요."
+          hint="PNG · JPG, 5MB까지. 가로로 넓은 그림이 좋아요. 메일 폭에 맞게 줄여 저장하고, 머리 모양이 '배너 그림'일 때 들어가요."
         />
       </SettingsRow>
       <SettingsRow label="미리보기">
@@ -288,8 +280,8 @@ function ImageField({
       toast.error('PNG나 JPG 그림만 올릴 수 있어요.')
       return
     }
-    if (file.size > image.maxBytes) {
-      toast.error(`${image.name}는 ${image.size}까지 올릴 수 있어요.`)
+    if (file.size > IMAGE_MAX_BYTES) {
+      toast.error(`${image.name}는 5MB까지 올릴 수 있어요.`)
       return
     }
     upload.mutate(file, {
