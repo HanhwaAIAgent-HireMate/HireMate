@@ -10,11 +10,15 @@ import java.util.Base64;
  */
 public record MailPreview(String subject, String html) {
 
-    /** 변수는 미리 예시 값으로 채워 넘긴다. 로고는 보낼 때와 달리 HTML 안에 data: 주소로 넣는다. */
+    /** 변수는 미리 예시 값으로 채워 넘긴다. 로고와 배너는 보낼 때와 달리 HTML 안에 data: 주소로 넣는다. */
     public static MailPreview of(String subject, MailContent content, MailBrand brand) {
-        String logoSrc = brand.logo() == null ? null
-                : "data:" + brand.logo().contentType() + ";base64,"
-                        + Base64.getEncoder().encodeToString(brand.logo().bytes());
-        return new MailPreview(subject, MailLayout.html(subject, content, brand.color(), logoSrc));
+        MailLayout.Look look = new MailLayout.Look(brand.color(), brand.accentOrColor(), brand.header(), brand.box(),
+                dataSrc(brand.logo()), dataSrc(brand.banner()));
+        return new MailPreview(subject, MailLayout.html(subject, content, look));
+    }
+
+    private static String dataSrc(MailBrand.Logo image) {
+        return image == null ? null
+                : "data:" + image.contentType() + ";base64," + Base64.getEncoder().encodeToString(image.bytes());
     }
 }

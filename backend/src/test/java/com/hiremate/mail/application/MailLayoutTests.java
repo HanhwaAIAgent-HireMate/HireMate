@@ -3,6 +3,8 @@ package com.hiremate.mail.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.mail.MailBrand;
+import com.hiremate.mail.MailBrand.GuideBox;
+import com.hiremate.mail.MailBrand.Header;
 import com.hiremate.mail.MailContent;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -43,6 +45,67 @@ class MailLayoutTests {
                 "color:#0055a4;\">1차 면접 안내</td>").doesNotContain("<img", MailBrand.DEFAULT_COLOR);
         assertThat(logo).contains("<img src=\"cid:company-logo\" alt=\"예시 기업\" height=\"40\"")
                 .doesNotContain(">예시 기업</td>");
+    }
+
+    @Test
+    @DisplayName("띠 머리는 대표 색 띠 위에 회사 이름을 쓰고, 띠가 밝으면 흰 글자 대신 진한 글자를 쓴다")
+    void bandHeaderKeepsNameReadable() {
+        MailContent content = new MailContent("예시 기업", "", List.of(), "", "발신 전용");
+
+        String dark = MailLayout.html("결과 안내", content, look("#1e3a5f", Header.BAND, GuideBox.FILL, null, null));
+        String light = MailLayout.html("결과 안내", content, look("#fde68a", Header.BAND, GuideBox.FILL, null, null));
+        String logo = MailLayout.html("결과 안내", content,
+                look("#1e3a5f", Header.BAND, GuideBox.FILL, "cid:company-logo", null));
+
+        assertThat(dark).contains("padding:18px 32px;background:#1e3a5f;", "color:#ffffff;\">예시 기업</span>")
+                .doesNotContain("height:4px;");
+        assertThat(light).contains("color:#1f2328;\">예시 기업</span>");
+        assertThat(logo).containsSubsequence("background:#ffffff;border-radius:6px;", "<img src=\"cid:company-logo\"",
+                "height=\"32\"");
+    }
+
+    @Test
+    @DisplayName("가운데 머리는 로고를 가운데에 두고, 배너 머리는 배너 그림을 두며 그림이 없으면 띠로 그린다")
+    void centerAndBannerHeaders() {
+        MailContent content = new MailContent("예시 기업", "", List.of(), "", "발신 전용");
+
+        String center = MailLayout.html("결과 안내", content,
+                look(COLOR, Header.CENTER, GuideBox.FILL, "cid:company-logo", null));
+        String banner = MailLayout.html("결과 안내", content,
+                look(COLOR, Header.BANNER, GuideBox.FILL, "cid:company-logo", "cid:company-banner"));
+        String noBanner = MailLayout.html("결과 안내", content, look(COLOR, Header.BANNER, GuideBox.FILL, null, null));
+
+        assertThat(center).contains("align=\"center\"", "text-align:center;", "display:inline-block;height:40px;");
+        assertThat(banner).contains("<img src=\"cid:company-banner\" alt=\"예시 기업\" width=\"600\"")
+                .doesNotContain("cid:company-logo");
+        assertThat(noBanner).contains("padding:18px 32px;background:" + COLOR + ";").doesNotContain("<img");
+    }
+
+    @Test
+    @DisplayName("안내 상자 제목은 보조 색이고, 테두리 상자는 보조 색 테두리, 표는 상자 없이 보조 색 막대로 그린다")
+    void guideBoxesUseAccent() {
+        MailContent content = new MailContent("예시 기업", "",
+                List.of(new MailContent.Guide("안내", "1차 면접 안내", List.of(new MailContent.Item("일정", "11월 5일")),
+                        List.of())), "", "발신 전용");
+
+        String fill = MailLayout.html("결과 안내", content, look(GuideBox.FILL));
+        String outline = MailLayout.html("결과 안내", content, look(GuideBox.OUTLINE));
+        String rows = MailLayout.html("결과 안내", content, look(GuideBox.ROWS));
+
+        assertThat(fill).contains("background:#f6f8fb;", "color:#f97316;\">1차 면접 안내</td>")
+                .contains("height:4px;background:#0055a4;");
+        assertThat(outline).contains("border:1px solid #f97316;border-radius:8px;background:#ffffff;",
+                "color:#f97316;\">1차 면접 안내</td>");
+        assertThat(rows).contains("border-left:4px solid #f97316;", "color:#f97316;\">1차 면접 안내</div>")
+                .doesNotContain("background:#f6f8fb;");
+    }
+
+    private static MailLayout.Look look(String color, Header header, GuideBox box, String logo, String banner) {
+        return new MailLayout.Look(color, color, header, box, logo, banner);
+    }
+
+    private static MailLayout.Look look(GuideBox box) {
+        return new MailLayout.Look("#0055a4", "#f97316", Header.LINE, box, null, null);
     }
 
     @Test
