@@ -26,9 +26,10 @@ export function hasPendingAnalysis(rows: Pick<CandidateRow, 'analysisStatus'>[])
 export const stageKeys = {
   all: (stageId: string) => ['stage', stageId] as const,
   overview: (stageId: string) => ['stage', stageId, 'overview'] as const,
-  candidates: (stageId: string, query: string, sort: CandidateSort) =>
-    ['stage', stageId, 'candidates', query, sort] as const,
-  selection: (stageId: string) => ['stage', stageId, 'selection'] as const,
+  tabs: (stageId: string) => ['stage', stageId, 'tabs'] as const,
+  candidates: (stageId: string, tabId: string | null, query: string, sort: CandidateSort) =>
+    ['stage', stageId, 'candidates', tabId, query, sort] as const,
+  selection: (stageId: string, tabId: string) => ['stage', stageId, 'selection', tabId] as const,
   detail: (stageId: string, applicationId: string) =>
     ['stage', stageId, 'detail', applicationId] as const,
   analysis: (stageId: string, applicationId: string) =>
@@ -46,17 +47,31 @@ export function useStageOverview(stageId: string) {
   })
 }
 
-/** 전체 지원자. 스크롤하면 이어서 불러온다. sort는 서류 전형에서만 쓰고 다른 전형은 점수 높은 순이다. */
-export function useCandidates(stageId: string, query: string, sort: CandidateSort) {
+/**
+ * 전체 지원자. 스크롤하면 이어서 불러온다. sort는 서류 전형에서만 쓰고 다른 전형은 점수 높은 순이다.
+ * 선택 표시와 AI 테두리는 tabId 탭 기준이다.
+ */
+export function useCandidates(
+  stageId: string,
+  tabId: string | null,
+  query: string,
+  sort: CandidateSort,
+) {
   return useInfiniteQuery({
-    queryKey: stageKeys.candidates(stageId, query, sort),
+    queryKey: stageKeys.candidates(stageId, tabId, query, sort),
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       unwrap(
         api.GET('/api/stages/{stageId}/candidates', {
           params: {
             path: { stageId },
-            query: { query: query || undefined, sort, page: pageParam, size: PAGE_SIZE },
+            query: {
+              tabId: tabId ?? undefined,
+              query: query || undefined,
+              sort,
+              page: pageParam,
+              size: PAGE_SIZE,
+            },
           },
         }),
       ),
@@ -71,10 +86,16 @@ export function useCandidates(stageId: string, query: string, sort: CandidateSor
   })
 }
 
-export function useSelection(stageId: string) {
+/** 탭의 선택 지원자 */
+export function useSelection(stageId: string, tabId: string) {
   return useQuery({
-    queryKey: stageKeys.selection(stageId),
-    queryFn: () => unwrap(api.GET('/api/stages/{stageId}/selection', path(stageId))),
+    queryKey: stageKeys.selection(stageId, tabId),
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/stages/{stageId}/tabs/{tabId}/selection', {
+          params: { path: { stageId, tabId } },
+        }),
+      ),
   })
 }
 
@@ -147,20 +168,22 @@ export function useStageMutation<T, R = unknown>(
   })
 }
 
-export function useSelectionActions(stageId: string) {
-  const body = (applicationIds: string[]) => ({ ...path(stageId), body: { applicationIds } })
+/** 탭의 선택 지원자 편집. 기준선 ↑는 탭과 상관없다. */
+export function useSelectionActions(stageId: string, tabId: string) {
+  const tabPath = { params: { path: { stageId, tabId } } }
+  const body = (applicationIds: string[]) => ({ ...tabPath, body: { applicationIds } })
   return {
     add: useStageMutation(stageId, (ids: string[]) =>
-      unwrap(api.POST('/api/stages/{stageId}/selection/add', body(ids))),
+      unwrap(api.POST('/api/stages/{stageId}/tabs/{tabId}/selection/add', body(ids))),
     ),
     remove: useStageMutation(stageId, (ids: string[]) =>
-      unwrap(api.POST('/api/stages/{stageId}/selection/remove', body(ids))),
+      unwrap(api.POST('/api/stages/{stageId}/tabs/{tabId}/selection/remove', body(ids))),
     ),
     clear: useStageMutation(stageId, () =>
-      unwrap(api.POST('/api/stages/{stageId}/selection/clear', path(stageId))),
+      unwrap(api.POST('/api/stages/{stageId}/tabs/{tabId}/selection/clear', tabPath)),
     ),
     restore: useStageMutation(stageId, () =>
-      unwrap(api.POST('/api/stages/{stageId}/selection/restore', path(stageId))),
+      unwrap(api.POST('/api/stages/{stageId}/tabs/{tabId}/selection/restore', tabPath)),
     ),
     promote: useStageMutation(stageId, (applicationId: string) =>
       unwrap(
@@ -172,7 +195,8 @@ export function useSelectionActions(stageId: string) {
   }
 }
 
-export function useDecisionActions(stageId: string) {
+/** 결정은 탭과 상관없다. 되돌리기만 누른 탭(tabId)에 없던 지원자를 그 탭에 넣는다 */
+export function useDecisionActions(stageId: string, tabId: string) {
   return {
     decide: useStageMutation(
       stageId,
@@ -188,14 +212,18 @@ export function useDecisionActions(stageId: string) {
       unwrap(
         api.POST('/api/stages/{stageId}/decisions/revert', {
           ...path(stageId),
-          body: { applicationIds: ids },
+          body: { applicationIds: ids, tabId },
         }),
       ),
     ),
-    confirm: useStageMutation(stageId, () =>
-      unwrap(api.POST('/api/stages/{stageId}/confirm', path(stageId))),
-    ),
   }
+}
+
+/** 전형 결과 확정. 탭은 남고 탭의 선택 지원자는 비워진다 */
+export function useConfirmStage(stageId: string) {
+  return useStageMutation(stageId, () =>
+    unwrap(api.POST('/api/stages/{stageId}/confirm', path(stageId))),
+  )
 }
 
 /** 분석에 실패한 지원자를 다시 분석한다. 결과는 분석이 끝나면 리스트와 카드에 반영된다 */

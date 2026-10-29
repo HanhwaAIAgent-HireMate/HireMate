@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { type LayoutStorage, useDefaultLayout } from 'react-resizable-panels'
 import { useParams } from 'react-router'
@@ -7,7 +8,12 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChatPanel } from '@/features/chat/ChatPanel'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
-import { useSelection, useStageOverview } from '@/features/screening/api'
+import {
+  stageKeys,
+  useSelection,
+  useStageOverview,
+  type StageOverview,
+} from '@/features/screening/api'
 import { CandidateCard } from '@/features/screening/CandidateCard'
 import { CandidateList } from '@/features/screening/CandidateList'
 import { DecisionBar } from '@/features/screening/DecisionBar'
@@ -15,6 +21,9 @@ import { SelectionPanel } from '@/features/screening/SelectionPanel'
 import { StageBar } from '@/features/screening/StageBar'
 import { StageStepper } from '@/features/screening/StageHeader'
 import { useStageUi } from '@/features/screening/store'
+import { TabBar } from '@/features/screening/TabBar'
+import { useCurrentTab, type StageTab } from '@/features/screening/tabs'
+import { ApiError } from '@/lib/api/client'
 
 // 담당자가 조절한 칸 너비를 브라우저에 남긴다. 저장소를 쓸 수 없거나 값이 깨졌으면 기본 너비로 연다
 const layoutStorage: LayoutStorage = {
@@ -35,20 +44,18 @@ const layoutStorage: LayoutStorage = {
   },
 }
 
-// Generic Stage Page (STG-01). 서류 · 평가 · 면접 전형이 모두 같은 3단 구조를 쓰고, 지원자 카드의 Viewer만 바뀐다
+// Generic Stage Page (STG-01). 서류 · 평가 · 면접 전형이 모두 같은 3단 구조를 쓰고, 지원자 카드의 Viewer만 바뀐다.
+// 선택 지원자와 AI Chat 두 칸 위에 탭 바가 있다. 탭은 선택 지원자와 대화의 묶음이고 같은 기업 담당자가 함께 쓴다
 export function StagePage() {
   const { stageId = '' } = useParams()
   const overview = useStageOverview(stageId)
-  const selection = useSelection(stageId)
-  const { openId, reset, syncSelection } = useStageUi()
-  const layout = useDefaultLayout({ id: 'stage-panels', storage: layoutStorage })
-  const selectedRows = selection.data?.items
+  const { tabs, tab, tabId, setTab } = useCurrentTab(stageId)
+  const { reset } = useStageUi()
+  const columns = useDefaultLayout({ id: 'stage-columns', storage: layoutStorage })
+  const work = useDefaultLayout({ id: 'stage-work', storage: layoutStorage })
 
-  useEffect(() => reset(stageId), [reset, stageId])
-  // 지원자 카드를 열어 둔 동안 Chat으로 빼도 체크가 풀리도록 선택 지원자 칸이 아니라 여기서 맞춘다
-  useEffect(() => {
-    if (selectedRows) syncSelection(selectedRows.map((row) => row.applicationId))
-  }, [selectedRows, syncSelection])
+  // 전형이나 탭을 바꾸면 체크, 열린 카드, Chat 입력창 칩을 비운다
+  useEffect(() => reset(`${stageId}:${tabId ?? ''}`), [reset, stageId, tabId])
   useHeaderCrumb(
     overview.data && {
       title: overview.data.recruitmentTitle,
@@ -72,9 +79,6 @@ export function StagePage() {
 
   const data = overview.data
   const editable = data.status === 'ACTIVE'
-  const names = Object.fromEntries(
-    (selection.data?.items ?? []).map((row) => [row.applicationId, row.name]),
-  )
 
   return (
     <div className="flex h-full flex-col">
@@ -83,10 +87,10 @@ export function StagePage() {
       {/* 칸 사이 경계선으로 너비를 바꾼다. 최소 너비가 있어 칸이 겹치거나 사라지지 않고,
           창 크기가 바뀌면 양옆은 너비를 유지하고 가운데가 늘고 준다 */}
       <ResizablePanelGroup
-        id="stage-panels"
+        id="stage-columns"
         className="min-h-0 flex-1"
-        defaultLayout={layout.defaultLayout}
-        onLayoutChanged={layout.onLayoutChanged}
+        defaultLayout={columns.defaultLayout}
+        onLayoutChanged={columns.onLayoutChanged}
       >
         <ResizablePanel
           id="stage-candidates"
@@ -95,36 +99,93 @@ export function StagePage() {
           minSize={240}
           groupResizeBehavior="preserve-pixel-size"
         >
-          <CandidateList overview={data} editable={editable} />
+          <CandidateList overview={data} tabId={tabId} editable={editable} />
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel id="stage-main" className="flex flex-col" minSize={420}>
-          <section className="flex min-h-0 flex-1 flex-col">
-            {openId ? (
-              <CandidateCard
-                key={openId}
-                overview={data}
-                applicationId={openId}
+        <ResizablePanel id="stage-workspace" className="flex flex-col" minSize={720}>
+          {tab ? (
+            <>
+              <TabBar
+                stageId={data.stageId}
+                tabs={tabs.data ?? []}
+                current={tab.id}
+                onSelect={setTab}
                 editable={editable}
-                selectedCount={data.selectedCount}
               />
-            ) : (
-              <SelectionPanel overview={data} editable={editable} />
-            )}
-            <DecisionBar stageId={data.stageId} editable={editable} names={names} />
-          </section>
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel
-          id="stage-chat"
-          className="flex flex-col"
-          defaultSize={340}
-          minSize={280}
-          groupResizeBehavior="preserve-pixel-size"
-        >
-          <ChatPanel overview={data} />
+              <ResizablePanelGroup
+                id="stage-work"
+                className="min-h-0 flex-1"
+                defaultLayout={work.defaultLayout}
+                onLayoutChanged={work.onLayoutChanged}
+              >
+                <ResizablePanel id="stage-main" className="flex flex-col" minSize={420}>
+                  <Workspace overview={data} tab={tab} editable={editable} />
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel
+                  id="stage-chat"
+                  className="flex flex-col"
+                  defaultSize={340}
+                  minSize={280}
+                  groupResizeBehavior="preserve-pixel-size"
+                >
+                  <ChatPanel overview={data} tabId={tab.id} />
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            </>
+          ) : tabs.isPending ? (
+            <Skeleton className="m-4 h-96" />
+          ) : (
+            <p className="p-6 text-sm text-muted-foreground">
+              전형을 시작하면 선택 지원자와 AI Chat을 쓸 수 있어요.
+            </p>
+          )}
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
+  )
+}
+
+/** 가운데 칸: 지금 탭의 선택 지원자나 열린 지원자 카드, 그리고 결정 바 */
+function Workspace({
+  overview,
+  tab,
+  editable,
+}: {
+  overview: StageOverview
+  tab: StageTab
+  editable: boolean
+}) {
+  const queryClient = useQueryClient()
+  const selection = useSelection(overview.stageId, tab.id)
+  const { openId, syncSelection } = useStageUi()
+  const selectedRows = selection.data?.items
+
+  // 지원자 카드를 열어 둔 동안 Chat으로 빼도 체크가 풀리도록 선택 지원자 칸이 아니라 여기서 맞춘다
+  useEffect(() => {
+    if (selectedRows) syncSelection(selectedRows.map((row) => row.applicationId))
+  }, [selectedRows, syncSelection])
+  // 다른 담당자가 이 탭을 지웠으면 탭 목록을 다시 받아 남은 탭을 연다
+  const gone = selection.error instanceof ApiError && selection.error.code === 'TAB_NOT_FOUND'
+  useEffect(() => {
+    if (gone) void queryClient.invalidateQueries({ queryKey: stageKeys.tabs(overview.stageId) })
+  }, [gone, queryClient, overview.stageId])
+
+  const names = Object.fromEntries((selectedRows ?? []).map((row) => [row.applicationId, row.name]))
+  return (
+    <section className="flex min-h-0 flex-1 flex-col">
+      {openId ? (
+        <CandidateCard
+          key={openId}
+          overview={overview}
+          applicationId={openId}
+          editable={editable}
+          selectedCount={tab.selectedCount}
+        />
+      ) : (
+        <SelectionPanel overview={overview} tab={tab} editable={editable} />
+      )}
+      <DecisionBar stageId={overview.stageId} tabId={tab.id} editable={editable} names={names} />
+    </section>
   )
 }

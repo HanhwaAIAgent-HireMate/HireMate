@@ -16,16 +16,19 @@ type LastDecision = { ids: string[]; names: string[]; decision: 'PASS' | 'FAIL' 
  */
 export function DecisionBar({
   stageId,
+  tabId,
   editable,
   names,
 }: {
   stageId: string
+  /** 되돌리기를 누른 탭. 그 탭에 없던 지원자는 되돌리면 그 탭에 들어온다 */
+  tabId: string
   editable: boolean
   /** 체크한 지원자 이름 (안내 문구용) */
   names: Record<string, string>
 }) {
   const { checked, setChecked, openId } = useStageUi()
-  const { decide, revert } = useDecisionActions(stageId)
+  const { decide, revert } = useDecisionActions(stageId, tabId)
   const [last, setLast] = useState<LastDecision | null>(null)
   // 서버가 받은 결정을 다시 불러오기 전에 먼저 반영한다. 그때의 서버 값(before)이 바뀌면 다시 불러온 서버 값을 따른다
   const [known, setKnown] = useState<

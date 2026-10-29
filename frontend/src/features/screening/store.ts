@@ -2,15 +2,16 @@ import { create } from 'zustand'
 
 export type Mention = { applicationId: string; name: string }
 
-/** 전형 화면의 화면 상태: 체크한 지원자, 열린 지원자 카드, Chat 입력창의 지원자 칩. */
+/** 전형 화면의 화면 상태: 체크한 지원자, 열린 지원자 카드, Chat 입력창의 지원자 칩. 전형이나 탭을 바꾸면 비운다. */
 type StageUiState = {
-  stageId: string | null
+  /** 지금 화면의 전형과 탭 (전형:탭) */
+  scope: string | null
   checked: string[]
   /** 마지막으로 받은 선택 지원자. 목록이 바뀌면 빠진 지원자를 찾는 데 쓴다 */
   selection: string[] | null
   openId: string | null
   mentions: Mention[]
-  reset: (stageId: string) => void
+  reset: (scope: string) => void
   toggleChecked: (applicationId: string, value?: boolean) => void
   setChecked: (applicationIds: string[]) => void
   syncSelection: (applicationIds: string[]) => void
@@ -21,16 +22,16 @@ type StageUiState = {
 }
 
 export const useStageUi = create<StageUiState>((set) => ({
-  stageId: null,
+  scope: null,
   checked: [],
   selection: null,
   openId: null,
   mentions: [],
-  reset: (stageId) =>
+  reset: (scope) =>
     set((state) =>
-      state.stageId === stageId
+      state.scope === scope
         ? state
-        : { stageId, checked: [], selection: null, openId: null, mentions: [] },
+        : { scope, checked: [], selection: null, openId: null, mentions: [] },
     ),
   toggleChecked: (applicationId, value) =>
     set((state) => {

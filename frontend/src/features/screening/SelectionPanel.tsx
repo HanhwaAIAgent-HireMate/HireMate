@@ -5,20 +5,23 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSelection, useSelectionActions, type StageOverview } from '@/features/screening/api'
 import { CandidateItem, RowButton } from '@/features/screening/CandidateItem'
+import type { StageTab } from '@/features/screening/tabs'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
 
-// 가운데 선택 지원자. AI가 고르거나 HR이 넣은 지원자를 모으는 작업 영역이다
+// 가운데 선택 지원자. AI가 고르거나 HR이 넣은 지원자를 모으는 작업 영역이고 탭마다 따로다
 export function SelectionPanel({
   overview,
+  tab,
   editable,
 }: {
   overview: StageOverview
+  tab: StageTab
   editable: boolean
 }) {
   const stageId = overview.stageId
-  const selection = useSelection(stageId)
-  const actions = useSelectionActions(stageId)
+  const selection = useSelection(stageId, tab.id)
+  const actions = useSelectionActions(stageId, tab.id)
   const { checked, toggleChecked, setChecked, open } = useStageUi()
   const rows = selection.data?.items ?? []
   const ids = rows.map((row) => row.applicationId)
@@ -32,7 +35,7 @@ export function SelectionPanel({
           선택 지원자{' '}
           <span className="ml-1 text-muted-foreground">{selection.data?.total ?? 0}</span>
         </h2>
-        {editable && overview.canRestore && (
+        {editable && tab.canRestore && (
           <button
             onClick={() => actions.restore.mutate(undefined, { onError: fail })}
             className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
