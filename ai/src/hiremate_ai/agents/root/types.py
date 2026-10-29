@@ -155,7 +155,7 @@ class ChatContext(ContractModel):
 
     stage_id: UUID
     recruitment_id: UUID
-    thread_id: str  # 대화방 id. backend가 기업 · 전형 · 담당자로 만든다. 끝난 전형이면 비어 있다(기억하지 않는다)
+    thread_id: str  # 대화방 id. backend가 기업 · 전형 · 탭으로 만든다. 비어 있으면(Studio, 평가) 기억하지 않는다
     stage_name: str
     selectable: bool  # 선택 지원자를 바꿀 수 있는 전형(진행 중)인가. 결과를 확정한 전형이면 false
     stage_type: StageType

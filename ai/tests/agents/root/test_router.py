@@ -92,7 +92,8 @@ def test_plan_history_and_forget_use_thread() -> None:
     assert after.json() == []
 
 
-def test_forget_stage_endpoint() -> None:
+def test_tab_threads_are_not_deleted_by_stage() -> None:
+    """탭 대화방은 전형이 끝나도 남는다. 전형 단위로 지우는 경로가 없다."""
     context = json.loads((CONTRACT_DIR / "ChatContext.json").read_text(encoding="utf-8"))
     saver = InMemorySaver()
     app.dependency_overrides[get_llm] = lambda: FakeLlm(form_call("edit", action="CLEAR", scope={}))
@@ -105,8 +106,8 @@ def test_forget_stage_endpoint() -> None:
     finally:
         app.dependency_overrides.clear()
 
-    assert removed.json() == {"deleted": 1}
-    assert history.json() == []
+    assert removed.status_code == 404
+    assert len(history.json()) == 1
 
 
 def test_plan_without_thread_does_not_remember() -> None:

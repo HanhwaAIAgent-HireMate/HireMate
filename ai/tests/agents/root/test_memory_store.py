@@ -9,7 +9,7 @@ from langgraph.checkpoint.base import CheckpointMetadata, empty_checkpoint
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy import create_engine, text
 
-from hiremate_ai.agents.root.memory import forget_stage, forget_thread, open_saver
+from hiremate_ai.agents.root.memory import forget_thread, open_saver
 
 
 @pytest.fixture
@@ -41,20 +41,18 @@ async def put(saver: AsyncPostgresSaver, thread_id: str, stage_id: str) -> None:
 
 
 async def test_saver_round_trip_and_forget(saver: AsyncPostgresSaver) -> None:
-    await put(saver, "c:s1:m1", "s1")
+    await put(saver, "c:s1:t1", "s1")
 
-    assert await saver.aget_tuple({"configurable": {"thread_id": "c:s1:m1"}}) is not None
-    await forget_thread(saver, "c:s1:m1")
-    assert await saver.aget_tuple({"configurable": {"thread_id": "c:s1:m1"}}) is None
+    assert await saver.aget_tuple({"configurable": {"thread_id": "c:s1:t1"}}) is not None
+    await forget_thread(saver, "c:s1:t1")
+    assert await saver.aget_tuple({"configurable": {"thread_id": "c:s1:t1"}}) is None
 
 
-async def test_forget_stage_only(saver: AsyncPostgresSaver) -> None:
-    await put(saver, "c:s1:m1", "s1")
-    await put(saver, "c:s1:m2", "s1")
-    await put(saver, "c:s2:m1", "s2")
+async def test_forget_removes_only_that_tab_thread(saver: AsyncPostgresSaver) -> None:
+    await put(saver, "c:s1:t1", "s1")
+    await put(saver, "c:s1:t2", "s1")
 
-    removed = await forget_stage(saver, "s1")
+    await forget_thread(saver, "c:s1:t1")
 
-    assert removed == 2
-    assert await saver.aget_tuple({"configurable": {"thread_id": "c:s1:m2"}}) is None
-    assert await saver.aget_tuple({"configurable": {"thread_id": "c:s2:m1"}}) is not None
+    assert await saver.aget_tuple({"configurable": {"thread_id": "c:s1:t1"}}) is None
+    assert await saver.aget_tuple({"configurable": {"thread_id": "c:s1:t2"}}) is not None

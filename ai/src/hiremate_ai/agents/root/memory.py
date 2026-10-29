@@ -1,6 +1,7 @@
 """Root Agent의 Chat 대화방 저장소. LangGraph 체크포인터(AsyncPostgresSaver)를 ai 스키마에 둔다 (기획 15절).
 
-대화방(thread)은 담당자별 · 전형별이고 id는 backend가 정한다. 전형이 끝나면 그 전형의 대화방을 모두 지운다.
+대화방(thread)은 전형 화면의 탭마다 하나이고 같은 기업 담당자가 함께 쓴다. id는 backend가 정한다(기업:전형:탭).
+전형이 끝나도 남고, 탭을 지우면 backend가 forget으로 지운다.
 테이블은 Alembic 리비전(0003)이 만든다. 라이브러리의 setup()은 부르지 않는다.
 """
 
@@ -65,14 +66,3 @@ SaverDep = Annotated[BaseCheckpointSaver[Any], Depends(get_saver)]
 
 async def forget_thread(saver: BaseCheckpointSaver[Any], thread_id: str) -> None:
     await saver.adelete_thread(thread_id)
-
-
-async def forget_stage(saver: BaseCheckpointSaver[Any], stage_id: str) -> int:
-    """전형의 대화방을 모두 지운다. 대화방 metadata의 stage_id로 찾는다. 지운 대화방 수를 돌려준다."""
-    threads = {
-        str(saved.config["configurable"]["thread_id"])
-        async for saved in saver.alist(None, filter={"stage_id": stage_id})
-    }
-    for thread_id in threads:
-        await saver.adelete_thread(thread_id)
-    return len(threads)

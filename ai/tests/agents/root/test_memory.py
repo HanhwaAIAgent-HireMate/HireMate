@@ -8,7 +8,7 @@ from root_context import form_call, make_context
 
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import RootThread, build_root_graph, run_plan
-from hiremate_ai.agents.root.memory import forget_stage, get_saver
+from hiremate_ai.agents.root.memory import get_saver
 from hiremate_ai.agents.root.review import ClaimJudgement, ClaimVerdict
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import ChatContext, ChatItem, ChatPlan, EditAction, Intent
@@ -277,7 +277,6 @@ async def test_applied_can_record_backend_resolved_clear_and_restore_targets(
 
     values = await saved_values(saver, thread)
     assert values["subject"] == [str(ids(context, "김하늘")[0])]
-    assert await forget_stage(saver, str(context.stage_id)) == 1
 
 
 async def test_applied_is_idempotent_and_does_not_overwrite_an_already_confirmed_plan(context: ChatContext) -> None:
