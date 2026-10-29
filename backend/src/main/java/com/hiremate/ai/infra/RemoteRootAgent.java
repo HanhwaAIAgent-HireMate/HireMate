@@ -10,7 +10,6 @@ import com.hiremate.ai.application.ChatProgress;
 import com.hiremate.ai.application.RootAgent;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 
@@ -47,10 +46,5 @@ class RemoteRootAgent implements RootAgent {
     @Override
     public void forget(String threadId) {
         client.post(AiAgent.ROOT, "forget", Map.of("threadId", threadId), Map.class);
-    }
-
-    @Override
-    public void forgetStage(UUID stageId) {
-        client.post(AiAgent.ROOT, "forgetStage", Map.of("stageId", stageId), Map.class);
     }
 }

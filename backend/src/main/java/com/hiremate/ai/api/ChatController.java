@@ -24,12 +24,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -54,13 +52,13 @@ public class ChatController {
         this.executor = executor;
     }
 
-    @PostMapping("/api/stages/{stageId}/chat")
+    @PostMapping("/api/stages/{stageId}/tabs/{tabId}/chat")
     @ApiResponse(responseCode = "200", description = "SSE. status · item · done · error 이벤트",
             content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE, schema = @Schema(oneOf = {
                     ChatStatus.class, ChatItem.class, ChatAnswer.class, ChatError.class})))
-    public SseEmitter chat(AuthenticatedMember member, @PathVariable UUID stageId,
+    public SseEmitter chat(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId,
             @Valid @RequestBody ChatRequest request) {
-        ChatInput input = chat.prepare(member.companyId(), stageId, member.memberId(), request.message(),
+        ChatInput input = chat.prepare(member.companyId(), stageId, tabId, request.message(),
                 request.mentionIds(), request.checkedIds());
         SseEmitter emitter = new SseEmitter(NO_TIMEOUT);
         executor.execute(() -> answer(emitter, input));
@@ -83,16 +81,10 @@ public class ChatController {
         emitter.complete();
     }
 
-    /** 담당자의 이 전형 대화 기록. 전형이 끝나면 지워진다. */
-    @GetMapping("/api/stages/{stageId}/chat")
-    public List<ChatTurn> history(AuthenticatedMember member, @PathVariable UUID stageId) {
-        return chat.history(member.companyId(), stageId, member.memberId());
-    }
-
-    @DeleteMapping("/api/stages/{stageId}/chat")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void forget(AuthenticatedMember member, @PathVariable UUID stageId) {
-        chat.forget(member.companyId(), stageId, member.memberId());
+    /** 탭의 대화 기록. 같은 기업 담당자가 함께 보고, 탭을 지울 때 지워진다. */
+    @GetMapping("/api/stages/{stageId}/tabs/{tabId}/chat")
+    public List<ChatTurn> history(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId) {
+        return chat.history(member.companyId(), stageId, tabId);
     }
 
     /** error 이벤트 data. status는 같은 오류를 일반 응답으로 냈을 때의 HTTP 상태다. */

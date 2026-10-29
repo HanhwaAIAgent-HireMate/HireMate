@@ -70,12 +70,15 @@ public class ChatService {
         this.assessments = assessments;
     }
 
-    /** 전형을 확인하고 Root에 넘길 자료를 모은다. 다른 기업의 전형이면 찾을 수 없다. 스트림을 열기 전에 부른다. */
-    public ChatInput prepare(UUID companyId, UUID stageId, UUID memberId, String message, List<UUID> mentions,
+    /**
+     * 전형과 탭을 확인하고 Root에 넘길 자료를 모은다. 다른 기업의 전형이나 다른 전형의 탭이면 찾을 수 없다.
+     * 스트림을 열기 전에 부른다. 선택 표시는 그 탭 기준이다.
+     */
+    public ChatInput prepare(UUID companyId, UUID stageId, UUID tabId, String message, List<UUID> mentions,
             List<UUID> checked) {
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         StageInfo stage = recruitment.stage(stageId).orElseThrow();
-        List<CandidateRow> candidates = allCandidates(companyId, stageId);
+        List<CandidateRow> candidates = allCandidates(companyId, stageId, tabId);
         List<ChatContext.Stage> stages = recruitment.stages().stream()
                 .map(other -> new ChatContext.Stage(other.id(), other.name(), other.type(), other.status()))
                 .toList();
@@ -97,23 +100,23 @@ public class ChatService {
                     .ifPresent(result -> assessmentScores.put(candidate.applicationId(),
                             new ChatContext.Assessment(AssessmentAnalysisListener.areas(result), result.grade()))));
         }
-        // 대화는 전형 종료까지만 보관한다. 끝난 전형에서 물으면 대화방 없이 답한다
-        String threadId = stage.status() == StageStatus.DONE ? "" : threadId(companyId, stageId, memberId);
-        ChatContext context = new ChatContext(stageId, recruitment.id(), threadId, stage.name(),
+        // 대화방은 탭마다 하나이고 같은 기업 담당자가 함께 쓴다. 전형이 끝나도 남는다
+        ChatContext context = new ChatContext(stageId, recruitment.id(), threadId(companyId, stageId, tabId),
+                stage.name(),
                 stage.status() == StageStatus.ACTIVE, stage.type(), stages,
                 candidates, applications.documents(companyId, recruitment.id()), documentScores, interviewViews,
                 mentions, checked, companies.profile(companyId),
                 postings.draftContext(companyId, recruitment.id()).content(), message, interviewerMemos,
                 assessmentScores);
-        return new ChatInput(companyId, stageId, stage.status(), candidates, context);
+        return new ChatInput(companyId, stageId, tabId, stage.status(), candidates, context);
     }
 
-    private List<CandidateRow> allCandidates(UUID companyId, UUID stageId) {
+    private List<CandidateRow> allCandidates(UUID companyId, UUID stageId, UUID tabId) {
         List<CandidateRow> all = new ArrayList<>();
         CandidatePage page;
         int pageNumber = 0;
         do {
-            page = screening.candidates(companyId, stageId, null, CandidateSort.QUALIFICATION,
+            page = screening.candidates(companyId, stageId, tabId, null, CandidateSort.QUALIFICATION,
                     pageNumber++, CANDIDATE_PAGE_SIZE);
             all.addAll(page.items());
         } while (!page.items().isEmpty() && all.size() < page.total());
@@ -127,6 +130,7 @@ public class ChatService {
     public ChatAnswer run(ChatInput input, ChatProgress progress) {
         UUID companyId = input.companyId();
         UUID stageId = input.stageId();
+        UUID tabId = input.tabId();
         List<CandidateRow> candidates = input.candidates();
         ChatPlan previous = root.plan(input.context(), progress);
         ChatPlan plan = previous;
@@ -144,19 +148,19 @@ public class ChatService {
         int applied = 0;
         boolean changed = false;
         if (plan.intent() == ChatPlan.Intent.FIND) {
-            Map<UUID, Boolean> before = selected(companyId, stageId);
+            Map<UUID, Boolean> before = selected(companyId, stageId, tabId);
             List<UUID> targets = List.of();
             if (!plan.targets().isEmpty()) {
-                targets = screening.applyAiSelection(companyId, stageId, plan.mode(), plan.targets());
+                targets = screening.applyAiSelection(companyId, stageId, tabId, plan.mode(), plan.targets());
             }
-            Map<UUID, Boolean> current = selected(companyId, stageId);
+            Map<UUID, Boolean> current = selected(companyId, stageId, tabId);
             changed = !before.equals(current);
             applied = targets.size();
             plan = appliedFind(plan, targets, before.keySet(), current.keySet());
         } else if (plan.intent() == ChatPlan.Intent.EDIT) {
-            Map<UUID, Boolean> before = selected(companyId, stageId);
-            edit(companyId, stageId, plan);
-            Map<UUID, Boolean> current = selected(companyId, stageId);
+            Map<UUID, Boolean> before = selected(companyId, stageId, tabId);
+            edit(companyId, stageId, tabId, plan);
+            Map<UUID, Boolean> current = selected(companyId, stageId, tabId);
             changed = !before.equals(current);
             List<UUID> targets = switch (plan.edit()) {
                 case ADD -> plan.targets().stream().distinct()
@@ -189,8 +193,8 @@ public class ChatService {
         return answer(finalPlan, changed, applied, total);
     }
 
-    private Map<UUID, Boolean> selected(UUID companyId, UUID stageId) {
-        return screening.selection(companyId, stageId).items().stream()
+    private Map<UUID, Boolean> selected(UUID companyId, UUID stageId, UUID tabId) {
+        return screening.selection(companyId, stageId, tabId).items().stream()
                 .collect(Collectors.toMap(CandidateRow::applicationId, CandidateRow::aiSelected,
                         (first, second) -> first, LinkedHashMap::new));
     }
@@ -316,22 +320,25 @@ public class ChatService {
         throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "질문 개수는 1개 이상으로 입력해 주세요.");
     }
 
-    private void edit(UUID companyId, UUID stageId, ChatPlan plan) {
+    private void edit(UUID companyId, UUID stageId, UUID tabId, ChatPlan plan) {
         switch (plan.edit()) {
-            case ADD -> screening.addByAi(companyId, stageId, plan.targets());
-            case REMOVE -> screening.remove(companyId, stageId, plan.targets());
-            case CLEAR -> screening.clear(companyId, stageId);
-            case RESTORE -> screening.restore(companyId, stageId);
+            case ADD -> screening.addByAi(companyId, stageId, tabId, plan.targets());
+            case REMOVE -> screening.remove(companyId, stageId, tabId, plan.targets());
+            case CLEAR -> screening.clear(companyId, stageId, tabId);
+            case RESTORE -> screening.restore(companyId, stageId, tabId);
             default -> throw new IllegalStateException("Unknown edit " + plan.edit());
         }
     }
 
-    /** 담당자의 이 전형 대화 기록. 다른 기업의 전형이면 찾을 수 없다. 멘션은 지금 이 전형의 지원자 이름으로 보여 준다. */
-    public List<ChatTurn> history(UUID companyId, UUID stageId, UUID memberId) {
-        recruits.getByStage(companyId, stageId);
-        List<ChatHistoryTurn> turns = root.history(threadId(companyId, stageId, memberId));
+    /**
+     * 탭의 대화 기록. 같은 기업 담당자 누구의 질문이든 함께 보인다. 다른 기업의 전형이나 다른 전형의 탭이면 찾을 수 없다.
+     * 멘션은 지금 이 전형의 지원자 이름으로 보여 준다.
+     */
+    public List<ChatTurn> history(UUID companyId, UUID stageId, UUID tabId) {
+        List<CandidateRow> candidates = allCandidates(companyId, stageId, tabId);
+        List<ChatHistoryTurn> turns = root.history(threadId(companyId, stageId, tabId));
         Map<UUID, String> names = turns.stream().anyMatch(turn -> !turn.mentions().isEmpty())
-                ? allCandidates(companyId, stageId).stream()
+                ? candidates.stream()
                         .collect(Collectors.toMap(CandidateRow::applicationId, CandidateRow::name))
                 : Map.of();
         return turns.stream()
@@ -343,15 +350,9 @@ public class ChatService {
                 .toList();
     }
 
-    /** [대화 지우기]: 담당자의 이 전형 대화방을 지운다. */
-    public void forget(UUID companyId, UUID stageId, UUID memberId) {
-        recruits.getByStage(companyId, stageId);
-        root.forget(threadId(companyId, stageId, memberId));
-    }
-
-    /** 대화방은 담당자별 · 전형별이다. 기업까지 넣어 다른 기업의 대화방과 섞이지 않게 한다. */
-    private static String threadId(UUID companyId, UUID stageId, UUID memberId) {
-        return companyId + ":" + stageId + ":" + memberId;
+    /** 대화방은 탭마다 하나다. 기업과 전형까지 넣어 다른 기업의 대화방과 섞이지 않게 한다. */
+    static String threadId(UUID companyId, UUID stageId, UUID tabId) {
+        return companyId + ":" + stageId + ":" + tabId;
     }
 
     private ChatAnswer answer(ChatPlan plan, boolean changed, int applied, int total) {

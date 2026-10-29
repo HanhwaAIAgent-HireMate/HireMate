@@ -10,7 +10,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/** 교체 · 좁히기 직전의 선택 지원자. [되돌리기]로 돌아간다. */
+/** 탭의 교체 · 좁히기 · 비우기 직전 선택 지원자. [되돌리기]로 돌아간다. 탭마다 하나다. */
 @Entity
 @Table(name = "selection_snapshots")
 @Getter
@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
 public class SelectionSnapshot {
 
     @Id
-    private UUID stageId;
+    private UUID tabId;
 
     /** [{"applicationId": "...", "ai": true}] */
     @Column(nullable = false)
@@ -27,8 +27,8 @@ public class SelectionSnapshot {
     @Column(nullable = false)
     private Instant createdAt;
 
-    public SelectionSnapshot(UUID stageId, String entries) {
-        this.stageId = stageId;
+    public SelectionSnapshot(UUID tabId, String entries) {
+        this.tabId = tabId;
         this.entries = entries;
         this.createdAt = Instant.now();
     }

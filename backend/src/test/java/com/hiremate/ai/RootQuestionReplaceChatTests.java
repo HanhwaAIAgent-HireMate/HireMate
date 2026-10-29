@@ -5,8 +5,6 @@ import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hiremate.IntegrationTest;
@@ -60,10 +58,9 @@ class RootQuestionReplaceChatTests extends IntegrationTest {
         when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.ANSWER, "답", List.of(), List.of(),
                 List.of()));
         String interview = passAndFinish(hr, document, id.toString());
-        verify(root, timeout(10_000)).forgetStage(any());
 
         when(root.plan(any(), any())).thenReturn(questions(id, false));
-        done(expect(hr.post(interview + "/chat",
+        done(expect(hr.post(TestFixtures.firstTabPath(hr, interview) + "/chat",
                 Map.of("message", "면접 질문 만들어줘", "mentionIds", List.of(id), "checkedIds", List.of())), 200));
         expect(hr.post(interview + "/candidates/" + id + "/interview/questions", Map.of("text", "직접 넣은 질문")), 200);
         JsonNode before = json(expect(hr.get(interview + "/candidates/" + id + "/interview"), 200)).path("questions");
@@ -85,7 +82,7 @@ class RootQuestionReplaceChatTests extends IntegrationTest {
         expect(hr.put(interview + "/interview/questions/" + answered + "/answer", Map.of("answer", "기록한 답변")), 200);
 
         when(root.plan(any(), any())).thenReturn(questions(id, true));
-        JsonNode chat = done(expect(hr.post(interview + "/chat",
+        JsonNode chat = done(expect(hr.post(TestFixtures.firstTabPath(hr, interview) + "/chat",
                 Map.of("message", "면접 질문 다시 만들어줘", "mentionIds", List.of(id), "checkedIds", List.of())), 200));
 
         JsonNode after = json(expect(hr.get(interview + "/candidates/" + id + "/interview"), 200)).path("questions");

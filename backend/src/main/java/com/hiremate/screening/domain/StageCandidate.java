@@ -15,8 +15,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 전형 대상 지원자. 선택 지원자 영역(selected, aiSelected)과 HR 결정(decision)을 따로 둔다.
- * 선택은 탐색용 표시라 채용 상태를 바꾸지 않고, 결정은 HR이 버튼으로만 바꾼다.
+ * 전형 대상 지원자와 HR 결정(decision). 선택 지원자는 탭마다 따로 둔다({@link TabSelection}).
+ * 결정은 HR이 버튼으로만 바꾼다.
  */
 @Entity
 @Table(name = "stage_candidates")
@@ -58,14 +58,6 @@ public class StageCandidate {
     @Column(nullable = false)
     private boolean promoted;
 
-    @Column(nullable = false)
-    private boolean selected;
-
-    @Column(nullable = false)
-    private boolean aiSelected;
-
-    private Instant selectedAt;
-
     private BigDecimal score;
 
     @Column(nullable = false)
@@ -80,46 +72,26 @@ public class StageCandidate {
         this.decision = Decision.PENDING;
     }
 
-    public void select(boolean byAi) {
-        if (!selected) {
-            this.selectedAt = Instant.now();
-        }
-        this.selected = true;
-        this.aiSelected = byAi;
-    }
-
-    public void unselect() {
-        this.selected = false;
-        this.aiSelected = false;
-        this.selectedAt = null;
-    }
-
     public void promote() {
         this.promoted = true;
     }
 
-    /** 결정하면 선택 지원자에서 빠진다. AI 선택 여부는 되돌릴 때를 위해 남긴다. */
+    /** 결정한 지원자는 탭의 선택 지원자에 보이지 않는다. 탭에 남은 행은 되돌릴 때를 위해 둔다. */
     public void decide(Decision decision, UUID memberId) {
         this.decision = decision;
         this.decidedBy = memberId;
         this.decidedAt = Instant.now();
-        this.selected = false;
     }
 
-    /** 결정을 되돌리면 선택 지원자로 돌아온다. */
     public void revert() {
         this.decision = Decision.PENDING;
         this.decidedBy = null;
         this.decidedAt = null;
-        this.selected = true;
-        this.selectedAt = Instant.now();
     }
 
     public void confirm() {
         this.undecidedAtConfirm = decision == Decision.PENDING;
         this.finalResult = decision == Decision.PASS ? Decision.PASS : Decision.FAIL;
-        this.selected = false;
-        this.aiSelected = false;
     }
 
     public void changeMemo(String memo) {
@@ -128,9 +100,5 @@ public class StageCandidate {
 
     public void changeScore(BigDecimal score) {
         this.score = score;
-    }
-
-    public boolean isAiMarked() {
-        return selected && aiSelected;
     }
 }

@@ -17,10 +17,15 @@ import com.hiremate.screening.domain.SelectionSnapshot;
 import com.hiremate.screening.domain.SelectionSnapshotRepository;
 import com.hiremate.screening.domain.StageCandidate;
 import com.hiremate.screening.domain.StageCandidateRepository;
+import com.hiremate.screening.domain.StageTab;
+import com.hiremate.screening.domain.StageTabRepository;
+import com.hiremate.screening.domain.TabSelection;
+import com.hiremate.screening.domain.TabSelectionRepository;
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -36,7 +41,9 @@ import tools.jackson.core.type.TypeReference;
 
 /**
  * 공통 전형 화면 (FR-10 ~ FR-24). 지원자 상태를 바꾸는 유일한 모듈이다.
- * AI Chat의 선택 편집 명령도 이 서비스가 대상과 권한을 검증한 뒤 실행한다.
+ * 선택 지원자는 탭마다 따로 두고, AI Chat의 선택 편집 명령도 이 서비스가 대상과 권한을 검증한 뒤 탭에 실행한다.
+ * 결정한 지원자는 탭에 행이 남아도 선택 지원자에 보이지 않는다. 빼기 · 비우기 · 교체 · 되돌리기는 보이는 선택 지원자에만
+ * 적용하므로, 결정을 되돌리면 그 지원자는 원래 탭에 AI 표시 그대로 돌아온다.
  */
 @Service
 public class ScreeningService {
@@ -57,23 +64,30 @@ public class ScreeningService {
 
     private final StageCandidateRepository candidates;
     private final SelectionSnapshotRepository snapshots;
+    private final StageTabRepository tabRepository;
+    private final TabSelectionRepository selections;
+    private final StageTabService tabs;
     private final RecruitService recruits;
     private final ApplicationService applications;
     private final PostingService postings;
     private final ActivityService activity;
 
     public ScreeningService(StageCandidateRepository candidates, SelectionSnapshotRepository snapshots,
+            StageTabRepository tabRepository, TabSelectionRepository selections, StageTabService tabs,
             RecruitService recruits, ApplicationService applications, PostingService postings,
             ActivityService activity) {
         this.candidates = candidates;
         this.snapshots = snapshots;
+        this.tabRepository = tabRepository;
+        this.selections = selections;
+        this.tabs = tabs;
         this.recruits = recruits;
         this.applications = applications;
         this.postings = postings;
         this.activity = activity;
     }
 
-    /** 전형을 시작하며 대상 지원자를 넣는다. 첫 전형은 지원자 전원, 이후 전형은 앞 전형 합격자다. */
+    /** 전형을 시작하며 대상 지원자를 넣고 탭 1을 만든다. 첫 전형은 지원자 전원, 이후 전형은 앞 전형 합격자다. */
     @Transactional
     public void startStage(UUID companyId, UUID stageId, Collection<UUID> applicationIds) {
         if (candidates.existsByStageId(stageId)) {
@@ -83,6 +97,9 @@ public class ScreeningService {
         candidates.saveAll(applicationIds.stream()
                 .map(applicationId -> new StageCandidate(stageId, recruitment.id(), companyId, applicationId))
                 .toList());
+        if (!tabRepository.existsByStageId(stageId)) {
+            tabRepository.save(new StageTab(companyId, stageId, 1));
+        }
     }
 
     @Transactional(readOnly = true)
@@ -101,7 +118,6 @@ public class ScreeningService {
                 recruitment.isLastStage(stageId), recruitment.id(), recruitment.title(), recruitment.status(),
                 postings.view(companyId, recruitment.id()).postingId(),
                 applications.count(companyId, recruitment.id()), steps, counts(current),
-                current.stream().filter(StageCandidate::isSelected).count(), snapshots.existsById(stageId),
                 current.stream().anyMatch(candidate -> candidate.getScore() != null), stage.confirmedAt(),
                 stage.confirmedByName(), current.stream().filter(StageCandidate::isUndecidedAtConfirm).count());
     }
@@ -111,10 +127,12 @@ public class ScreeningService {
      * 분석이 끝나지 않은 지원자만 맨 뒤에 둔다. 평가 전형은 점수 높은 순이다.
      */
     @Transactional(readOnly = true)
-    public CandidatePage candidates(UUID companyId, UUID stageId, String query, CandidateSort sort, int page,
-            int size) {
+    public CandidatePage candidates(UUID companyId, UUID stageId, UUID tabId, String query, CandidateSort sort,
+            int page, int size) {
         StageContext context = context(companyId, stageId);
-        List<CandidateRow> rows = rows(context, candidates.findByStageIdAndCompanyId(stageId, companyId), sort);
+        List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
+        Map<UUID, TabSelection> selected = tabId == null ? Map.of() : visible(tabs.tab(companyId, stageId, tabId), all);
+        List<CandidateRow> rows = rows(context, all, selected, sort);
         if (query != null && !query.isBlank()) {
             String keyword = query.trim().toLowerCase(Locale.ROOT);
             Set<UUID> textMatches = new HashSet<>(
@@ -127,76 +145,85 @@ public class ScreeningService {
         return new CandidatePage(rows.size(), rows.subList(from, to));
     }
 
-    /** 선택 지원자. 넣은 순서다. */
+    /** 탭의 선택 지원자. 넣은 순서이고, 결정한 지원자는 빠진다. */
     @Transactional(readOnly = true)
-    public CandidatePage selection(UUID companyId, UUID stageId) {
+    public CandidatePage selection(UUID companyId, UUID stageId, UUID tabId) {
         StageContext context = context(companyId, stageId);
         List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
-        Map<UUID, StageCandidate> byApplication = all.stream()
-                .collect(Collectors.toMap(StageCandidate::getApplicationId, Function.identity()));
+        Map<UUID, TabSelection> selected = visible(tabs.tab(companyId, stageId, tabId), all);
         // 넣은 순서대로, 한 번에 넣었으면 리스트 순서대로 둔다
-        List<CandidateRow> listed = rows(context, all, CandidateSort.QUALIFICATION);
-        List<CandidateRow> selected = listed.stream()
+        List<CandidateRow> rows = rows(context, all, selected, CandidateSort.QUALIFICATION).stream()
                 .filter(CandidateRow::selected)
-                .sorted(Comparator.comparing(row -> byApplication.get(row.applicationId()).getSelectedAt()))
+                .sorted(Comparator.comparing(row -> selected.get(row.applicationId()).getSelectedAt()))
                 .toList();
-        return new CandidatePage(selected.size(), selected);
+        return new CandidatePage(rows.size(), rows);
     }
 
     /** HR이 직접 넣는다. 테두리 없이 들어가고, 서류 전형의 기준 미달 지원자는 ↑로 올린 뒤에만 넣는다. */
     @Transactional
-    public void add(UUID companyId, UUID stageId, Collection<UUID> applicationIds) {
-        add(companyId, stageId, applicationIds, false);
+    public void add(UUID companyId, UUID stageId, UUID tabId, Collection<UUID> applicationIds) {
+        add(companyId, stageId, tabId, applicationIds, false);
     }
 
-    private void add(UUID companyId, UUID stageId, Collection<UUID> applicationIds, boolean byAi) {
+    private void add(UUID companyId, UUID stageId, UUID tabId, Collection<UUID> applicationIds, boolean byAi) {
         StageContext context = activeContext(companyId, stageId);
+        StageTab tab = tabs.tab(companyId, stageId, tabId);
+        Map<UUID, TabSelection> rows = tabRows(tab);
         for (StageCandidate candidate : targets(companyId, stageId, applicationIds)) {
             requireSelectable(context, candidate);
-            if (byAi || !candidate.isSelected()) {
-                candidate.select(byAi);
+            TabSelection row = rows.get(candidate.getApplicationId());
+            if (row == null) {
+                selections.save(new TabSelection(tab.getId(), candidate.getApplicationId(), byAi));
+            } else if (byAi) {
+                row.markAi(true);
             }
         }
     }
 
     /** Chat으로 넣는다. 이미 선택 지원자에 있던 지원자까지 테두리를 붙이고, 넣을 수 있는 조건은 직접 넣기와 같다. */
     @Transactional
-    public void addByAi(UUID companyId, UUID stageId, Collection<UUID> applicationIds) {
-        add(companyId, stageId, applicationIds, true);
+    public void addByAi(UUID companyId, UUID stageId, UUID tabId, Collection<UUID> applicationIds) {
+        add(companyId, stageId, tabId, applicationIds, true);
     }
 
     /** 빼기는 결정이 아니다. 뺀 지원자는 결정 전 상태 그대로 리스트에 남는다. */
     @Transactional
-    public void remove(UUID companyId, UUID stageId, Collection<UUID> applicationIds) {
+    public void remove(UUID companyId, UUID stageId, UUID tabId, Collection<UUID> applicationIds) {
         activeContext(companyId, stageId);
-        targets(companyId, stageId, applicationIds).stream().filter(StageCandidate::isSelected)
-                .forEach(StageCandidate::unselect);
+        StageTab tab = tabs.tab(companyId, stageId, tabId);
+        Map<UUID, TabSelection> visible = visible(tab, candidates.findByStageIdAndCompanyId(stageId, companyId));
+        targets(companyId, stageId, applicationIds).stream()
+                .map(candidate -> visible.get(candidate.getApplicationId()))
+                .filter(row -> row != null)
+                .forEach(selections::delete);
     }
 
+    /** 탭의 선택 지원자를 비운다. 되돌릴 수 있게 남긴다. */
     @Transactional
-    public void clear(UUID companyId, UUID stageId) {
+    public void clear(UUID companyId, UUID stageId, UUID tabId) {
         activeContext(companyId, stageId);
-        List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
-        snapshot(stageId, all);
-        all.stream().filter(StageCandidate::isSelected).forEach(StageCandidate::unselect);
+        StageTab tab = tabs.tab(companyId, stageId, tabId);
+        Map<UUID, TabSelection> visible = visible(tab, candidates.findByStageIdAndCompanyId(stageId, companyId));
+        snapshot(tab.getId(), visible);
+        selections.deleteAll(visible.values());
     }
 
-    /** 교체 · 좁히기 · 비우기 직전의 선택 지원자로 돌아간다. */
+    /** 교체 · 좁히기 · 비우기 직전의 선택 지원자로 돌아간다. 그 사이 결정한 지원자는 돌아오지 않는다. */
     @Transactional
-    public void restore(UUID companyId, UUID stageId) {
+    public void restore(UUID companyId, UUID stageId, UUID tabId) {
         activeContext(companyId, stageId);
-        SelectionSnapshot snapshot = snapshots.findById(stageId).orElseThrow(() -> new ApiException(
+        StageTab tab = tabs.tab(companyId, stageId, tabId);
+        SelectionSnapshot snapshot = snapshots.findById(tab.getId()).orElseThrow(() -> new ApiException(
                 HttpStatus.CONFLICT, "NOTHING_TO_RESTORE", "There is no previous selection."));
-        Map<UUID, Boolean> previous = JsonText.read(snapshot.getEntries(), new TypeReference<List<SnapshotEntry>>() { })
-                .stream()
-                .collect(Collectors.toMap(SnapshotEntry::applicationId, SnapshotEntry::ai));
-        for (StageCandidate candidate : candidates.findByStageIdAndCompanyId(stageId, companyId)) {
-            if (previous.containsKey(candidate.getApplicationId()) && candidate.getDecision() == Decision.PENDING) {
-                candidate.select(previous.get(candidate.getApplicationId()));
-            } else if (candidate.isSelected()) {
-                candidate.unselect();
-            }
-        }
+        List<SnapshotEntry> previous = JsonText.read(snapshot.getEntries(),
+                new TypeReference<List<SnapshotEntry>>() { });
+        List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
+        Set<UUID> pending = all.stream().filter(candidate -> candidate.getDecision() == Decision.PENDING)
+                .map(StageCandidate::getApplicationId).collect(Collectors.toSet());
+        selections.deleteAll(visible(tab, all).values());
+        selections.flush();
+        previous.stream().filter(entry -> pending.contains(entry.applicationId()))
+                .forEach(entry -> selections.save(new TabSelection(tab.getId(), entry.applicationId(), entry.ai())));
         snapshots.delete(snapshot);
     }
 
@@ -206,39 +233,46 @@ public class ScreeningService {
      * 조건에 맞지 않는 대상은 빼고 반영한 지원자 ID를 돌려준다. 추가는 신규 대상만, 교체와 좁히기는 최종 대상을 돌려준다.
      */
     @Transactional
-    public List<UUID> applyAiSelection(UUID companyId, UUID stageId, SelectionMode mode,
+    public List<UUID> applyAiSelection(UUID companyId, UUID stageId, UUID tabId, SelectionMode mode,
             Collection<UUID> applicationIds) {
         StageContext context = activeContext(companyId, stageId);
+        StageTab tab = tabs.tab(companyId, stageId, tabId);
         List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
         Map<UUID, StageCandidate> byApplication = all.stream()
                 .collect(Collectors.toMap(StageCandidate::getApplicationId, Function.identity()));
+        Map<UUID, TabSelection> rows = tabRows(tab);
+        Map<UUID, TabSelection> visible = visible(tab, all);
         Set<UUID> recommended = recommended(context, all, infos(context));
         List<StageCandidate> chosen = applicationIds.stream().distinct()
                 .filter(byApplication::containsKey)
                 .map(byApplication::get)
                 .filter(candidate -> candidate.getDecision() == Decision.PENDING)
                 .filter(candidate -> aboveLine(context.type(), candidate, recommended))
-                .filter(candidate -> mode != SelectionMode.NARROW || candidate.isSelected())
+                .filter(candidate -> mode != SelectionMode.NARROW || visible.containsKey(candidate.getApplicationId()))
                 .toList();
         if (chosen.isEmpty()) {
             return List.of();
         }
         List<UUID> applied = chosen.stream()
-                .filter(candidate -> mode != SelectionMode.ADD || !candidate.isSelected())
                 .map(StageCandidate::getApplicationId)
+                .filter(applicationId -> mode != SelectionMode.ADD || !visible.containsKey(applicationId))
                 .toList();
         if (mode != SelectionMode.ADD) {
             Set<UUID> retained = chosen.stream().map(StageCandidate::getApplicationId).collect(Collectors.toSet());
-            boolean changed = all.stream().anyMatch(candidate -> candidate.isSelected()
-                    != retained.contains(candidate.getApplicationId()));
-            if (changed) {
-                snapshot(stageId, all);
-                all.stream().filter(StageCandidate::isSelected)
-                        .filter(candidate -> !retained.contains(candidate.getApplicationId()))
-                        .forEach(StageCandidate::unselect);
+            if (!visible.keySet().equals(retained)) {
+                snapshot(tab.getId(), visible);
+                visible.values().stream().filter(row -> !retained.contains(row.getApplicationId()))
+                        .forEach(selections::delete);
             }
         }
-        chosen.forEach(candidate -> candidate.select(true));
+        for (StageCandidate candidate : chosen) {
+            TabSelection row = rows.get(candidate.getApplicationId());
+            if (row == null) {
+                selections.save(new TabSelection(tab.getId(), candidate.getApplicationId(), true));
+            } else {
+                row.markAi(true);
+            }
+        }
         return applied;
     }
 
@@ -267,13 +301,21 @@ public class ScreeningService {
         }
     }
 
-    /** 방금 한 결정을 되돌린다. 카드가 선택 지원자로 돌아온다. */
+    /**
+     * 방금 한 결정을 되돌린다. 지원자는 원래 있던 탭들에 같은 순서와 AI 표시로 다시 보이고,
+     * 되돌리기를 누른 탭에 없던 지원자는 그 탭에 들어온다.
+     */
     @Transactional
-    public void revert(UUID companyId, UUID stageId, UUID memberId, Collection<UUID> applicationIds) {
+    public void revert(UUID companyId, UUID stageId, UUID tabId, UUID memberId, Collection<UUID> applicationIds) {
         activeContext(companyId, stageId);
+        StageTab tab = tabs.tab(companyId, stageId, tabId);
+        Map<UUID, TabSelection> rows = tabRows(tab);
         for (StageCandidate candidate : targets(companyId, stageId, applicationIds)) {
             if (candidate.getDecision() != Decision.PENDING) {
                 candidate.revert();
+                if (!rows.containsKey(candidate.getApplicationId())) {
+                    selections.save(new TabSelection(tab.getId(), candidate.getApplicationId(), false));
+                }
                 activity.record(companyId, memberId, "REVERT_DECISION", "APPLICATION", candidate.getApplicationId(),
                         null);
             }
@@ -287,7 +329,8 @@ public class ScreeningService {
         ApplicantDetail applicant = applications.detail(companyId, applicationId);
         Set<UUID> recommended = recommended(context, candidates.findByStageIdAndCompanyId(stageId, companyId),
                 infos(context));
-        return new CandidateDetail(toRow(context.type(), candidate, applicant.info(), recommended),
+        // 카드는 탭을 모르므로 선택 표시를 붙이지 않는다
+        return new CandidateDetail(toRow(context.type(), candidate, applicant.info(), recommended, null),
                 applicant.info().email(),
                 applicant.phone(), applicant.info().submittedAt(), applicant.certificates(), applicant.documents(),
                 candidate.getMemo());
@@ -311,7 +354,11 @@ public class ScreeningService {
         StageOverview.DecisionCounts before = counts(all);
         recruits.confirmStage(companyId, stageId, memberId, memberName);
         all.forEach(StageCandidate::confirm);
-        snapshots.deleteById(stageId);
+        // 끝난 전형의 탭에는 이름과 대화만 남는다
+        List<UUID> tabIds = tabRepository.findByStageIdAndCompanyIdOrderByNumber(stageId, companyId).stream()
+                .map(StageTab::getId).toList();
+        selections.deleteAll(selections.findByTabIdIn(tabIds));
+        snapshots.deleteAllById(tabIds.stream().filter(snapshots::existsById).toList());
         activity.record(companyId, memberId, "CONFIRM_STAGE", "STAGE", stageId,
                 "pass=" + before.pass() + ", fail=" + (before.fail() + before.pending()));
         return before;
@@ -408,13 +455,29 @@ public class ScreeningService {
                 () -> new ApiException(HttpStatus.NOT_FOUND, "CANDIDATE_NOT_FOUND", "Applicant not found."));
     }
 
-    private void snapshot(UUID stageId, List<StageCandidate> all) {
-        String entries = JsonText.write(all.stream().filter(StageCandidate::isSelected)
-                .sorted(Comparator.comparing(StageCandidate::getSelectedAt))
-                .map(candidate -> new SnapshotEntry(candidate.getApplicationId(), candidate.isAiSelected()))
+    private void snapshot(UUID tabId, Map<UUID, TabSelection> visible) {
+        String entries = JsonText.write(visible.values().stream()
+                .sorted(Comparator.comparing(TabSelection::getSelectedAt))
+                .map(row -> new SnapshotEntry(row.getApplicationId(), row.isAi()))
                 .toList());
-        snapshots.findById(stageId).ifPresentOrElse(snapshot -> snapshot.replace(entries),
-                () -> snapshots.save(new SelectionSnapshot(stageId, entries)));
+        snapshots.findById(tabId).ifPresentOrElse(snapshot -> snapshot.replace(entries),
+                () -> snapshots.save(new SelectionSnapshot(tabId, entries)));
+    }
+
+    /** 탭의 선택 행 전부. 결정한 지원자의 숨은 행도 있다. */
+    private Map<UUID, TabSelection> tabRows(StageTab tab) {
+        return selections.findByTabIdOrderBySelectedAt(tab.getId()).stream()
+                .collect(Collectors.toMap(TabSelection::getApplicationId, Function.identity(),
+                        (first, second) -> first, LinkedHashMap::new));
+    }
+
+    /** 탭의 선택 지원자: 결정하지 않은 지원자의 행만. */
+    private Map<UUID, TabSelection> visible(StageTab tab, List<StageCandidate> all) {
+        Set<UUID> pending = all.stream().filter(candidate -> candidate.getDecision() == Decision.PENDING)
+                .map(StageCandidate::getApplicationId).collect(Collectors.toSet());
+        Map<UUID, TabSelection> visible = new LinkedHashMap<>(tabRows(tab));
+        visible.keySet().retainAll(pending);
+        return visible;
     }
 
     private Map<UUID, ApplicantInfo> infos(StageContext context) {
@@ -422,7 +485,8 @@ public class ScreeningService {
                 .collect(Collectors.toMap(ApplicantInfo::applicationId, Function.identity()));
     }
 
-    private List<CandidateRow> rows(StageContext context, List<StageCandidate> all, CandidateSort sort) {
+    private List<CandidateRow> rows(StageContext context, List<StageCandidate> all,
+            Map<UUID, TabSelection> selected, CandidateSort sort) {
         Map<UUID, ApplicantInfo> infos = infos(context);
         Set<UUID> recommended = recommended(context, all, infos);
         Comparator<CandidateRow> byQualification = Comparator
@@ -439,7 +503,7 @@ public class ScreeningService {
         };
         return all.stream()
                 .map(candidate -> toRow(context.type(), candidate, infos.get(candidate.getApplicationId()),
-                        recommended))
+                        recommended, selected.get(candidate.getApplicationId())))
                 .sorted(order.thenComparing(row -> infos.get(row.applicationId()).applicationNo()))
                 .toList();
     }
@@ -497,12 +561,13 @@ public class ScreeningService {
                 || row.lastCompany() != null && row.lastCompany().toLowerCase(Locale.ROOT).contains(keyword);
     }
 
+    /** selection은 고른 탭에서 보이는 선택 행이다. 없으면 선택 지원자가 아니다. */
     private static CandidateRow toRow(StageType type, StageCandidate candidate, ApplicantInfo info,
-            Set<UUID> recommended) {
+            Set<UUID> recommended, TabSelection selection) {
         boolean document = type == StageType.DOCUMENT;
         return new CandidateRow(candidate.getApplicationId(), info.name(), info.careerYears(), info.lastCompany(),
                 candidate.getFinalResult() != null ? candidate.getFinalResult() : candidate.getDecision(),
-                candidate.isSelected(), candidate.isAiMarked(), aboveLine(type, candidate, recommended),
+                selection != null, selection != null && selection.isAi(), aboveLine(type, candidate, recommended),
                 candidate.getScore(), info.analysisStatus(), document && info.held(),
                 document ? info.shortfalls() : List.of(), document ? info.documentScore() : null,
                 document ? info.documentScoreLow() : null,

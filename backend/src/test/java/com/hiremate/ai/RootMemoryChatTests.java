@@ -4,6 +4,8 @@ import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.after;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -44,19 +46,22 @@ class RootMemoryChatTests extends IntegrationTest {
     private ApplicationService applications;
 
     @Test
-    @DisplayName("Chat은 담당자별 · 전형별 대화방으로 Root를 부르고, 기록 조회와 지우기도 그 대화방으로 한다")
-    void chatUsesMemberStageThread() throws Exception {
+    @DisplayName("Chat은 탭 대화방(기업:전형:탭)으로 Root를 부르고 기록도 그 대화방에서 읽으며, 탭마다 대화방이 따로다")
+    void chatUsesTabThread() throws Exception {
         Setup setup = documentStage();
-        String threadId = setup.hr().companyId() + ":" + setup.stageId() + ":" + setup.hr().memberId();
+        String threadId = setup.threadId(setup.tabId());
         when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.CLARIFY, "답", List.of(), List.of(),
                 List.of()));
+        Map<String, Object> ask = Map.of("message", "금융 경험 찾아줘", "mentionIds", List.of(), "checkedIds", List.of());
 
-        expect(setup.hr().post(setup.path() + "/chat",
-                Map.of("message", "금융 경험 찾아줘", "mentionIds", List.of(), "checkedIds", List.of())), 200);
+        expect(setup.hr().post(setup.chatPath(setup.tabId()), ask), 200);
+        UUID other = newTab(setup);
+        expect(setup.hr().post(setup.chatPath(other), ask), 200);
 
         ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
-        verify(root).plan(sent.capture(), any());
-        assertThat(sent.getValue().threadId()).isEqualTo(threadId);
+        verify(root, times(2)).plan(sent.capture(), any());
+        assertThat(sent.getAllValues()).extracting(ChatContext::threadId)
+                .containsExactly(threadId, setup.threadId(other));
         assertThat(sent.getValue().selectable()).isTrue();
 
         ChatPlan found = new ChatPlan(ChatPlan.Intent.FIND, SelectionMode.REPLACE, null, List.of(setup.applicant()),
@@ -65,7 +70,7 @@ class RootMemoryChatTests extends IntegrationTest {
                 new ChatHistoryTurn("경력 알려줘", ChatPlan.answer(ChatPlan.Intent.ANSWER, "3년이에요.", List.of(),
                         List.of(), List.of()), 3, List.of(setup.applicant(), UUID.randomUUID()),
                         List.of("요청을 확인하고 있어요", "지원자 자료를 확인하고 있어요"), 4)));
-        JsonNode history = json(expect(setup.hr().get(setup.path() + "/chat"), 200));
+        JsonNode history = json(expect(setup.hr().get(setup.chatPath(setup.tabId())), 200));
         assertThat(history.get(0).path("message").asString()).isEqualTo("금융 경험 찾아줘");
         assertThat(history.get(0).path("answer").path("intent").asString()).isEqualTo("FIND");
         assertThat(history.get(0).path("answer").path("message").asString())
@@ -83,11 +88,11 @@ class RootMemoryChatTests extends IntegrationTest {
                 .containsExactly("요청을 확인하고 있어요", "지원자 자료를 확인하고 있어요");
         assertThat(mentioned.path("seconds").asInt()).isEqualTo(4);
 
-        expect(setup.hr().delete(setup.path() + "/chat"), 204);
-        verify(root).forget(threadId);
+        // [대화 지우기]는 없다. 대화는 탭을 지울 때만 지운다
+        assertThat(setup.hr().delete(setup.chatPath(setup.tabId())).statusCode()).isGreaterThanOrEqualTo(400);
+        verify(root, never()).forget(any());
 
-        TestApi other = newHr();
-        expect(other.get(setup.path() + "/chat"), 404);
+        expect(newHr().get(setup.chatPath(setup.tabId())), 404);
     }
 
     @Test
@@ -97,7 +102,7 @@ class RootMemoryChatTests extends IntegrationTest {
         when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.CLARIFY, "답", List.of(), List.of(),
                 List.of()));
 
-        expect(setup.hr().post(setup.path() + "/chat",
+        expect(setup.hr().post(setup.chatPath(setup.tabId()),
                 Map.of("message", "강점 요약해줘", "mentionIds", List.of(), "checkedIds", List.of())), 200);
 
         ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
@@ -111,10 +116,14 @@ class RootMemoryChatTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("전형을 종료하면 그 전형의 대화방을 지운다")
-    void finishingStageForgetsThreads() throws Exception {
+    @DisplayName("탭을 지우면 그 탭의 대화방을 지우고, 전형을 종료해도 남은 탭의 대화방은 그대로다")
+    void deletingTabForgetsItsThread() throws Exception {
         Setup setup = documentStage();
         TestApi hr = setup.hr();
+        UUID other = newTab(setup);
+        expect(hr.delete(setup.path() + "/tabs/" + other), 204);
+        verify(root, timeout(10_000)).forget(setup.threadId(other));
+
         expect(hr.post(setup.path() + "/decisions",
                 Map.of("applicationIds", List.of(setup.applicant()), "decision", "PASS")), 204);
         expect(hr.post(setup.path() + "/confirm", null), 200);
@@ -123,11 +132,11 @@ class RootMemoryChatTests extends IntegrationTest {
 
         expect(hr.post(setup.path() + "/finish", null), 200);
 
-        verify(root, timeout(10_000)).forgetStage(setup.stageId());
+        verify(root, after(1_000).never()).forget(setup.threadId(setup.tabId()));
     }
 
     @Test
-    @DisplayName("확정한 전형은 선택 지원자를 바꿀 수 없다고 Root에 알리고, 끝난 전형은 대화방 없이 Root를 부른다")
+    @DisplayName("확정한 전형은 선택 지원자를 바꿀 수 없다고 Root에 알리고, 끝난 전형도 탭 대화방에 대화를 남긴다")
     void closedStagesLimitChat() throws Exception {
         Setup setup = documentStage();
         TestApi hr = setup.hr();
@@ -137,18 +146,18 @@ class RootMemoryChatTests extends IntegrationTest {
         expect(hr.post(setup.path() + "/decisions",
                 Map.of("applicationIds", List.of(setup.applicant()), "decision", "PASS")), 204);
         expect(hr.post(setup.path() + "/confirm", null), 200);
-        expect(hr.post(setup.path() + "/chat", ask), 200);
+        expect(hr.post(setup.chatPath(setup.tabId()), ask), 200);
         expect(hr.post(setup.path() + "/notices/prepare", null), 200);
         expect(hr.post(setup.path() + "/notices/PASS/send", null), 200);
         expect(hr.post(setup.path() + "/finish", null), 200);
 
-        expect(hr.post(setup.path() + "/chat", ask), 200);
+        expect(hr.post(setup.chatPath(setup.tabId()), ask), 200);
 
         ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
         verify(root, times(2)).plan(sent.capture(), any());
         assertThat(sent.getAllValues()).extracting(ChatContext::selectable).containsExactly(false, false);
-        assertThat(sent.getAllValues().get(0).threadId()).isNotEmpty();
-        assertThat(sent.getAllValues().get(1).threadId()).isEmpty();
+        assertThat(sent.getAllValues()).extracting(ChatContext::threadId)
+                .containsOnly(setup.threadId(setup.tabId()));
     }
 
     private Setup documentStage() throws Exception {
@@ -168,13 +177,25 @@ class RootMemoryChatTests extends IntegrationTest {
                 ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         UUID stageId = UUID.fromString(closed.path("stages").get(0).path("id").asString());
-        return new Setup(hr, stageId, applicant);
+        return new Setup(hr, stageId, applicant, TestFixtures.firstTab(hr, stageId));
     }
 
-    private record Setup(TestApi hr, UUID stageId, UUID applicant) {
+    private static UUID newTab(Setup setup) throws Exception {
+        return UUID.fromString(json(expect(setup.hr().post(setup.path() + "/tabs", null), 201)).path("id").asString());
+    }
+
+    private record Setup(TestApi hr, UUID stageId, UUID applicant, UUID tabId) {
 
         String path() {
             return "/api/stages/" + stageId;
+        }
+
+        String chatPath(UUID tab) {
+            return path() + "/tabs/" + tab + "/chat";
+        }
+
+        String threadId(UUID tab) {
+            return hr.companyId() + ":" + stageId + ":" + tab;
         }
     }
 }
