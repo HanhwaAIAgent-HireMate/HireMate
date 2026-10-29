@@ -72,20 +72,28 @@ export function AssessmentViewer({
           </div>
           {Object.keys(data.areas).length > 0 && (
             <div className="space-y-2">
-              {NCS_AREAS.filter((area) => data.areas[area] !== undefined).map((area) => (
-                <div key={area} className="grid grid-cols-[96px_1fr_36px] items-center gap-3">
-                  <span className="text-xs text-muted-foreground">{area}</span>
-                  <div className="h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-foreground/70"
-                      style={{ width: `${Math.min(100, Number(data.areas[area]))}%` }}
-                    />
+              {NCS_AREAS.filter((area) => area in data.areas).map((area) => {
+                // 결과표에서 비운 영역은 null로 온다. 0점이 아니라 미입력으로 보여 준다
+                const score: number | null = data.areas[area] ?? null
+                return (
+                  <div key={area} className="grid grid-cols-[96px_1fr_44px] items-center gap-3">
+                    <span className="text-xs text-muted-foreground">{area}</span>
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                      {score !== null && (
+                        <div
+                          className="h-full rounded-full bg-foreground/70"
+                          style={{ width: `${Math.min(100, Number(score))}%` }}
+                        />
+                      )}
+                    </div>
+                    {score === null ? (
+                      <span className="text-right text-xs text-muted-foreground">미입력</span>
+                    ) : (
+                      <span className="text-right font-semibold tabular-nums">{Number(score)}</span>
+                    )}
                   </div>
-                  <span className="text-right font-semibold tabular-nums">
-                    {Number(data.areas[area])}
-                  </span>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
           {(data.fileId || data.url) && (
