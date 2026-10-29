@@ -9,6 +9,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -44,6 +45,17 @@ public final class TestFixtures {
         expect(hr.post(base + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
                 "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
         return new Posting(id, draft.path("postingId").asString());
+    }
+
+    /** 전형의 첫 탭. 전형을 시작하면 탭 1이 생긴다. */
+    public static UUID firstTab(TestApi hr, Object stageId) throws Exception {
+        return UUID.fromString(json(expect(hr.get("/api/stages/" + stageId + "/tabs"), 200)).get(0).path("id")
+                .asString());
+    }
+
+    /** 전형 경로(/api/stages/{id})의 첫 탭 경로. Chat과 선택 지원자는 탭 경로 아래에 있다. */
+    public static String firstTabPath(TestApi hr, String stagePath) throws Exception {
+        return stagePath + "/tabs/" + json(expect(hr.get(stagePath + "/tabs"), 200)).get(0).path("id").asString();
     }
 
     public static Map<String, Object> form(String email, boolean withPortfolio) throws Exception {

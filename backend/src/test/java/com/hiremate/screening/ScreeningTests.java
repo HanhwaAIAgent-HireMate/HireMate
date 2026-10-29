@@ -17,6 +17,7 @@ import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
 import java.math.BigDecimal;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -39,6 +40,9 @@ class ScreeningTests extends IntegrationTest {
 
     @Autowired
     private InterviewService interviews;
+
+    @Autowired
+    private ScreeningService screening;
 
     @Autowired
     private TestMailConfiguration.RecordingMailClient mail;
@@ -110,15 +114,15 @@ class ScreeningTests extends IntegrationTest {
     void belowLineNeedsPromotionBeforeAdding() throws Exception {
         Stage stage = startDocumentStage(3);
         String below = stage.ids().get(2);
-        expect(stage.hr().post(stage.path() + "/selection/add", Map.of("applicationIds", List.of(below))), 409);
+        expect(stage.hr().post(stage.tabPath() + "/selection/add", Map.of("applicationIds", List.of(below))), 409);
         expect(stage.hr().post(stage.path() + "/candidates/" + below + "/promote", null), 204);
-        expect(stage.hr().post(stage.path() + "/selection/add", Map.of("applicationIds", List.of(below))), 204);
+        expect(stage.hr().post(stage.tabPath() + "/selection/add", Map.of("applicationIds", List.of(below))), 204);
 
-        JsonNode selection = json(expect(stage.hr().get(stage.path() + "/selection"), 200));
+        JsonNode selection = json(expect(stage.hr().get(stage.tabPath() + "/selection"), 200));
         assertThat(selection.path("total").asLong()).isEqualTo(1);
         assertThat(selection.path("items").get(0).path("aiSelected").asBoolean()).isFalse();
 
-        expect(stage.hr().post(stage.path() + "/selection/remove", Map.of("applicationIds", List.of(below))), 204);
+        expect(stage.hr().post(stage.tabPath() + "/selection/remove", Map.of("applicationIds", List.of(below))), 204);
         JsonNode row = json(expect(stage.hr().get(stage.path() + "/candidates?query=지원자3"), 200)).path("items").get(0);
         assertThat(row.path("decision").asString()).isEqualTo("PENDING");
         assertThat(row.path("selected").asBoolean()).isFalse();
@@ -129,14 +133,14 @@ class ScreeningTests extends IntegrationTest {
     void decisionsAndConfirmation() throws Exception {
         Stage stage = startDocumentStage(3);
         List<String> top = stage.ids().subList(0, 2);
-        expect(stage.hr().post(stage.path() + "/selection/add", Map.of("applicationIds", top)), 204);
+        expect(stage.hr().post(stage.tabPath() + "/selection/add", Map.of("applicationIds", top)), 204);
         expect(stage.hr().post(stage.path() + "/decisions",
                 Map.of("applicationIds", List.of(top.get(0)), "decision", "PASS")), 204);
-        assertThat(json(expect(stage.hr().get(stage.path() + "/selection"), 200)).path("total").asLong()).isEqualTo(1);
+        assertThat(selection(stage, stage.tabId()).path("total").asLong()).isEqualTo(1);
 
-        expect(stage.hr().post(stage.path() + "/decisions/revert", Map.of("applicationIds", List.of(top.get(0)))),
-                204);
-        assertThat(json(expect(stage.hr().get(stage.path() + "/selection"), 200)).path("total").asLong()).isEqualTo(2);
+        expect(stage.hr().post(stage.path() + "/decisions/revert",
+                Map.of("applicationIds", List.of(top.get(0)), "tabId", stage.tabId())), 204);
+        assertThat(selection(stage, stage.tabId()).path("total").asLong()).isEqualTo(2);
 
         expect(stage.hr().post(stage.path() + "/decisions", Map.of("applicationIds", top, "decision", "PASS")), 204);
         JsonNode counts = json(expect(stage.hr().post(stage.path() + "/confirm", null), 200));
@@ -158,6 +162,132 @@ class ScreeningTests extends IntegrationTest {
         String next = finished.path("nextStageId").asString();
         JsonNode nextList = json(expect(stage.hr().get("/api/stages/" + next + "/candidates"), 200));
         assertThat(nextList.path("total").asLong()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("전형을 시작하면 탭 1이 있고, 탭은 만들고 이름을 바꾸고 지울 수 있지만 마지막 탭은 지울 수 없다")
+    void tabsCanBeCreatedRenamedAndDeleted() throws Exception {
+        Stage stage = startDocumentStage(1);
+        JsonNode tabs = json(expect(stage.hr().get(stage.path() + "/tabs"), 200));
+        assertThat(tabs.size()).isEqualTo(1);
+        assertThat(tabs.get(0).path("name").asString()).isEqualTo("탭 1");
+        assertThat(tabs.get(0).path("selectedCount").asLong()).isZero();
+        assertThat(tabs.get(0).path("canRestore").asBoolean()).isFalse();
+
+        String second = newTab(stage);
+        JsonNode renamed = json(expect(stage.hr().patch(stage.tabPath(second), Map.of("name", "금융 경험")), 200));
+        assertThat(renamed.path("name").asString()).isEqualTo("금융 경험");
+        expect(stage.hr().patch(stage.tabPath(second), Map.of("name", " ")), 400);
+        expect(stage.hr().patch(stage.tabPath(second), Map.of("name", "가".repeat(31))), 400);
+
+        expect(stage.hr().delete(stage.tabPath()), 204);
+        JsonNode left = json(expect(stage.hr().get(stage.path() + "/tabs"), 200));
+        assertThat(left.size()).isEqualTo(1);
+        assertThat(left.get(0).path("name").asString()).isEqualTo("금융 경험");
+        assertCode(expect(stage.hr().delete(stage.tabPath(second)), 409), "LAST_TAB");
+        // 새 탭 번호는 남은 탭의 가장 큰 번호 다음이다
+        assertThat(json(expect(stage.hr().post(stage.path() + "/tabs", null), 201)).path("name").asString())
+                .isEqualTo("탭 3");
+    }
+
+    @Test
+    @DisplayName("탭은 전형마다 20개까지 만든다")
+    void tabsAreLimitedPerStage() throws Exception {
+        Stage stage = startDocumentStage(1);
+        for (int i = 2; i <= 20; i++) {
+            newTab(stage);
+        }
+        assertCode(expect(stage.hr().post(stage.path() + "/tabs", null), 409), "TAB_LIMIT");
+    }
+
+    @Test
+    @DisplayName("선택 지원자는 탭마다 따로이고, 전체 지원자 리스트는 고른 탭의 선택 표시를 보여 준다")
+    void selectionIsPerTab() throws Exception {
+        Stage stage = startDocumentStage(3);
+        String other = newTab(stage);
+        expect(stage.hr().post(stage.tabPath() + "/selection/add",
+                Map.of("applicationIds", List.of(stage.ids().getFirst()))), 204);
+
+        assertThat(selection(stage, stage.tabId()).path("total").asLong()).isEqualTo(1);
+        assertThat(selection(stage, other).path("total").asLong()).isZero();
+        String row = stage.path() + "/candidates?query=지원자1&tabId=";
+        assertThat(json(expect(stage.hr().get(row + stage.tabId()), 200)).path("items").get(0).path("selected")
+                .asBoolean()).isTrue();
+        assertThat(json(expect(stage.hr().get(row + other), 200)).path("items").get(0).path("selected")
+                .asBoolean()).isFalse();
+        JsonNode tabs = json(expect(stage.hr().get(stage.path() + "/tabs"), 200));
+        assertThat(tabs.get(0).path("selectedCount").asLong()).isEqualTo(1);
+        assertThat(tabs.get(1).path("selectedCount").asLong()).isZero();
+    }
+
+    @Test
+    @DisplayName("결정하면 모든 탭의 선택 지원자에서 숨고, 되돌리면 원래 탭에 AI 표시 그대로 돌아오며 없던 탭에는 누른 탭으로 들어온다")
+    void decisionsHideFromTabsAndRevertReturnsThem() throws Exception {
+        Stage stage = startDocumentStage(3);
+        String other = newTab(stage);
+        List<String> top = stage.ids().subList(0, 2);
+        expect(stage.hr().post(stage.tabPath() + "/selection/add", Map.of("applicationIds", top.subList(0, 1))), 204);
+        screening.addByAi(stage.hr().companyId(), UUID.fromString(stage.stageId()), UUID.fromString(other),
+                List.of(UUID.fromString(top.getFirst())));
+        expect(stage.hr().post(stage.path() + "/decisions", Map.of("applicationIds", top, "decision", "PASS")), 204);
+        assertThat(selection(stage, stage.tabId()).path("total").asLong()).isZero();
+        assertThat(selection(stage, other).path("total").asLong()).isZero();
+
+        expect(stage.hr().post(stage.path() + "/decisions/revert", Map.of("applicationIds", top, "tabId", other)), 204);
+        JsonNode mine = selection(stage, stage.tabId()).path("items");
+        assertThat(names(mine)).containsExactly("지원자1");
+        assertThat(mine.get(0).path("aiSelected").asBoolean()).isFalse();
+        JsonNode theirs = selection(stage, other).path("items");
+        assertThat(names(theirs)).containsExactly("지원자1", "지원자2");
+        assertThat(theirs.get(0).path("aiSelected").asBoolean()).isTrue();
+        assertThat(theirs.get(1).path("aiSelected").asBoolean()).isFalse();
+    }
+
+    @Test
+    @DisplayName("비우기와 되돌리기는 결정하지 않은 지원자에만 적용하고, 결정한 지원자는 결정을 되돌리면 제자리로 돌아온다")
+    void selectionEditsSkipDecidedApplicants() throws Exception {
+        Stage stage = startDocumentStage(3);
+        List<String> top = stage.ids().subList(0, 2);
+        expect(stage.hr().post(stage.tabPath() + "/selection/add", Map.of("applicationIds", top)), 204);
+        expect(stage.hr().post(stage.path() + "/decisions",
+                Map.of("applicationIds", top.subList(0, 1), "decision", "PASS")), 204);
+        expect(stage.hr().post(stage.tabPath() + "/selection/clear", null), 204);
+        assertThat(json(expect(stage.hr().get(stage.path() + "/tabs"), 200)).get(0).path("canRestore").asBoolean())
+                .isTrue();
+        expect(stage.hr().post(stage.tabPath() + "/selection/restore", null), 204);
+        assertThat(names(selection(stage, stage.tabId()).path("items"))).containsExactly("지원자2");
+
+        expect(stage.hr().post(stage.path() + "/decisions/revert",
+                Map.of("applicationIds", top.subList(0, 1), "tabId", stage.tabId())), 204);
+        assertThat(names(selection(stage, stage.tabId()).path("items"))).containsExactly("지원자1", "지원자2");
+    }
+
+    @Test
+    @DisplayName("결과를 확정하면 탭은 남고 선택 지원자만 비며, 끝난 전형은 탭을 만들거나 지울 수 없고 이름만 바꾼다")
+    void confirmationKeepsTabsAndClearsSelections() throws Exception {
+        Stage stage = startDocumentStage(2);
+        String other = newTab(stage);
+        expect(stage.hr().post(stage.tabPath() + "/selection/add",
+                Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
+        expect(stage.hr().post(stage.path() + "/confirm", null), 200);
+
+        JsonNode tabs = json(expect(stage.hr().get(stage.path() + "/tabs"), 200));
+        assertThat(tabs.size()).isEqualTo(2);
+        assertThat(tabs.get(0).path("selectedCount").asLong()).isZero();
+        assertCode(expect(stage.hr().post(stage.path() + "/tabs", null), 409), "STAGE_NOT_ACTIVE");
+        assertCode(expect(stage.hr().delete(stage.tabPath(other)), 409), "STAGE_NOT_ACTIVE");
+        expect(stage.hr().patch(stage.tabPath(other), Map.of("name", "확정 뒤 정리")), 200);
+    }
+
+    @Test
+    @DisplayName("다른 기업은 탭을 볼 수 없고, 다른 전형의 탭은 찾을 수 없다")
+    void tabsAreScopedToStageAndCompany() throws Exception {
+        Stage stage = startDocumentStage(1);
+        Stage another = startDocumentStage(1);
+        expect(newHr().get(stage.path() + "/tabs"), 404);
+        assertCode(expect(stage.hr().get(stage.tabPath(another.tabId()) + "/selection"), 404), "TAB_NOT_FOUND");
+        assertCode(expect(stage.hr().patch(stage.tabPath(another.tabId()), Map.of("name", "x")), 404),
+                "TAB_NOT_FOUND");
     }
 
     @Test
@@ -193,19 +323,19 @@ class ScreeningTests extends IntegrationTest {
     @DisplayName("AI Chat은 찾기 · 좁히기 · 편집을 서버 검증으로 실행하고, 차별 조건과 없는 자료 질문은 실행하지 않는다")
     void chatFindsNarrowsEditsAndBlocks() throws Exception {
         Stage stage = startDocumentStage(3);
-        String chat = stage.path() + "/chat";
+        String chat = stage.tabPath() + "/chat";
 
         JsonNode found = done(expect(stage.hr().post(chat, chatBody("Java 경험이 있는 지원자 찾아줘", List.of())), 200));
         assertThat(found.path("intent").asString()).isEqualTo("FIND");
         assertThat(found.path("message").asString()).contains("3명 중", "2명");
-        JsonNode selection = json(expect(stage.hr().get(stage.path() + "/selection"), 200));
+        JsonNode selection = json(expect(stage.hr().get(stage.tabPath() + "/selection"), 200));
         assertThat(selection.path("total").asLong()).isEqualTo(2);
         assertThat(selection.path("items").get(0).path("aiSelected").asBoolean()).isTrue();
 
         JsonNode removed = done(expect(stage.hr().post(chat,
                 chatBody("이 지원자 빼줘", List.of(stage.ids().get(1)))), 200));
         assertThat(removed.path("intent").asString()).isEqualTo("EDIT");
-        assertThat(json(expect(stage.hr().get(stage.path() + "/selection"), 200)).path("total").asLong()).isEqualTo(1);
+        assertThat(selection(stage, stage.tabId()).path("total").asLong()).isEqualTo(1);
 
         JsonNode blocked = done(expect(stage.hr().post(chat, chatBody("30살 이하 남자 지원자 찾아줘", List.of())), 200));
         assertThat(blocked.path("intent").asString()).isEqualTo("BLOCKED");
@@ -217,7 +347,7 @@ class ScreeningTests extends IntegrationTest {
                 chatBody("강점과 확인할 점은?", List.of(stage.ids().getFirst()))), 200));
         assertThat(analysis.path("intent").asString()).isEqualTo("ANSWER");
         assertThat(analysis.path("selectionChanged").asBoolean()).isFalse();
-        assertThat(json(expect(stage.hr().get(stage.path() + "/selection"), 200)).path("total").asLong()).isEqualTo(1);
+        assertThat(selection(stage, stage.tabId()).path("total").asLong()).isEqualTo(1);
     }
 
     @Test
@@ -225,7 +355,7 @@ class ScreeningTests extends IntegrationTest {
     void noticeDraftsAreWrittenPerGroup() throws Exception {
         Stage stage = startDocumentStage(2);
         TestApi hr = stage.hr();
-        expect(hr.post(stage.path() + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
+        expect(hr.post(stage.tabPath() + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
         expect(hr.post(stage.path() + "/decisions",
                 Map.of("applicationIds", stage.ids().subList(0, 1), "decision", "PASS")), 204);
         expect(hr.post(stage.path() + "/confirm", null), 200);
@@ -258,7 +388,7 @@ class ScreeningTests extends IntegrationTest {
         expect(hr.put(guidePath, Map.of("schedule", first.toString(), "method", "ONLINE", "place", "",
                 "preparation", "신분증", "note", "11월 1일까지 참석 여부를 알려 주세요.\n\n 건물 주차는 지원되지 않습니다. ")),
                 200);
-        expect(hr.post(stage.path() + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
+        expect(hr.post(stage.tabPath() + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
         expect(hr.post(stage.path() + "/decisions",
                 Map.of("applicationIds", stage.ids().subList(0, 1), "decision", "PASS")), 204);
         expect(hr.post(stage.path() + "/confirm", null), 200);
@@ -299,7 +429,7 @@ class ScreeningTests extends IntegrationTest {
     void noticesAndFinalReport() throws Exception {
         Stage stage = startDocumentStage(2);
         TestApi hr = stage.hr();
-        expect(hr.post(stage.path() + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
+        expect(hr.post(stage.tabPath() + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
         expect(hr.post(stage.path() + "/decisions",
                 Map.of("applicationIds", stage.ids().subList(0, 1), "decision", "PASS")), 204);
         expect(hr.post(stage.path() + "/confirm", null), 200);
@@ -323,7 +453,8 @@ class ScreeningTests extends IntegrationTest {
 
         String interview = json(expect(hr.post(stage.path() + "/finish", null), 200)).path("nextStageId").asString();
         String next = "/api/stages/" + interview;
-        expect(hr.post(next + "/selection/add", Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
+        expect(hr.post(next + "/tabs/" + TestFixtures.firstTab(hr, interview) + "/selection/add",
+                Map.of("applicationIds", stage.ids().subList(0, 1))), 204);
         expect(hr.post(next + "/decisions", Map.of("applicationIds", stage.ids().subList(0, 1), "decision", "PASS")),
                 204);
         expect(hr.post(next + "/confirm", null), 200);
@@ -467,7 +598,8 @@ class ScreeningTests extends IntegrationTest {
 
         String card = first + "/candidates/" + id + "/interview";
         JsonNode beforeChat = json(expect(hr.get(card), 200));
-        JsonNode addition = done(expect(hr.post(first + "/chat",
+        String firstChat = TestFixtures.firstTabPath(hr, first) + "/chat";
+        JsonNode addition = done(expect(hr.post(firstChat,
                 Map.of("message", "프로젝트 기반 질문 1개 추가해줘", "mentionIds", List.of(id),
                         "checkedIds", List.of())), 200));
         assertThat(addition.path("selectionChanged").asBoolean()).isFalse();
@@ -475,7 +607,7 @@ class ScreeningTests extends IntegrationTest {
         assertThat(json(expect(hr.get(card), 200)).path("questions").size())
                 .isEqualTo(beforeChat.path("questions").size() + 1);
         expect(hr.post(card + "/generate", Map.of()), 404);
-        expect(hr.post(first + "/chat",
+        expect(hr.post(firstChat,
                 Map.of("message", "맞춤 질문 만들어줘", "mentionIds", List.of(id), "checkedIds", List.of())), 200);
         JsonNode generated = json(expect(hr.get(card), 200));
         assertThat(generated.path("questions").size()).isPositive();
@@ -487,7 +619,7 @@ class ScreeningTests extends IntegrationTest {
                 Map.of("scheduledAt", "2026-10-31T05:00:00Z", "interviewers", "면접관 2명")), 200));
         assertThat(scheduled.path("schedule").path("interviewers").asString()).isEqualTo("면접관 2명");
 
-        JsonNode chat = done(expect(hr.post(first + "/chat",
+        JsonNode chat = done(expect(hr.post(firstChat,
                 Map.of("message", "지원자별 맞춤 질문 만들어줘", "mentionIds", List.of(), "checkedIds", List.of())), 200));
         assertThat(chat.path("agents").get(0).asString()).isEqualTo("Interview Agent");
         assertThat(chat.path("items").get(0).path("label").asString()).isEqualTo("지원자1");
@@ -497,8 +629,9 @@ class ScreeningTests extends IntegrationTest {
         assertThat(next.path("questions").get(0).path("text").asString()).isEqualTo("1분 자기소개 부탁드립니다.");
         assertThat(next.path("previous").get(0).path("stageName").asString()).isEqualTo("1차 면접");
         assertThat(next.path("previous").get(0).path("questions").size()).isPositive();
-        expect(hr.post(last + "/chat", Map.of("message", "확인 안 된 부분 중심으로 질문 만들어줘",
-                "mentionIds", List.of(id), "checkedIds", List.of())), 200);
+        expect(hr.post(TestFixtures.firstTabPath(hr, last) + "/chat",
+                Map.of("message", "확인 안 된 부분 중심으로 질문 만들어줘", "mentionIds", List.of(id),
+                        "checkedIds", List.of())), 200);
         JsonNode recommended = json(expect(hr.get(last + "/candidates/" + id + "/interview"), 200));
         assertThat(recommended.path("questions").toString()).contains("충분히 확인하지 못한");
         JsonNode history = json(expect(hr.get(last + "/candidates/" + id + "/history"), 200));
@@ -532,6 +665,18 @@ class ScreeningTests extends IntegrationTest {
                 "note", "\n 11월 25일까지 서류를 보내 주세요 \n");
     }
 
+    private static String newTab(Stage stage) throws Exception {
+        return json(expect(stage.hr().post(stage.path() + "/tabs", null), 201)).path("id").asString();
+    }
+
+    private static JsonNode selection(Stage stage, String tab) throws Exception {
+        return json(expect(stage.hr().get(stage.tabPath(tab) + "/selection"), 200));
+    }
+
+    private static void assertCode(HttpResponse<String> response, String code) {
+        assertThat(json(response).path("code").asString()).isEqualTo(code);
+    }
+
     private static Map<String, Object> chatBody(String message, List<String> mentions) {
         return Map.of("message", message, "mentionIds", mentions, "checkedIds", List.of());
     }
@@ -562,7 +707,8 @@ class ScreeningTests extends IntegrationTest {
                 .sorted(java.util.Comparator.comparing(applicant -> applicant.name()))
                 .forEach(applicant -> ids.add(applicant.applicationId().toString()));
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
-        return new Stage(hr, closed.path("stages").get(0).path("id").asString(), ids);
+        String stageId = closed.path("stages").get(0).path("id").asString();
+        return new Stage(hr, stageId, ids, TestFixtures.firstTab(hr, stageId).toString());
     }
 
     /** 전형 시작 뒤 지원자N의 분석 결과를 바꾼다. 리스트는 매번 다시 줄 세운다. */
@@ -611,10 +757,18 @@ class ScreeningTests extends IntegrationTest {
         throw new AssertionError("Analysis did not finish.");
     }
 
-    record Stage(TestApi hr, String stageId, List<String> ids) {
+    record Stage(TestApi hr, String stageId, List<String> ids, String tabId) {
 
         String path() {
             return "/api/stages/" + stageId;
+        }
+
+        String tabPath() {
+            return tabPath(tabId);
+        }
+
+        String tabPath(String tab) {
+            return path() + "/tabs/" + tab;
         }
     }
 }

@@ -17,7 +17,7 @@ import java.util.UUID;
  * Root Agent가 받는 요청 범위: 현재 채용 · 전형 + 대상(@멘션 · 체크한 지원자) + 질문 (기획 v7 §10).
  *
  * @param recruitmentId 조회 범위. ai 서버의 도구가 지원자 프로필을 이 채용 안에서만 찾는다
- * @param threadId 대화방. 기업 · 전형 · 담당자로 만든다 (기업:전형:담당자). 끝난 전형이면 비워 대화를 남기지 않는다
+ * @param threadId 대화방. 기업 · 전형 · 탭으로 만든다 (기업:전형:탭). 같은 기업 담당자가 함께 쓰고 탭을 지울 때 지운다
  * @param selectable 선택 지원자를 바꿀 수 있는가. 진행 중인 전형만 true다
  * @param stages 채용의 전형 전체를 순서대로. 현재 전형도 들어 있다. 아직 진행하지 않은 전형의 자료를 없는 자료와 나눈다
  * @param documentScores 서류 점수. 평가 결과와 지원서를 맞춰 볼 때 쓴다

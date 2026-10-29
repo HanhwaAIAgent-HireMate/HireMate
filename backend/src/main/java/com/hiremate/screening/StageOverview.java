@@ -12,9 +12,9 @@ import java.util.UUID;
 /** 전형 화면 위쪽(Workflow Stepper · Stage 바)에 필요한 정보. */
 public record StageOverview(UUID stageId, String name, StageType type, StageStatus status, boolean last,
         UUID recruitmentId, String recruitmentTitle, RecruitmentStatus recruitmentStatus, UUID postingId,
-        long applicantCount, List<StageStep> steps, DecisionCounts counts, long selectedCount, boolean canRestore,
-        boolean hasScores, @Schema(nullable = true) Instant confirmedAt,
-        @Schema(nullable = true) String confirmedByName, long undecidedAtConfirm) {
+        long applicantCount, List<StageStep> steps, DecisionCounts counts, boolean hasScores,
+        @Schema(nullable = true) Instant confirmedAt, @Schema(nullable = true) String confirmedByName,
+        long undecidedAtConfirm) {
 
     /** Stepper의 전형 한 칸. 시작하지 않은 전형은 대상 인원이 없다. */
     public record StageStep(UUID stageId, String name, StageType type, StageStatus status,

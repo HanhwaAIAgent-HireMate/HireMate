@@ -6,7 +6,6 @@ import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,15 +64,13 @@ class RootFocusChatTests extends IntegrationTest {
         String interview = passAndFinish(hr, document, id.toString());
         expect(hr.put(interview + "/candidates/" + id + "/memo",
                 Map.of("memo", "협업 사례의 본인 역할은 추가 확인이 필요함")), 204);
-        // 전형 종료 이벤트가 다른 스레드에서 root.forgetStage를 부르므로, 끝난 뒤에 계획을 바꿔 둔다
-        verify(root, timeout(10_000)).forgetStage(any());
 
         ChatItem reason = new ChatItem(id, "확인할 점", "자기소개서의 협업 사례를 실제 역할로 확인", "OK");
         when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.ANSWER, null, null, List.of(),
                 "1명의 맞춤 질문을 만들어 카드에 넣었어요.", List.of(reason), List.of("자기소개서"),
                 List.of("Interview Agent"), List.of(id), Map.of(id, "협업 위주로 확인")));
 
-        JsonNode chat = done(expect(hr.post(interview + "/chat",
+        JsonNode chat = done(expect(hr.post(TestFixtures.firstTabPath(hr, interview) + "/chat",
                 Map.of("message", "면접 질문 만들어줘", "mentionIds", List.of(id), "checkedIds", List.of())), 200));
 
         assertThat(chat.path("items").size()).isEqualTo(1);

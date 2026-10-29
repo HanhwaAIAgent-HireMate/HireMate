@@ -65,6 +65,10 @@ public final class TestApi {
         return send(withJson(HttpRequest.newBuilder(uri(path)), "PUT", body));
     }
 
+    public HttpResponse<String> patch(String path, Object body) throws Exception {
+        return send(withJson(HttpRequest.newBuilder(uri(path)), "PATCH", body));
+    }
+
     public HttpResponse<String> delete(String path) throws Exception {
         return send(HttpRequest.newBuilder(uri(path)).header(csrfHeader(), csrf()).DELETE());
     }

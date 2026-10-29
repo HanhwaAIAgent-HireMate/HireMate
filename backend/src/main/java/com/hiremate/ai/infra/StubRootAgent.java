@@ -88,10 +88,6 @@ class StubRootAgent implements RootAgent {
     }
 
     @Override
-    public void forgetStage(UUID stageId) {
-    }
-
-    @Override
     public ChatPlan plan(ChatContext context, ChatProgress progress) {
         progress.status("요청을 확인하고 있어요");
         return answer(context);

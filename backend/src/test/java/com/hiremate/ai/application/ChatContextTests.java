@@ -1,6 +1,7 @@
 package com.hiremate.ai.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -53,9 +54,9 @@ class ChatContextTests {
                         false, true, null, AnalysisStatus.DONE, false, List.of(), null, null, null, 0, null, 0))
                 .toList();
         ScreeningService screening = mock(ScreeningService.class);
-        when(screening.candidates(eq(companyId), eq(stageId), isNull(), eq(CandidateSort.QUALIFICATION),
+        when(screening.candidates(eq(companyId), eq(stageId), any(), isNull(), eq(CandidateSort.QUALIFICATION),
                 eq(0), anyInt())).thenReturn(new CandidatePage(201, candidates.subList(0, 200)));
-        when(screening.candidates(eq(companyId), eq(stageId), isNull(), eq(CandidateSort.QUALIFICATION),
+        when(screening.candidates(eq(companyId), eq(stageId), any(), isNull(), eq(CandidateSort.QUALIFICATION),
                 eq(1), anyInt())).thenReturn(new CandidatePage(201, candidates.subList(200, 201)));
         StageInfo stage = new StageInfo(stageId, recruitmentId, 1, "서류 전형", StageType.DOCUMENT,
                 StageStatus.ACTIVE, null, null, null, null);
@@ -95,7 +96,7 @@ class ChatContextTests {
         CandidateRow empty = new CandidateRow(UUID.randomUUID(), "나새롬", 3, "개발기업", Decision.PENDING, false,
                 false, true, null, AnalysisStatus.DONE, false, List.of(), null, null, null, 0, null, 0);
         ScreeningService screening = mock(ScreeningService.class);
-        when(screening.candidates(eq(companyId), eq(stageId), isNull(), eq(CandidateSort.QUALIFICATION),
+        when(screening.candidates(eq(companyId), eq(stageId), any(), isNull(), eq(CandidateSort.QUALIFICATION),
                 eq(0), anyInt())).thenReturn(new CandidatePage(2, List.of(scored, empty)));
         StageInfo stage = new StageInfo(stageId, recruitmentId, 2, "직무역량 평가", StageType.ASSESSMENT,
                 StageStatus.ACTIVE, null, null, null, null);

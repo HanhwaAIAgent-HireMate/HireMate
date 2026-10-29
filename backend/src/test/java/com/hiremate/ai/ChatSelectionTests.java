@@ -56,7 +56,8 @@ class ChatSelectionTests extends IntegrationTest {
     @DisplayName("이미 선택한 지원자 추가는 변경 없이 알리고 AI 표시를 유지한다")
     void duplicateEditAdditionKeepsExistingSelection() throws Exception {
         Setup setup = documentStage();
-        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), SelectionMode.REPLACE, setup.ids());
+        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), setup.tabId(),
+                SelectionMode.REPLACE, setup.ids());
         ChatPlan previous = new ChatPlan(ChatPlan.Intent.EDIT, null,
                 ChatPlan.EditAction.ADD, setup.ids(), "2명을 선택 지원자에 넣었어요.", List.of(),
                 List.of(), List.of(), List.of());
@@ -67,7 +68,7 @@ class ChatSelectionTests extends IntegrationTest {
 
         assertThat(answer.path("selectionChanged").asBoolean()).isFalse();
         assertThat(answer.path("message").asString()).contains("이미", "2명").doesNotContain("넣었어요");
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .allMatch(row -> row.selected() && row.aiSelected());
         assertHistoryMatches(setup, previous, answer, applied.get());
     }
@@ -82,7 +83,7 @@ class ChatSelectionTests extends IntegrationTest {
         screening.decide(setup.hr().companyId(), setup.stageId(), setup.hr().memberId(), List.of(rejected),
                 Decision.PASS);
         if (alreadySelected) {
-            screening.add(setup.hr().companyId(), setup.stageId(), List.of(target));
+            screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), List.of(target));
         }
         String reason = "지원자2 님은 이미 합격 처리한 지원자라 선택 지원자에 넣을 수 없어요.";
         ChatPlan previous = new ChatPlan(ChatPlan.Intent.EDIT, null, ChatPlan.EditAction.ADD, List.of(target),
@@ -102,9 +103,9 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(answer.path("items").get(0).path("applicationId").isNull()).isTrue();
         assertThat(applied.get().plan().message()).isEqualTo(answer.path("message").asString());
         assertThat(applied.get().plan().targets()).hasSize(alreadySelected ? 0 : 1);
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .extracting(row -> row.applicationId()).containsExactly(target);
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .allMatch(row -> row.aiSelected());
     }
 
@@ -112,7 +113,7 @@ class ChatSelectionTests extends IntegrationTest {
     @DisplayName("좁히기 결과는 신규 추가 수 대신 유지한 두 명을 알려 주고 직접 넣은 지원자도 AI 선택으로 표시한다")
     void narrowingReportsRetainedApplicants() throws Exception {
         Setup setup = documentStage();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids());
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids());
         when(root.plan(any(), any())).thenReturn(find(setup, SelectionMode.NARROW));
 
         JsonNode answer = ask(setup);
@@ -120,7 +121,7 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(answer.path("message").asString()).contains("2명 중", "2명").doesNotContain("0명");
         assertThat(answer.path("items").size()).isEqualTo(2);
         assertThat(answer.path("selectionChanged").asBoolean()).isTrue();
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .hasSize(2).allMatch(row -> row.aiSelected());
     }
 
@@ -128,7 +129,7 @@ class ChatSelectionTests extends IntegrationTest {
     @DisplayName("좁히기 대상을 모두 실행할 수 없으면 기존 선택을 보존하고 성공 항목을 내보내지 않는다")
     void rejectedNarrowingKeepsSelectionAndOmitsSuccessItems() throws Exception {
         Setup setup = documentStage();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids().subList(0, 1));
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids().subList(0, 1));
         UUID unselected = setup.ids().get(1);
         when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.FIND, SelectionMode.NARROW,
                 null, List.of(unselected), "2명 중 **{count}명**으로 좁혔어요.",
@@ -141,7 +142,7 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(answer.path("selectionChanged").asBoolean()).isFalse();
         assertThat(answer.path("items").isEmpty()).isTrue();
         assertThat(answer.path("message").asString()).doesNotContain("좁혔어요");
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .extracting(row -> row.applicationId()).containsExactly(setup.ids().getFirst());
     }
 
@@ -163,7 +164,7 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(answer.path("items").size()).isEqualTo(1);
         assertThat(answer.path("items").get(0).path("applicationId").asString())
                 .isEqualTo(setup.ids().getFirst().toString());
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .extracting(row -> row.applicationId()).containsExactly(setup.ids().getFirst());
         assertHistoryMatches(setup, previous, answer, applied.get());
     }
@@ -172,7 +173,7 @@ class ChatSelectionTests extends IntegrationTest {
     @DisplayName("찾기 추가의 중복 결과는 새로 추가했다고 알리지 않고 이미 있던 지원자를 AI 선택으로 표시한다")
     void duplicateFindAdditionMarksExistingSelection() throws Exception {
         Setup setup = documentStage();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids());
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids());
         when(root.plan(any(), any())).thenReturn(find(setup, SelectionMode.ADD));
 
         JsonNode answer = ask(setup);
@@ -180,7 +181,7 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(answer.path("selectionChanged").asBoolean()).isTrue();
         assertThat(answer.path("message").asString()).contains("이미", "2명").doesNotContain("더했어요");
         assertThat(answer.path("items").isEmpty()).isTrue();
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .hasSize(2).allMatch(row -> row.aiSelected());
     }
 
@@ -188,7 +189,7 @@ class ChatSelectionTests extends IntegrationTest {
     @DisplayName("찾기 추가는 기존 한 명을 보존하고 새로 넣은 한 명만 최종 항목과 추가 수로 알린다")
     void mixedFindAdditionReportsOnlyNewApplicants() throws Exception {
         Setup setup = documentStage();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids().subList(0, 1));
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids().subList(0, 1));
         when(root.plan(any(), any())).thenReturn(find(setup, SelectionMode.ADD));
 
         JsonNode answer = ask(setup);
@@ -198,7 +199,7 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(answer.path("items").size()).isEqualTo(1);
         assertThat(answer.path("items").get(0).path("applicationId").asString())
                 .isEqualTo(setup.ids().get(1).toString());
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .hasSize(2).allMatch(row -> row.aiSelected());
     }
 
@@ -228,14 +229,14 @@ class ChatSelectionTests extends IntegrationTest {
     @DisplayName("실제 편집한 지원자를 기록할 때 요청한 대상 순서를 유지한다")
     void appliedEditKeepsTargetOrder() throws Exception {
         Setup setup = documentStage();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids());
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids());
         ChatPlan previous = new ChatPlan(ChatPlan.Intent.EDIT, null, ChatPlan.EditAction.REMOVE, setup.ids(),
                 "선택 지원자에서 {count}명을 뺐어요.", List.of(), List.of(), List.of(), List.of());
         AtomicReference<ChatApplied> applied = rememberApplied(setup, previous);
         when(root.plan(any(), any())).thenReturn(previous);
         ask(setup);
         List<UUID> reversed = applied.get().plan().targets().reversed();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids());
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids());
         ChatPlan reordered = new ChatPlan(ChatPlan.Intent.EDIT, null, ChatPlan.EditAction.REMOVE, reversed,
                 "선택 지원자에서 {count}명을 뺐어요.", List.of(), List.of(), List.of(), List.of());
         when(root.plan(any(), any())).thenReturn(reordered);
@@ -243,14 +244,14 @@ class ChatSelectionTests extends IntegrationTest {
         ask(setup);
 
         assertThat(applied.get().plan().targets()).containsExactlyElementsOf(reversed);
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items()).isEmpty();
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items()).isEmpty();
     }
 
     @Test
     @DisplayName("검색 결과가 없으면 조건 불일치를 알리고 기존 선택을 유지한다")
     void emptySearchKeepsNoResultsMessageAndSelection() throws Exception {
         Setup setup = documentStage();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids());
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids());
         String message = "조건에 맞는 지원자를 찾지 못했어요. 선택 지원자는 그대로예요.";
         when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.FIND, SelectionMode.REPLACE, null,
                 List.of(), message, List.of(), List.of(), List.of(), List.of()));
@@ -260,14 +261,15 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(answer.path("message").asString()).isEqualTo(message);
         assertThat(answer.path("selectionChanged").asBoolean()).isFalse();
         assertThat(answer.path("items").isEmpty()).isTrue();
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items()).hasSize(2);
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items()).hasSize(2);
     }
 
     @Test
     @DisplayName("이미 결정해 선택에서 빠진 지원자를 빼도 다른 선택과 결정 복구 표시는 유지한다")
     void removingDecidedApplicantPreservesSelectionAndDecisionRestoration() throws Exception {
         Setup setup = documentStage();
-        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), SelectionMode.REPLACE, setup.ids());
+        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), setup.tabId(),
+                SelectionMode.REPLACE, setup.ids());
         UUID decided = setup.ids().getFirst();
         screening.decide(setup.hr().companyId(), setup.stageId(), setup.hr().memberId(), List.of(decided),
                 Decision.PASS);
@@ -281,10 +283,11 @@ class ChatSelectionTests extends IntegrationTest {
         assertThat(answer.path("selectionChanged").asBoolean()).isFalse();
         assertThat(answer.path("message").asString()).contains("현재 선택 지원자에 없어요").doesNotContain("뺐어요");
         assertThat(applied.get().plan().targets()).isEmpty();
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .extracting(row -> row.applicationId()).containsExactly(setup.ids().get(1));
-        screening.revert(setup.hr().companyId(), setup.stageId(), setup.hr().memberId(), List.of(decided));
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        screening.revert(setup.hr().companyId(), setup.stageId(), setup.tabId(),
+                setup.hr().memberId(), List.of(decided));
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .filteredOn(row -> row.applicationId().equals(decided)).allMatch(row -> row.aiSelected());
     }
 
@@ -294,7 +297,8 @@ class ChatSelectionTests extends IntegrationTest {
         Setup setup = documentStage();
         UUID decided = setup.ids().getFirst();
         UUID target = setup.ids().get(1);
-        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), SelectionMode.REPLACE, List.of(decided));
+        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), setup.tabId(),
+                SelectionMode.REPLACE, List.of(decided));
         screening.decide(setup.hr().companyId(), setup.stageId(), setup.hr().memberId(), List.of(decided),
                 Decision.PASS);
         when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.FIND, SelectionMode.REPLACE, null,
@@ -303,10 +307,11 @@ class ChatSelectionTests extends IntegrationTest {
         JsonNode answer = ask(setup);
 
         assertThat(answer.path("selectionChanged").asBoolean()).isTrue();
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .extracting(row -> row.applicationId()).containsExactly(target);
-        screening.revert(setup.hr().companyId(), setup.stageId(), setup.hr().memberId(), List.of(decided));
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        screening.revert(setup.hr().companyId(), setup.stageId(), setup.tabId(),
+                setup.hr().memberId(), List.of(decided));
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .filteredOn(row -> row.applicationId().equals(decided)).allMatch(row -> row.aiSelected());
     }
 
@@ -316,19 +321,22 @@ class ChatSelectionTests extends IntegrationTest {
     void selectionEditPreservesDecidedApplicant(ChatPlan.EditAction action) throws Exception {
         Setup setup = documentStage();
         UUID decided = setup.ids().getFirst();
-        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), SelectionMode.REPLACE, setup.ids());
-        screening.clear(setup.hr().companyId(), setup.stageId());
-        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), SelectionMode.ADD, List.of(decided));
+        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), setup.tabId(),
+                SelectionMode.REPLACE, setup.ids());
+        screening.clear(setup.hr().companyId(), setup.stageId(), setup.tabId());
+        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), setup.tabId(),
+                SelectionMode.ADD, List.of(decided));
         screening.decide(setup.hr().companyId(), setup.stageId(), setup.hr().memberId(), List.of(decided),
                 Decision.PASS);
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids().subList(1, 2));
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids().subList(1, 2));
         when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.EDIT, null, action, List.of(),
                 "선택 지원자를 편집했어요.", List.of(), List.of(), List.of(), List.of()));
 
         ask(setup);
 
-        screening.revert(setup.hr().companyId(), setup.stageId(), setup.hr().memberId(), List.of(decided));
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        screening.revert(setup.hr().companyId(), setup.stageId(), setup.tabId(),
+                setup.hr().memberId(), List.of(decided));
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .filteredOn(row -> row.applicationId().equals(decided)).allMatch(row -> row.aiSelected());
     }
 
@@ -336,7 +344,7 @@ class ChatSelectionTests extends IntegrationTest {
     @DisplayName("좁히기는 유지할 대상을 반영하고 되돌리기는 직전 두 명과 수동 선택 표시를 복구한다")
     void narrowingCanRestorePreviousSelection() throws Exception {
         Setup setup = documentStage();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids());
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids());
         UUID retained = setup.ids().getFirst();
         when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.FIND, SelectionMode.NARROW,
                 null, List.of(retained), "2명 중 **{count}명**으로 좁혔어요.",
@@ -347,12 +355,12 @@ class ChatSelectionTests extends IntegrationTest {
 
         assertThat(answer.path("selectionChanged").asBoolean()).isTrue();
         assertThat(answer.path("message").asString()).contains("**1명**으로 좁혔어요");
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .extracting(row -> row.applicationId()).containsExactly(retained);
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .allMatch(row -> row.aiSelected());
-        screening.restore(setup.hr().companyId(), setup.stageId());
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        screening.restore(setup.hr().companyId(), setup.stageId(), setup.tabId());
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .hasSize(2).allMatch(row -> !row.aiSelected());
     }
 
@@ -360,9 +368,10 @@ class ChatSelectionTests extends IntegrationTest {
     @DisplayName("되돌리기로 대상 수가 같아도 AI 표시가 바뀌면 화면을 갱신한다")
     void restoringSelectionMarksRequiresRefresh() throws Exception {
         Setup setup = documentStage();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids());
-        screening.clear(setup.hr().companyId(), setup.stageId());
-        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), SelectionMode.ADD, setup.ids());
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids());
+        screening.clear(setup.hr().companyId(), setup.stageId(), setup.tabId());
+        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), setup.tabId(),
+                SelectionMode.ADD, setup.ids());
         when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.EDIT, null,
                 ChatPlan.EditAction.RESTORE, List.of(), "직전 선택으로 되돌렸어요.", List.of(),
                 List.of(), List.of(), List.of()));
@@ -370,7 +379,7 @@ class ChatSelectionTests extends IntegrationTest {
         JsonNode answer = ask(setup);
 
         assertThat(answer.path("selectionChanged").asBoolean()).isTrue();
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items())
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .hasSize(2).allMatch(row -> !row.aiSelected());
     }
 
@@ -386,13 +395,13 @@ class ChatSelectionTests extends IntegrationTest {
 
         assertThat(answer.path("intent").asString()).isEqualTo("FIND");
         assertThat(answer.path("selectionChanged").asBoolean()).isTrue();
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId()).items()).hasSize(2);
+        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items()).hasSize(2);
         verify(root).applied(any());
     }
 
     @Test
-    @DisplayName("종료한 전형은 대화방이 없으므로 보정한 응답을 다시 저장하지 않는다")
-    void completedStageSkipsConfirmation() throws Exception {
+    @DisplayName("끝난 전형도 탭 대화방에 남으므로, 찾기 대신 안내한 응답으로 대화 기록을 보정한다")
+    void completedStageConfirmsCorrectedAnswer() throws Exception {
         Setup setup = documentStage();
         ChatPlan previous = find(setup, SelectionMode.REPLACE);
         when(root.plan(any(), any())).thenReturn(previous);
@@ -407,7 +416,9 @@ class ChatSelectionTests extends IntegrationTest {
         JsonNode answer = ask(setup);
 
         assertThat(answer.path("intent").asString()).isEqualTo("CLARIFY");
-        assertThat(applied.get()).isNull();
+        assertThat(applied.get().threadId()).isEqualTo(setup.threadId());
+        assertThat(applied.get().plan().intent()).isEqualTo(ChatPlan.Intent.CLARIFY);
+        assertThat(applied.get().plan().message()).isEqualTo(answer.path("message").asString());
     }
 
     @Test
@@ -430,7 +441,7 @@ class ChatSelectionTests extends IntegrationTest {
     @DisplayName("변경 없이 성공한 빼기도 완료를 기록해 반복 요청의 응답을 보정할 수 있다")
     void successfulRemovalConfirmsBeforeRepeatedCorrection() throws Exception {
         Setup setup = documentStage();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.ids());
+        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids());
         ChatPlan previous = new ChatPlan(ChatPlan.Intent.EDIT, null, ChatPlan.EditAction.REMOVE, setup.ids(),
                 "지원자1, 지원자2 님을 선택 지원자에서 뺐어요.", List.of(), List.of(), List.of(), List.of());
         when(root.plan(any(), any())).thenReturn(previous);
@@ -453,8 +464,7 @@ class ChatSelectionTests extends IntegrationTest {
             applied.set(call.getArgument(0));
             return null;
         }).when(root).applied(any());
-        String threadId = setup.hr().companyId() + ":" + setup.stageId() + ":" + setup.hr().memberId();
-        when(root.history(threadId)).thenAnswer(call -> List.of(new ChatHistoryTurn("선택 요청",
+        when(root.history(setup.threadId())).thenAnswer(call -> List.of(new ChatHistoryTurn("선택 요청",
                 applied.get() == null ? previous : applied.get().plan(), 2)));
         return applied;
     }
@@ -462,14 +472,13 @@ class ChatSelectionTests extends IntegrationTest {
     private static void assertHistoryMatches(Setup setup, ChatPlan previous, JsonNode answer, ChatApplied applied)
             throws Exception {
         assertThat(applied).isNotNull();
-        assertThat(applied.threadId())
-                .isEqualTo(setup.hr().companyId() + ":" + setup.stageId() + ":" + setup.hr().memberId());
+        assertThat(applied.threadId()).isEqualTo(setup.threadId());
         assertThat(applied.message()).isEqualTo("선택 요청");
         assertThat(applied.previous()).isEqualTo(previous);
         assertThat(applied.plan().message()).isEqualTo(answer.path("message").asString());
         assertThat(applied.plan().message()).doesNotContain("{count}", "{total}");
         assertThat(applied.plan().targets()).hasSize(answer.path("items").size());
-        JsonNode history = json(expect(setup.hr().get("/api/stages/" + setup.stageId() + "/chat"), 200));
+        JsonNode history = json(expect(setup.hr().get(setup.chatPath()), 200));
         assertThat(history.get(0).path("answer").path("message")).isEqualTo(answer.path("message"));
         assertThat(history.get(0).path("answer").path("items")).isEqualTo(answer.path("items"));
     }
@@ -482,7 +491,7 @@ class ChatSelectionTests extends IntegrationTest {
     }
 
     private static JsonNode ask(Setup setup) throws Exception {
-        return done(expect(setup.hr().post("/api/stages/" + setup.stageId() + "/chat",
+        return done(expect(setup.hr().post(setup.chatPath(),
                 Map.of("message", "선택 요청", "mentionIds", List.of(), "checkedIds", List.of())), 200));
     }
 
@@ -508,9 +517,18 @@ class ChatSelectionTests extends IntegrationTest {
                     ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
         }
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
-        return new Setup(hr, UUID.fromString(closed.path("stages").get(0).path("id").asString()), ids);
+        UUID stageId = UUID.fromString(closed.path("stages").get(0).path("id").asString());
+        return new Setup(hr, stageId, ids, TestFixtures.firstTab(hr, stageId));
     }
 
-    private record Setup(TestApi hr, UUID stageId, List<UUID> ids) {
+    private record Setup(TestApi hr, UUID stageId, List<UUID> ids, UUID tabId) {
+
+        String chatPath() {
+            return "/api/stages/" + stageId + "/tabs/" + tabId + "/chat";
+        }
+
+        String threadId() {
+            return hr.companyId() + ":" + stageId + ":" + tabId;
+        }
     }
 }

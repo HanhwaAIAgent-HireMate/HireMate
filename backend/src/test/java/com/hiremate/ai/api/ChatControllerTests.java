@@ -34,7 +34,7 @@ class ChatControllerTests {
             }
         };
 
-        SseEmitter emitter = controller.chat(member, UUID.randomUUID(),
+        SseEmitter emitter = controller.chat(member, UUID.randomUUID(), UUID.randomUUID(),
                 new ChatController.ChatRequest("강점 요약해줘", List.of(), List.of()));
 
         // 서블릿 규약에서 0 이하는 시간 제한 없음이다

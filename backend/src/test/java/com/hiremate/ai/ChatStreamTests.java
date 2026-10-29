@@ -70,7 +70,7 @@ class ChatStreamTests extends IntegrationTest {
             return ChatPlan.answer(ChatPlan.Intent.ANSWER, "답", List.of(item), List.of("이력서"), List.of());
         });
 
-        HttpResponse<String> response = expect(setup.hr().post(setup.path() + "/chat", ASK), 200);
+        HttpResponse<String> response = expect(setup.hr().post(setup.chatPath(), ASK), 200);
 
         assertThat(response.headers().firstValue("Content-Type")).hasValueSatisfying(
                 type -> assertThat(type).startsWith("text/event-stream"));
@@ -87,7 +87,7 @@ class ChatStreamTests extends IntegrationTest {
     void unknownStageIs404BeforeStream() throws Exception {
         Setup setup = documentStage();
 
-        HttpResponse<String> response = expect(newHr().post(setup.path() + "/chat", ASK), 404);
+        HttpResponse<String> response = expect(newHr().post(setup.chatPath(), ASK), 404);
 
         assertThat(response.headers().firstValue("Content-Type")).hasValueSatisfying(
                 type -> assertThat(type).doesNotContain("event-stream"));
@@ -100,7 +100,7 @@ class ChatStreamTests extends IntegrationTest {
         when(root.plan(any(), any())).thenThrow(
                 new ApiException(HttpStatus.BAD_GATEWAY, "AI_UNAVAILABLE", "The AI server is not available."));
 
-        List<Map.Entry<String, JsonNode>> events = events(expect(setup.hr().post(setup.path() + "/chat", ASK), 200));
+        List<Map.Entry<String, JsonNode>> events = events(expect(setup.hr().post(setup.chatPath(), ASK), 200));
 
         assertThat(events).extracting(Map.Entry::getKey).containsExactly("error");
         assertThat(events.getLast().getValue().path("status").asInt()).isEqualTo(502);
@@ -112,7 +112,7 @@ class ChatStreamTests extends IntegrationTest {
     void disconnectBeforeDoneLeavesSelection() throws Exception {
         Setup setup = documentStage();
         TestApi hr = setup.hr();
-        ChatInput input = chat.prepare(hr.companyId(), setup.stageId(), hr.memberId(), "금융 경험 찾아줘", List.of(),
+        ChatInput input = chat.prepare(hr.companyId(), setup.stageId(), setup.tabId(), "금융 경험 찾아줘", List.of(),
                 List.of());
         when(root.plan(any(), any())).thenAnswer(call -> {
             call.<ChatProgress>getArgument(1).status("요청을 확인하고 있어요");
@@ -133,8 +133,8 @@ class ChatStreamTests extends IntegrationTest {
 
         assertThatThrownBy(() -> chat.run(input, gone)).isInstanceOf(UncheckedIOException.class);
 
-        assertThat(screening.candidates(hr.companyId(), setup.stageId(), null, CandidateSort.QUALIFICATION, 0, 10)
-                .items())
+        assertThat(screening.candidates(hr.companyId(), setup.stageId(), setup.tabId(), null,
+                CandidateSort.QUALIFICATION, 0, 10).items())
                 .noneMatch(CandidateRow::selected);
     }
 
@@ -154,13 +154,17 @@ class ChatStreamTests extends IntegrationTest {
                 ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         UUID stageId = UUID.fromString(closed.path("stages").get(0).path("id").asString());
-        return new Setup(hr, stageId, applicant);
+        return new Setup(hr, stageId, applicant, TestFixtures.firstTab(hr, stageId));
     }
 
-    private record Setup(TestApi hr, UUID stageId, UUID applicant) {
+    private record Setup(TestApi hr, UUID stageId, UUID applicant, UUID tabId) {
 
         String path() {
             return "/api/stages/" + stageId;
+        }
+
+        String chatPath() {
+            return path() + "/tabs/" + tabId + "/chat";
         }
     }
 }

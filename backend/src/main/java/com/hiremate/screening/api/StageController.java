@@ -41,41 +41,13 @@ public class StageController {
         return screening.overview(member.companyId(), stageId);
     }
 
+    /** 전체 지원자. tabId를 주면 그 탭의 선택 표시와 AI 테두리를 붙인다. */
     @GetMapping("/candidates")
     public CandidatePage candidates(AuthenticatedMember member, @PathVariable UUID stageId,
-            @RequestParam(required = false) String query,
+            @RequestParam(required = false) UUID tabId, @RequestParam(required = false) String query,
             @RequestParam(defaultValue = "QUALIFICATION") CandidateSort sort,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "30") int size) {
-        return screening.candidates(member.companyId(), stageId, query, sort, page, size);
-    }
-
-    @GetMapping("/selection")
-    public CandidatePage selection(AuthenticatedMember member, @PathVariable UUID stageId) {
-        return screening.selection(member.companyId(), stageId);
-    }
-
-    @PostMapping("/selection/add")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void add(AuthenticatedMember member, @PathVariable UUID stageId, @Valid @RequestBody Targets request) {
-        screening.add(member.companyId(), stageId, request.applicationIds());
-    }
-
-    @PostMapping("/selection/remove")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void remove(AuthenticatedMember member, @PathVariable UUID stageId, @Valid @RequestBody Targets request) {
-        screening.remove(member.companyId(), stageId, request.applicationIds());
-    }
-
-    @PostMapping("/selection/clear")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void clear(AuthenticatedMember member, @PathVariable UUID stageId) {
-        screening.clear(member.companyId(), stageId);
-    }
-
-    @PostMapping("/selection/restore")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void restore(AuthenticatedMember member, @PathVariable UUID stageId) {
-        screening.restore(member.companyId(), stageId);
+        return screening.candidates(member.companyId(), stageId, tabId, query, sort, page, size);
     }
 
     @PostMapping("/candidates/{applicationId}/promote")
@@ -92,10 +64,12 @@ public class StageController {
                 request.decision());
     }
 
+    /** 결정 되돌리기. 되돌리기를 누른 탭에 없던 지원자는 그 탭에 넣는다. */
     @PostMapping("/decisions/revert")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void revert(AuthenticatedMember member, @PathVariable UUID stageId, @Valid @RequestBody Targets request) {
-        screening.revert(member.companyId(), stageId, member.memberId(), request.applicationIds());
+    public void revert(AuthenticatedMember member, @PathVariable UUID stageId,
+            @Valid @RequestBody RevertRequest request) {
+        screening.revert(member.companyId(), stageId, request.tabId(), member.memberId(), request.applicationIds());
     }
 
     @GetMapping("/candidates/{applicationId}")
@@ -125,7 +99,8 @@ public class StageController {
         return screening.confirm(member.companyId(), stageId, member.memberId(), member.name());
     }
 
-    public record Targets(@NotEmpty @Size(max = 500) List<@NotNull UUID> applicationIds) {
+    public record RevertRequest(@NotEmpty @Size(max = 500) List<@NotNull UUID> applicationIds,
+            @NotNull UUID tabId) {
     }
 
     public record DecisionRequest(@NotEmpty @Size(max = 500) List<@NotNull UUID> applicationIds,

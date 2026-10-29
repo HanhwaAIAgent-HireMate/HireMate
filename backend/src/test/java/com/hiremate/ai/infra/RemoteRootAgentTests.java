@@ -75,7 +75,7 @@ class RemoteRootAgentTests {
     }
 
     @Test
-    @DisplayName("대화 기록은 threadId로 /agents/root/history에서 받고, 지우기는 forget · forgetStage로 보낸다")
+    @DisplayName("대화 기록은 threadId로 /agents/root/history에서 받고, 탭 대화방 지우기는 forget으로 보낸다")
     void historyAndForget() throws IOException {
         List<ClientRequest> sent = new ArrayList<>();
         String turn = Files.readString(CONTRACT_DIR.resolve("ChatHistoryTurn.json"));
@@ -88,11 +88,9 @@ class RemoteRootAgentTests {
                     .build());
         }), "http://ai.test", Duration.ofSeconds(1), MAPPER);
         RemoteRootAgent agent = new RemoteRootAgent(client);
-        UUID stageId = UUID.randomUUID();
 
-        List<ChatHistoryTurn> history = agent.history("c:s:m");
-        agent.forget("c:s:m");
-        agent.forgetStage(stageId);
+        List<ChatHistoryTurn> history = agent.history("c:s:t");
+        agent.forget("c:s:t");
 
         assertThat(history).hasSize(1);
         assertThat(history.getFirst().total()).isEqualTo(2);
@@ -100,9 +98,9 @@ class RemoteRootAgentTests {
         assertThat(history.getFirst().steps()).startsWith("요청을 확인하고 있어요");
         assertThat(history.getFirst().seconds()).isEqualTo(6);
         assertThat(sent).extracting(request -> request.url().getPath())
-                .containsExactly("/agents/root/history", "/agents/root/forget", "/agents/root/forgetStage");
-        assertThat(MAPPER.readTree(bodyOf(sent.get(0))).path("threadId").asString()).isEqualTo("c:s:m");
-        assertThat(MAPPER.readTree(bodyOf(sent.get(2))).path("stageId").asString()).isEqualTo(stageId.toString());
+                .containsExactly("/agents/root/history", "/agents/root/forget");
+        assertThat(MAPPER.readTree(bodyOf(sent.get(0))).path("threadId").asString()).isEqualTo("c:s:t");
+        assertThat(MAPPER.readTree(bodyOf(sent.get(1))).path("threadId").asString()).isEqualTo("c:s:t");
     }
 
     @Test
