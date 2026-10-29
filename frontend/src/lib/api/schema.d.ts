@@ -260,7 +260,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/stages/{stageId}/selection/restore": {
+    "/api/stages/{stageId}/tabs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["tabs"];
+        put?: never;
+        post: operations["createTab"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/tabs/{tabId}/selection/restore": {
         parameters: {
             query?: never;
             header?: never;
@@ -276,7 +292,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/stages/{stageId}/selection/remove": {
+    "/api/stages/{stageId}/tabs/{tabId}/selection/remove": {
         parameters: {
             query?: never;
             header?: never;
@@ -292,7 +308,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/stages/{stageId}/selection/clear": {
+    "/api/stages/{stageId}/tabs/{tabId}/selection/clear": {
         parameters: {
             query?: never;
             header?: never;
@@ -308,7 +324,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/stages/{stageId}/selection/add": {
+    "/api/stages/{stageId}/tabs/{tabId}/selection/add": {
         parameters: {
             query?: never;
             header?: never;
@@ -318,6 +334,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/tabs/{tabId}/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["history"];
+        put?: never;
+        post: operations["chat"];
         delete?: never;
         options?: never;
         head?: never;
@@ -447,22 +479,6 @@ export interface paths {
         put?: never;
         post: operations["confirm"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/stages/{stageId}/chat": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["history"];
-        put?: never;
-        post: operations["chat"];
-        delete: operations["forget"];
         options?: never;
         head?: never;
         patch?: never;
@@ -836,6 +852,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/tabs/{tabId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteTab"];
+        options?: never;
+        head?: never;
+        patch: operations["renameTab"];
+        trace?: never;
+    };
     "/api/stages/{stageId}": {
         parameters: {
             query?: never;
@@ -852,7 +884,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/stages/{stageId}/selection": {
+    "/api/stages/{stageId}/tabs/{tabId}/selection": {
         parameters: {
             query?: never;
             header?: never;
@@ -1655,36 +1687,16 @@ export interface components {
             hasLogo: boolean;
             hasBanner: boolean;
         };
+        StageTabView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: int64 */
+            selectedCount: number;
+            canRestore: boolean;
+        };
         Targets: {
             applicationIds: string[];
-        };
-        NoticeAiRequest: {
-            message: string;
-        };
-        NoticeAiAnswer: {
-            reply: string;
-            content: string;
-            agent: string;
-            stub: boolean;
-        };
-        FinishResponse: {
-            /** Format: uuid */
-            nextStageId: string | null;
-        };
-        DecisionRequest: {
-            applicationIds: string[];
-            /** @enum {string} */
-            decision: "PENDING" | "PASS" | "FAIL";
-        };
-        DecisionCounts: {
-            /** Format: int64 */
-            pending: number;
-            /** Format: int64 */
-            pass: number;
-            /** Format: int64 */
-            fail: number;
-            /** Format: int64 */
-            total: number;
         };
         ChatRequest: {
             message: string;
@@ -1717,6 +1729,39 @@ export interface components {
             /** Format: int32 */
             status: number;
             code: string;
+        };
+        NoticeAiRequest: {
+            message: string;
+        };
+        NoticeAiAnswer: {
+            reply: string;
+            content: string;
+            agent: string;
+            stub: boolean;
+        };
+        FinishResponse: {
+            /** Format: uuid */
+            nextStageId: string | null;
+        };
+        DecisionRequest: {
+            applicationIds: string[];
+            /** @enum {string} */
+            decision: "PENDING" | "PASS" | "FAIL";
+        };
+        RevertRequest: {
+            applicationIds: string[];
+            /** Format: uuid */
+            tabId: string;
+        };
+        DecisionCounts: {
+            /** Format: int64 */
+            pending: number;
+            /** Format: int64 */
+            pass: number;
+            /** Format: int64 */
+            fail: number;
+            /** Format: int64 */
+            total: number;
         };
         QuestionRequest: {
             text: string;
@@ -1852,6 +1897,9 @@ export interface components {
             email: string;
             password: string;
         };
+        RenameRequest: {
+            name: string;
+        };
         StageOverview: {
             /** Format: uuid */
             stageId: string;
@@ -1872,9 +1920,6 @@ export interface components {
             applicantCount: number;
             steps: components["schemas"]["StageStep"][];
             counts: components["schemas"]["DecisionCounts"];
-            /** Format: int64 */
-            selectedCount: number;
-            canRestore: boolean;
             hasScores: boolean;
             /** Format: date-time */
             confirmedAt: string | null;
@@ -1926,10 +1971,6 @@ export interface components {
             /** Format: int32 */
             preferenceMax: number;
         };
-        MailPreview: {
-            subject: string;
-            html: string;
-        };
         ChatMention: {
             /** Format: uuid */
             applicationId: string;
@@ -1942,6 +1983,10 @@ export interface components {
             steps: string[];
             /** Format: int32 */
             seconds: number | null;
+        };
+        MailPreview: {
+            subject: string;
+            html: string;
         };
         ApplicantDocument: {
             /** @enum {string} */
@@ -2191,9 +2236,9 @@ export interface components {
             icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         CsrfToken: {
+            headerName: string;
             parameterName: string;
             token: string;
-            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -2764,12 +2809,57 @@ export interface operations {
             };
         };
     };
+    tabs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageTabView"][];
+                };
+            };
+        };
+    };
+    createTab: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageTabView"];
+                };
+            };
+        };
+    };
     restore: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 stageId: string;
+                tabId: string;
             };
             cookie?: never;
         };
@@ -2790,6 +2880,7 @@ export interface operations {
             header?: never;
             path: {
                 stageId: string;
+                tabId: string;
             };
             cookie?: never;
         };
@@ -2814,6 +2905,7 @@ export interface operations {
             header?: never;
             path: {
                 stageId: string;
+                tabId: string;
             };
             cookie?: never;
         };
@@ -2834,6 +2926,7 @@ export interface operations {
             header?: never;
             path: {
                 stageId: string;
+                tabId: string;
             };
             cookie?: never;
         };
@@ -2849,6 +2942,56 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                tabId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ChatTurn"][];
+                };
+            };
+        };
+    };
+    chat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                tabId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description SSE. status · item · done · error 이벤트 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["ChatStatus"] | components["schemas"]["ChatItem"] | components["schemas"]["ChatAnswer"] | components["schemas"]["ChatError"];
+                };
             };
         };
     };
@@ -3004,7 +3147,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Targets"];
+                "application/json": components["schemas"]["RevertRequest"];
             };
         };
         responses: {
@@ -3036,74 +3179,6 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["DecisionCounts"];
                 };
-            };
-        };
-    };
-    history: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["ChatTurn"][];
-                };
-            };
-        };
-    };
-    chat: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChatRequest"];
-            };
-        };
-        responses: {
-            /** @description SSE. status · item · done · error 이벤트 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/event-stream": components["schemas"]["ChatStatus"] | components["schemas"]["ChatItem"] | components["schemas"]["ChatAnswer"] | components["schemas"]["ChatError"];
-                };
-            };
-        };
-    };
-    forget: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -3893,6 +3968,54 @@ export interface operations {
             };
         };
     };
+    deleteTab: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                tabId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    renameTab: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                tabId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageTabView"];
+                };
+            };
+        };
+    };
     overview: {
         parameters: {
             query?: never;
@@ -3921,6 +4044,7 @@ export interface operations {
             header?: never;
             path: {
                 stageId: string;
+                tabId: string;
             };
             cookie?: never;
         };
@@ -3985,6 +4109,7 @@ export interface operations {
     candidates: {
         parameters: {
             query?: {
+                tabId?: string;
                 query?: string;
                 sort?: "QUALIFICATION" | "TOTAL";
                 page?: number;

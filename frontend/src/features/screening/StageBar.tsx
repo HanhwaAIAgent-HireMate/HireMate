@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { RegisterDialog } from '@/features/assessment/RegisterDialog'
-import { useDecisionActions, type StageOverview } from '@/features/screening/api'
+import { useConfirmStage, type StageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
 
 /** Stage 바 (COM-01): 결정 현황 · [전형 결과 확정]. 전형 단계 줄 오른쪽에 들어간다 */
@@ -84,7 +84,7 @@ function ConfirmDialog({
   closePath: string
 }) {
   const navigate = useNavigate()
-  const { confirm } = useDecisionActions(overview.stageId)
+  const confirm = useConfirmStage(overview.stageId)
   const { pass, fail, pending } = overview.counts
   const index = overview.steps.findIndex((step) => step.stageId === overview.stageId)
   const next = overview.steps[index + 1]

@@ -19,7 +19,7 @@ export type ChatProgress = {
 }
 
 // 선택 지원자 갱신으로 대화 기록을 다시 받아 방금 보낸 메시지를 덮어쓰지 않는다.
-const historyKey = (stageId: string) => ['chat', stageId] as const
+const historyKey = (tabId: string) => ['chat', tabId] as const
 
 /**
  * Chat 응답 스트림(SSE)을 읽는다. status · item은 progress로 넘기고 done의 답을 돌려준다.
@@ -41,6 +41,7 @@ export async function readChat(
   throw new ApiError(502, 'AI_UNAVAILABLE', '')
 }
 
+/** 탭의 대화방으로 묻는다. 같은 전형 안에서 탭을 옮겨도 요청은 이어지고 답은 물은 탭(tabId)의 것이다 */
 export function useChat(stageId: string, progress: ChatProgress) {
   const queryClient = useQueryClient()
   // 답을 받기 전에 화면을 떠나거나 다른 전형으로 옮기면 요청을 끊는다.
@@ -48,7 +49,11 @@ export function useChat(stageId: string, progress: ChatProgress) {
   const waiting = useRef<AbortController | null>(null)
   useEffect(() => () => waiting.current?.abort(), [stageId])
   return useMutation({
-    mutationFn: async (body: {
+    mutationFn: async ({
+      tabId,
+      ...body
+    }: {
+      tabId: string
       message: string
       mentionIds: string[]
       checkedIds: string[]
@@ -58,8 +63,8 @@ export function useChat(stageId: string, progress: ChatProgress) {
       waiting.current = controller
       // 권한 · 입력 오류는 스트림을 열기 전에 일반 오류 응답으로 온다
       const stream = await unwrap(
-        api.POST('/api/stages/{stageId}/chat', {
-          params: { path: { stageId } },
+        api.POST('/api/stages/{stageId}/tabs/{tabId}/chat', {
+          params: { path: { stageId, tabId } },
           body,
           parseAs: 'stream',
           signal: controller.signal,
@@ -88,25 +93,20 @@ export function madeQuestions(answer: Pick<ChatAnswer, 'agents'>) {
 }
 
 /**
- * 담당자의 이 전형 대화 기록. 전형이 끝나면 지워진다. 다른 탭에서 나눈 대화도 보이도록 화면을 열 때마다 다시 받고,
- * 대화 중에는 다시 받지 않는다.
+ * 탭의 대화 기록. 같은 기업 담당자가 함께 쓰는 대화방이라, 다른 담당자나 다른 브라우저 탭에서 나눈 대화도 보이도록
+ * 화면을 열거나 탭을 옮길 때마다 다시 받고, 대화 중에는 다시 받지 않는다. 탭을 지우면 함께 지워진다.
  */
-export function useChatHistory(stageId: string) {
+export function useChatHistory(stageId: string, tabId: string) {
   return useQuery({
-    queryKey: historyKey(stageId),
-    queryFn: () => unwrap(api.GET('/api/stages/{stageId}/chat', { params: { path: { stageId } } })),
+    queryKey: historyKey(tabId),
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/stages/{stageId}/tabs/{tabId}/chat', {
+          params: { path: { stageId, tabId } },
+        }),
+      ),
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
-  })
-}
-
-/** [대화 지우기]. 서버의 대화방을 지워 Root도 앞 대화를 잊는다. */
-export function useForgetChat(stageId: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: () =>
-      unwrap(api.DELETE('/api/stages/{stageId}/chat', { params: { path: { stageId } } })),
-    onSuccess: () => queryClient.setQueryData(historyKey(stageId), []),
   })
 }
 

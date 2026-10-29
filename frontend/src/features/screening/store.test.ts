@@ -4,7 +4,7 @@ import { useStageUi } from '@/features/screening/store'
 
 describe('useStageUi', () => {
   beforeEach(() => {
-    useStageUi.setState({ stageId: null })
+    useStageUi.setState({ scope: null })
     useStageUi.getState().reset('s1')
   })
 

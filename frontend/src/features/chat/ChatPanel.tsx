@@ -1,11 +1,10 @@
-import { AlertCircle, ArrowUp, AtSign, Check, History, Sparkles, X } from 'lucide-react'
+import { AlertCircle, ArrowUp, AtSign, Check, Sparkles, X } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import {
   useChat,
   useChatHistory,
-  useForgetChat,
   useMentionCandidates,
   type ChatAnswer,
   type ChatItem,
@@ -40,14 +39,19 @@ const EXAMPLES: Record<StageOverview['type'], string[]> = {
   INTERVIEW: ['면접에서 프로젝트 역할을 꼭 확인해야 할 지원자 찾아줘', '미결정이 몇 명 남았어?'],
 }
 
-// AI Chat (STG-02~05). 조건을 말하면 리스트에 표시하고, 특정 지원자 질문은 화면을 바꾸지 않고 대화로 답한다
-export function ChatPanel({ overview }: { overview: StageOverview }) {
+/**
+ * AI Chat (STG-02~05). 조건을 말하면 리스트에 표시하고, 특정 지원자 질문은 화면을 바꾸지 않고 대화로 답한다.
+ * 대화는 지금 탭(tabId)의 것이고 같은 기업 담당자가 함께 본다. 답을 기다리는 동안 다른 탭으로 옮겨도 답은 물은 탭에
+ * 쌓이고, 그동안에는 어느 탭에서도 새로 묻지 않는다.
+ */
+export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId: string }) {
   const stageId = overview.stageId
-  const messages = useChatStore((state) => state.threads[stageId] ?? EMPTY)
-  const { append, load, clear } = useChatStore()
-  const history = useChatHistory(stageId)
-  const forget = useForgetChat(stageId)
+  const messages = useChatStore((state) => state.threads[tabId] ?? EMPTY)
+  const { append, load } = useChatStore()
+  const history = useChatHistory(stageId, tabId)
   const { mentions, removeMention, addMention, checked } = useStageUi()
+  // 답을 기다리는 탭. 그 탭의 기록을 다시 받아도 방금 보낸 질문을 지우지 않는다
+  const asking = useRef<string | null>(null)
   const [progress, setProgress] = useState<Progress>(NO_PROGRESS)
   // 답이 오면 그때까지 쌓은 단계를 답에 붙인다. 응답 콜백은 보낼 때의 progress만 보므로 따로 들고 있는다
   const steps = useRef<string[]>([])
@@ -68,22 +72,29 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
   // 기록을 받는 동안에는 보내지 않는다. 받은 기록이 화면의 대화를 바꾸므로 그 사이에 보낸 질문이 사라진다
   const loading = history.isFetching
   useEffect(() => {
-    if (history.data && !loading) load(stageId, turnsToMessages(history.data))
-  }, [history.data, loading, load, stageId])
+    if (history.data && !loading && asking.current !== tabId)
+      load(tabId, turnsToMessages(history.data))
+  }, [history.data, loading, load, tabId])
 
+  const waitingHere = chat.isPending && chat.variables?.tabId === tabId
+  const waitingElsewhere = chat.isPending && !waitingHere
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
-  }, [messages.length, chat.isPending, progress.items.length])
+  }, [messages.length, waitingHere, progress.items.length])
 
   const send = (raw: string) => {
     const message = raw.replace(/@\S*$/, '').trim()
     if (!message || chat.isPending || loading) return
-    append(stageId, { role: 'user', text: message, mentions })
+    // 답이 올 때 지금 탭이 바뀌어 있어도 물은 탭에 쌓는다
+    const tab = tabId
+    append(tab, { role: 'user', text: message, mentions })
+    asking.current = tab
     setText('')
     steps.current = []
     setProgress(NO_PROGRESS)
     chat.mutate(
       {
+        tabId: tab,
         message,
         mentionIds: mentions.map((mention) => mention.applicationId),
         checkedIds: checked,
@@ -91,10 +102,13 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
       {
         // 쌓은 단계는 답에 붙여 접어 둔다. 다시 불러오면 ai 서버가 남긴 같은 단계가 온다
         onSuccess: ({ answer, seconds }) =>
-          append(stageId, { role: 'ai', answer, steps: steps.current, seconds }),
-        onError: (error) => append(stageId, { role: 'error', text: errorMessage(error) }),
+          append(tab, { role: 'ai', answer, steps: steps.current, seconds }),
+        onError: (error) => append(tab, { role: 'error', text: errorMessage(error) }),
         // 진행 중 화면은 최종 답이나 오류로 바뀐다
-        onSettled: () => setProgress(NO_PROGRESS),
+        onSettled: () => {
+          asking.current = null
+          setProgress(NO_PROGRESS)
+        },
       },
     )
   }
@@ -108,20 +122,11 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
 
   return (
     <aside className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between px-4 py-3">
+      <div className="flex items-center px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Sparkles className="size-4 text-ai" />
           AI Chat
         </div>
-        <button
-          aria-label="대화 지우기"
-          title="대화 지우기"
-          disabled={forget.isPending}
-          onClick={() => forget.mutate(undefined, { onSuccess: () => clear(stageId) })}
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <History className="size-4" />
-        </button>
       </div>
       <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 pb-4">
         {messages.length > RECENT && !expanded && (
@@ -152,7 +157,7 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
         {visible.map((message, index) => (
           <Fragment key={index}>{renderMessage(message)}</Fragment>
         ))}
-        {chat.isPending && (
+        {waitingHere && (
           <div className="flex gap-2">
             <Sparkles className="mt-0.5 size-4 shrink-0 text-ai" />
             <div className="min-w-0 flex-1 space-y-2">
@@ -225,11 +230,13 @@ export function ChatPanel({ overview }: { overview: StageOverview }) {
                 }
               }}
               placeholder={
-                mentions.length
-                  ? ''
-                  : checked.length
-                    ? `체크한 ${checked.length}명에 대해 물어보기`
-                    : '조건이나 궁금한 점'
+                waitingElsewhere
+                  ? '다른 탭에서 답을 기다리고 있어요'
+                  : mentions.length
+                    ? ''
+                    : checked.length
+                      ? `체크한 ${checked.length}명에 대해 물어보기`
+                      : '조건이나 궁금한 점'
               }
               className="min-w-16 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />

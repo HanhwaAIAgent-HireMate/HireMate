@@ -10,10 +10,9 @@ export type ChatMessage =
 
 type ChatState = {
   threads: Record<string, ChatMessage[]>
-  append: (stageId: string, message: ChatMessage) => void
-  /** 서버 기록으로 전형의 대화를 바꾼다 */
-  load: (stageId: string, messages: ChatMessage[]) => void
-  clear: (stageId: string) => void
+  append: (tabId: string, message: ChatMessage) => void
+  /** 서버 기록으로 탭의 대화를 바꾼다 */
+  load: (tabId: string, messages: ChatMessage[]) => void
 }
 
 /** 서버에 남은 지난 턴을 화면 메시지로 펼친다. 질문에 쓴 @멘션과 답을 내기까지 거친 처리 단계도 같이 살린다. */
@@ -25,16 +24,14 @@ export function turnsToMessages(turns: ChatTurn[]): ChatMessage[] {
 }
 
 /**
- * 전형별 대화. 대화는 담당자별 · 전형별로 서버에 전형이 끝날 때까지 남는다(OI-05). 화면은 열 때마다 서버 기록을
+ * 탭별 대화. 대화는 탭마다 서버에 남고 같은 기업 담당자가 함께 본다(OI-05). 화면은 탭을 열 때마다 서버 기록을
  * 불러와 바꾸고, 그 뒤의 새 대화를 여기에 쌓는다. 브라우저에는 따로 남기지 않는다.
  */
 export const useChatStore = create<ChatState>()((set) => ({
   threads: {},
-  append: (stageId, message) =>
+  append: (tabId, message) =>
     set((state) => ({
-      threads: { ...state.threads, [stageId]: [...(state.threads[stageId] ?? []), message] },
+      threads: { ...state.threads, [tabId]: [...(state.threads[tabId] ?? []), message] },
     })),
-  load: (stageId, messages) =>
-    set((state) => ({ threads: { ...state.threads, [stageId]: messages } })),
-  clear: (stageId) => set((state) => ({ threads: { ...state.threads, [stageId]: [] } })),
+  load: (tabId, messages) => set((state) => ({ threads: { ...state.threads, [tabId]: messages } })),
 }))

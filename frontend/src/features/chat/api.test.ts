@@ -93,7 +93,7 @@ it('선택 목록을 갱신해도 방금 보낸 대화를 빈 과거 기록으�
   try {
     const { result } = renderHook(
       () => ({
-        history: useChatHistory('s1'),
+        history: useChatHistory('s1', 't1'),
         chat: useChat('s1', { onStatus: vi.fn(), onItem: vi.fn() }),
       }),
       {
@@ -104,6 +104,7 @@ it('선택 목록을 갱신해도 방금 보낸 대화를 빈 과거 기록으�
     await waitFor(() => expect(result.current.history.isSuccess).toBe(true))
     const reply = await act(() =>
       result.current.chat.mutateAsync({
+        tabId: 't1',
         message: '프로젝트 기반 질문 1개 추가해줘',
         mentionIds: ['a1'],
         checkedIds: [],
@@ -159,7 +160,7 @@ it('화면을 떠나면 요청을 끊고, 끊은 뒤에 온 답으로 화면을 
     let sending: Promise<unknown> | undefined
     act(() => {
       sending = result.current
-        .mutateAsync({ message: '강점은?', mentionIds: ['a1'], checkedIds: [] })
+        .mutateAsync({ tabId: 't1', message: '강점은?', mentionIds: ['a1'], checkedIds: [] })
         .catch((error: unknown) => error)
     })
     await waitFor(() => expect(finish).toBeDefined())

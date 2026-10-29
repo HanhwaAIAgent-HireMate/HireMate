@@ -40,9 +40,12 @@ const SORTS: Record<CandidateSort, string> = {
 // AI 추천(선발 인원 10배수)은 굵게, 추천 밖은 회색이다
 export function CandidateList({
   overview,
+  tabId,
   editable,
 }: {
   overview: StageOverview
+  /** 선택 표시 · 넣기 · 빼기의 기준 탭. 시작하지 않은 전형은 탭이 없다 */
+  tabId: string | null
   editable: boolean
 }) {
   const stageId = overview.stageId
@@ -50,8 +53,8 @@ export function CandidateList({
   const [debounced, setDebounced] = useState('')
   const [filter, setFilter] = useState<Filter>('ALL')
   const [sort, setSort] = useState<CandidateSort>('QUALIFICATION')
-  const candidates = useCandidates(stageId, debounced, sort)
-  const actions = useSelectionActions(stageId)
+  const candidates = useCandidates(stageId, tabId, debounced, sort)
+  const actions = useSelectionActions(stageId, tabId ?? '')
   const { openId, open } = useStageUi()
   const sentinel = useRef<HTMLDivElement>(null)
   const documentStage = overview.type === 'DOCUMENT'
@@ -89,6 +92,7 @@ export function CandidateList({
         />
       )
     }
+    if (!tabId) return null
     if (row.selected) {
       return (
         <RowButton
