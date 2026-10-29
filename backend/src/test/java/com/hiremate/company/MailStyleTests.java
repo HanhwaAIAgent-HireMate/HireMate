@@ -49,6 +49,71 @@ class MailStyleTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("보조 색과 머리 · 안내 상자 모양을 저장하고, 빼면 보조 색 없이 얇은 줄과 옅은 바탕으로 돌아간다")
+    void lookIsSavedWithAccentAndParts() throws Exception {
+        TestApi hr = newHr();
+        JsonNode initial = json(expect(hr.get(BASE), 200));
+        assertThat(initial.path("accent").isNull()).isTrue();
+        assertThat(initial.path("header").asString()).isEqualTo("LINE");
+        assertThat(initial.path("box").asString()).isEqualTo("FILL");
+
+        JsonNode saved = json(expect(hr.put(BASE, Map.of("color", "#0055a4", "accent", "F97316", "header", "BAND",
+                "box", "OUTLINE")), 200));
+        assertThat(saved.path("accent").asString()).isEqualTo("#f97316");
+        assertThat(saved.path("header").asString()).isEqualTo("BAND");
+        assertThat(saved.path("box").asString()).isEqualTo("OUTLINE");
+        assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString())
+                .contains("padding:18px 32px;background:#0055a4;", "border:1px solid #f97316;");
+        expect(hr.put(BASE, Map.of("color", "#0055a4", "accent", "orange")), 400);
+        expect(hr.put(BASE, Map.of("color", "#0055a4", "header", "WAVE")), 400);
+
+        JsonNode reset = json(expect(hr.put(BASE, Map.of("color", "#0055a4")), 200));
+        assertThat(reset.path("accent").isNull()).isTrue();
+        assertThat(reset.path("header").asString()).isEqualTo("LINE");
+        assertThat(reset.path("box").asString()).isEqualTo("FILL");
+
+        String draft = json(expect(hr.get(BASE + "/preview?color=%230055a4&accent=%23f97316&header=CENTER&box=ROWS"),
+                200)).path("html").asString();
+        assertThat(draft).contains("text-align:center;", "border-left:4px solid #f97316;");
+    }
+
+    @Test
+    @DisplayName("배너는 PNG · JPEG만 1MB까지 받고, 배너 머리면 메일 맨 위에 넣어 보내며 지우면 색 띠로 돌아간다")
+    void bannerIsShownAndSent() throws Exception {
+        TestApi hr = newHr();
+        byte[] large = Arrays.copyOf(PNG, 1024 * 1024 + 1);
+        assertThat(json(expect(hr.multipart(BASE + "/banner",
+                Map.of("file", new TestApi.FilePart("big.png", "image/png", large))), 400)).path("code").asString())
+                .isEqualTo("BANNER_TOO_LARGE");
+        JsonNode uploaded = json(expect(hr.multipart(BASE + "/banner",
+                Map.of("file", new TestApi.FilePart("banner.png", "image/png", PNG))), 200));
+        assertThat(uploaded.path("hasBanner").asBoolean()).isTrue();
+        assertThat(hr.getBytes(BASE + "/banner").body()).isEqualTo(PNG);
+        expect(hr.put(BASE, Map.of("color", "#0055a4", "header", "BANNER")), 200);
+        assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString())
+                .contains("<img src=\"data:image/png;base64,", "width=\"600\"");
+
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String posting = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
+        expect(hr.put(posting, Map.of("title", "결제 백엔드 개발자", "jobCategory", "", "employmentType", "",
+                "career", "", "location", "", "intro", "", "duties", List.of(), "qualifications", List.of(),
+                "preferred", List.of(), "benefits", List.of())), 200);
+        Instant now = Instant.now();
+        expect(hr.post(posting + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
+                "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
+        expect(anonymous().multipart("/api/public/postings/" + draft.path("postingId").asString() + "/applications",
+                TestFixtures.form("banner@example.com", false)), 201);
+        int index = awaitMail("banner@example.com");
+        assertThat(mail.html.get(index)).contains("<img src=\"cid:company-banner\"");
+        assertThat(mail.banners.get(index)).isEqualTo("image/png");
+
+        assertThat(json(expect(hr.delete(BASE + "/banner"), 200)).path("hasBanner").asBoolean()).isFalse();
+        expect(hr.get(BASE + "/banner"), 404);
+        assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString())
+                .contains("padding:18px 32px;background:#0055a4;").doesNotContain("<img");
+    }
+
+    @Test
     @DisplayName("로고는 PNG · JPEG만 500KB까지 받고, 올리면 미리보기에 보이며 지운 뒤에는 회사 이름 글자로 돌아간다")
     void logoIsCheckedShownAndRemoved() throws Exception {
         TestApi hr = newHr();
