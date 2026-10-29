@@ -43,19 +43,19 @@ public class TabController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public StageTabView create(AuthenticatedMember member, @PathVariable UUID stageId) {
+    public StageTabView createTab(AuthenticatedMember member, @PathVariable UUID stageId) {
         return tabs.create(member.companyId(), stageId);
     }
 
     @PatchMapping("/{tabId}")
-    public StageTabView rename(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId,
+    public StageTabView renameTab(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId,
             @Valid @RequestBody RenameRequest request) {
         return tabs.rename(member.companyId(), stageId, tabId, request.name());
     }
 
     @DeleteMapping("/{tabId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId) {
+    public void deleteTab(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId) {
         tabs.delete(member.companyId(), stageId, tabId);
     }
 
