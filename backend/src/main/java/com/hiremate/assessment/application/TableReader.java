@@ -26,6 +26,7 @@ public final class TableReader {
     private static final Pattern CELL = Pattern.compile("<c ([^>]*?)(?:/>|>(.*?)</c>)", Pattern.DOTALL);
     private static final Pattern REF = Pattern.compile("r=\"([A-Z]+)\\d+\"");
     private static final Pattern VALUE = Pattern.compile("<v>(.*?)</v>", Pattern.DOTALL);
+    private static final Pattern CHAR_REF = Pattern.compile("&#([xX][0-9a-fA-F]{1,6}|[0-9]{1,7});");
 
     private TableReader() {
     }
@@ -155,9 +156,22 @@ public final class TableReader {
         return index - 1;
     }
 
+    /**
+     * XML 글자 표기를 원래 글자로 바꾼다. 이름 표기(lt, gt, quot, apos, amp)와 숫자 표기(10진수 · 16진수)를 모두 푼다.
+     * 엑셀은 한글을 그대로 저장하지만, 다른 프로그램이 만든 파일은 한글을 숫자 표기로 저장하기도 한다.
+     * amp는 마지막에 풀어야 글자 그대로 적힌 숫자 표기가 한글로 바뀌지 않는다.
+     */
     private static String unescape(String text) {
-        return text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'")
+        String named = text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'");
+        return CHAR_REF.matcher(named).replaceAll(match -> Matcher.quoteReplacement(character(match.group(1))))
                 .replace("&amp;", "&");
+    }
+
+    /** 숫자 표기 안의 값(51060 또는 xC774)을 글자로 바꾼다. 글자가 될 수 없는 값이면 원래 표기를 남긴다. */
+    private static String character(String reference) {
+        boolean hex = reference.charAt(0) == 'x' || reference.charAt(0) == 'X';
+        int codePoint = Integer.parseInt(hex ? reference.substring(1) : reference, hex ? 16 : 10);
+        return Character.isValidCodePoint(codePoint) ? Character.toString(codePoint) : "&#" + reference + ";";
     }
 
     private static ApiException invalid() {
