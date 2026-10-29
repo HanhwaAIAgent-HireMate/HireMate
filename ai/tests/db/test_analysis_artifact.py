@@ -128,7 +128,7 @@ async def test_interview_artifacts_revalidate_original_evidence_and_completion(d
         items=[
             NewItem(
                 category=ItemCategory.STRENGTH,
-                content="API 캐시를 설계했어요.",
+                content="API 캐시를 설계했다.",
                 evidence=data.questions[0].answer,
                 source="면접 답변",
             )
@@ -166,7 +166,7 @@ async def test_independent_interview_wrapper_reuses_saved_analysis_and_invalidat
 ) -> None:
     data = interview()
     draft = InterviewDraft(
-        findings=[FindingDraft(kind="CONFIRMED", content="API 캐시를 설계했어요.", evidence=data.questions[0].answer)]
+        findings=[FindingDraft(kind="CONFIRMED", content="API 캐시를 설계했다.", evidence=data.questions[0].answer)]
     )
     first = FakeLlm(draft)
     await analyze_and_save(data, first, db_session)

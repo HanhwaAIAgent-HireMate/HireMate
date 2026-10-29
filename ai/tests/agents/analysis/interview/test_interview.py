@@ -48,7 +48,7 @@ def interview_input(**overrides: Any) -> InterviewAnalysisInput:
 def confirmed() -> FindingDraft:
     return FindingDraft(
         kind="CONFIRMED",
-        content="승인 API 응답 시간을 180ms에서 90ms로 줄인 작업을 직접 설계했다고 확인했어요.",
+        content="승인 API 응답 시간을 180ms에서 90ms로 줄인 작업을 직접 설계했다고 확인했다.",
         evidence="승인 API의 DB 조회를 캐시로 바꾸는 작업을 직접 설계했습니다.",
     )
 
@@ -56,7 +56,7 @@ def confirmed() -> FindingDraft:
 def unconfirmed() -> FindingDraft:
     return FindingDraft(
         kind="UNCONFIRMED",
-        content="장애 재현 테스트 경험은 아직 확인되지 않았어요.",
+        content="장애 재현 테스트 경험은 아직 확인되지 않았다.",
         evidence="테스트는 다른 팀원이 주로 맡아서 자세히는 모릅니다.",
     )
 
@@ -64,7 +64,7 @@ def unconfirmed() -> FindingDraft:
 def from_question() -> FindingDraft:
     return FindingDraft(
         kind="CONFIRMED",
-        content="장애 재현 테스트를 작성했어요.",
+        content="장애 재현 테스트를 작성했다.",
         evidence="장애 상황을 재현하는 테스트를 어떻게 작성했나요?",
     )
 
@@ -81,7 +81,7 @@ async def test_confirmed_and_unconfirmed_points_keep_answer_evidence() -> None:
         (ItemCategory.STRENGTH, "1차 면접 답변"),
         (ItemCategory.CHECK, "1차 면접 답변"),
     ]
-    assert analysis.items[0].content == f"면접에서 답변을 기록하지 않았어요: {CAREER}"
+    assert analysis.items[0].content == f"면접에서 답변을 기록하지 않았다: {CAREER}"
     assert analysis.items[1].evidence == "승인 API의 DB 조회를 캐시로 바꾸는 작업을 직접 설계했습니다."
     assert len(llm.calls) == 1
 
@@ -102,11 +102,11 @@ async def test_previous_interviews_are_context_not_evidence() -> None:
         {"stageName": "1차 면접", "questions": [{"text": TEST, "answer": "장애 재현 테스트를 직접 작성했습니다."}]}
     ]
     borrowed = FindingDraft(
-        kind="CONFLICT", content="장애 재현 테스트를 직접 작성했어요.", evidence="장애 재현 테스트를 직접 작성했습니다."
+        kind="CONFLICT", content="장애 재현 테스트를 직접 작성했다.", evidence="장애 재현 테스트를 직접 작성했습니다."
     )
     conflict = FindingDraft(
         kind="CONFLICT",
-        content="1차 면접에서는 테스트를 직접 작성했다고 했지만 이번에는 팀원이 맡았다고 답했어요.",
+        content="1차 면접에서는 테스트를 직접 작성했다고 했지만 이번에는 팀원이 맡았다고 답했다.",
         evidence="테스트는 다른 팀원이 주로 맡아서 자세히는 모릅니다.",
     )
     data = interview_input(stageName="2차 면접", previous=previous)
@@ -123,7 +123,7 @@ async def test_previous_interviews_are_context_not_evidence() -> None:
 
 async def test_prior_specialist_results_are_comparison_context_with_current_answer_evidence() -> None:
     reference = InterviewReference(
-        content="장애 재현 테스트는 팀의 결과로 기록되어 본인의 역할은 아직 확인되지 않았어요.",
+        content="장애 재현 테스트는 팀의 결과로 기록되어 본인의 역할은 아직 확인되지 않았다.",
         evidence="팀에서 장애 재현 테스트를 작성했습니다.",
         source="평가 결과",
         verification="미확인",
@@ -142,7 +142,7 @@ async def test_prior_specialist_results_are_comparison_context_with_current_answ
     assert call.system.endswith(UNTRUSTED_RULE)
     assert analysis.dropped == 0
     assert [(item.content, item.evidence, item.source) for item in analysis.items][-1] == (
-        "장애 재현 테스트 경험은 아직 확인되지 않았어요.",
+        "장애 재현 테스트 경험은 아직 확인되지 않았다.",
         "테스트는 다른 팀원이 주로 맡아서 자세히는 모릅니다.",
         "1차 면접 답변",
     )
@@ -151,12 +151,12 @@ async def test_prior_specialist_results_are_comparison_context_with_current_answ
 async def test_evidence_only_in_prior_specialist_result_is_retried_then_dropped() -> None:
     prior_evidence = "팀에서 장애 재현 테스트를 작성했습니다."
     reference = InterviewReference(
-        content="팀의 장애 재현 테스트 결과가 있어요.",
+        content="팀의 장애 재현 테스트 결과가 있다.",
         evidence=prior_evidence,
         source="평가 결과",
         verification="팀 결과",
     )
-    borrowed = FindingDraft(kind="CONFIRMED", content="장애 재현 테스트를 직접 작성했어요.", evidence=prior_evidence)
+    borrowed = FindingDraft(kind="CONFIRMED", content="장애 재현 테스트를 직접 작성했다.", evidence=prior_evidence)
     llm = FakeLlm(
         InterviewDraft(findings=[borrowed]),
         InterviewDraft(findings=[borrowed]),
@@ -188,12 +188,10 @@ async def test_evidence_copied_from_the_question_is_rewritten_then_dropped() -> 
 
 async def test_rejects_decisions_discrimination_and_invented_numbers() -> None:
     decision = FindingDraft(
-        kind="CONFIRMED", content="실무 역량이 확인돼 합격시킬 만해요.", evidence=ROLE_ANSWER.split(". ")[0]
+        kind="CONFIRMED", content="실무 역량이 확인돼 합격시킬 만하다.", evidence=ROLE_ANSWER.split(". ")[0]
     )
-    invented = FindingDraft(
-        kind="CONFIRMED", content="응답 시간을 50ms로 줄였어요.", evidence=ROLE_ANSWER.split(". ")[1]
-    )
-    attribute = FindingDraft(kind="UNCONFIRMED", content="나이가 많아 야근이 어려워 보여요.", evidence=TEST_ANSWER)
+    invented = FindingDraft(kind="CONFIRMED", content="응답 시간을 50ms로 줄였다.", evidence=ROLE_ANSWER.split(". ")[1])
+    attribute = FindingDraft(kind="UNCONFIRMED", content="나이가 많아 야근이 어려워 보인다.", evidence=TEST_ANSWER)
     llm = FakeLlm(InterviewDraft(findings=[decision, invented, attribute]), InterviewDraft(findings=[]))
 
     analysis = await analyze_interview(interview_input(), llm)

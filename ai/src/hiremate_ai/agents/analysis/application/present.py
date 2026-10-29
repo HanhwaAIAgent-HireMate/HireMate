@@ -6,13 +6,13 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from hiremate_ai.agents.analysis.application.score import allotted, zeroed_scores
 from hiremate_ai.agents.analysis.application.types import (
-    VERDICT_LABEL,
     Actor,
     ApplicationAnalysis,
     ApplicationReview,
     Fact,
     Quote,
 )
+from hiremate_ai.agents.analysis.plain import plain
 from hiremate_ai.agents.guardrails import verified_evidence
 from hiremate_ai.contract import (
     ApplicantDocument,
@@ -32,6 +32,13 @@ from hiremate_ai.db.profile_store import NewItem, ProfileFields
 AGENT_NAME = "Application Agent"
 NOTABLE_LIMIT = 3
 CATEGORY_LABEL = {CriterionCategory.QUALIFICATION: "자격요건", CriterionCategory.PREFERENCE: "우대사항"}
+# 프로필 항목은 평어 문장으로 쓴다. 화면의 판정 칩은 types.VERDICT_LABEL(충족 · 미충족 …)을 그대로 쓴다
+VERDICT_SENTENCE = {
+    Verdict.MET: "충족한다",
+    Verdict.PARTIAL: "일부 충족한다",
+    Verdict.NOT_MET: "충족하지 않는다",
+    Verdict.UNKNOWN: "충족 여부를 확인해야 한다",
+}
 
 _LABEL_WORD = re.compile(r"[가-힣]{2,}|[A-Za-z][A-Za-z0-9+#.]*")
 _LABEL_STOP = {"경험", "있으신", "있는", "이상", "관련", "기반", "또는", "등의", "등", "작성한", "개발", "경력", "분"}
@@ -163,7 +170,7 @@ def to_profile(review: ApplicationReview) -> tuple[ProfileFields, list[NewItem]]
     items = [
         NewItem(
             category=ItemCategory.QUALIFICATION if result.verdict != Verdict.UNKNOWN else ItemCategory.CHECK,
-            content=f"{CATEGORY_LABEL[result.category]} {result.text}: {VERDICT_LABEL[result.verdict]}",
+            content=f"{CATEGORY_LABEL[result.category]} {result.text}: {VERDICT_SENTENCE[result.verdict]}.",
             evidence=result.quotes[0].sentence if result.quotes else None,
             source=result.quotes[0].document.label if result.quotes else f"공고 · {CATEGORY_LABEL[result.category]}",
         )
@@ -173,7 +180,7 @@ def to_profile(review: ApplicationReview) -> tuple[ProfileFields, list[NewItem]]
     items += [
         NewItem(
             category=ItemCategory.SKILL if fact.kind == "SKILL" else ItemCategory.EXPERIENCE,
-            content=fact.statement,
+            content=plain(fact.statement),
             evidence=fact.quotes[0].sentence,
             source=fact.quotes[0].document.label,
             verification=None if fact.actor is Actor.SELF else Verification.UNCONFIRMED,
@@ -181,7 +188,9 @@ def to_profile(review: ApplicationReview) -> tuple[ProfileFields, list[NewItem]]
         for fact in review.facts
         if fact.supported and fact.kind in ("SKILL", "EXPERIENCE", "PROJECT", "ACHIEVEMENT")
     ]
-    items += [NewItem(category=ItemCategory.CHECK, content=note.text, source=note.source) for note in review.holds]
+    items += [
+        NewItem(category=ItemCategory.CHECK, content=plain(note.text), source=note.source) for note in review.holds
+    ]
     return fields, items
 
 

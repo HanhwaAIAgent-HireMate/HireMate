@@ -7,6 +7,7 @@ import re
 import unicodedata
 
 from hiremate_ai.agents.analysis.interview.types import FindingDraft, InterviewAnalysisInput
+from hiremate_ai.agents.analysis.plain import plain
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.db.profile import ItemCategory
 from hiremate_ai.db.profile_store import NewItem
@@ -33,7 +34,7 @@ def unanswered_checks(data: InterviewAnalysisInput) -> list[NewItem]:
     return [
         NewItem(
             category=ItemCategory.CHECK,
-            content=f"면접에서 답변을 기록하지 않았어요: {_preview(question.text)}",
+            content=f"면접에서 답변을 기록하지 않았다: {_preview(question.text)}",
             source=QUESTION_SOURCE,
         )
         for question in data.questions
@@ -46,7 +47,7 @@ def checked_item(finding: FindingDraft, data: InterviewAnalysisInput) -> NewItem
 
     근거는 이번 면접 답변 원문에 있어야 한다. 질문 글이나 이전 면접 기록에서 옮긴 문장은 근거가 아니다.
     """
-    content = finding.content.strip()
+    content = plain(finding.content)
     evidence = _LEADING_MARKS.sub("", finding.evidence)
     if not content or not evidence:
         return "content나 evidence가 비어 있다"

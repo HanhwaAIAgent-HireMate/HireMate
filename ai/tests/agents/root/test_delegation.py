@@ -18,7 +18,7 @@ type Applicants = dict[str, ApplicantDetail]
 DOCUMENT = "MySQL 정산 테이블을 파티셔닝해 월말 정산 배치 시간을 40% 줄였습니다."
 ANSWER = "파티셔닝 기준을 월 단위로 정하고 성능을 측정했습니다."
 STATEMENT = "정산 배치 시간을 줄였어요."
-INTERVIEW_STATEMENT = "파티셔닝 기준을 구체적으로 설명했어요."
+INTERVIEW_STATEMENT = "파티셔닝 기준을 구체적으로 설명했다."
 
 
 def interview_context(applicants: Applicants, company: CompanyProfile, posting: PostingContent) -> ChatContext:

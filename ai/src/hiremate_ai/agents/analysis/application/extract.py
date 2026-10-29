@@ -25,6 +25,7 @@ EXTRACT_SYSTEM = f"""너는 채용 서류 한 건에서 지원자에 관한 사�
 
 - 사실마다 근거 문장(evidence)을 원문 글자 그대로 옮긴다. 원문에 없는 문장을 만들지 않는다.
 - statement는 원문보다 부풀리지 않고 한 문장으로 쓴다. '참여'를 '주도'로, 팀 성과를 개인 성과로 바꾸지 않는다.
+- statement는 '~했다.', '~한다.', '~이다.'처럼 평어로 끝낸다. '~했습니다', '~했어요', 명사로 끝내기는 쓰지 않는다.
 - actor: 본인이 직접 한 일이면 SELF, 팀 · 조직의 성과면 TEAM, 알 수 없으면 UNCLEAR.
 - kind: EXPERIENCE(업무 경험), PROJECT(프로젝트), SKILL(기술 · 도구), CERTIFICATE(자격증), ACHIEVEMENT(수치 성과),
   ACTIVITY(교육 · 활동), EDUCATION(학력).
