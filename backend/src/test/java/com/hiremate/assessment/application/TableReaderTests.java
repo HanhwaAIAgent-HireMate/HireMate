@@ -41,4 +41,43 @@ class TableReaderTests {
 
         assertThat(rows).containsExactly(List.of("이메일", "총점"), List.of("a@example.com", "91"));
     }
+
+    @Test
+    @DisplayName("XLSX에 한글이 숫자 표기(&#51060; · &#xC774;)로 저장돼 있어도 한글 그대로 읽는다")
+    void readsXlsxWithCharacterReferences() throws Exception {
+        // 한글을 그대로 저장한 파일과 숫자 표기로 저장한 파일은 같은 표다
+        String korean = "<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>이메일</t></is></c>"
+                + "<c r=\"B1\" t=\"inlineStr\"><is><t>A&amp;B</t></is></c></row>";
+        String references = "<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>&#51060;&#xBA54;&#51068;</t></is></c>"
+                + "<c r=\"B1\" t=\"inlineStr\"><is><t>A&amp;B</t></is></c></row>";
+
+        assertThat(TableReader.read("plain.xlsx", sheet(korean))).containsExactly(List.of("이메일", "A&B"));
+        assertThat(TableReader.read("references.xlsx", sheet(references))).containsExactly(List.of("이메일", "A&B"));
+    }
+
+    @Test
+    @DisplayName("공유 문자열의 숫자 표기도 풀고, 글자 그대로의 &amp;#51060;은 바꾸지 않는다")
+    void readsSharedStringReferences() throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(out)) {
+            zip.putNextEntry(new ZipEntry("xl/sharedStrings.xml"));
+            zip.write("<sst><si><t>&#52509;&#51216;</t></si><si><t>&amp;#51060;</t></si></sst>"
+                    .getBytes(StandardCharsets.UTF_8));
+            zip.putNextEntry(new ZipEntry("xl/worksheets/sheet1.xml"));
+            zip.write(("<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c>"
+                    + "<c r=\"B1\" t=\"s\"><v>1</v></c></row></sheetData></worksheet>")
+                    .getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertThat(TableReader.read("result.xlsx", out.toByteArray())).containsExactly(List.of("총점", "&#51060;"));
+    }
+
+    private static byte[] sheet(String rows) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(out)) {
+            zip.putNextEntry(new ZipEntry("xl/worksheets/sheet1.xml"));
+            zip.write(("<worksheet><sheetData>" + rows + "</sheetData></worksheet>").getBytes(StandardCharsets.UTF_8));
+        }
+        return out.toByteArray();
+    }
 }
