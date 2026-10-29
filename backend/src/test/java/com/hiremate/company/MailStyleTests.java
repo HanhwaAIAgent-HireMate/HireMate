@@ -8,6 +8,11 @@ import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
 import com.hiremate.TestMailConfiguration;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -16,6 +21,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,10 +31,53 @@ import tools.jackson.databind.JsonNode;
 class MailStyleTests extends IntegrationTest {
 
     private static final String BASE = "/api/companies/me/mail-style";
-    private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3};
+    private static final byte[] PNG = image(80, 40, "png");
 
     @Autowired
     private TestMailConfiguration.RecordingMailClient mail;
+
+    @Test
+    @DisplayName("큰 로고와 배너는 메일 크기에 맞춰 비율대로 줄여 저장하고, 형식만 흉내 낸 파일은 거절한다")
+    void largeImagesAreShrunk() throws Exception {
+        TestApi hr = newHr();
+        byte[] logo = image(1600, 800, "png");
+        byte[] banner = image(3000, 1000, "jpg");
+
+        expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("logo.png", "image/png", logo))),
+                200);
+        expect(hr.multipart(BASE + "/banner",
+                Map.of("file", new TestApi.FilePart("banner.jpg", "image/jpeg", banner))), 200);
+
+        BufferedImage savedLogo = ImageIO.read(new ByteArrayInputStream(hr.getBytes(BASE + "/logo").body()));
+        BufferedImage savedBanner = ImageIO.read(new ByteArrayInputStream(hr.getBytes(BASE + "/banner").body()));
+        assertThat(savedLogo.getHeight()).isEqualTo(120);
+        assertThat(savedLogo.getWidth()).isEqualTo(240);
+        assertThat(savedBanner.getWidth()).isEqualTo(1200);
+        assertThat(savedBanner.getHeight()).isEqualTo(400);
+
+        byte[] fake = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3};
+        expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("fake.png", "image/png", fake))),
+                400);
+    }
+
+    /** 20px 칸마다 색이 다른 그림. */
+    private static byte[] image(int width, int height, String format) {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        Random random = new Random(7);
+        int[] colors = random.ints(64, 0, 0xffffff).toArray();
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                image.setRGB(x, y, colors[(x / 20 + y / 20 * 7) % colors.length]);
+            }
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try {
+            ImageIO.write(image, format, out);
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
+        }
+        return out.toByteArray();
+    }
 
     @Test
     @DisplayName("메일 색은 기본 남색이고, 색 코드는 #를 빼거나 대문자로 넣어도 #rrggbb로 저장하며 6자리가 아니면 거절한다")
@@ -78,10 +128,10 @@ class MailStyleTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("배너는 PNG · JPEG만 1MB까지 받고, 배너 머리면 메일 맨 위에 넣어 보내며 지우면 색 띠로 돌아간다")
+    @DisplayName("배너는 PNG · JPEG만 5MB까지 받고, 배너 머리면 메일 맨 위에 넣어 보내며 지우면 색 띠로 돌아간다")
     void bannerIsShownAndSent() throws Exception {
         TestApi hr = newHr();
-        byte[] large = Arrays.copyOf(PNG, 1024 * 1024 + 1);
+        byte[] large = Arrays.copyOf(PNG, 5 * 1024 * 1024 + 1);
         assertThat(json(expect(hr.multipart(BASE + "/banner",
                 Map.of("file", new TestApi.FilePart("big.png", "image/png", large))), 400)).path("code").asString())
                 .isEqualTo("BANNER_TOO_LARGE");
@@ -114,12 +164,12 @@ class MailStyleTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("로고는 PNG · JPEG만 500KB까지 받고, 올리면 미리보기에 보이며 지운 뒤에는 회사 이름 글자로 돌아간다")
+    @DisplayName("로고는 PNG · JPEG만 5MB까지 받고, 올리면 미리보기에 보이며 지운 뒤에는 회사 이름 글자로 돌아간다")
     void logoIsCheckedShownAndRemoved() throws Exception {
         TestApi hr = newHr();
         expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("logo.png", "image/png",
                 "%PDF-1.4".getBytes(StandardCharsets.US_ASCII)))), 400);
-        byte[] large = Arrays.copyOf(PNG, 500 * 1024 + 1);
+        byte[] large = Arrays.copyOf(PNG, 5 * 1024 * 1024 + 1);
         assertThat(json(expect(hr.multipart(BASE + "/logo",
                 Map.of("file", new TestApi.FilePart("big.png", "image/png", large))), 400)).path("code").asString())
                 .isEqualTo("LOGO_TOO_LARGE");

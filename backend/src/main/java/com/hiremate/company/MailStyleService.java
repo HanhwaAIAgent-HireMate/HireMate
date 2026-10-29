@@ -11,12 +11,25 @@ import com.hiremate.mail.MailBrand.GuideBox;
 import com.hiremate.mail.MailBrand.Header;
 import com.hiremate.mail.MailContent;
 import com.hiremate.mail.MailPreview;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -25,13 +38,16 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 메일 꾸밈(대표 색, 보조 색, 머리와 안내 상자 모양, 로고, 배너). 기업 설정에서 고르고,
  * 모든 안내 메일과 접수 확인 메일이 같이 쓴다.
- * 로고는 500KB, 배너는 1MB까지 PNG, JPEG만 받는다. 파일 내용으로 형식을 확인한다.
+ * 로고와 배너는 5MB까지 PNG, JPEG만 받는다. 파일 내용으로 형식을 확인한다.
+ * 그림은 메일마다 함께 넣어 보내서, 메일에 보이는 크기에 맞춰 줄여 저장한다.
+ * 로고는 높이 120px(메일에서 40px로 보이는 크기의 3배), 배너는 너비 1200px(메일 폭의 2배)까지다.
  */
 @Service
 public class MailStyleService {
 
-    static final int LOGO_MAX_BYTES = 500 * 1024;
-    static final int BANNER_MAX_BYTES = 1024 * 1024;
+    static final int UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+    static final Fit LOGO = new Fit(660, 120, 500 * 1024);
+    static final Fit BANNER = new Fit(1200, 600, 1024 * 1024);
     private static final Pattern COLOR = Pattern.compile("^#?([0-9a-fA-F]{6})$");
     private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
     private static final byte[] JPEG = {(byte) 0xff, (byte) 0xd8, (byte) 0xff};
@@ -64,11 +80,9 @@ public class MailStyleService {
 
     @Transactional
     public MailStyle changeLogo(UUID companyId, String name, byte[] content) {
-        if (content.length > LOGO_MAX_BYTES) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "LOGO_TOO_LARGE", "The logo must be 500KB or smaller.");
-        }
+        UUID fileId = store(companyId, name, "logo", content, LOGO, "LOGO_TOO_LARGE");
         CompanyMailStyle style = style(companyId);
-        style.changeLogo(store(companyId, name, "logo", content));
+        style.changeLogo(fileId);
         return toView(style);
     }
 
@@ -90,11 +104,9 @@ public class MailStyleService {
     /** 배너 머리에 쓰는 그림. 메일 폭(600px)에 맞춰 줄여 보인다. */
     @Transactional
     public MailStyle changeBanner(UUID companyId, String name, byte[] content) {
-        if (content.length > BANNER_MAX_BYTES) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "BANNER_TOO_LARGE", "The banner must be 1MB or smaller.");
-        }
+        UUID fileId = store(companyId, name, "banner", content, BANNER, "BANNER_TOO_LARGE");
         CompanyMailStyle style = style(companyId);
-        style.changeBanner(store(companyId, name, "banner", content));
+        style.changeBanner(fileId);
         return toView(style);
     }
 
@@ -164,11 +176,81 @@ public class MailStyleService {
         return "#" + matcher.group(1).toLowerCase(Locale.ROOT);
     }
 
-    private UUID store(UUID companyId, String name, String fallback, byte[] content) {
+    private UUID store(UUID companyId, String name, String fallback, byte[] content, Fit fit, String tooLarge) {
+        if (content.length > UPLOAD_MAX_BYTES) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, tooLarge, "The image must be 5MB or smaller.");
+        }
         String type = imageType(content);
+        byte[] fitted = shrink(content, type, fit);
+        if (fitted.length > fit.maxBytes()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, tooLarge, "The image could not be made small enough.");
+        }
         String fileName = name == null || name.isBlank() ? fallback : name;
-        StoredFileInfo stored = files.store(companyId, fileName, type, content);
+        StoredFileInfo stored = files.store(companyId, fileName, type, fitted);
         return stored.fileId();
+    }
+
+    /**
+     * 그림을 fit 안으로 비율대로 줄인다. 이미 크기와 용량이 맞으면 화질을 지키려고 그대로 둔다.
+     * PNG는 투명한 곳을 지키고, JPEG은 품질 0.9로 다시 저장한다.
+     */
+    static byte[] shrink(byte[] content, String type, Fit fit) {
+        BufferedImage image;
+        try {
+            image = ImageIO.read(new ByteArrayInputStream(content));
+        } catch (IOException unreadable) {
+            image = null;
+        }
+        if (image == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LOGO", "The image could not be read.");
+        }
+        double scale = Math.min(1.0, Math.min((double) fit.maxWidth() / image.getWidth(),
+                (double) fit.maxHeight() / image.getHeight()));
+        if (scale == 1.0 && content.length <= fit.maxBytes()) {
+            return content;
+        }
+        boolean png = type.equals("image/png");
+        int width = Math.max(1, (int) Math.round(image.getWidth() * scale));
+        int height = Math.max(1, (int) Math.round(image.getHeight() * scale));
+        BufferedImage resized = new BufferedImage(width, height,
+                png ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = resized.createGraphics();
+        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        if (!png) {
+            graphics.setColor(Color.WHITE);
+            graphics.fillRect(0, 0, width, height);
+        }
+        graphics.drawImage(image, 0, 0, width, height, null);
+        graphics.dispose();
+        return encode(resized, png);
+    }
+
+    private static byte[] encode(BufferedImage image, boolean png) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try {
+            if (png) {
+                ImageIO.write(image, "png", out);
+                return out.toByteArray();
+            }
+            ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
+            ImageWriteParam param = writer.getDefaultWriteParam();
+            param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+            param.setCompressionQuality(0.9f);
+            try (ImageOutputStream stream = ImageIO.createImageOutputStream(out)) {
+                writer.setOutput(stream);
+                writer.write(null, new IIOImage(image, null, null), param);
+            } finally {
+                writer.dispose();
+            }
+            return out.toByteArray();
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
+        }
+    }
+
+    /** 그림을 줄여 넣을 최대 너비와 높이(px), 줄인 뒤 받을 수 있는 최대 용량. */
+    record Fit(int maxWidth, int maxHeight, int maxBytes) {
     }
 
     private MailBrand.Logo image(UUID companyId, UUID fileId) {
