@@ -5,6 +5,7 @@ import com.hiremate.mail.MailBrand.Header;
 import com.hiremate.mail.MailContent;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.web.util.HtmlUtils;
@@ -58,8 +59,23 @@ public final class MailLayout {
 
     /** 메일 HTML 문서. */
     public static String html(String subject, MailContent content, Look look) {
+        boolean center = look.header() == Header.CENTER;
+        boolean band = shape(look) == Header.BAND;
+        String page = center ? tint(look.color()) : PAGE;
         String heading = heading(subject);
-        String caption = caption(content.caption(), heading);
+        // 띠 머리는 제목을 색 띠 안에 쓰고, 다른 머리는 카드 안 머리 아래에 쓴 뒤 가는 줄로 본문과 나눈다
+        String title = band ? band(content.sender(), look, content.caption(), heading) : """
+                %s
+                <tr><td class="hm-pad" style="padding:%s;">%s%s
+                <div style="font-size:22px;font-weight:bold;line-height:1.4;color:%s;">%s</div>
+                </td></tr>
+                <tr><td class="hm-pad" style="padding:14px 32px 0;">\
+                <div style="height:1px;background:%s;font-size:0;line-height:0;">&nbsp;</div></td></tr>"""
+                .formatted(header(content.sender(), look),
+                        center ? "30px 32px 6px;text-align:center" : "22px 32px 6px",
+                        center ? "<div style=\"width:40px;height:3px;margin:0 auto 16px;background:"
+                                + escape(look.color()) + ";font-size:0;line-height:0;\">&nbsp;</div>" : "",
+                        caption(content.caption(), heading, MUTED), TEXT, escape(heading), LINE);
         String blocks = content.blocks().stream().map(block -> block(block, look)).collect(Collectors.joining());
         String closing = content.closing().isBlank() ? ""
                 : "<p style=\"margin:18px 0 0;font-size:15px;line-height:1.75;font-weight:bold;color:" + TEXT
@@ -77,16 +93,11 @@ public final class MailLayout {
                 <body style="margin:0;padding:0;background:%s;">
                 <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" \
                 style="background:%s;font-family:%s;word-break:keep-all;">
-                <tr><td align="center" style="padding:24px 12px;">
+                <tr><td align="center" style="padding:24px 12px;">%s
                 <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" \
                 style="max-width:600px;background:#ffffff;border:1px solid %s;border-radius:10px;overflow:hidden;">
                 %s
-                <tr><td class="hm-pad" style="padding:22px 32px 6px;">%s
-                <div style="font-size:22px;font-weight:bold;line-height:1.4;color:%s;">%s</div>
-                </td></tr>
-                <tr><td class="hm-pad" style="padding:14px 32px 0;">\
-                <div style="height:1px;background:%s;font-size:0;line-height:0;">&nbsp;</div></td></tr>
-                <tr><td class="hm-pad" style="padding:22px 32px 30px;">%s%s</td></tr>
+                <tr><td class="hm-pad" style="padding:%s;">%s%s</td></tr>
                 <tr><td class="hm-pad" style="padding:16px 32px 20px;background:#fafafa;border-top:1px solid %s;\
                 font-size:12px;line-height:1.7;color:%s;">%s</td></tr>
                 </table>
@@ -94,36 +105,85 @@ public final class MailLayout {
                 </table>
                 </body>
                 </html>
-                """.formatted(escape(subject), PAGE, PAGE, FONT, LINE, header(content.sender(), look), caption, TEXT,
-                escape(heading), LINE, blocks, closing, LINE, MUTED, lines(content.footer()));
+                """.formatted(escape(subject), page, page, FONT, center ? centerMark(content.sender(), look) : "",
+                LINE, title, band ? "28px 32px 30px" : "22px 32px 30px", blocks, closing, LINE, MUTED,
+                lines(content.footer()));
+    }
+
+    /** 실제로 그릴 머리. 배너 그림이 없는 배너 머리는 띠로 그린다. */
+    private static Header shape(Look look) {
+        return look.header() == Header.BANNER && look.bannerSrc() == null ? Header.BAND : look.header();
     }
 
     /**
-     * 머리 줄들. 얇은 줄과 가운데 머리는 맨 위 4px 색 줄 아래에 로고(높이 40px)나 대표 색 회사 이름을 둔다.
-     * 띠 머리는 대표 색 띠 위에 흰 바탕 로고나 회사 이름을 둔다. 배너 머리는 배너 그림만 두고, 그림이 없으면 띠로 그린다.
+     * 띠 머리. 대표 색 띠 안 위쪽에 로고(흰 바탕, 높이 28px)나 회사 이름을 두고, 아래에 공고명과 큰 제목을 쓴다.
+     * 띠가 밝으면 흰 글자 대신 진한 글자를 쓴다. 보조 색이 따로 있으면 띠 아래에 보조 색 줄을 둔다.
+     */
+    private static String band(String sender, Look look, String caption, String heading) {
+        String text = onColor(look.color());
+        String soft = mix(text, look.color(), 0.3f);
+        String mark = look.logoSrc() == null
+                ? "<div style=\"font-size:15px;font-weight:bold;color:" + soft + ";\">" + escape(sender) + "</div>"
+                : "<span style=\"display:inline-block;background:" + WHITE + ";border-radius:8px;"
+                        + "padding:8px 12px;\">" + logo(look.logoSrc(), sender, 28, false) + "</span>";
+        String stripe = look.accent() == null || look.accent().equalsIgnoreCase(look.color()) ? ""
+                : "<tr><td style=\"height:4px;background:" + escape(look.accent())
+                        + ";font-size:0;line-height:0;\">&nbsp;</td></tr>";
+        return "<tr><td class=\"hm-pad\" style=\"padding:26px 32px 30px;background:" + escape(look.color()) + ";\">"
+                + mark + "<div style=\"height:28px;font-size:0;line-height:0;\">&nbsp;</div>"
+                + caption(caption, heading, soft)
+                + "<div style=\"font-size:24px;font-weight:bold;line-height:1.4;color:" + text + ";\">"
+                + escape(heading) + "</div></td></tr>" + stripe;
+    }
+
+    /**
+     * 가운데 머리. 대표 색을 옅게 깐 바탕 위, 흰 카드 바깥 가운데에 로고(높이 48px)와 회사 이름을 둔다.
+     * 로고가 없으면 회사 이름을 대표 색 큰 글자로 쓴다. 카드 안 제목도 가운데로 맞추고 위에 짧은 색 줄을 둔다.
+     */
+    private static String centerMark(String sender, Look look) {
+        String mark = look.logoSrc() == null
+                ? "<div style=\"font-size:20px;font-weight:bold;color:" + escape(look.color()) + ";\">"
+                        + escape(sender) + "</div>"
+                : logo(look.logoSrc(), sender, 48, true)
+                        + "<div style=\"margin-top:8px;font-size:16px;font-weight:bold;color:" + TEXT + ";\">"
+                        + escape(sender) + "</div>";
+        return "\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" "
+                + "style=\"max-width:600px;\"><tr><td align=\"center\" style=\"padding:8px 0 20px;text-align:center;\">"
+                + mark + "</td></tr></table>";
+    }
+
+    /** 가운데 머리의 바탕. 대표 색을 흰색에 8%만 섞는다. 메일 프로그램이 투명도를 모를 수 있어 섞은 색을 쓴다. */
+    static String tint(String color) {
+        return mix(color, WHITE, 0.92f);
+    }
+
+    /** color를 toward 쪽으로 amount만큼 섞은 색. */
+    private static String mix(String color, String toward, float amount) {
+        StringBuilder hex = new StringBuilder("#");
+        for (int index = 0; index < 3; index++) {
+            int from = Integer.parseInt(color.substring(1 + index * 2, 3 + index * 2), 16);
+            int to = Integer.parseInt(toward.substring(1 + index * 2, 3 + index * 2), 16);
+            hex.append(String.format(Locale.ROOT, "%02x", Math.round(from + (to - from) * amount)));
+        }
+        return hex.toString();
+    }
+
+    /**
+     * 카드 안 머리 줄들. 얇은 줄 머리는 맨 위 4px 색 줄 아래 왼쪽에 로고(높이 40px)나 대표 색 회사 이름을 둔다.
+     * 배너 머리는 배너 그림만 둔다. 띠 머리는 제목과 함께 그리고 ({@link #band}), 가운데 머리는 카드 밖에 그린다
+     * ({@link #centerMark}).
      */
     private static String header(String sender, Look look) {
         String color = escape(look.color());
-        Header header = look.header() == Header.BANNER && look.bannerSrc() == null ? Header.BAND : look.header();
-        return switch (header) {
-            case LINE, CENTER -> {
-                String align = header == Header.CENTER ? "center" : "left";
-                String cell = "<td class=\"hm-pad\" align=\"" + align + "\" style=\"padding:20px 32px 0;text-align:"
-                        + align + ";";
+        return switch (shape(look)) {
+            case CENTER, BAND -> "";
+            case LINE -> {
+                String cell = "<td class=\"hm-pad\" align=\"left\" style=\"padding:20px 32px 0;text-align:left;";
                 String mark = look.logoSrc() == null
                         ? cell + "font-size:16px;font-weight:bold;color:" + color + ";\">" + escape(sender) + "</td>"
-                        : cell + "\">" + logo(look.logoSrc(), sender, 40, header == Header.CENTER) + "</td>";
+                        : cell + "\">" + logo(look.logoSrc(), sender, 40, false) + "</td>";
                 yield "<tr><td style=\"height:4px;background:" + color
                         + ";font-size:0;line-height:0;\">&nbsp;</td></tr><tr>" + mark + "</tr>";
-            }
-            case BAND -> {
-                String mark = look.logoSrc() == null
-                        ? "<span style=\"font-size:17px;font-weight:bold;color:" + onColor(look.color()) + ";\">"
-                                + escape(sender) + "</span>"
-                        : "<span style=\"display:inline-block;background:" + WHITE + ";border-radius:6px;"
-                                + "padding:6px 10px;\">" + logo(look.logoSrc(), sender, 32, false) + "</span>";
-                yield "<tr><td class=\"hm-pad\" style=\"padding:18px 32px;background:" + color + ";\">" + mark
-                        + "</td></tr>";
             }
             case BANNER -> "<tr><td style=\"font-size:0;line-height:0;\"><img src=\"" + escape(look.bannerSrc())
                     + "\" alt=\"" + escape(sender) + "\" width=\"600\" style=\"display:block;width:100%;"
@@ -153,11 +213,11 @@ public final class MailLayout {
     }
 
     /** 제목 위의 작은 공고명. 큰 제목에 공고명이 이미 있으면 (접수 확인 메일) 두 번 쓰지 않는다. */
-    private static String caption(String caption, String heading) {
+    private static String caption(String caption, String heading, String color) {
         if (caption.isBlank() || heading.contains(caption.strip())) {
             return "";
         }
-        return "\n<div style=\"margin:0 0 6px;font-size:13px;color:" + MUTED + ";\">" + escape(caption) + "</div>";
+        return "\n<div style=\"margin:0 0 6px;font-size:13px;color:" + color + ";\">" + escape(caption) + "</div>";
     }
 
     /** 본문 위의 큰 제목. 메일 제목에서 앞의 [회사명]을 뺀다. 머리글에 회사 이름이 따로 있다. */

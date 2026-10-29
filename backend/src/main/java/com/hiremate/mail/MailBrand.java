@@ -29,7 +29,7 @@ public record MailBrand(String color, String accent, Header header, GuideBox box
     public enum Header {
         /** 맨 위 얇은 색 줄과 왼쪽 위 로고 */
         LINE,
-        /** 대표 색 띠 위에 로고나 회사 이름 */
+        /** 대표 색 띠 안에 로고나 회사 이름과 제목 */
         BAND,
         /** 얇은 색 줄과 가운데 로고 */
         CENTER,

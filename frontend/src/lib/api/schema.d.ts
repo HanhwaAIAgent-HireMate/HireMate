@@ -4330,7 +4330,12 @@ export interface operations {
     };
     preview_2: {
         parameters: {
-            query?: never;
+            query?: {
+                color?: string;
+                accent?: string;
+                header?: "LINE" | "BAND" | "CENTER" | "BANNER";
+                box?: "FILL" | "OUTLINE" | "ROWS";
+            };
             header?: never;
             path?: never;
             cookie?: never;

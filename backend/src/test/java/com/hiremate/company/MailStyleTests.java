@@ -141,7 +141,7 @@ class MailStyleTests extends IntegrationTest {
         assertThat(saved.path("header").asString()).isEqualTo("BAND");
         assertThat(saved.path("box").asString()).isEqualTo("OUTLINE");
         assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString())
-                .contains("padding:18px 32px;background:#0055a4;", "border:1px solid #f97316;");
+                .contains("padding:26px 32px 30px;background:#0055a4;", "border:1px solid #f97316;");
         expect(hr.put(BASE, Map.of("color", "#0055a4", "accent", "orange")), 400);
         expect(hr.put(BASE, Map.of("color", "#0055a4", "header", "WAVE")), 400);
 
@@ -153,6 +153,12 @@ class MailStyleTests extends IntegrationTest {
         String draft = json(expect(hr.get(BASE + "/preview?color=%230055a4&accent=%23f97316&header=CENTER&box=ROWS"),
                 200)).path("html").asString();
         assertThat(draft).contains("text-align:center;", "border-left:4px solid #f97316;");
+
+        String receipt = "/api/companies/me/receipt-template/preview";
+        assertThat(json(expect(hr.get(receipt + "?color=%23ff0000&header=BAND"), 200)).path("html").asString())
+                .contains("padding:26px 32px 30px;background:#ff0000;");
+        assertThat(json(expect(hr.get(receipt), 200)).path("html").asString())
+                .contains("height:4px;background:#0055a4;");
     }
 
     @Test
@@ -188,7 +194,7 @@ class MailStyleTests extends IntegrationTest {
         assertThat(json(expect(hr.delete(BASE + "/banner"), 200)).path("hasBanner").asBoolean()).isFalse();
         expect(hr.get(BASE + "/banner"), 404);
         assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString())
-                .contains("padding:18px 32px;background:#0055a4;").doesNotContain("<img");
+                .contains("padding:26px 32px 30px;background:#0055a4;").doesNotContain("<img");
     }
 
     @Test

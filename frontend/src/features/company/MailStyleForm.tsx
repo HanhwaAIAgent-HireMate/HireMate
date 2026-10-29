@@ -5,10 +5,12 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   useDeleteMailImage,
   useMailStyle,
   useMailStylePreview,
+  useReceiptTemplatePreview,
   useSaveMailLook,
   useSuggestMailColors,
   useUploadMailImage,
@@ -73,6 +75,12 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
   const accent = useColorInput(saved.accent ?? ACCENT_COLORS[0].value)
   const [header, setHeader] = useState(saved.header)
   const [box, setBox] = useState(saved.box)
+  const logoColors = useLogoColors((suggestion) => {
+    if (!suggestion.color) return
+    main.pick(suggestion.color)
+    setUseAccent(suggestion.accent !== null)
+    if (suggestion.accent) accent.pick(suggestion.accent)
+  })
   const look: MailLook = {
     color: main.color,
     accent: useAccent ? accent.color : null,
@@ -86,7 +94,11 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
     const timer = setTimeout(() => setPreviewLook(JSON.parse(lookKey) as MailLook), 300)
     return () => clearTimeout(timer)
   }, [lookKey])
-  const preview = useMailStylePreview(previewLook)
+  // 미리보기는 하나만 두고 예시 안내 메일과 접수 확인 메일을 바꿔 본다. 둘 다 고르는 중인 꾸밈으로 그린다
+  const [sample, setSample] = useState<'notice' | 'receipt'>('notice')
+  const notice = useMailStylePreview(previewLook)
+  const receipt = useReceiptTemplatePreview(previewLook)
+  const preview = sample === 'notice' ? notice : receipt
 
   const onSave = () => {
     if (main.invalid || (useAccent && accent.invalid)) {
@@ -100,153 +112,170 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
   }
 
   return (
-    <SettingsSection title="메일 꾸밈" saving={save.isPending} onSave={onSave}>
+    <SettingsSection title="메일 꾸밈" saving={save.isPending} onSave={onSave} wide>
       <p className="text-sm text-muted-foreground">
         모든 안내 메일과 접수 확인 메일에 같은 색과 모양이 들어가요.
       </p>
-      <SettingsRow label="색 추천">
-        <ColorSuggest
-          onPick={(color) => main.pick(color)}
-          onSuggest={(suggestion) => {
-            if (!suggestion.color) return
-            main.pick(suggestion.color)
-            setUseAccent(suggestion.accent !== null)
-            if (suggestion.accent) accent.pick(suggestion.accent)
-          }}
-        />
-      </SettingsRow>
-      <SettingsRow label="대표 색">
-        <ColorField
-          name="대표 색"
-          input={main}
-          presets={MAIL_COLORS}
-          lightWarning="밝은 색이라 흰 바탕에서 회사 이름이 잘 안 보일 수 있어요."
-        />
-      </SettingsRow>
-      <SettingsRow label="보조 색">
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 pt-1.5 text-sm">
-            <Checkbox
-              checked={useAccent}
-              onCheckedChange={(checked) => setUseAccent(checked === true)}
+      {/* 넓은 화면에서는 미리보기를 오른쪽에 붙여 두어, 아래 칸을 고치는 동안에도 바로 보이게 한다 */}
+      <div className="grid gap-x-8 gap-y-5 xl:grid-cols-[minmax(0,1fr)_460px]">
+        <div className="min-w-0 space-y-5">
+          {/* 그림을 먼저 올리면 로고에서 고른 색이 아래 색 칸에 채워진다 */}
+          <SettingsRow label="로고">
+            <div className="space-y-2">
+              <ImageField
+                kind="logo"
+                has={saved.hasLogo}
+                version={version}
+                onUploaded={logoColors.run}
+                hint="PNG · JPG, 5MB까지. 메일 머리에 맞게 줄여서 저장하고, 로고에서 메일 색을 골라 채워요. 올리지 않으면 회사 이름을 글자로 써요."
+              />
+              <LogoColors
+                colors={logoColors}
+                hasLogo={saved.hasLogo}
+                onPick={(color) => main.pick(color)}
+              />
+            </div>
+          </SettingsRow>
+          <SettingsRow label="배너">
+            <ImageField
+              kind="banner"
+              has={saved.hasBanner}
+              version={version}
+              hint="PNG · JPG, 5MB까지. 가로로 넓은 그림이 좋아요. 메일 폭에 맞게 줄여 저장하고, 머리 모양이 '배너 그림'일 때 들어가요."
             />
-            안내 상자에 다른 색 쓰기
-          </label>
-          {useAccent ? (
+          </SettingsRow>
+          <SettingsRow label="대표 색">
             <ColorField
-              name="보조 색"
-              input={accent}
-              presets={ACCENT_COLORS}
-              lightWarning="밝은 색이라 흰 바탕에서 안내 상자 제목이 잘 안 보일 수 있어요."
+              name="대표 색"
+              input={main}
+              presets={MAIL_COLORS}
+              lightWarning="밝은 색이라 흰 바탕에서 회사 이름이 잘 안 보일 수 있어요."
             />
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              끄면 안내 상자 제목과 테두리도 대표 색이에요.
-            </p>
-          )}
+          </SettingsRow>
+          <SettingsRow label="보조 색">
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 pt-1.5 text-sm">
+                <Checkbox
+                  checked={useAccent}
+                  onCheckedChange={(checked) => setUseAccent(checked === true)}
+                />
+                안내 상자에 다른 색 쓰기
+              </label>
+              {useAccent ? (
+                <ColorField
+                  name="보조 색"
+                  input={accent}
+                  presets={ACCENT_COLORS}
+                  lightWarning="밝은 색이라 흰 바탕에서 안내 상자 제목이 잘 안 보일 수 있어요."
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  끄면 안내 상자 제목과 테두리도 대표 색이에요.
+                </p>
+              )}
+            </div>
+          </SettingsRow>
+          <SettingsRow label="머리 모양">
+            <div className="space-y-1.5">
+              <Choices name="머리 모양" options={HEADERS} value={header} onChange={setHeader} />
+              {header === 'BANNER' && !saved.hasBanner && (
+                <p className="text-xs text-amber-700">
+                  아직 배너가 없어요. 배너를 올리기 전에는 색 띠로 보내요.
+                </p>
+              )}
+            </div>
+          </SettingsRow>
+          <SettingsRow label="안내 상자">
+            <Choices name="안내 상자 모양" options={GUIDE_BOXES} value={box} onChange={setBox} />
+          </SettingsRow>
         </div>
-      </SettingsRow>
-      <SettingsRow label="머리 모양">
-        <div className="space-y-1.5">
-          <Choices name="머리 모양" options={HEADERS} value={header} onChange={setHeader} />
-          {header === 'BANNER' && !saved.hasBanner && (
-            <p className="text-xs text-amber-700">
-              아직 배너가 없어요. 배너를 올리기 전에는 색 띠로 보내요.
-            </p>
-          )}
+        <div className="min-w-0 space-y-1.5 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start xl:overflow-auto">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium text-muted-foreground">미리보기</span>
+            <Tabs
+              value={sample}
+              onValueChange={(value) => setSample(value as 'notice' | 'receipt')}
+            >
+              <TabsList>
+                <TabsTrigger value="notice">안내 메일 예시</TabsTrigger>
+                <TabsTrigger value="receipt">접수 확인 메일</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            고르는 중인 꾸밈이에요. 저장해야 메일에 들어가요.
+            {sample === 'receipt' && ' 글은 아래에 저장한 접수 확인 메일 양식이에요.'}
+          </p>
+          <MailFrame
+            preview={preview.data}
+            title={sample === 'notice' ? '안내 메일 예시 미리보기' : '접수 확인 메일 미리보기'}
+            scale={0.7}
+          />
         </div>
-      </SettingsRow>
-      <SettingsRow label="안내 상자">
-        <Choices name="안내 상자 모양" options={GUIDE_BOXES} value={box} onChange={setBox} />
-      </SettingsRow>
-      <SettingsRow label="로고">
-        <ImageField
-          kind="logo"
-          has={saved.hasLogo}
-          version={version}
-          hint="PNG · JPG, 5MB까지. 메일 머리에 맞게 줄여서 저장해요. 올리지 않으면 회사 이름을 글자로 써요."
-        />
-      </SettingsRow>
-      <SettingsRow label="배너">
-        <ImageField
-          kind="banner"
-          has={saved.hasBanner}
-          version={version}
-          hint="PNG · JPG, 5MB까지. 가로로 넓은 그림이 좋아요. 메일 폭에 맞게 줄여 저장하고, 머리 모양이 '배너 그림'일 때 들어가요."
-        />
-      </SettingsRow>
-      <SettingsRow label="미리보기">
-        <MailFrame preview={preview.data} title="메일 꾸밈 미리보기" />
-      </SettingsRow>
+      </div>
     </SettingsSection>
   )
 }
 
 /**
- * 참고 그림(로고, 배너, 예전 메일 캡처)을 올리면 그림에서 색을 골라 대표 색과 보조 색 칸을 채운다.
- * 그림에서 찾은 색은 아래에 보여 주고, 누르면 대표 색으로 쓴다. 저장은 HR이 미리보기를 보고 한다
+ * 로고에서 색을 골라 대표 색과 보조 색 칸을 채운다. 로고를 올리면 바로 부르고, 올려 둔 로고로 다시 부를 수도 있다.
+ * 찾은 색은 칩으로 남겨 두어 다른 색을 대표 색으로 고를 수 있다. 저장은 HR이 미리보기를 보고 한다
  */
-function ColorSuggest({
-  onSuggest,
-  onPick,
-}: {
-  onSuggest: (suggestion: MailColorSuggestion) => void
-  onPick: (color: string) => void
-}) {
+function useLogoColors(apply: (suggestion: MailColorSuggestion) => void) {
   const suggest = useSuggestMailColors()
-  const input = useRef<HTMLInputElement>(null)
   const [found, setFound] = useState<MailColorSuggestion['candidates']>([])
-
-  const onFile = (file: File | undefined) => {
-    if (input.current) input.current.value = ''
-    if (!file) return
-    if (!IMAGE_TYPES.includes(file.type)) {
-      toast.error('PNG나 JPG 그림만 올릴 수 있어요.')
-      return
-    }
-    if (file.size > IMAGE_MAX_BYTES) {
-      toast.error('그림은 5MB까지 올릴 수 있어요.')
-      return
-    }
-    suggest.mutate(file, {
+  const run = (logo: Blob) =>
+    suggest.mutate(logo, {
       onSuccess: (suggestion) => {
         setFound(suggestion.candidates)
         if (!suggestion.color) {
-          toast.error('그림에서 회사 색으로 쓸 만한 색을 찾지 못했어요. 색을 직접 골라 주세요.')
+          toast.info('로고에서 메일 색으로 쓸 만한 색을 찾지 못했어요. 색을 직접 골라 주세요.')
           return
         }
-        onSuggest(suggestion)
+        apply(suggestion)
         toast.success(
           suggestion.accent
-            ? '그림에서 대표 색과 보조 색을 골랐어요. 미리보기를 보고 저장해 주세요.'
-            : '그림에서 대표 색을 골랐어요. 미리보기를 보고 저장해 주세요.',
+            ? '로고에서 대표 색과 보조 색을 골랐어요. 미리보기를 보고 저장해 주세요.'
+            : '로고에서 대표 색을 골랐어요. 미리보기를 보고 저장해 주세요.',
         )
       },
       onError: (error) => toast.error(errorMessage(error)),
     })
+  return { run, found, pending: suggest.isPending }
+}
+
+function LogoColors({
+  colors,
+  hasLogo,
+  onPick,
+}: {
+  colors: ReturnType<typeof useLogoColors>
+  hasLogo: boolean
+  onPick: (color: string) => void
+}) {
+  const { run, found, pending } = colors
+  // 예전에 올린 로고는 저장된 그림을 받아 다시 고른다
+  const again = async () => {
+    const response = await fetch(IMAGES.logo.url)
+    if (!response.ok) {
+      toast.error('올린 로고를 불러오지 못했어요. 잠시 뒤 다시 해 주세요.')
+      return
+    }
+    run(await response.blob())
   }
 
+  if (!hasLogo && found.length === 0) return null
   return (
     <div className="space-y-2">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={suggest.isPending}
-        onClick={() => input.current?.click()}
-      >
-        <Pipette />
-        {suggest.isPending ? '색 찾는 중…' : '참고 그림으로 색 추천받기'}
-      </Button>
-      <input
-        ref={input}
-        type="file"
-        accept="image/png,image/jpeg"
-        hidden
-        onChange={(event) => onFile(event.target.files?.[0])}
-      />
+      {hasLogo && (
+        <Button variant="outline" size="sm" disabled={pending} onClick={() => void again()}>
+          <Pipette />
+          {pending ? '색 찾는 중…' : '로고에서 색 고르기'}
+        </Button>
+      )}
       {found.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted-foreground">그림에서 찾은 색</span>
+          <span className="text-xs text-muted-foreground">로고에서 찾은 색</span>
           {found.map((candidate) => (
             <button
               key={candidate.color}
@@ -262,9 +291,6 @@ function ColorSuggest({
           ))}
         </div>
       )}
-      <p className="text-xs text-muted-foreground">
-        로고, 배너, 예전 메일 캡처를 올리면 그림에서 색을 골라 채워요. 그림은 저장하지 않아요.
-      </p>
     </div>
   )
 }
@@ -336,7 +362,7 @@ function Choices<T extends string>({
   onChange: (value: T) => void
 }) {
   return (
-    <div role="radiogroup" aria-label={name} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div role="radiogroup" aria-label={name} className="grid grid-cols-2 gap-2">
       {options.map((option) => (
         <button
           key={option.value}
@@ -362,11 +388,14 @@ function ImageField({
   has,
   version,
   hint,
+  onUploaded,
 }: {
   kind: MailImage
   has: boolean
   version: number
   hint: string
+  /** 올리기에 성공한 그림 파일을 받는다. 로고는 이 파일로 색을 고른다 */
+  onUploaded?: (file: File) => void
 }) {
   const image = IMAGES[kind]
   const upload = useUploadMailImage(kind)
@@ -385,7 +414,10 @@ function ImageField({
       return
     }
     upload.mutate(file, {
-      onSuccess: () => toast.success(`${image.name}를 올렸어요.`),
+      onSuccess: () => {
+        if (onUploaded) onUploaded(file)
+        else toast.success(`${image.name}를 올렸어요.`)
+      },
       onError: (error) => toast.error(errorMessage(error)),
     })
   }

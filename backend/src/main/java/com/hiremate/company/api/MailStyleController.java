@@ -98,9 +98,7 @@ public class MailStyleController {
     public MailPreview preview(AuthenticatedMember member, @RequestParam(required = false) String color,
             @RequestParam(required = false) String accent, @RequestParam(required = false) Header header,
             @RequestParam(required = false) GuideBox box) {
-        MailLook draft = color == null ? null
-                : new MailLook(color, accent, header == null ? Header.LINE : header, box == null ? GuideBox.FILL : box);
-        return styles.preview(member.companyId(), draft);
+        return styles.preview(member.companyId(), MailLook.draft(color, accent, header, box));
     }
 
     private static ResponseEntity<byte[]> image(FileContent image) {
