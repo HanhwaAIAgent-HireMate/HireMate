@@ -18,12 +18,15 @@ import com.hiremate.screening.CandidateRow;
 import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.SelectionMode;
+import com.hiremate.screening.StageTabService;
+import com.hiremate.screening.StageTabView;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -55,10 +58,11 @@ public class ChatService {
     private final InterviewAiService interviews;
     private final AiSettings settings;
     private final AssessmentService assessments;
+    private final StageTabService tabs;
 
     public ChatService(ScreeningService screening, RecruitService recruits, ApplicationService applications,
             CompanyService companies, PostingService postings, RootAgent root, InterviewAiService interviews,
-            AiSettings settings, AssessmentService assessments) {
+            AiSettings settings, AssessmentService assessments, StageTabService tabs) {
         this.screening = screening;
         this.recruits = recruits;
         this.applications = applications;
@@ -68,14 +72,15 @@ public class ChatService {
         this.interviews = interviews;
         this.settings = settings;
         this.assessments = assessments;
+        this.tabs = tabs;
     }
 
     /**
      * 전형과 탭을 확인하고 Root에 넘길 자료를 모은다. 다른 기업의 전형이나 다른 전형의 탭이면 찾을 수 없다.
      * 스트림을 열기 전에 부른다. 선택 표시는 그 탭 기준이다.
      */
-    public ChatInput prepare(UUID companyId, UUID stageId, UUID tabId, String message, List<UUID> mentions,
-            List<UUID> checked) {
+    public ChatInput prepare(UUID companyId, UUID stageId, UUID tabId, ChatAsker asker, String message,
+            List<UUID> mentions, List<UUID> checked) {
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         StageInfo stage = recruitment.stage(stageId).orElseThrow();
         List<CandidateRow> candidates = allCandidates(companyId, stageId, tabId);
@@ -107,7 +112,7 @@ public class ChatService {
                 candidates, applications.documents(companyId, recruitment.id()), documentScores, interviewViews,
                 mentions, checked, companies.profile(companyId),
                 postings.draftContext(companyId, recruitment.id()).content(), message, interviewerMemos,
-                assessmentScores);
+                assessmentScores, asker);
         return new ChatInput(companyId, stageId, tabId, stage.status(), candidates, context);
     }
 
@@ -346,8 +351,27 @@ public class ChatService {
                         turn.mentions().stream().filter(names::containsKey)
                                 .map(id -> new ChatMention(id, names.get(id))).toList(),
                         answer(turn.plan(), false, turn.plan().targets().size(), turn.total()),
-                        turn.steps(), turn.seconds()))
+                        turn.steps(), turn.seconds(), turn.asker()))
                 .toList();
+    }
+
+    /**
+     * 첫 대화 뒤의 자동 제목. 탭이 아직 번호 이름이고 답이 차단이 아니면 Root에 제목을 받아 탭 이름을 바꾼다.
+     * 그 사이 담당자가 이름을 바꿨거나 제목을 받지 못하면 빈 값이고, 다음 질문에서 다시 한다.
+     */
+    public Optional<StageTabView> title(ChatInput input, ChatAnswer answer) {
+        if (answer.intent() == ChatPlan.Intent.BLOCKED
+                || !tabs.autoNamed(input.companyId(), input.stageId(), input.tabId())) {
+            return Optional.empty();
+        }
+        Optional<String> title;
+        try {
+            title = root.title(input.context().message(), answer.message());
+        } catch (ApiException unavailable) {
+            log.warn("Could not name tab {}", input.tabId(), unavailable);
+            return Optional.empty();
+        }
+        return title.flatMap(name -> tabs.autoName(input.companyId(), input.stageId(), input.tabId(), name));
     }
 
     /** 대화방은 탭마다 하나다. 기업과 전형까지 넣어 다른 기업의 대화방과 섞이지 않게 한다. */

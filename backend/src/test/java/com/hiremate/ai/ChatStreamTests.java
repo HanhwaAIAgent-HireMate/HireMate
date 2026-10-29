@@ -112,8 +112,8 @@ class ChatStreamTests extends IntegrationTest {
     void disconnectBeforeDoneLeavesSelection() throws Exception {
         Setup setup = documentStage();
         TestApi hr = setup.hr();
-        ChatInput input = chat.prepare(hr.companyId(), setup.stageId(), setup.tabId(), "금융 경험 찾아줘", List.of(),
-                List.of());
+        ChatInput input = chat.prepare(hr.companyId(), setup.stageId(), setup.tabId(), null, "금융 경험 찾아줘",
+                List.of(), List.of());
         when(root.plan(any(), any())).thenAnswer(call -> {
             call.<ChatProgress>getArgument(1).status("요청을 확인하고 있어요");
             return new ChatPlan(ChatPlan.Intent.FIND, SelectionMode.REPLACE, null, List.of(setup.applicant()),

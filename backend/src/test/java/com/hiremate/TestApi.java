@@ -121,9 +121,15 @@ public final class TestApi {
         return events;
     }
 
-    /** SSE 응답의 마지막 done 이벤트 data. done으로 끝나지 않으면 실패다. */
+    /**
+     * SSE 응답의 done 이벤트 data. done 뒤에는 탭 제목(title)만 올 수 있다. done이 없거나 그 뒤에 다른 이벤트가 오면
+     * 실패다.
+     */
     public static JsonNode done(HttpResponse<String> response) {
-        List<Map.Entry<String, JsonNode>> events = events(response);
+        List<Map.Entry<String, JsonNode>> events = new ArrayList<>(events(response));
+        if (!events.isEmpty() && events.getLast().getKey().equals("title")) {
+            events.removeLast();
+        }
         if (events.isEmpty() || !events.getLast().getKey().equals("done")) {
             throw new AssertionError("Expected a done event: " + response.body());
         }

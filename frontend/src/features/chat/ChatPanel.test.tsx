@@ -5,7 +5,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { ChatPanel } from '@/features/chat/ChatPanel'
 import { useChatStore } from '@/features/chat/store'
-import type { StageOverview } from '@/features/screening/api'
+import { stageKeys, type StageOverview } from '@/features/screening/api'
+import { useStageTabs } from '@/features/screening/tabs'
 import { resetCsrf } from '@/lib/api/client'
 
 const overview = {
@@ -114,6 +115,111 @@ describe('ChatPanel', () => {
     panel.show('t1')
     expect(await screen.findByText(ANSWER.message)).toBeInTheDocument()
     expect(screen.getByText('금융 경험 찾아줘')).toBeInTheDocument()
+  })
+
+  it('질문에 질문한 담당자 이름을 붙이고, 첫 답 뒤에 온 탭 제목으로 탭 이름을 바꾼다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: Request | string) => {
+        const url = typeof input === 'string' ? input : input.url
+        const method = typeof input === 'string' ? 'GET' : input.method
+        const path = new URL(url, 'http://localhost').pathname
+        if (path === '/api/auth/csrf')
+          return Promise.resolve(Response.json({ token: 't', headerName: 'X-CSRF-TOKEN' }))
+        if (path === '/api/auth/me') return Promise.resolve(Response.json({ name: '최은영' }))
+        if (method === 'POST')
+          return Promise.resolve(
+            new Response(
+              `event:done\ndata:${JSON.stringify(ANSWER)}\n\n` +
+                'event:title\ndata:{"tabId":"t1","name":"금융 경험 찾기"}\n\n',
+              { headers: { 'Content-Type': 'text/event-stream' } },
+            ),
+          )
+        return Promise.resolve(Response.json([]))
+      }),
+    )
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    client.setQueryData(stageKeys.tabs('s1'), [
+      { id: 't1', name: '탭 1', selectedCount: 0, canRestore: false },
+      { id: 't2', name: '탭 2', selectedCount: 0, canRestore: false },
+    ])
+    render(
+      <QueryClientProvider client={client}>
+        <ChatPanel overview={overview} tabId="t1" />
+      </QueryClientProvider>,
+    )
+    await waitFor(() => expect(client.getQueryData(['auth', 'me'])).toBeTruthy())
+
+    const input = screen.getByRole('textbox', { name: 'AI Chat 입력' })
+    fireEvent.change(input, { target: { value: '금융 경험 찾아줘' } })
+    fireEvent.submit(input.closest('form') as HTMLFormElement)
+
+    expect(await screen.findByText(ANSWER.message)).toBeInTheDocument()
+    expect(screen.getByText('최은영')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        client.getQueryData<{ name: string }[]>(stageKeys.tabs('s1'))?.map((tab) => tab.name),
+      ).toEqual(['금융 경험 찾기', '탭 2']),
+    )
+  })
+
+  it('선택 지원자가 바뀐 답 뒤에 늦게 온 탭 목록이 자동 제목을 예전 이름으로 덮어쓰지 않는다', async () => {
+    const named = [
+      { id: 't1', name: '금융 경험 찾기', selectedCount: 2, canRestore: false },
+      { id: 't2', name: '탭 2', selectedCount: 0, canRestore: false },
+    ]
+    let staleTabs: ((response: Response) => void) | undefined
+    let tabReads = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: Request | string) => {
+        const url = typeof input === 'string' ? input : input.url
+        const method = typeof input === 'string' ? 'GET' : input.method
+        const path = new URL(url, 'http://localhost').pathname
+        if (path === '/api/auth/csrf')
+          return Promise.resolve(Response.json({ token: 't', headerName: 'X-CSRF-TOKEN' }))
+        if (path === '/api/stages/s1/tabs') {
+          tabReads++
+          // 답 직후 다시 받는 탭 목록은 제목을 저장하기 전의 이름으로 늦게 온다
+          if (tabReads === 2) return new Promise<Response>((resolve) => (staleTabs = resolve))
+          return Promise.resolve(
+            Response.json(tabReads === 1 ? [{ ...named[0], name: '탭 1' }, named[1]] : named),
+          )
+        }
+        if (method === 'POST')
+          return Promise.resolve(
+            new Response(
+              `event:done\ndata:${JSON.stringify({ ...ANSWER, selectionChanged: true })}\n\n` +
+                'event:title\ndata:{"tabId":"t1","name":"금융 경험 찾기"}\n\n',
+              { headers: { 'Content-Type': 'text/event-stream' } },
+            ),
+          )
+        return Promise.resolve(Response.json([]))
+      }),
+    )
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function TabNames() {
+      const tabs = useStageTabs('s1')
+      return <p data-testid="tabs">{tabs.data?.map((tab) => tab.name).join(',')}</p>
+    }
+    render(
+      <QueryClientProvider client={client}>
+        <TabNames />
+        <ChatPanel overview={overview} tabId="t1" />
+      </QueryClientProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('tabs')).toHaveTextContent('탭 1,탭 2'))
+
+    const input = screen.getByRole('textbox', { name: 'AI Chat 입력' })
+    fireEvent.change(input, { target: { value: '금융 경험 찾아줘' } })
+    fireEvent.submit(input.closest('form') as HTMLFormElement)
+    await waitFor(() => expect(staleTabs).toBeDefined())
+    await waitFor(() => expect(screen.getByTestId('tabs')).toHaveTextContent('금융 경험 찾기,탭 2'))
+    staleTabs?.(Response.json([{ ...named[0], name: '탭 1' }, named[1]]))
+
+    await waitFor(() => expect(tabReads).toBeGreaterThanOrEqual(3))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.getByTestId('tabs')).toHaveTextContent('금융 경험 찾기,탭 2')
   })
 
   it('[대화 지우기] 버튼이 없다. 대화는 탭을 지울 때 지운다', async () => {

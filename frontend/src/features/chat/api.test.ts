@@ -48,6 +48,29 @@ describe('readChat', () => {
     await expect(reading).rejects.toBeInstanceOf(ApiError)
   })
 
+  it('done의 답은 바로 돌려주고, 그 뒤에 오는 탭 제목(title)은 onTitle로 넘긴다', async () => {
+    const onTitle = vi.fn()
+    let push: (text: string) => void = () => undefined
+    let close: () => void = () => undefined
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        push = (text) => controller.enqueue(new TextEncoder().encode(text))
+        close = () => controller.close()
+      },
+    })
+    const reading = readChat(body, { onStatus: vi.fn(), onItem: vi.fn(), onTitle })
+
+    push(`event:done\ndata:${JSON.stringify(ANSWER)}\n\n`)
+    expect(await reading).toEqual(ANSWER)
+    expect(onTitle).not.toHaveBeenCalled()
+
+    push('event:title\ndata:{"tabId":"t1","name":"금융 경험 찾기"}\n\n')
+    close()
+    await waitFor(() =>
+      expect(onTitle).toHaveBeenCalledWith({ tabId: 't1', name: '금융 경험 찾기' }),
+    )
+  })
+
   it('done 없이 끝나면 AI_UNAVAILABLE로 던진다', async () => {
     const reading = readChat(streamOf('event:status\ndata:{"text":"a"}\n\n'), {
       onStatus: vi.fn(),

@@ -40,5 +40,9 @@
     "지원자 자료를 확인하고 있어요",
     "요청에 맞는 답변을 준비하고 있어요"
   ],
-  "seconds": 6
+  "seconds": 6,
+  "asker": {
+    "memberId": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a81",
+    "name": "최은영"
+  }
 }

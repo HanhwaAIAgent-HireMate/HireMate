@@ -150,6 +150,13 @@ class AssessmentScores(ContractModel):
     grade: str | None
 
 
+class ChatAsker(ContractModel):
+    """질문한 담당자. 탭 대화방은 같은 기업 담당자가 함께 써서 턴마다 남긴다."""
+
+    member_id: UUID
+    name: str
+
+
 class ChatContext(ContractModel):
     """Root Agent가 받는 요청 범위: 현재 채용 · 전형 + 대상(@멘션 · 체크) + 질문 (ai.application.ChatContext)."""
 
@@ -170,6 +177,7 @@ class ChatContext(ContractModel):
     posting: PostingContent
     message: str
 
+    asker: ChatAsker | None = None  # 질문한 담당자. Studio와 평가에는 없다
     interviewer_memos: dict[UUID, list[InterviewerMemo]] = {}
     assessments: dict[UUID, AssessmentScores] = {}  # 현재 평가 전형의 영역 점수 · 등급. 평가 전형일 때만 채워진다
 
@@ -265,7 +273,8 @@ class ChatHistoryTurn(ContractModel):
     """대화방의 지난 턴 하나 (ai.application.ChatHistoryTurn). 화면이 대화 기록을 다시 보여 줄 때 쓴다.
 
     plan.message의 {count}는 backend가 대상 수로, {total}은 그때 전형 인원(total)으로 바꾼다.
-    mentions는 그때 멘션한 지원자, steps는 그때 낸 단계 문구, seconds는 걸린 시간이다. 예전 턴에는 없다.
+    mentions는 그때 멘션한 지원자, steps는 그때 낸 단계 문구, seconds는 걸린 시간, asker는 질문한 담당자다.
+    예전 턴에는 없다.
     """
 
     message: str
@@ -274,3 +283,4 @@ class ChatHistoryTurn(ContractModel):
     mentions: list[UUID] = []
     steps: list[str] = []
     seconds: int | None = None
+    asker: ChatAsker | None = None

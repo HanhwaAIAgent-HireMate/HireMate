@@ -1725,6 +1725,11 @@ export interface components {
             selectionChanged: boolean;
             stub: boolean;
         };
+        ChatTitle: {
+            /** Format: uuid */
+            tabId: string;
+            name: string;
+        };
         ChatError: {
             /** Format: int32 */
             status: number;
@@ -1971,6 +1976,11 @@ export interface components {
             /** Format: int32 */
             preferenceMax: number;
         };
+        ChatAsker: {
+            /** Format: uuid */
+            memberId: string;
+            name: string;
+        };
         ChatMention: {
             /** Format: uuid */
             applicationId: string;
@@ -1983,6 +1993,7 @@ export interface components {
             steps: string[];
             /** Format: int32 */
             seconds: number | null;
+            asker: components["schemas"]["ChatAsker"] | null;
         };
         MailPreview: {
             subject: string;
@@ -2236,8 +2247,8 @@ export interface components {
             icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         CsrfToken: {
-            headerName: string;
             parameterName: string;
+            headerName: string;
             token: string;
         };
         CsrfResponse: {
@@ -2990,7 +3001,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": components["schemas"]["ChatStatus"] | components["schemas"]["ChatItem"] | components["schemas"]["ChatAnswer"] | components["schemas"]["ChatError"];
+                    "text/event-stream": components["schemas"]["ChatStatus"] | components["schemas"]["ChatItem"] | components["schemas"]["ChatAnswer"] | components["schemas"]["ChatTitle"] | components["schemas"]["ChatError"];
                 };
             };
         };

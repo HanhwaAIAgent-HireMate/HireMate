@@ -87,6 +87,13 @@ class StubRootAgent implements RootAgent {
     public void forget(String threadId) {
     }
 
+    /** 개발용 제목은 질문 앞부분이다. */
+    @Override
+    public Optional<String> title(String message, String reply) {
+        String title = message.strip();
+        return title.isEmpty() ? Optional.empty() : Optional.of(title.substring(0, Math.min(20, title.length())));
+    }
+
     @Override
     public ChatPlan plan(ChatContext context, ChatProgress progress) {
         progress.status("요청을 확인하고 있어요");

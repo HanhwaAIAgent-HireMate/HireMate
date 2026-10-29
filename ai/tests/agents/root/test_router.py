@@ -87,6 +87,8 @@ def test_plan_history_and_forget_use_thread() -> None:
     assert turns[1]["mentions"] == context["mentions"] != []
     assert turns[0]["steps"][0] == "요청을 확인하고 있어요"
     assert isinstance(turns[0]["seconds"], int)
+    # 대화방은 같은 기업 담당자가 함께 쓴다. 턴마다 질문한 담당자를 남긴다
+    assert turns[0]["asker"] == context["asker"]
     assert other.json() == []
     assert forgotten.json() == {"deleted": 1}
     assert after.json() == []

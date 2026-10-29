@@ -1,4 +1,4 @@
-"""backend RootAgent 연동: POST /agents/root/{plan, applied, history, forget}.
+"""backend RootAgent 연동: POST /agents/root/{plan, applied, history, forget, title}.
 
 요청 본문은 Java 메서드의 매개변수 이름을 키로 한 JSON이다. 대화방은 체크포인터에 둔다 (기획 15절).
 plan만 SSE로 응답한다. 진행(status, item)을 낸 뒤 마지막 done 이벤트에 ChatPlan을 담는다.
@@ -13,9 +13,10 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from hiremate_ai.agents.root.graph import RootThread, apply_plan, stream_plan
 from hiremate_ai.agents.root.memory import SaverDep, forget_thread
+from hiremate_ai.agents.root.title import make_title
 from hiremate_ai.agents.root.toolkit import ToolkitDep
 from hiremate_ai.agents.root.turns import Turn
-from hiremate_ai.agents.root.types import ChatApplied, ChatContext, ChatHistoryTurn, ChatPlan
+from hiremate_ai.agents.root.types import ChatApplied, ChatAsker, ChatContext, ChatHistoryTurn, ChatPlan
 from hiremate_ai.contract import ContractModel
 from hiremate_ai.llm.client import LlmDep
 
@@ -40,6 +41,15 @@ class Applied(ContractModel):
 
 class Deleted(ContractModel):
     deleted: int
+
+
+class TitleRequest(ContractModel):
+    message: str
+    reply: str
+
+
+class Title(ContractModel):
+    title: str | None
 
 
 @router.post("/plan", response_class=EventSourceResponse)
@@ -74,6 +84,7 @@ async def history(request: ThreadRequest, saver: SaverDep) -> list[ChatHistoryTu
             mentions=[UUID(application_id) for application_id in turn.get("mentions", [])],
             steps=turn.get("steps", []),
             seconds=turn.get("seconds"),
+            asker=_asker(turn.get("asker")),
         )
         for turn in turns
     ]
@@ -86,9 +97,19 @@ async def forget(request: ThreadRequest, saver: SaverDep) -> Deleted:
     return Deleted(deleted=int(exists))
 
 
+@router.post("/title")
+async def title(request: TitleRequest, llm: LlmDep) -> Title:
+    """탭의 첫 대화로 탭 이름을 짓는다. 만들지 못하면 title이 null이다."""
+    return Title(title=await make_title(llm, request.message, request.reply))
+
+
 async def _turns(saver: Any, thread_id: str) -> list[Turn]:
     saved = await saver.aget_tuple({"configurable": {"thread_id": thread_id}})
     if saved is None:
         return []
     turns: list[Turn] = saved.checkpoint["channel_values"].get("turns", [])
     return turns
+
+
+def _asker(saved: dict[str, str] | None) -> ChatAsker | None:
+    return ChatAsker(member_id=UUID(saved["member_id"]), name=saved["name"]) if saved else None
