@@ -1,4 +1,4 @@
-"""backend RootAgent 연동: POST /agents/root/{plan, applied, history, forget, forgetStage}.
+"""backend RootAgent 연동: POST /agents/root/{plan, applied, history, forget}.
 
 요청 본문은 Java 메서드의 매개변수 이름을 키로 한 JSON이다. 대화방은 체크포인터에 둔다 (기획 15절).
 plan만 SSE로 응답한다. 진행(status, item)을 낸 뒤 마지막 done 이벤트에 ChatPlan을 담는다.
@@ -12,7 +12,7 @@ from fastapi import APIRouter
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from hiremate_ai.agents.root.graph import RootThread, apply_plan, stream_plan
-from hiremate_ai.agents.root.memory import SaverDep, forget_stage, forget_thread
+from hiremate_ai.agents.root.memory import SaverDep, forget_thread
 from hiremate_ai.agents.root.toolkit import ToolkitDep
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import ChatApplied, ChatContext, ChatHistoryTurn, ChatPlan
@@ -38,10 +38,6 @@ class Applied(ContractModel):
     applied: bool
 
 
-class StageRequest(ContractModel):
-    stage_id: UUID
-
-
 class Deleted(ContractModel):
     deleted: int
 
@@ -52,7 +48,7 @@ async def plan(
 ) -> AsyncIterator[ServerSentEvent]:
     context = request.context
     if not context.thread_id:
-        # 끝난 전형: 대화방을 만들지 않는다 (대화는 전형 종료까지만 보관)
+        # 대화방 id가 없으면(Studio, 평가) 대화를 남기지 않고 답한다
         events = stream_plan(llm, context, toolkit)
     else:
         thread = RootThread(id=context.thread_id, company_id=context.company.company_id, stage_id=context.stage_id)
@@ -88,11 +84,6 @@ async def forget(request: ThreadRequest, saver: SaverDep) -> Deleted:
     exists = await saver.aget_tuple({"configurable": {"thread_id": request.thread_id}}) is not None
     await forget_thread(saver, request.thread_id)
     return Deleted(deleted=int(exists))
-
-
-@router.post("/forgetStage")
-async def forget_stage_threads(request: StageRequest, saver: SaverDep) -> Deleted:
-    return Deleted(deleted=await forget_stage(saver, str(request.stage_id)))
 
 
 async def _turns(saver: Any, thread_id: str) -> list[Turn]:
