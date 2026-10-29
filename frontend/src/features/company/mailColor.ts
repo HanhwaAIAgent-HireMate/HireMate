@@ -8,6 +8,30 @@ export const MAIL_COLORS = [
   { label: '회색', value: '#374151' },
 ]
 
+/** 보조 색 추천. 대표 색 추천과 잘 구분되면서 흰 바탕에서 글자가 보이는 색이다 */
+export const ACCENT_COLORS = [
+  { label: '주황', value: '#c2410c' },
+  { label: '호박', value: '#b45309' },
+  { label: '청록', value: '#0f766e' },
+  { label: '하늘', value: '#0369a1' },
+  { label: '장미', value: '#be123c' },
+]
+
+/** 메일 머리 모양. 값은 서버의 MailBrand.Header다 */
+export const HEADERS = [
+  { value: 'LINE', label: '얇은 색 줄', hint: '맨 위 색 줄과 왼쪽 로고' },
+  { value: 'BAND', label: '색 띠', hint: '대표 색 띠 위에 로고' },
+  { value: 'CENTER', label: '가운데 로고', hint: '색 줄과 가운데 로고' },
+  { value: 'BANNER', label: '배너 그림', hint: '맨 위에 올린 배너' },
+] as const
+
+/** 안내 상자 모양. 값은 서버의 MailBrand.GuideBox다 */
+export const GUIDE_BOXES = [
+  { value: 'FILL', label: '옅은 바탕', hint: '회색 바탕 상자' },
+  { value: 'OUTLINE', label: '테두리', hint: '보조 색 테두리 상자' },
+  { value: 'ROWS', label: '줄 표', hint: '상자 없이 줄로 나눈 표' },
+] as const
+
 /** 색 코드를 #rrggbb로 맞춘다. 앞의 #는 빼도 되고 대소문자는 상관없다. 6자리가 아니면 null */
 export function normalizeColor(input: string) {
   const match = /^#?([0-9a-f]{6})$/i.exec(input.trim())
