@@ -252,7 +252,7 @@ export interface paths {
             cookie?: never;
         };
         get: operations["mailStyle"];
-        put: operations["changeColor"];
+        put: operations["changeLook"];
         post?: never;
         delete?: never;
         options?: never;
@@ -751,6 +751,22 @@ export interface paths {
         put?: never;
         post: operations["uploadLogo"];
         delete: operations["deleteLogo"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/mail-style/banner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["banner"];
+        put?: never;
+        post: operations["uploadBanner"];
+        delete: operations["deleteBanner"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1601,12 +1617,23 @@ export interface components {
             closing: string;
             requiredText: string;
         };
-        MailColorRequest: {
+        MailLookRequest: {
             color: string;
+            accent: string | null;
+            /** @enum {string|null} */
+            header: "LINE" | "BAND" | "CENTER" | "BANNER" | null;
+            /** @enum {string|null} */
+            box: "FILL" | "OUTLINE" | "ROWS" | null;
         };
         MailStyle: {
             color: string;
+            accent: string | null;
+            /** @enum {string} */
+            header: "LINE" | "BAND" | "CENTER" | "BANNER";
+            /** @enum {string} */
+            box: "FILL" | "OUTLINE" | "ROWS";
             hasLogo: boolean;
+            hasBanner: boolean;
         };
         Targets: {
             applicationIds: string[];
@@ -2133,9 +2160,9 @@ export interface components {
             icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         CsrfToken: {
+            parameterName: string;
             token: string;
             headerName: string;
-            parameterName: string;
         };
         CsrfResponse: {
             token: string;
@@ -2682,7 +2709,7 @@ export interface operations {
             };
         };
     };
-    changeColor: {
+    changeLook: {
         parameters: {
             query?: never;
             header?: never;
@@ -2691,7 +2718,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MailColorRequest"];
+                "application/json": components["schemas"]["MailLookRequest"];
             };
         };
         responses: {
@@ -3642,6 +3669,73 @@ export interface operations {
             };
         };
     };
+    banner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+        };
+    };
+    uploadBanner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["MailStyle"];
+                };
+            };
+        };
+    };
+    deleteBanner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["MailStyle"];
+                };
+            };
+        };
+    };
     files: {
         parameters: {
             query: {
@@ -4220,6 +4314,9 @@ export interface operations {
         parameters: {
             query?: {
                 color?: string;
+                accent?: string;
+                header?: "LINE" | "BAND" | "CENTER" | "BANNER";
+                box?: "FILL" | "OUTLINE" | "ROWS";
             };
             header?: never;
             path?: never;

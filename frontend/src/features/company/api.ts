@@ -9,6 +9,8 @@ export type NoticeTemplateType = NoticeTemplate['type']
 export type CompanyFile = Schemas['CompanyFileInfo']
 export type FileCategory = CompanyFile['category']
 export type MailStyle = Schemas['MailStyle']
+/** 저장하거나 미리볼 메일 색과 부품. 보조 색이 없으면 accent는 null이다 */
+export type MailLook = Schemas['MailLookRequest']
 export type ReceiptTemplate = Schemas['ReceiptTemplateView']
 
 export const companyKeys = {
@@ -108,7 +110,7 @@ export function companyFileUrl(fileId: string) {
   return `/api/companies/me/files/${fileId}/content`
 }
 
-/** 메일 꾸밈(색, 로고). 모든 안내 메일과 접수 확인 메일에 쓴다 */
+/** 메일 꾸밈(색, 부품, 로고, 배너). 모든 안내 메일과 접수 확인 메일에 쓴다 */
 export function useMailStyle() {
   return useQuery({
     queryKey: companyKeys.mailStyle,
@@ -116,11 +118,10 @@ export function useMailStyle() {
   })
 }
 
-export function useSaveMailColor() {
+export function useSaveMailLook() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (color: string) =>
-      unwrap(api.PUT('/api/companies/me/mail-style', { body: { color } })),
+    mutationFn: (look: MailLook) => unwrap(api.PUT('/api/companies/me/mail-style', { body: look })),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle })
       void queryClient.invalidateQueries({ queryKey: companyKeys.receiptTemplate })
@@ -128,17 +129,21 @@ export function useSaveMailColor() {
   })
 }
 
-export function useUploadMailLogo() {
+/** 메일 꾸밈 그림. 로고는 머리에, 배너는 배너 머리에 들어간다 */
+export type MailImage = 'logo' | 'banner'
+
+export function useUploadMailImage(kind: MailImage) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (file: File) => {
       const form = new FormData()
       form.append('file', file)
+      // openapi-fetch는 FormData를 그대로 보낸다
+      const body = form as unknown as { file: string }
       return unwrap(
-        api.POST('/api/companies/me/mail-style/logo', {
-          // openapi-fetch는 FormData를 그대로 보낸다
-          body: form as unknown as { file: string },
-        }),
+        kind === 'logo'
+          ? api.POST('/api/companies/me/mail-style/logo', { body })
+          : api.POST('/api/companies/me/mail-style/banner', { body }),
       )
     },
     onSuccess: () => {
@@ -148,10 +153,15 @@ export function useUploadMailLogo() {
   })
 }
 
-export function useDeleteMailLogo() {
+export function useDeleteMailImage(kind: MailImage) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => unwrap(api.DELETE('/api/companies/me/mail-style/logo')),
+    mutationFn: () =>
+      unwrap(
+        kind === 'logo'
+          ? api.DELETE('/api/companies/me/mail-style/logo')
+          : api.DELETE('/api/companies/me/mail-style/banner'),
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle })
       void queryClient.invalidateQueries({ queryKey: companyKeys.receiptTemplate })
@@ -159,16 +169,23 @@ export function useDeleteMailLogo() {
   })
 }
 
-/** 고르는 중인 색으로 만든 예시 메일. 색을 바꾸는 동안 앞 미리보기를 그대로 둔다 */
-export function useMailStylePreview(color: string | null) {
+/** 고르는 중인 색과 부품으로 만든 예시 메일. 바꾸는 동안 앞 미리보기를 그대로 둔다 */
+export function useMailStylePreview(look: MailLook | null) {
   return useQuery({
-    queryKey: [...companyKeys.mailStyle, 'preview', color],
-    enabled: color !== null,
+    queryKey: [...companyKeys.mailStyle, 'preview', look],
+    enabled: look !== null,
     placeholderData: keepPreviousData,
     queryFn: () =>
       unwrap(
         api.GET('/api/companies/me/mail-style/preview', {
-          params: { query: { color: color ?? undefined } },
+          params: {
+            query: {
+              color: look?.color,
+              accent: look?.accent ?? undefined,
+              header: look?.header ?? undefined,
+              box: look?.box ?? undefined,
+            },
+          },
         }),
       ),
   })
