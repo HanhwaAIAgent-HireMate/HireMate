@@ -740,6 +740,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/companies/me/mail-style/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["suggestColors"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/mail-style/logo": {
         parameters: {
             query?: never;
@@ -1792,6 +1808,16 @@ export interface components {
             name: string;
             template: string;
             color: string;
+        };
+        ColorCandidate: {
+            color: string;
+            /** Format: double */
+            share: number;
+        };
+        MailColorSuggestion: {
+            color: string | null;
+            accent: string | null;
+            candidates: components["schemas"]["ColorCandidate"][];
         };
         CompanyFileInfo: {
             /** Format: uuid */
@@ -3603,6 +3629,33 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PosterBrand"];
+                };
+            };
+        };
+    };
+    suggestColors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["MailColorSuggestion"];
                 };
             };
         };

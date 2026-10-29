@@ -1,5 +1,6 @@
 package com.hiremate.company.api;
 
+import com.hiremate.company.MailColorSuggestion;
 import com.hiremate.company.MailLook;
 import com.hiremate.company.MailStyle;
 import com.hiremate.company.MailStyleService;
@@ -74,6 +75,13 @@ public class MailStyleController {
     @DeleteMapping("/banner")
     public MailStyle deleteBanner(AuthenticatedMember member) {
         return styles.deleteBanner(member.companyId());
+    }
+
+    /** 참고 그림에서 고른 대표 색과 보조 색. 그림과 색은 저장하지 않는다. */
+    @PostMapping(path = "/suggest", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public MailColorSuggestion suggestColors(AuthenticatedMember member, @RequestPart("file") MultipartFile file)
+            throws IOException {
+        return styles.suggestColors(file.getBytes());
     }
 
     /** 설정 화면에 보여 줄 배너 그림. */

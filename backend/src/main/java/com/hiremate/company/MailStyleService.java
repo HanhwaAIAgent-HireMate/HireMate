@@ -117,6 +117,18 @@ public class MailStyleService {
         return toView(style);
     }
 
+    /**
+     * 참고 그림(로고, 배너, 예전 메일)에서 대표 색과 보조 색을 고른다. 저장하지 않는다.
+     * 모델을 부르지 않고 코드 규칙으로만 고른다 ({@link MailColorPicker}).
+     */
+    public MailColorSuggestion suggestColors(byte[] content) {
+        if (content.length > UPLOAD_MAX_BYTES) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "IMAGE_TOO_LARGE", "The image must be 5MB or smaller.");
+        }
+        imageType(content);
+        return MailColorPicker.pick(read(content));
+    }
+
     /** 설정 화면에 보여 줄 배너 그림. */
     @Transactional(readOnly = true)
     public FileContent banner(UUID companyId) {
@@ -195,15 +207,7 @@ public class MailStyleService {
      * PNG는 투명한 곳을 지키고, JPEG은 품질 0.9로 다시 저장한다.
      */
     static byte[] shrink(byte[] content, String type, Fit fit) {
-        BufferedImage image;
-        try {
-            image = ImageIO.read(new ByteArrayInputStream(content));
-        } catch (IOException unreadable) {
-            image = null;
-        }
-        if (image == null) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LOGO", "The image could not be read.");
-        }
+        BufferedImage image = read(content);
         double scale = Math.min(1.0, Math.min((double) fit.maxWidth() / image.getWidth(),
                 (double) fit.maxHeight() / image.getHeight()));
         if (scale == 1.0 && content.length <= fit.maxBytes()) {
@@ -224,6 +228,20 @@ public class MailStyleService {
         graphics.drawImage(image, 0, 0, width, height, null);
         graphics.dispose();
         return encode(resized, png);
+    }
+
+    /** 형식만 맞고 읽을 수 없는 그림은 거절한다. */
+    private static BufferedImage read(byte[] content) {
+        BufferedImage image;
+        try {
+            image = ImageIO.read(new ByteArrayInputStream(content));
+        } catch (IOException unreadable) {
+            image = null;
+        }
+        if (image == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LOGO", "The image could not be read.");
+        }
+        return image;
     }
 
     private static byte[] encode(BufferedImage image, boolean png) {

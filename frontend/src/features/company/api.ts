@@ -153,6 +153,24 @@ export function useUploadMailImage(kind: MailImage) {
   })
 }
 
+export type MailColorSuggestion = Schemas['MailColorSuggestion']
+
+/** 참고 그림에서 대표 색과 보조 색을 골라 받는다. 그림과 색은 저장하지 않는다 */
+export function useSuggestMailColors() {
+  return useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return unwrap(
+        api.POST('/api/companies/me/mail-style/suggest', {
+          // openapi-fetch는 FormData를 그대로 보낸다
+          body: form as unknown as { file: string },
+        }),
+      )
+    },
+  })
+}
+
 export function useDeleteMailImage(kind: MailImage) {
   const queryClient = useQueryClient()
   return useMutation({
