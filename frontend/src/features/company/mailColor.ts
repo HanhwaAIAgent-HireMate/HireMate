@@ -20,8 +20,8 @@ export const ACCENT_COLORS = [
 /** 메일 머리 모양. 값은 서버의 MailBrand.Header다 */
 export const HEADERS = [
   { value: 'LINE', label: '얇은 색 줄', hint: '맨 위 색 줄과 왼쪽 로고' },
-  { value: 'BAND', label: '색 띠', hint: '대표 색 띠 위에 로고' },
-  { value: 'CENTER', label: '가운데 로고', hint: '색 줄과 가운데 로고' },
+  { value: 'BAND', label: '색 띠', hint: '대표 색 띠 안에 로고와 제목' },
+  { value: 'CENTER', label: '가운데 로고', hint: '옅은 색 바탕에 로고와 회사 이름' },
   { value: 'BANNER', label: '배너 그림', hint: '맨 위에 올린 배너' },
 ] as const
 

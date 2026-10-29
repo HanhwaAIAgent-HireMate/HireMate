@@ -1,8 +1,11 @@
 package com.hiremate.company.api;
 
+import com.hiremate.company.MailLook;
 import com.hiremate.company.ReceiptTemplate;
 import com.hiremate.company.ReceiptTemplateService;
 import com.hiremate.global.AuthenticatedMember;
+import com.hiremate.mail.MailBrand.GuideBox;
+import com.hiremate.mail.MailBrand.Header;
 import com.hiremate.mail.MailPreview;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -11,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 설정 › 안내 메일의 접수 확인 메일 양식 API. 지원서를 내면 바로 가는 메일이라 AI는 쓰지 않는다. */
@@ -36,10 +40,15 @@ public class ReceiptTemplateController {
                 new ReceiptTemplate(request.subject().strip(), request.body().strip())));
     }
 
-    /** 저장한 양식으로 만든 예시 메일. */
+    /**
+     * 저장한 양식으로 만든 예시 메일. 메일 꾸밈에서 고르는 중인 색과 부품을 질의로 넘기면 그 꾸밈으로 그린다.
+     * 질의는 메일 꾸밈 미리보기와 같고, color를 빼면 저장한 꾸밈이다.
+     */
     @GetMapping("/preview")
-    public MailPreview preview(AuthenticatedMember member) {
-        return templates.preview(member.companyId());
+    public MailPreview preview(AuthenticatedMember member, @RequestParam(required = false) String color,
+            @RequestParam(required = false) String accent, @RequestParam(required = false) Header header,
+            @RequestParam(required = false) GuideBox box) {
+        return templates.preview(member.companyId(), MailLook.draft(color, accent, header, box));
     }
 
     /** 길이는 company_receipt_templates 테이블과 같다. */

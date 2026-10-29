@@ -38,11 +38,15 @@ public class ReceiptTemplateService {
         return template;
     }
 
-    /** 설정 화면의 미리보기. 저장한 양식으로 만들고, 공고명과 지원자 값은 예시다. 트랜잭션 없이 조회 메서드를 부른다. */
-    public MailPreview preview(UUID companyId) {
+    /**
+     * 설정 화면의 미리보기. 저장한 양식으로 만들고, 공고명과 지원자 값은 예시다. 트랜잭션 없이 조회 메서드를 부른다.
+     *
+     * @param look 메일 꾸밈에서 고르는 중인 색과 부품. null이면 저장한 꾸밈이다
+     */
+    public MailPreview preview(UUID companyId, MailLook look) {
         String companyName = companies.profile(companyId).name();
         ReceiptTemplate filled = template(companyId).fill(companyName, PREVIEW_TITLE, "홍길동", 1);
         return MailPreview.of(filled.subject(), filled.toMail(companyName, PREVIEW_TITLE),
-                mailStyles.brand(companyId));
+                mailStyles.brand(companyId, look));
     }
 }

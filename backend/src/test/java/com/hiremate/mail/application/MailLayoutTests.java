@@ -48,24 +48,28 @@ class MailLayoutTests {
     }
 
     @Test
-    @DisplayName("띠 머리는 대표 색 띠 위에 회사 이름을 쓰고, 띠가 밝으면 흰 글자 대신 진한 글자를 쓴다")
-    void bandHeaderKeepsNameReadable() {
-        MailContent content = new MailContent("예시 기업", "", List.of(), "", "발신 전용");
+    @DisplayName("띠 머리는 대표 색 띠 안에 회사 이름, 공고명, 제목을 쓰고, 띠가 밝으면 흰 글자 대신 진한 글자를 쓴다. "
+            + "보조 색이 따로 있으면 띠 아래에 보조 색 줄을 둔다")
+    void bandHeaderHoldsHeading() {
+        MailContent content = new MailContent("예시 기업", "백엔드 개발자", List.of(), "", "발신 전용");
 
-        String dark = MailLayout.html("결과 안내", content, look("#1e3a5f", Header.BAND, GuideBox.FILL, null, null));
+        String dark = MailLayout.html("[예시 기업] 결과 안내", content,
+                look("#1e3a5f", Header.BAND, GuideBox.FILL, null, null));
         String light = MailLayout.html("결과 안내", content, look("#fde68a", Header.BAND, GuideBox.FILL, null, null));
         String logo = MailLayout.html("결과 안내", content,
-                look("#1e3a5f", Header.BAND, GuideBox.FILL, "cid:company-logo", null));
+                new MailLayout.Look("#1e3a5f", "#f97316", Header.BAND, GuideBox.FILL, "cid:company-logo", null));
 
-        assertThat(dark).contains("padding:18px 32px;background:#1e3a5f;", "color:#ffffff;\">예시 기업</span>")
-                .doesNotContain("height:4px;");
-        assertThat(light).contains("color:#1f2328;\">예시 기업</span>");
-        assertThat(logo).containsSubsequence("background:#ffffff;border-radius:6px;", "<img src=\"cid:company-logo\"",
-                "height=\"32\"");
+        assertThat(dark).containsSubsequence("padding:26px 32px 30px;background:#1e3a5f;", ">예시 기업</div>",
+                ">백엔드 개발자</div>", "color:#ffffff;\">결과 안내</div>", "</td></tr>", "padding:28px 32px 30px;")
+                .doesNotContain("height:4px;", "height:1px;");
+        assertThat(light).contains("color:#1f2328;\">결과 안내</div>");
+        assertThat(logo).containsSubsequence("background:#ffffff;border-radius:8px;", "<img src=\"cid:company-logo\"",
+                "height=\"28\"", ">결과 안내</div>", "height:4px;background:#f97316;");
     }
 
     @Test
-    @DisplayName("가운데 머리는 로고를 가운데에 두고, 배너 머리는 배너 그림을 두며 그림이 없으면 띠로 그린다")
+    @DisplayName("가운데 머리는 옅은 대표 색 바탕의 카드 밖 가운데에 로고와 회사 이름을 두고 제목도 가운데로 맞춘다. "
+            + "배너 머리는 배너 그림을 두며 그림이 없으면 띠로 그린다")
     void centerAndBannerHeaders() {
         MailContent content = new MailContent("예시 기업", "", List.of(), "", "발신 전용");
 
@@ -75,10 +79,13 @@ class MailLayoutTests {
                 look(COLOR, Header.BANNER, GuideBox.FILL, "cid:company-logo", "cid:company-banner"));
         String noBanner = MailLayout.html("결과 안내", content, look(COLOR, Header.BANNER, GuideBox.FILL, null, null));
 
-        assertThat(center).contains("align=\"center\"", "text-align:center;", "display:inline-block;height:40px;");
+        assertThat(center).contains("background:" + MailLayout.tint(COLOR) + ";", "display:inline-block;height:48px;",
+                "padding:30px 32px 6px;text-align:center;").doesNotContain("height:4px;")
+                .containsSubsequence("cid:company-logo", ">예시 기업</div>", "max-width:600px;background:#ffffff;");
+        assertThat(MailLayout.tint("#1e3a5f")).isEqualTo("#edeff2");
         assertThat(banner).contains("<img src=\"cid:company-banner\" alt=\"예시 기업\" width=\"600\"")
                 .doesNotContain("cid:company-logo");
-        assertThat(noBanner).contains("padding:18px 32px;background:" + COLOR + ";").doesNotContain("<img");
+        assertThat(noBanner).contains("padding:26px 32px 30px;background:" + COLOR + ";").doesNotContain("<img");
     }
 
     @Test

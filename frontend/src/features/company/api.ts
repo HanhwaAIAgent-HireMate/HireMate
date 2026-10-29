@@ -155,10 +155,10 @@ export function useUploadMailImage(kind: MailImage) {
 
 export type MailColorSuggestion = Schemas['MailColorSuggestion']
 
-/** 참고 그림에서 대표 색과 보조 색을 골라 받는다. 그림과 색은 저장하지 않는다 */
+/** 로고 그림에서 대표 색과 보조 색을 골라 받는다. 그림과 색은 저장하지 않는다 */
 export function useSuggestMailColors() {
   return useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: (file: Blob) => {
       const form = new FormData()
       form.append('file', file)
       return unwrap(
@@ -227,9 +227,23 @@ export function useSaveReceiptTemplate() {
 }
 
 /** 저장한 접수 확인 메일 양식으로 만든 예시 메일. 메일 색 · 로고를 바꾸면 새로 받는다 */
-export function useReceiptTemplatePreview() {
+/** 저장한 접수 확인 메일 양식의 예시 메일. look을 주면 메일 꾸밈에서 고르는 중인 모양으로 그린다 */
+export function useReceiptTemplatePreview(look?: MailLook) {
   return useQuery({
-    queryKey: [...companyKeys.receiptTemplate, 'preview'],
-    queryFn: () => unwrap(api.GET('/api/companies/me/receipt-template/preview')),
+    queryKey: [...companyKeys.receiptTemplate, 'preview', look ?? null],
+    placeholderData: keepPreviousData,
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/companies/me/receipt-template/preview', {
+          params: {
+            query: {
+              color: look?.color,
+              accent: look?.accent ?? undefined,
+              header: look?.header ?? undefined,
+              box: look?.box ?? undefined,
+            },
+          },
+        }),
+      ),
   })
 }

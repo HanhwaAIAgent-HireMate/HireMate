@@ -150,6 +150,18 @@ public class MailStyleService {
     }
 
     /**
+     * 저장 전 색과 부품에 저장한 로고와 배너를 더한 꾸밈. 설정 화면의 미리보기가 쓴다.
+     *
+     * @param draft 저장 전 색과 부품. null이면 저장한 꾸밈이다
+     */
+    public MailBrand brand(UUID companyId, MailLook draft) {
+        MailBrand saved = brand(companyId);
+        return draft == null ? saved
+                : new MailBrand(normalize(draft.color()), draft.accent() == null ? null : normalize(draft.accent()),
+                        draft.header(), draft.box(), saved.logo(), saved.banner());
+    }
+
+    /**
      * 설정 화면의 미리보기. 고르는 중인 색과 부품, 올린 로고와 배너로 다음 전형 안내 양식의 예시 메일을 만든다.
      *
      * 트랜잭션 없이 brand와 조회 메서드를 부른다. 그림을 못 읽어도 그 그림 없이 보여 준다.
@@ -157,10 +169,7 @@ public class MailStyleService {
      * @param draft 저장 전 색과 부품. null이면 저장한 꾸밈이다
      */
     public MailPreview preview(UUID companyId, MailLook draft) {
-        MailBrand saved = brand(companyId);
-        MailBrand brand = draft == null ? saved
-                : new MailBrand(normalize(draft.color()), draft.accent() == null ? null : normalize(draft.accent()),
-                        draft.header(), draft.box(), saved.logo(), saved.banner());
+        MailBrand brand = brand(companyId, draft);
         String companyName = companies.profile(companyId).name();
         NoticeTemplateInfo template = companies.noticeTemplate(companyId, NoticeTemplateType.NEXT_STAGE);
         Map<String, String> values = Map.of("{지원자명}", "홍길동", "{회사명}", companyName, "{공고명}", "예시 공고",
