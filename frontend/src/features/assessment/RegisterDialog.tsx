@@ -51,6 +51,11 @@ function guess(column: string): string {
   return area ?? 'SKIP'
 }
 
+/** 파일 열 이름이 10자를 넘으면 10자까지만 보이고 … 을 붙인다. 전체 이름은 마우스를 올리면 보인다. */
+const COLUMN_NAME_LIMIT = 10
+const shorten = (name: string) =>
+  name.length > COLUMN_NAME_LIMIT ? `${name.slice(0, COLUMN_NAME_LIMIT)}…` : name
+
 const toNumber = (value: string | undefined) => {
   const parsed = Number((value ?? '').replace(/,/g, ''))
   return value && Number.isFinite(parsed) ? parsed : null
@@ -145,7 +150,10 @@ export function RegisterDialog({
 
   return (
     <Dialog open={open} onOpenChange={(value) => (value ? onOpenChange(true) : close())}>
-      <DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-[760px]">
+      <DialogContent
+        showCloseButton={false}
+        className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-[760px]"
+      >
         <div className="flex items-center gap-3 border-b px-5 py-4">
           <DialogTitle className="text-base font-bold">평가 결과 등록</DialogTitle>
           <span className="text-xs text-muted-foreground">{overview.name}</span>
@@ -242,7 +250,9 @@ export function RegisterDialog({
                       key={`${column}-${index}`}
                       className="grid grid-cols-[1fr_24px_1.4fr] items-center px-3 py-1.5 text-sm"
                     >
-                      <span className="font-semibold">{column || `열 ${index + 1}`}</span>
+                      <span className="font-semibold" title={column || undefined}>
+                        {shorten(column || `열 ${index + 1}`)}
+                      </span>
                       <ArrowRight className="size-3.5 text-muted-foreground" />
                       <select
                         aria-label={`${column} 결과 항목`}
@@ -332,7 +342,7 @@ export function RegisterDialog({
             )}
           </div>
         </div>
-        <div className="flex items-center justify-between border-t px-5 py-3">
+        <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
           <Button
             variant="outline"
             onClick={() => (step > 1 && method === 'TABLE' ? setStep(step - 1) : close())}
