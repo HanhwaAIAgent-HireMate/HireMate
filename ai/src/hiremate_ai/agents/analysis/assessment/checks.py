@@ -8,6 +8,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from hiremate_ai.agents.analysis.assessment.types import AssessmentInput, FindingDraft
+from hiremate_ai.agents.analysis.plain import plain
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.db.profile import ItemCategory
 from hiremate_ai.db.profile_store import NewItem
@@ -46,12 +47,12 @@ def materials_of(data: AssessmentInput) -> list[Material]:
 def score_checks(data: AssessmentInput) -> list[NewItem]:
     """점수에서 확인이 필요한 사실만 적는다. 점수를 해석하거나 채우지 않는다."""
     items = [
-        NewItem(category=ItemCategory.CHECK, content=f"{area} 점수가 없어요", source=RESULT_SOURCE)
+        NewItem(category=ItemCategory.CHECK, content=f"{area} 점수가 없다.", source=RESULT_SOURCE)
         for area, score in data.areas.items()
         if score is None
     ]
     if data.total is None:
-        items.append(NewItem(category=ItemCategory.CHECK, content="평가 총점이 없어요", source=RESULT_SOURCE))
+        items.append(NewItem(category=ItemCategory.CHECK, content="평가 총점이 없다.", source=RESULT_SOURCE))
     return items
 
 
@@ -60,7 +61,7 @@ def checked_item(finding: FindingDraft, materials: list[Material]) -> NewItem | 
 
     근거 문장이 적힌 출처에 없고 다른 자료에 있으면 실제 자료로 출처를 고친다 (guardrails.verified_evidence와 같다).
     """
-    content = finding.content.strip()
+    content = plain(finding.content)
     evidence = _LEADING_MARKS.sub("", finding.evidence)
     if not content or not evidence:
         return "content나 evidence가 비어 있다"

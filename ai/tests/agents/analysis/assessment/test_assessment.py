@@ -47,7 +47,7 @@ def assessment_input(**overrides: Any) -> AssessmentInput:
 def strength() -> FindingDraft:
     return FindingDraft(
         kind="STRENGTH",
-        content="결제 승인 API 응답 시간을 320ms에서 140ms로 줄였어요.",
+        content="결제 승인 API 응답 시간을 320ms에서 140ms로 줄였다.",
         evidence="결제 승인 API의 평균 응답 시간을 320ms에서 140ms로 줄였습니다.",
         source="평가 제출물",
     )
@@ -56,7 +56,7 @@ def strength() -> FindingDraft:
 def weakness() -> FindingDraft:
     return FindingDraft(
         kind="WEAKNESS",
-        content="장애 상황 테스트는 확인되지 않았어요.",
+        content="장애 상황 테스트는 확인되지 않았다.",
         evidence="장애 상황을 재현하는 테스트 코드는 작성하지 못했습니다.",
         source="평가 제출물",
     )
@@ -65,7 +65,7 @@ def weakness() -> FindingDraft:
 def invented() -> FindingDraft:
     return FindingDraft(
         kind="STRENGTH",
-        content="대용량 트래픽을 처리했어요.",
+        content="대용량 트래픽을 처리했다.",
         evidence="하루 1억 건을 처리했습니다.",
         source="평가 제출물",
     )
@@ -138,7 +138,7 @@ async def test_drops_items_that_fail_after_two_retries() -> None:
 
 async def test_fixes_source_when_evidence_is_in_another_material() -> None:
     finding = FindingDraft(
-        kind="WEAKNESS", content="테스트 범위가 좁았어요.", evidence="테스트 범위는 좁았음.", source="평가 제출물"
+        kind="WEAKNESS", content="테스트 범위가 좁았다.", evidence="테스트 범위는 좁았음.", source="평가 제출물"
     )
 
     analysis = await analyze_assessment(assessment_input(), FakeLlm(AssessmentDraft(findings=[finding])))
@@ -147,9 +147,9 @@ async def test_fixes_source_when_evidence_is_in_another_material() -> None:
 
 
 async def test_rejects_decisions_discrimination_and_invented_numbers() -> None:
-    decision = strength().model_copy(update={"content": "응답 시간을 줄여 합격 기준을 넘었어요."})
-    attribute = weakness().model_copy(update={"content": "여성 지원자로 테스트가 부족했어요."})
-    number = strength().model_copy(update={"content": "응답 시간을 50% 넘게 줄였어요."})
+    decision = strength().model_copy(update={"content": "응답 시간을 줄여 합격 기준을 넘었다."})
+    attribute = weakness().model_copy(update={"content": "여성 지원자로 테스트가 부족했다."})
+    number = strength().model_copy(update={"content": "응답 시간을 50% 넘게 줄였다."})
     short = strength().model_copy(update={"evidence": "결제 승인"})
     llm = FakeLlm(*(AssessmentDraft(findings=[decision, attribute, number, short]),) * 3)
 
@@ -169,7 +169,7 @@ async def test_missing_scores_become_checks_without_filling_them() -> None:
 
     analysis = await analyze_assessment(data, FakeLlm(AssessmentDraft(findings=[])))
 
-    assert [item.content for item in analysis.items] == ["수리능력 점수가 없어요", "평가 총점이 없어요"]
+    assert [item.content for item in analysis.items] == ["수리능력 점수가 없다.", "평가 총점이 없다."]
     assert all(item.category is ItemCategory.CHECK and item.evidence is None for item in analysis.items)
     assert data.areas["수리능력"] is None
 
@@ -183,7 +183,7 @@ async def test_without_material_does_not_call_model() -> None:
 
     assert llm.calls == []
     assert analysis.status is ProfileStatus.CHECK
-    assert analysis.items[-1].content == "평가 제출물 본문이 없어 강점 · 약점을 확인하지 못했어요"
+    assert analysis.items[-1].content == "평가 제출물 본문이 없어 강점 · 약점을 확인하지 못했다."
 
 
 async def test_model_format_errors_end_as_failed_without_raising() -> None:
