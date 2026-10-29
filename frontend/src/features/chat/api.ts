@@ -2,20 +2,23 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 
 import { ApiError, api, unwrap, type Schemas } from '@/lib/api/client'
-import { readEvents } from '@/lib/api/sse'
+import { readEvents, type SseEvent } from '@/lib/api/sse'
 import { stageKeys } from '@/features/screening/api'
 
 export type ChatAnswer = Schemas['ChatAnswer']
 export type ChatTurn = Schemas['ChatTurn']
 export type ChatItem = Schemas['ChatItem']
+/** 탭의 첫 대화 뒤 자동으로 바꾼 탭 이름 */
+export type ChatTitle = Schemas['ChatTitle']
 
 /** 받은 답과 보낸 때부터 답을 받기까지 걸린 초 */
 export type ChatReply = { answer: ChatAnswer; seconds: number }
 
-/** 답을 기다리는 동안 받는 진행 알림. 단계 문구와 검증을 마친 항목이다. */
+/** 답을 기다리는 동안 받는 진행 알림. 단계 문구와 검증을 마친 항목, 그리고 답 뒤의 탭 제목이다. */
 export type ChatProgress = {
   onStatus: (text: string) => void
   onItem: (item: ChatItem) => void
+  onTitle?: (title: ChatTitle) => void
 }
 
 // 선택 지원자 갱신으로 대화 기록을 다시 받아 방금 보낸 메시지를 덮어쓰지 않는다.
@@ -23,22 +26,40 @@ const historyKey = (tabId: string) => ['chat', tabId] as const
 
 /**
  * Chat 응답 스트림(SSE)을 읽는다. status · item은 progress로 넘기고 done의 답을 돌려준다.
+ * 탭의 첫 대화면 done 뒤에 탭 제목(title)이 온다. 답은 제목을 기다리지 않고 돌려주고, 제목은 이어서 읽어 onTitle로 넘긴다.
  * error 이벤트나 done 없이 끝난 스트림은 ApiError로 던진다.
  */
 export async function readChat(
   body: ReadableStream<Uint8Array>,
   progress: ChatProgress,
 ): Promise<ChatAnswer> {
-  for await (const { event, data } of readEvents(body)) {
+  const events = readEvents(body)
+  for (;;) {
+    const next = await events.next()
+    if (next.done) break
+    const { event, data } = next.value
     if (event === 'status') progress.onStatus((JSON.parse(data) as Schemas['ChatStatus']).text)
     else if (event === 'item') progress.onItem(JSON.parse(data) as ChatItem)
-    else if (event === 'done') return JSON.parse(data) as ChatAnswer
-    else if (event === 'error') {
+    else if (event === 'done') {
+      void readTitle(events, progress)
+      return JSON.parse(data) as ChatAnswer
+    } else if (event === 'error') {
       const error = JSON.parse(data) as Schemas['ChatError']
       throw new ApiError(error.status, error.code, '')
     }
   }
   throw new ApiError(502, 'AI_UNAVAILABLE', '')
+}
+
+/** done 뒤에 남은 스트림에서 탭 제목을 읽는다. 연결이 끊기면 제목 없이 끝난다 */
+async function readTitle(events: AsyncGenerator<SseEvent>, progress: ChatProgress) {
+  try {
+    for await (const { event, data } of events) {
+      if (event === 'title') progress.onTitle?.(JSON.parse(data) as ChatTitle)
+    }
+  } catch {
+    // 제목은 답을 받은 뒤의 덤이다. 읽지 못해도 탭은 번호 이름 그대로다
+  }
 }
 
 /** 탭의 대화방으로 묻는다. 같은 전형 안에서 탭을 옮겨도 요청은 이어지고 답은 물은 탭(tabId)의 것이다 */

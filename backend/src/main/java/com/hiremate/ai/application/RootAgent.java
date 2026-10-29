@@ -1,6 +1,7 @@
 package com.hiremate.ai.application;
 
 import java.util.List;
+import java.util.Optional;
 
 /** Root Agent (Recruitment Orchestrator). 요청을 해석해 실행 계획을 만든다. 지원자를 직접 고르거나 상태를 바꾸지 않는다. */
 public interface RootAgent {
@@ -16,4 +17,7 @@ public interface RootAgent {
 
     /** 대화방 하나를 지운다 (탭 지우기). */
     void forget(String threadId);
+
+    /** 탭의 첫 질문과 답으로 탭 이름을 짓는다. 차별 조건 질문이거나 만들지 못하면 빈 값이다. */
+    Optional<String> title(String message, String reply);
 }

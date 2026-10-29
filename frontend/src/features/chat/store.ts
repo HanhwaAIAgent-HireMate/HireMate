@@ -4,7 +4,8 @@ import type { ChatAnswer, ChatTurn } from '@/features/chat/api'
 import type { Mention } from '@/features/screening/store'
 
 export type ChatMessage =
-  | { role: 'user'; text: string; mentions: Mention[] }
+  /** asker: 질문한 담당자 이름. 탭 대화는 같은 기업 담당자가 함께 쓴다. 예전 기록은 null이다 */
+  | { role: 'user'; text: string; mentions: Mention[]; asker: string | null }
   | { role: 'ai'; answer: ChatAnswer; steps: string[]; seconds: number | null }
   | { role: 'error'; text: string }
 
@@ -15,10 +16,13 @@ type ChatState = {
   load: (tabId: string, messages: ChatMessage[]) => void
 }
 
-/** 서버에 남은 지난 턴을 화면 메시지로 펼친다. 질문에 쓴 @멘션과 답을 내기까지 거친 처리 단계도 같이 살린다. */
+/**
+ * 서버에 남은 지난 턴을 화면 메시지로 펼친다. 질문에 쓴 @멘션, 질문한 담당자와 답을 내기까지 거친 처리 단계도
+ * 같이 살린다.
+ */
 export function turnsToMessages(turns: ChatTurn[]): ChatMessage[] {
   return turns.flatMap((turn): ChatMessage[] => [
-    { role: 'user', text: turn.message, mentions: turn.mentions },
+    { role: 'user', text: turn.message, mentions: turn.mentions, asker: turn.asker?.name ?? null },
     { role: 'ai', answer: turn.answer, steps: turn.steps, seconds: turn.seconds },
   ])
 }

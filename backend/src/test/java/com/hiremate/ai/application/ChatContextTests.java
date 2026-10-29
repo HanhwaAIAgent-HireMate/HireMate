@@ -28,6 +28,7 @@ import com.hiremate.screening.CandidateRow;
 import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
+import com.hiremate.screening.StageTabService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.HashMap;
@@ -73,10 +74,10 @@ class ChatContextTests {
                 RecruitmentStatus.IN_PROGRESS, content, List.of(), Set.of()));
         ChatService chat = new ChatService(screening, recruits, mock(ApplicationService.class), companies,
                 postings, mock(RootAgent.class), mock(InterviewAiService.class), mock(AiSettings.class),
-                mock(AssessmentService.class));
+                mock(AssessmentService.class), mock(StageTabService.class));
 
-        ChatInput input = chat.prepare(companyId, stageId, UUID.randomUUID(), "선택 지원자 중 경력이 가장 긴 사람은?",
-                List.of(), List.of());
+        ChatInput input = chat.prepare(companyId, stageId, UUID.randomUUID(), null,
+                "선택 지원자 중 경력이 가장 긴 사람은?", List.of(), List.of());
 
         assertThat(input.candidates()).hasSize(201);
         assertThat(input.context().candidates()).containsExactlyElementsOf(candidates);
@@ -120,10 +121,11 @@ class ChatContextTests {
                         null, "TABLE", Instant.EPOCH)));
         when(assessments.find(companyId, stageId, empty.applicationId())).thenReturn(Optional.empty());
         ChatService chat = new ChatService(screening, recruits, mock(ApplicationService.class), companies,
-                postings, mock(RootAgent.class), mock(InterviewAiService.class), mock(AiSettings.class), assessments);
+                postings, mock(RootAgent.class), mock(InterviewAiService.class), mock(AiSettings.class), assessments,
+                mock(StageTabService.class));
 
-        ChatInput input = chat.prepare(companyId, stageId, UUID.randomUUID(), "의사소통능력 90점 이상인 사람만 옮겨줘",
-                List.of(), List.of());
+        ChatInput input = chat.prepare(companyId, stageId, UUID.randomUUID(), null,
+                "의사소통능력 90점 이상인 사람만 옮겨줘", List.of(), List.of());
 
         Map<UUID, ChatContext.Assessment> sent = input.context().assessments();
         assertThat(sent).containsOnlyKeys(scored.applicationId());

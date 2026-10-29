@@ -1,5 +1,6 @@
 package com.hiremate.ai;
 
+import static com.hiremate.TestApi.events;
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
+import com.hiremate.ai.application.ChatAsker;
 import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatPlan;
@@ -28,6 +30,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -93,6 +96,78 @@ class RootMemoryChatTests extends IntegrationTest {
         verify(root, never()).forget(any());
 
         expect(newHr().get(setup.chatPath(setup.tabId())), 404);
+    }
+
+    @Test
+    @DisplayName("Chat은 질문한 담당자를 Root에 넘기고, 대화 기록은 턴마다 질문한 담당자를 돌려준다")
+    void chatRemembersAsker() throws Exception {
+        Setup setup = documentStage();
+        when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.CLARIFY, "답", List.of(), List.of(),
+                List.of()));
+
+        expect(setup.hr().post(setup.chatPath(setup.tabId()),
+                Map.of("message", "강점 요약해줘", "mentionIds", List.of(), "checkedIds", List.of())), 200);
+
+        ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
+        verify(root).plan(sent.capture(), any());
+        assertThat(sent.getValue().asker()).isEqualTo(new ChatAsker(setup.hr().memberId(), "최은영"));
+
+        ChatPlan answer = ChatPlan.answer(ChatPlan.Intent.ANSWER, "3년이에요.", List.of(), List.of(), List.of());
+        when(root.history(setup.threadId(setup.tabId()))).thenReturn(List.of(
+                new ChatHistoryTurn("경력 알려줘", answer, 3, List.of(), List.of(), 2,
+                        new ChatAsker(UUID.randomUUID(), "김담당")),
+                new ChatHistoryTurn("예전 질문", answer, 3)));
+        JsonNode history = json(expect(setup.hr().get(setup.chatPath(setup.tabId())), 200));
+        assertThat(history.get(0).path("asker").path("name").asString()).isEqualTo("김담당");
+        assertThat(history.get(1).path("asker").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("첫 답 뒤에 탭 이름을 자동 제목으로 바꿔 title 이벤트로 알리고, 그 뒤로는 제목을 다시 짓지 않는다")
+    void firstAnswerNamesTab() throws Exception {
+        Setup setup = documentStage();
+        when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.ANSWER, "2명이에요.", List.of(),
+                List.of(), List.of()));
+        when(root.title(any(), any())).thenReturn(Optional.of("금융 경험 찾기"));
+        Map<String, Object> ask = Map.of("message", "금융 경험 찾아줘", "mentionIds", List.of(), "checkedIds", List.of());
+
+        List<Map.Entry<String, JsonNode>> first = events(expect(setup.hr().post(setup.chatPath(setup.tabId()), ask),
+                200));
+        assertThat(first).extracting(Map.Entry::getKey).endsWith("done", "title");
+        assertThat(first.getLast().getValue().path("tabId").asString()).isEqualTo(setup.tabId().toString());
+        assertThat(first.getLast().getValue().path("name").asString()).isEqualTo("금융 경험 찾기");
+        verify(root).title("금융 경험 찾아줘", "2명이에요.");
+        assertThat(json(expect(setup.hr().get(setup.path() + "/tabs"), 200)).get(0).path("name").asString())
+                .isEqualTo("금융 경험 찾기");
+
+        List<Map.Entry<String, JsonNode>> second = events(expect(setup.hr().post(setup.chatPath(setup.tabId()), ask),
+                200));
+        assertThat(second.getLast().getKey()).isEqualTo("done");
+        verify(root, times(1)).title(any(), any());
+    }
+
+    @Test
+    @DisplayName("차단한 질문에는 제목을 짓지 않고, 제목을 기다리는 사이 담당자가 이름을 바꾸면 그 이름을 지킨다")
+    void blockedOrRenamedTabsKeepTheirNames() throws Exception {
+        Setup setup = documentStage();
+        Map<String, Object> ask = Map.of("message", "강점 요약해줘", "mentionIds", List.of(), "checkedIds", List.of());
+        when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.BLOCKED, "차단", List.of(),
+                List.of(), List.of()));
+        expect(setup.hr().post(setup.chatPath(setup.tabId()), ask), 200);
+        verify(root, never()).title(any(), any());
+
+        when(root.plan(any(), any())).thenReturn(ChatPlan.answer(ChatPlan.Intent.ANSWER, "강점은 정산이에요.", List.of(),
+                List.of(), List.of()));
+        when(root.title(any(), any())).thenAnswer(call -> {
+            expect(setup.hr().patch(setup.path() + "/tabs/" + setup.tabId(), Map.of("name", "직접 지은 이름")), 200);
+            return Optional.of("자동 제목");
+        });
+        List<Map.Entry<String, JsonNode>> answered = events(
+                expect(setup.hr().post(setup.chatPath(setup.tabId()), ask), 200));
+
+        assertThat(answered.getLast().getKey()).isEqualTo("done");
+        assertThat(json(expect(setup.hr().get(setup.path() + "/tabs"), 200)).get(0).path("name").asString())
+                .isEqualTo("직접 지은 이름");
     }
 
     @Test

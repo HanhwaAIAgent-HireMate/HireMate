@@ -6,7 +6,7 @@ from root_context import make_context
 from hiremate_ai.agents.root import turns
 from hiremate_ai.agents.root.find import NOT_FOUND
 from hiremate_ai.agents.root.turns import next_result, turn_of
-from hiremate_ai.agents.root.types import ChatItem, ChatPlan, EditAction, Intent, SelectionMode
+from hiremate_ai.agents.root.types import ChatAsker, ChatItem, ChatPlan, EditAction, Intent, SelectionMode
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
 
 type Applicants = dict[str, ApplicantDetail]
@@ -30,6 +30,17 @@ def found(*ids: str, mode: SelectionMode = SelectionMode.REPLACE) -> ChatPlan:
 
 
 NOT_FOUND_PLAN = ChatPlan.answer(Intent.ANSWER, NOT_FOUND)
+
+
+def test_turn_keeps_asker(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = make_context(sample_applicants, sample_company, sample_posting, message="강점은?")
+    member = uuid4()
+    asked = context.model_copy(update={"asker": ChatAsker(member_id=member, name="김담당")})
+
+    assert turn_of(asked, None, NOT_FOUND_PLAN)["asker"] == {"member_id": str(member), "name": "김담당"}
+    assert turn_of(context, None, NOT_FOUND_PLAN)["asker"] is None
 
 
 def test_replace_sets_result() -> None:

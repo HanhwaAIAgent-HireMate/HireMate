@@ -10,6 +10,7 @@ import com.hiremate.ai.application.ChatProgress;
 import com.hiremate.ai.application.RootAgent;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 
@@ -46,5 +47,15 @@ class RemoteRootAgent implements RootAgent {
     @Override
     public void forget(String threadId) {
         client.post(AiAgent.ROOT, "forget", Map.of("threadId", threadId), Map.class);
+    }
+
+    @Override
+    public Optional<String> title(String message, String reply) {
+        return Optional.ofNullable(client.post(AiAgent.ROOT, "title", Map.of("message", message, "reply", reply),
+                Title.class).title());
+    }
+
+    /** /agents/root/title 응답. 제목을 만들지 못하면 null이다. */
+    private record Title(String title) {
     }
 }

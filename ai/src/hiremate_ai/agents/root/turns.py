@@ -35,6 +35,7 @@ class Turn(TypedDict):
     proposed_plan: NotRequired[dict[str, Any]]  # 업무 서버가 보정하기 전 계획. 중복 응답을 구분한다
     steps: NotRequired[list[str]]  # 그때 화면에 낸 단계 문구 (코드 상수). 예전 체크포인트에는 없다
     seconds: NotRequired[int]  # 요청 확인부터 턴을 남기기까지 걸린 시간
+    asker: NotRequired[dict[str, str] | None]  # 질문한 담당자 (member_id, name). 탭 대화방을 함께 쓴다
 
 
 def turn_of(context: ChatContext, targets: Sequence[UUID] | None, plan: ChatPlan, kind: str = "") -> Turn:
@@ -54,6 +55,11 @@ def turn_of(context: ChatContext, targets: Sequence[UUID] | None, plan: ChatPlan
         focus={},
         total=len(context.candidates),
         plan={},
+        asker=(
+            {"member_id": str(context.asker.member_id), "name": context.asker.name}
+            if context.asker is not None
+            else None
+        ),
     )
     return update_turn(turn, plan, targets)
 

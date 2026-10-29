@@ -23,6 +23,7 @@ import java.util.UUID;
  * @param documentScores 서류 점수. 평가 결과와 지원서를 맞춰 볼 때 쓴다
  * @param interviews 면접 전형이면 지원자별 현재 · 이전 면접 질문과 답변, 아니면 비어 있다
  * @param assessments 평가 전형이면 지원자별 영역 점수 · 등급, 아니면 비어 있다. 총점은 candidates의 score다
+ * @param asker 질문한 담당자. ai 서버가 대화방 턴에 남긴다
  */
 public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
         StageType stageType,
@@ -30,7 +31,8 @@ public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, Str
         List<CandidateRow> candidates, Map<UUID, List<ApplicantDocument>> documents,
         Map<UUID, BigDecimal> documentScores, Map<UUID, InterviewView> interviews, List<UUID> mentions,
         List<UUID> checked, CompanyProfile company, PostingContent posting, String message,
-        Map<UUID, List<InterviewerMemo>> interviewerMemos, Map<UUID, Assessment> assessments) {
+        Map<UUID, List<InterviewerMemo>> interviewerMemos, Map<UUID, Assessment> assessments,
+        @Schema(nullable = true) ChatAsker asker) {
 
     public ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
             StageType stageType, List<Stage> stages, List<CandidateRow> candidates,
@@ -39,7 +41,7 @@ public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, Str
             CompanyProfile company, PostingContent posting, String message) {
         this(stageId, recruitmentId, threadId, stageName, selectable, stageType, stages, candidates,
                 documents, documentScores, interviews, mentions, checked, company, posting, message, Map.of(),
-                Map.of());
+                Map.of(), null);
     }
 
     /** 평가 전형 결과 한 명분. 영역 이름을 키로 쓰고, 점수가 없는 영역은 null이다. */

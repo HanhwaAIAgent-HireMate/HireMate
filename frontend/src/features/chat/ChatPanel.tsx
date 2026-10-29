@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowUp, AtSign, Check, Sparkles, X } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 
@@ -12,9 +13,11 @@ import {
 import { LiveSteps, StepsSummary } from '@/features/chat/ChatSteps'
 import { addStep } from '@/features/chat/steps'
 import { turnsToMessages, useChatStore, type ChatMessage } from '@/features/chat/store'
-import { careerLabel, type StageOverview } from '@/features/screening/api'
+import { careerLabel, stageKeys, type StageOverview } from '@/features/screening/api'
 import { useStageUi } from '@/features/screening/store'
+import type { StageTab } from '@/features/screening/tabs'
 import { errorMessage } from '@/lib/api/client'
+import { useMe } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
 const EMPTY: ChatMessage[] = []
@@ -50,6 +53,8 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
   const { append, load } = useChatStore()
   const history = useChatHistory(stageId, tabId)
   const { mentions, removeMention, addMention, checked } = useStageUi()
+  const me = useMe()
+  const queryClient = useQueryClient()
   // 답을 기다리는 탭. 그 탭의 기록을 다시 받아도 방금 보낸 질문을 지우지 않는다
   const asking = useRef<string | null>(null)
   const [progress, setProgress] = useState<Progress>(NO_PROGRESS)
@@ -61,6 +66,14 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
       setProgress((current) => ({ ...current, steps: steps.current }))
     },
     onItem: (item) => setProgress((current) => ({ ...current, items: [...current.items, item] })),
+    // 탭의 첫 대화 뒤에 자동으로 바뀐 이름을 탭 바에 바로 보인다. 답 직후 다시 받던 탭 목록은 제목을 저장하기 전
+    // 이름이라 그 요청을 취소하고 다시 받는다
+    onTitle: ({ tabId: named, name }) => {
+      queryClient.setQueryData<StageTab[]>(stageKeys.tabs(stageId), (tabs) =>
+        tabs?.map((tab) => (tab.id === named ? { ...tab, name } : tab)),
+      )
+      void queryClient.invalidateQueries({ queryKey: stageKeys.tabs(stageId) })
+    },
   })
   const [text, setText] = useState('')
   const [expanded, setExpanded] = useState(false)
@@ -87,7 +100,7 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
     if (!message || chat.isPending || loading) return
     // 답이 올 때 지금 탭이 바뀌어 있어도 물은 탭에 쌓는다
     const tab = tabId
-    append(tab, { role: 'user', text: message, mentions })
+    append(tab, { role: 'user', text: message, mentions, asker: me.data?.name ?? null })
     asking.current = tab
     setText('')
     steps.current = []
@@ -261,13 +274,18 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
 function renderMessage(message: ChatMessage): ReactNode {
   if (message.role === 'user') {
     return (
-      <div className="ml-8 rounded-xl bg-muted px-3 py-2 text-sm">
-        {message.mentions.map((mention) => (
-          <span key={mention.applicationId} className="mr-1 font-semibold text-ai">
-            @{mention.name}
-          </span>
-        ))}
-        {message.text}
+      <div className="ml-8 space-y-1">
+        {message.asker && (
+          <p className="text-right text-[11px] text-muted-foreground">{message.asker}</p>
+        )}
+        <div className="rounded-xl bg-muted px-3 py-2 text-sm">
+          {message.mentions.map((mention) => (
+            <span key={mention.applicationId} className="mr-1 font-semibold text-ai">
+              @{mention.name}
+            </span>
+          ))}
+          {message.text}
+        </div>
       </div>
     )
   }
