@@ -8,6 +8,8 @@ import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
 import com.hiremate.TestMailConfiguration;
+import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -57,6 +59,32 @@ class MailStyleTests extends IntegrationTest {
 
         byte[] fake = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3};
         expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("fake.png", "image/png", fake))),
+                400);
+    }
+
+    @Test
+    @DisplayName("참고 그림에서 대표 색과 보조 색을 골라 주고, 저장한 꾸밈은 바꾸지 않는다")
+    void suggestsColorsWithoutSaving() throws Exception {
+        TestApi hr = newHr();
+        BufferedImage banner = new BufferedImage(300, 100, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = banner.createGraphics();
+        graphics.setColor(new Color(0x1b2a4a));
+        graphics.fillRect(0, 0, 300, 100);
+        graphics.setColor(new Color(0xc2410c));
+        graphics.fillRect(200, 20, 80, 60);
+        graphics.dispose();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(banner, "png", out);
+
+        JsonNode suggestion = json(expect(hr.multipart(BASE + "/suggest",
+                Map.of("file", new TestApi.FilePart("banner.png", "image/png", out.toByteArray()))), 200));
+
+        assertThat(suggestion.path("color").asString()).isEqualTo("#1b2a4a");
+        assertThat(suggestion.path("accent").asString()).isEqualTo("#c2410c");
+        assertThat(suggestion.path("candidates")).hasSize(2);
+        assertThat(json(expect(hr.get(BASE), 200)).path("color").asString()).isEqualTo("#1e3a5f");
+        byte[] fake = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3};
+        expect(hr.multipart(BASE + "/suggest", Map.of("file", new TestApi.FilePart("fake.png", "image/png", fake))),
                 400);
     }
 

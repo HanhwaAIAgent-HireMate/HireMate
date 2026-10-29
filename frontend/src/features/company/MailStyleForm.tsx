@@ -1,4 +1,4 @@
-import { ImageUp, Trash2 } from 'lucide-react'
+import { ImageUp, Pipette, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -10,7 +10,9 @@ import {
   useMailStyle,
   useMailStylePreview,
   useSaveMailLook,
+  useSuggestMailColors,
   useUploadMailImage,
+  type MailColorSuggestion,
   type MailImage,
   type MailLook,
   type MailStyle,
@@ -102,6 +104,17 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
       <p className="text-sm text-muted-foreground">
         모든 안내 메일과 접수 확인 메일에 같은 색과 모양이 들어가요.
       </p>
+      <SettingsRow label="색 추천">
+        <ColorSuggest
+          onPick={(color) => main.pick(color)}
+          onSuggest={(suggestion) => {
+            if (!suggestion.color) return
+            main.pick(suggestion.color)
+            setUseAccent(suggestion.accent !== null)
+            if (suggestion.accent) accent.pick(suggestion.accent)
+          }}
+        />
+      </SettingsRow>
       <SettingsRow label="대표 색">
         <ColorField
           name="대표 색"
@@ -166,6 +179,93 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
         <MailFrame preview={preview.data} title="메일 꾸밈 미리보기" />
       </SettingsRow>
     </SettingsSection>
+  )
+}
+
+/**
+ * 참고 그림(로고, 배너, 예전 메일 캡처)을 올리면 그림에서 색을 골라 대표 색과 보조 색 칸을 채운다.
+ * 그림에서 찾은 색은 아래에 보여 주고, 누르면 대표 색으로 쓴다. 저장은 HR이 미리보기를 보고 한다
+ */
+function ColorSuggest({
+  onSuggest,
+  onPick,
+}: {
+  onSuggest: (suggestion: MailColorSuggestion) => void
+  onPick: (color: string) => void
+}) {
+  const suggest = useSuggestMailColors()
+  const input = useRef<HTMLInputElement>(null)
+  const [found, setFound] = useState<MailColorSuggestion['candidates']>([])
+
+  const onFile = (file: File | undefined) => {
+    if (input.current) input.current.value = ''
+    if (!file) return
+    if (!IMAGE_TYPES.includes(file.type)) {
+      toast.error('PNG나 JPG 그림만 올릴 수 있어요.')
+      return
+    }
+    if (file.size > IMAGE_MAX_BYTES) {
+      toast.error('그림은 5MB까지 올릴 수 있어요.')
+      return
+    }
+    suggest.mutate(file, {
+      onSuccess: (suggestion) => {
+        setFound(suggestion.candidates)
+        if (!suggestion.color) {
+          toast.error('그림에서 회사 색으로 쓸 만한 색을 찾지 못했어요. 색을 직접 골라 주세요.')
+          return
+        }
+        onSuggest(suggestion)
+        toast.success(
+          suggestion.accent
+            ? '그림에서 대표 색과 보조 색을 골랐어요. 미리보기를 보고 저장해 주세요.'
+            : '그림에서 대표 색을 골랐어요. 미리보기를 보고 저장해 주세요.',
+        )
+      },
+      onError: (error) => toast.error(errorMessage(error)),
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={suggest.isPending}
+        onClick={() => input.current?.click()}
+      >
+        <Pipette />
+        {suggest.isPending ? '색 찾는 중…' : '참고 그림으로 색 추천받기'}
+      </Button>
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg"
+        hidden
+        onChange={(event) => onFile(event.target.files?.[0])}
+      />
+      {found.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">그림에서 찾은 색</span>
+          {found.map((candidate) => (
+            <button
+              key={candidate.color}
+              type="button"
+              title={`${candidate.color} · ${Math.round(candidate.share * 100)}%`}
+              aria-label={`찾은 색 ${candidate.color}를 대표 색으로`}
+              onClick={() => onPick(candidate.color)}
+              className="inline-flex items-center gap-1 rounded-md border px-1.5 py-1 text-xs"
+            >
+              <span className="size-4 rounded-sm" style={{ background: candidate.color }} />
+              {Math.round(candidate.share * 100)}%
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        로고, 배너, 예전 메일 캡처를 올리면 그림에서 색을 골라 채워요. 그림은 저장하지 않아요.
+      </p>
+    </div>
   )
 }
 
