@@ -3,8 +3,6 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
 import { cn } from '@/lib/utils'
-import { StageIcon, type StageIconName } from '@/features/recruit/StageIcon'
-import type { StageType } from '@/features/recruit/labels'
 
 export type StepItem = {
   key: string
@@ -13,8 +11,6 @@ export type StepItem = {
   /** done: 끝난 단계, active: 보고 있는 단계, ongoing: 진행 중이지만 보고 있지 않은 단계, pending: 아직 시작 전 */
   state: 'done' | 'active' | 'ongoing' | 'pending'
   to?: string
-  type?: StageType
-  icon?: StageIconName | null
 }
 
 /**
@@ -39,9 +35,6 @@ export function WorkflowStepper({ items, actions }: { items: StepItem[]; actions
               )}
             >
               {item.state === 'done' && <Check className="size-3" />}
-              {item.state !== 'done' && item.type && (
-                <StageIcon type={item.type} icon={item.icon} />
-              )}
               {item.label}
               {item.count != null && (
                 <span className={cn(item.state !== 'active' && 'font-semibold')}>{item.count}</span>

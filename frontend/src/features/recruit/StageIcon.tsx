@@ -47,7 +47,7 @@ export function StageIllustration({
   if (resolved === 'NONE') return null
   const src = IMAGES[resolved]
   return (
-    <span className="stage-illustration" aria-hidden="true">
+    <span className="stage-illustration" aria-hidden="true" data-stage-icon={resolved}>
       {src ? (
         <>
           <svg width="0" height="0" className="stage-tone-defs" focusable="false">

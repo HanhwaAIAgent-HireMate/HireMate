@@ -29,6 +29,12 @@ import type { Schemas } from '@/lib/api/client'
 import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 
+function sectionNames(element: HTMLElement | null) {
+  return [...(element?.querySelectorAll('.poster-section-title h3') ?? [])].map(
+    (heading) => heading.textContent?.trim() ?? '',
+  )
+}
+
 export function PostingPosterPage() {
   const { recruitmentId = '' } = useParams()
   const posting = usePosting(recruitmentId)
@@ -95,6 +101,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
           '회사 소개와 문화, 공고 분량을 보고 어울리는 포스터 템플릿 2종과 분위기를 추천해줘. 브랜드 색상이 있으면 반영해줘.',
         design,
         history,
+        sectionNames: sectionNames(poster.current),
       },
       {
         onSuccess: (result) => {
@@ -123,6 +130,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
   }, [ai, design, editable, posting.poster?.enabled, history, setHistory])
   const update = (patch: Partial<PosterDesign>) => {
     setPreview(null)
+    setProposal(null)
     setDesign((current) => ({ ...current, ...patch }))
   }
   const persist = async (next = design) => {
@@ -138,7 +146,12 @@ function PosterEditor({ posting }: { posting: Posting }) {
   const request = async (message: string) => {
     setMessages((current) => [...current, { role: 'user', text: message }])
     try {
-      const result = await ai.mutateAsync({ message, design, history })
+      const result = await ai.mutateAsync({
+        message,
+        design,
+        history,
+        sectionNames: sectionNames(poster.current),
+      })
       setHistory(
         (previous) =>
           [
@@ -183,6 +196,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
         '우리는 더 고급스러운 느낌이 있어야 해',
         '더 청량하게, 물결 장식은 은은하게 해줘',
         '회사 소개에 어울리는 디자인을 추천해줘',
+        '실무면접 아이콘을 사람 아이콘으로 바꿔줘',
       ]}
       hint="분위기와 장식은 이곳에서 요청해 주세요. AI 수정안은 적용해야 반영돼요."
       pending={ai.isPending}

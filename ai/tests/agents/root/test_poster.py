@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from hiremate_ai.agents.generation.posting.poster import (
     PosterContext,
     PosterDesign,
-    PosterProposal,
+    PosterEdits,
     PosterRecommendation,
     PosterTurn,
 )
@@ -15,22 +15,25 @@ from hiremate_ai.contract import CompanyProfile, PostingContent
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
 
 
+@pytest.mark.parametrize("premature", [False, True])
 async def test_root_delegates_design_and_preserves_logo_scope(
-    sample_company: CompanyProfile, sample_posting: PostingContent
+    sample_company: CompanyProfile, sample_posting: PostingContent, premature: bool
 ) -> None:
     logo = uuid4()
     current = PosterDesign(
         template="CLASSIC", mood="TRUST", color="#2459a6", decoration=1, enabled=True, show_logo=True, logo_file_id=logo
     )
     proposed = current.model_copy(update={"template": "PREMIUM", "mood": "PREMIUM", "logo_file_id": uuid4()})
-    proposal = PosterProposal(
+    proposal = PosterEdits(
+        scope="DESIGN",
         reply="장식을 줄이고 여백을 늘린 수정안이에요.",
         recommendations=[PosterRecommendation(design=proposed, reason="차분하고 절제된 디자인이에요.")],
     )
     llm = FakeLlm(
+        *([PosterRootReply(kind="DESIGN", reply="아이콘을 변경합니다.", result=None)] if premature else []),
         ToolCall("consult_posting_designer", {"request": "더 고급스럽게 해줘"}),
         proposal,
-        PosterRootReply(reply="제안을 확인해 주세요.", result=1),
+        PosterRootReply(kind="DESIGN", reply="제안을 확인해 주세요.", result=1),
     )
     result = await plan_poster(
         llm,
@@ -39,8 +42,8 @@ async def test_root_delegates_design_and_preserves_logo_scope(
     )
     assert result.recommendations[0].design.logo_file_id == logo
     assert result.recommendations[0].design.template == "PREMIUM"
-    assert [call.agent for call in llm.calls] == ["root", "posting", "root"]
-    assert "<data" in llm.calls[1].user
+    assert [call.agent for call in llm.calls] == (["root"] if premature else []) + ["root", "posting", "root"]
+    assert "<data" in llm.calls[2 if premature else 1].user
     assert current.template == "CLASSIC"
 
 
@@ -48,8 +51,8 @@ async def test_root_rejects_fabricated_result_number(
     sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     llm = FakeLlm(
-        PosterRootReply(reply="적용했어요", result=9),
-        PosterRootReply(reply="디자인을 구체적으로 알려 주세요.", result=None),
+        PosterRootReply(kind="CONVERSATION", reply="적용했어요", result=9),
+        PosterRootReply(kind="CONVERSATION", reply="디자인을 구체적으로 알려 주세요.", result=None),
     )
     result = await plan_poster(
         llm, PosterContext(company=sample_company, posting=sample_posting, design=None, brand_color=None), "디자인 안내"
@@ -108,7 +111,7 @@ async def test_recall_restores_exact_prior_design_or_asks_without_inventing(
     )
     llm = FakeLlm(
         ToolCall("recall_poster", {"reference": f"H2-R{index}"}),
-        PosterRootReply(reply="확인해 주세요", result=1),
+        PosterRootReply(kind="CONVERSATION", reply="확인해 주세요", result=1),
     )
     result = await plan_poster(llm, context, "두 번째 추천으로 해줘")
     if index == 9:

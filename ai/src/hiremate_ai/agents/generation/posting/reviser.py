@@ -28,7 +28,6 @@ from hiremate_ai.agents.generation.posting.types import (
     RecruitmentStatus,
     RevisionResult,
     StageDraft,
-    StageIcon,
 )
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.contract import DocumentType, PostingContent, PostingRole, StageType
@@ -150,9 +149,7 @@ MAX_HEADCOUNT = 9999
 EXTRA_WORDS = {DocumentType.PORTFOLIO: ("포트폴리오",), DocumentType.CERTIFICATE: ("자격증",)}
 """필수 서류는 요청에 그 서류가 나올 때만 넣고 뺀다. 작은 모델이 요청하지 않은 서류를 더하곤 한다."""
 
-_STAGE_WORDS = re.compile(
-    r"전형|절차|면접|서류|평가|테스트|시험|검사|과제|코딩|순서|순으로|단계|PT|발표|워크숍|아이콘", re.I
-)
+_STAGE_WORDS = re.compile(r"전형|절차|면접|서류|평가|테스트|시험|검사|과제|코딩|순서|순으로|단계|PT|발표|워크숍", re.I)
 """전형 절차는 요청에 전형을 말하는 낱말이 있을 때만 바꾼다. 작은 모델이 "5명 채용하려고 해" 같은 요청에도
 하지 말라는 지시를 어기고 전형 절차를 고르곤 한다."""
 
@@ -251,14 +248,6 @@ class StageEdit(BaseModel):
 
     name: str = Field(description="전형 이름. HR이 말한 이름 그대로")
     type: StageType | None = Field(description="DOCUMENT(서류), ASSESSMENT(평가), INTERVIEW(면접). 알 수 없으면 null")
-    icon: StageIcon | None = Field(
-        default=None,
-        description=(
-            "아이콘 변경 요청에만 지정. AUTO 기본, NONE 없음, FILE_TEXT 문서, CLIPBOARD_CHECK 체크리스트, "
-            "CODE 코드, PRESENTATION 발표, MESSAGES 대화, USERS 사람, VIDEO 화상, BADGE_CHECK 배지, "
-            "CHAIR 실무면접 의자, HEALTH 검진. 변경하지 않으면 null"
-        ),
-    )
 
 
 class StagePlan(BaseModel):
@@ -323,6 +312,7 @@ SYSTEM = """너는 기업 인사팀의 채용 공고 편집을 돕는 Posting Ag
   여러 직무를 채용한다고 하면 CONTENT와 ROLES를 함께 선택한다. 전형 절차나 팀 문화의 목록과 혼동하지 않는다.
 
 규칙:
+포스터 아이콘 수정 요청은 targets를 비우고 question에 포스터 페이지의 AI 챗을 이용하도록 안내한다.
 1. 요청하지 않은 대상과 칸은 바꾸지 않는다.
 2. 회사가 알려 주지 않은 사실(급여, 복지, 근무 일시, 직급, 학력, 채용 인원, 회사 정보)은 지어내지 않는다.
    지금 공고와 HR 요청에 있는 내용만 쓴다.
@@ -334,7 +324,6 @@ ROUTE_STEP = (
     "채용하겠다고 하면(예: '경력 3년 이상 5명 채용하려고 해', '프론트엔드 신입 공고 만들어 줘') true, "
     "이미 있는 칸 몇 개를 바꾸라는 요청이면 false다. 그다음 요청이 바꾸라는 대상을 targets에 고른다. "
     "요청하지 않은 대상은 넣지 않는다. 전형 절차를 말하지 않았으면 STAGES를 넣지 않는다. "
-    "전형 아이콘 변경도 STAGES다. 이름·종류·순서는 유지하고 icon만 바꾼다. "
     "무엇을 바꾸라는지 알 수 없으면 targets를 비우고 question에 되묻는 한 문장을 쓴다."
 )
 CONTENT_STEP = (
@@ -350,11 +339,7 @@ CONTENT_STEP = (
 )
 STAGES_STEP = (
     "지금 할 일: 바꾼 뒤의 전형 절차 전체를 순서대로 stages에 쓴다. 이름만으로 종류를 알 수 없는 전형"
-    "(예: PT, 발표, 워크숍)은 추측하지 말고 type을 null로 둔다. "
-    "아이콘 변경도 STAGES 대상이다. 아이콘만 바꾸라는 요청은 전형 이름·종류·순서를 그대로 유지하고 "
-    "해당 전형의 icon만 지정한다. HR이 지정한 아이콘은 전형 종류의 기본 아이콘보다 우선한다. "
-    "예: '실무면접을 사람 아이콘으로'는 icon=USERS, '대화 아이콘'은 MESSAGES, '의자 아이콘'은 CHAIR다. "
-    "변경 대상이 아닌 전형의 icon은 null로 둔다."
+    "(예: PT, 발표, 워크숍)은 추측하지 말고 type을 null로 둔다."
 )
 EXTRAS_STEP = "지금 할 일: 요청대로 바꾼 뒤, 이력서 · 자기소개서 밖에 필수로 받을 서류 전체를 required_extras에 쓴다."
 
@@ -785,12 +770,7 @@ def _draft(posting: PostingDraftContext, edit: _Edit, request: str) -> _Draft:
         named = [(_tidy(stage.name), stage.type) for stage in edit.stages if _tidy(stage.name)]
         unknown = [name for name, kind in named if kind is None or _ambiguous(name, current, request)]
         icons = {stage.name: stage.icon for stage in posting.stages}
-        requested_icons = {_tidy(stage.name): stage.icon for stage in edit.stages}
-        proposed = [
-            StageDraft(name=name, type=kind, icon=requested_icons.get(name) or icons.get(name))
-            for name, kind in named
-            if kind is not None
-        ]
+        proposed = [StageDraft(name=name, type=kind, icon=icons.get(name)) for name, kind in named if kind is not None]
         if not unknown and proposed != posting.stages:
             stages = proposed
     extras: list[DocumentType] | None = None

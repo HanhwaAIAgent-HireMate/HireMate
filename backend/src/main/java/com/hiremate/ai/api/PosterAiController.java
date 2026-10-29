@@ -57,26 +57,33 @@ public class PosterAiController {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_POSTER_LOGO", "등록한 기업 로고만 사용할 수 있어요.");
         }
         PosterContext context = new PosterContext(companies.profile(member.companyId()), posting.content(),
-                current, brand.logoFileId() == null ? null : brand.color(), request.history());
+                current, brand.logoFileId() == null ? null : brand.color(), request.history(),
+                posting.stages().stream().map(PostingView.PostingStage::name).toList(), request.sectionNames());
         PosterProposal proposal = agent.design(context, request.message());
         if (!validator.validate(proposal).isEmpty()) {
             throw new ApiException(HttpStatus.BAD_GATEWAY, "INVALID_POSTER_PROPOSAL", "디자인 수정안을 확인하지 못했어요.");
+        }
+        if (proposal.recommendations().stream().anyMatch(item ->
+                !context.stageNames().containsAll(item.design().stageIcons().keySet()))) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "INVALID_POSTER_PROPOSAL", "전형 아이콘 수정안을 확인하지 못했어요.");
         }
         // AI가 만든 파일 ID는 신뢰하지 않고 현재 공고 로고를 보존한다.
         return new PosterProposal(proposal.reply(), proposal.recommendations().stream().map(item -> {
             PosterDesign design = item.design();
             return new PosterProposal.Recommendation(new PosterDesign(design.template(), design.mood(),
                     design.color(), design.decoration(), design.enabled(), design.showLogo() && logo != null, logo,
-                    design.backgroundStyle()),
+                    design.backgroundStyle(), design.stageIcons(), design.readableSections()),
                     item.reason());
         }).toList());
     }
 
     public record PosterAiRequest(@NotBlank @Size(max = 1000) String message,
             @Valid @Schema(nullable = true) PosterDesign design,
-            @Size(max = 12) List<@NotNull @Valid PosterTurn> history) {
+            @Size(max = 12) List<@NotNull @Valid PosterTurn> history,
+            @Size(max = 12) List<@NotBlank @Size(max = 50) String> sectionNames) {
         public PosterAiRequest {
             history = history == null ? List.of() : List.copyOf(history);
+            sectionNames = sectionNames == null ? List.of() : List.copyOf(sectionNames);
         }
     }
 }

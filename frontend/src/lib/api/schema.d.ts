@@ -1440,6 +1440,10 @@ export interface components {
             logoFileId: string | null;
             /** @enum {string} */
             backgroundStyle: "SOLID" | "SOFT_GRADIENT";
+            stageIcons: {
+                [key: string]: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE";
+            };
+            readableSections: number[];
         };
         PostingContent: {
             title: string;
@@ -1718,6 +1722,7 @@ export interface components {
             message: string;
             design: components["schemas"]["PosterDesign"] | null;
             history: components["schemas"]["PosterTurn"][];
+            sectionNames: string[];
         };
         PosterTurn: {
             /** @enum {string} */
@@ -2133,9 +2138,9 @@ export interface components {
             icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         CsrfToken: {
+            parameterName: string;
             token: string;
             headerName: string;
-            parameterName: string;
         };
         CsrfResponse: {
             token: string;

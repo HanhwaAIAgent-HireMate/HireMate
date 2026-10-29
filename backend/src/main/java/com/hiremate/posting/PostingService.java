@@ -117,7 +117,12 @@ public class PostingService {
     @Transactional
     public PostingView updatePoster(UUID companyId, UUID recruitmentId, PosterDesign design) {
         JobPosting posting = posting(companyId, recruitmentId);
-        requireDraft(recruits.get(companyId, recruitmentId));
+        RecruitmentInfo recruitment = recruits.get(companyId, recruitmentId);
+        requireDraft(recruitment);
+        if (!recruitment.stages().stream().map(stage -> stage.name()).toList()
+                .containsAll(design.stageIcons().keySet())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_POSTER_STAGE", "현재 공고의 전형만 지정할 수 있어요.");
+        }
         UUID logo = design.logoFileId();
         UUID oldLogo = posting.design() == null ? null : posting.design().logoFileId();
         if (logo != null && !logo.equals(oldLogo) && !logo.equals(companies.posterBrand(companyId).logoFileId())) {

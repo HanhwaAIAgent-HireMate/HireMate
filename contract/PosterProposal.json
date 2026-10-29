@@ -10,7 +10,9 @@
         "enabled": true,
         "showLogo": false,
         "logoFileId": null,
-        "backgroundStyle": "SOLID"
+        "backgroundStyle": "SOLID",
+        "stageIcons": {},
+        "readableSections": []
       },
       "reason": "정보를 정돈한 구조에 밝은 배색을 적용한 디자인이에요."
     }

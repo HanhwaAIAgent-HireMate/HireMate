@@ -114,7 +114,7 @@ async def test_multiple_roles_are_separate_proposals_and_keep_common_data() -> N
     assert result.suggestion.stages is None
 
 
-async def test_stage_icon_changes_keep_order_and_other_icons() -> None:
+async def test_stage_reordering_preserves_existing_icons() -> None:
     stages = [
         StageDraft(name="서류", type=StageType.DOCUMENT, icon="FILE_TEXT"),
         StageDraft(name="실무면접", type=StageType.INTERVIEW, icon="CHAIR"),
@@ -123,15 +123,15 @@ async def test_stage_icon_changes_keep_order_and_other_icons() -> None:
         route("STAGES"),
         StagePlan(
             stages=[
+                StageEdit(name="실무면접", type=StageType.INTERVIEW),
                 StageEdit(name="서류", type=StageType.DOCUMENT),
-                StageEdit(name="실무면접", type=StageType.INTERVIEW, icon="USERS"),
             ]
         ),
     )
-    result = await revise_posting(llm, posting(stages=stages), "", "실무면접 아이콘만 사람으로 바꿔줘")
+    result = await revise_posting(llm, posting(stages=stages), "", "전형을 실무면접, 서류 순서로 바꿔줘")
     assert result.suggestion is not None
     assert result.suggestion.changed_fields == ["stages"]
-    assert result.suggestion.stages == [stages[0], stages[1].model_copy(update={"icon": "USERS"})]
+    assert result.suggestion.stages == [stages[1], stages[0]]
 
 
 def content(**fields: str | list[str]) -> ContentChanges:

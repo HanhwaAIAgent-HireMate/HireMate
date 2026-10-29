@@ -24,6 +24,26 @@ import tools.jackson.databind.JsonNode;
 class PosterTests extends IntegrationTest {
 
     @Test
+    @DisplayName("포스터 아이콘은 전형을 바꾸지 않고 디자인에만 저장한다")
+    void posterIconsDoNotChangeStages() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String base = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
+        expect(hr.put(base + "/stages", Map.of("stages", List.of(
+                Map.of("name", "실무면접", "type", "INTERVIEW")))), 200);
+        JsonNode before = json(expect(hr.get(base), 200)).path("stages");
+        Map<String, Object> design = new java.util.HashMap<>(Map.of("template", "CLASSIC", "mood", "TRUST",
+                "color", "#2459a6", "decoration", 1, "enabled", true, "showLogo", false,
+                "stageIcons", Map.of("실무면접", "USERS"), "readableSections", List.of(2)));
+        JsonNode saved = json(expect(hr.put(base + "/poster", design), 200));
+        assertThat(saved.path("poster").path("stageIcons").path("실무면접").asString()).isEqualTo("USERS");
+        assertThat(saved.path("stages")).isEqualTo(before);
+        assertThat(saved.path("poster").path("readableSections").get(0).asInt()).isEqualTo(2);
+        design.put("stageIcons", Map.of("없는 전형", "HEALTH"));
+        expect(hr.put(base + "/poster", design), 400);
+    }
+
+    @Test
     @DisplayName("직무별 모집 표와 전형 아이콘을 저장하고 게시한 공고에도 유지한다")
     void rolesAndStageIconsSurvivePublishing() throws Exception {
         TestApi hr = newHr();
