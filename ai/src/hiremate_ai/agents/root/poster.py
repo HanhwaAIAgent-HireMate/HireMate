@@ -7,6 +7,7 @@
 import json
 import logging
 from dataclasses import dataclass, field
+from typing import Literal
 
 from langchain.tools import ToolRuntime, tool
 from pydantic import Field
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class PosterRootReply(ContractModel):
+    kind: Literal["DESIGN", "CONVERSATION", "CLARIFY"]
     reply: str = Field(min_length=1, max_length=500)
     result: int | None = Field(ge=1)
 
@@ -79,6 +81,8 @@ async def plan_poster(llm: LlmClient, context: PosterContext, message: str) -> P
     async def validate(reply: PosterRootReply) -> str | None:
         if reply.result is not None and not 1 <= reply.result <= len(run.proposals):
             return "이번 요청에서 공고 Agent가 반환한 결과 번호만 선택한다."
+        if reply.kind == "DESIGN" and reply.result is None:
+            return "디자인 수정은 설명만으로 완료하지 않는다. consult_posting_designer를 호출하고 결과 번호를 선택한다."
         return None
 
     @tool
@@ -115,6 +119,10 @@ async def plan_poster(llm: LlmClient, context: PosterContext, message: str) -> P
         agent="root",
         system="""너는 공고 디자인 화면의 Root Agent다. 담당자 요청과 현재 디자인을 보고 필요한 도구를 고른다.
 템플릿 추천이나 '더 고급스럽게', '물결을 줄여줘' 같은 디자인 수정은 consult_posting_designer로 위임한다.
+아이콘 변경과 '2번 글자가 안 보인다' 같은 항목별 가독성 수정도 디자인 수정이다.
+수정·추천 요청은 kind=DESIGN으로 내고 반드시 도구의 결과 번호를 선택한다. stage_icons 등의 코드나
+수정 방법만 답변하지 않는다. 일반 사용법 안내는 CONVERSATION, 대상이 모호해 되묻는 경우는 CLARIFY다.
+현재 디자인은 직접 고른 최신 색상을 포함한다. 명시적 이전 복구 요청 없이 history의 색으로 되돌리지 않는다.
 회사 정보와 현재 디자인은 context로 고정되어 있다. 도구 인자로 기업이나 공고를 바꾸지 않는다.
 결과를 받으면 해당 결과 번호를 result로 선택한다. 직접 디자인을 지어내거나 저장/게시 완료를 주장하지 않는다.
 일반 안내나 범위 밖 요청은 result=null로 짧게 답한다. 업무 변경, 게시, 합불, 발송은 실행할 수 없다.

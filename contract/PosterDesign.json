@@ -6,5 +6,7 @@
   "enabled": true,
   "showLogo": false,
   "logoFileId": null,
-  "backgroundStyle": "SOLID"
+  "backgroundStyle": "SOLID",
+  "stageIcons": {},
+  "readableSections": []
 }

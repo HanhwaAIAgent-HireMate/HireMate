@@ -750,6 +750,9 @@
 .posting-poster[data-template='BOLD'] .poster-block-qualifications li {
   color: inherit;
 }
+.posting-poster[data-template='BOLD'] .poster-block-qualifications .poster-section-title h3 {
+  color: inherit;
+}
 .posting-poster[data-template='BOLD'] .poster-block-benefits ul {
   list-style: none;
   padding: 0;
@@ -1015,4 +1018,20 @@
   .posting-poster .poster-block-benefits ul {
     grid-template-columns: 1fr;
   }
+}
+
+/* 항목별 가독성 수정은 템플릿 배색보다 우선한다. */
+.posting-poster[data-template] .poster-block[data-readable='true'] {
+  background: #ffffff;
+  color: #17212b;
+}
+.posting-poster[data-template]
+  .poster-block[data-readable='true']
+  :is(h3, p, li, dt, dd, .poster-number, .poster-block-content) {
+  color: #17212b;
+  opacity: 1;
+}
+.posting-poster[data-template] .poster-block[data-readable='true'] :is(th, td) {
+  background: #f1f5f9;
+  color: #17212b;
 }

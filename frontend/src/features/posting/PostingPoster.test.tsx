@@ -32,6 +32,39 @@ const posting: PosterPosting = {
 }
 
 describe('공고 포스터', () => {
+  it('지정한 번호의 항목에만 가독성 배색을 적용한다', () => {
+    const { container } = render(
+      <PostingPoster posting={posting} design={{ ...initialPoster(), readableSections: [2] }} />,
+    )
+    const sections = container.querySelectorAll('.poster-block')
+    expect(sections[0]).toHaveAttribute('data-readable', 'false')
+    expect(sections[1]).toHaveAttribute('data-readable', 'true')
+    expect(sections[2]).toHaveAttribute('data-readable', 'false')
+  })
+  it('아이콘은 자동으로 지정하고 포스터의 수정만 우선 적용한다', () => {
+    const source: PosterPosting = {
+      ...posting,
+      stages: [{ name: '서류 전형', type: 'DOCUMENT', icon: 'CODE' }],
+    }
+    const { container, rerender } = render(
+      <PostingPoster posting={source} design={initialPoster()} />,
+    )
+    expect(container.querySelector('.stage-illustration')).toHaveAttribute(
+      'data-stage-icon',
+      'FILE_TEXT',
+    )
+    rerender(
+      <PostingPoster
+        posting={source}
+        design={{ ...initialPoster(), stageIcons: { '서류 전형': 'USERS' } }}
+      />,
+    )
+    expect(container.querySelector('.stage-illustration')).toHaveAttribute(
+      'data-stage-icon',
+      'USERS',
+    )
+    expect(source.stages[0].icon).toBe('CODE')
+  })
   it.each(POSTER_TEMPLATES)('$name에서도 2개 이상 직무는 모집 표로 표시한다', (template) => {
     const roles = ['백엔드', '인사', '생산관리'].map((name) => ({
       name,

@@ -68,11 +68,12 @@ export function usePosterAi(recruitmentId: string) {
       message: string
       design: PosterDesign
       history?: Schemas['PosterTurn'][]
+      sectionNames?: string[]
     }) =>
       unwrap(
         api.POST('/api/recruitments/{recruitmentId}/posting/poster/ai-requests', {
           params: { path: { recruitmentId } },
-          body: { ...body, history: body.history ?? [] },
+          body: { ...body, history: body.history ?? [], sectionNames: body.sectionNames ?? [] },
         }),
       ),
   })

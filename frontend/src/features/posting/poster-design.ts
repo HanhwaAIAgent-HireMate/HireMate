@@ -76,6 +76,8 @@ export function initialPoster(brand?: PosterBrand): PosterDesign {
     showLogo: Boolean(brand?.logoFileId),
     logoFileId: brand?.logoFileId ?? null,
     backgroundStyle: 'SOLID',
+    stageIcons: {},
+    readableSections: [],
   }
 }
 

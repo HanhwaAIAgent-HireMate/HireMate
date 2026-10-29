@@ -88,7 +88,15 @@ export function PostingPoster({
     blocks.push({
       label: '전형 절차',
       kind: 'stages',
-      children: <StageProcess stages={posting.stages} color={design.color} />,
+      children: (
+        <StageProcess
+          stages={posting.stages.map((stage) => ({
+            ...stage,
+            icon: design.stageIcons?.[stage.name] ?? 'AUTO',
+          }))}
+          color={design.color}
+        />
+      ),
     })
   if (posting.documents.length)
     blocks.push({
@@ -178,7 +186,11 @@ export function PostingPoster({
         )}
         <div className="poster-sections">
           {blocks.map((block, index) => (
-            <section className={`poster-block poster-block-${block.kind}`} key={block.kind}>
+            <section
+              className={`poster-block poster-block-${block.kind}`}
+              key={block.kind}
+              data-readable={design.readableSections?.includes(index + 1) ?? false}
+            >
               <div className="poster-section-title">
                 <span className="poster-number">{String(index + 1).padStart(2, '0')}</span>
                 <h3>

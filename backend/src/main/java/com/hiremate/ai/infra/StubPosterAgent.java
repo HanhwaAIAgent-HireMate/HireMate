@@ -7,6 +7,7 @@ import com.hiremate.posting.PosterContext;
 import com.hiremate.posting.PosterDesign;
 import com.hiremate.posting.PosterProposal;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /** 개발 모드는 의미를 추측하지 않고 고정된 예시 두 개만 제공한다. */
@@ -29,6 +30,8 @@ class StubPosterAgent implements PosterAgent {
             PosterDesign.Mood mood, String color, String reason) {
         return new PosterProposal.Recommendation(new PosterDesign(template, mood, color, 1, true,
                 current != null && current.showLogo(), current == null ? null : current.logoFileId(),
-                PosterDesign.BackgroundStyle.SOFT_GRADIENT), reason);
+                PosterDesign.BackgroundStyle.SOFT_GRADIENT,
+                current == null ? Map.of() : current.stageIcons(),
+                current == null ? List.of() : current.readableSections()), reason);
     }
 }

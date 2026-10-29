@@ -5,7 +5,6 @@ import { currentPath, type RecruitmentCard } from '@/features/dashboard/api'
 import { RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import { formatMonthDay } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { StageIcon } from '@/features/recruit/StageIcon'
 
 const BADGE: Record<RecruitmentCard['status'], string> = {
   DRAFT: 'bg-muted text-muted-foreground',
@@ -28,14 +27,10 @@ export function RecruitmentCardItem({ card }: { card: RecruitmentCard }) {
       label: '공고',
       count: card.status === 'PUBLISHED' ? card.applicantCount : null,
       state: card.status === 'DRAFT' ? 'draft' : card.status === 'PUBLISHED' ? 'active' : 'done',
-      type: null,
-      icon: null,
     },
     ...card.steps.map((step) => ({
       key: step.stageId,
       label: step.name,
-      type: step.type,
-      icon: step.icon,
       count:
         step.stageId === card.currentStageId && card.status === 'IN_PROGRESS'
           ? step.targetCount
@@ -83,9 +78,6 @@ export function RecruitmentCardItem({ card }: { card: RecruitmentCard }) {
                 )}
               >
                 {step.state === 'done' && <Check className="size-3" />}
-                {step.state !== 'done' && step.type && (
-                  <StageIcon type={step.type} icon={step.icon} />
-                )}
                 {step.label}
                 {step.count != null && <span>{step.count}</span>}
               </span>
