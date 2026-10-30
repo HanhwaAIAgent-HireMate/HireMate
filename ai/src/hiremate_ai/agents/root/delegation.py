@@ -23,6 +23,7 @@ from hiremate_ai.agents.root.answer import AnswerEvidence
 from hiremate_ai.agents.root.ledger import INTERVIEW_SOURCE, Ledger
 from hiremate_ai.agents.root.progress import SILENT, Progress
 from hiremate_ai.agents.root.toolkit import (
+    ACTOR_LABELS,
     AGENT_NAMES,
     DOUBTFUL,
     NO_DOCUMENTS,
@@ -48,7 +49,6 @@ SUB_AGENT_BUDGET = "호출 한도가 남지 않아 {agent} 검토를 하지 못�
 KEEP_CALLS = 2
 NOT_FINISHED = "(호출 한도로 검토를 끝까지 마치지 못했어요)"
 _AGENT_LABELS = {ItemAgent.APPLICATION: "서류 Agent", ItemAgent.INTERVIEW: "면접 Agent"}
-_ACTOR_LABELS = {Actor.SELF: "본인", Actor.TEAM: "팀", Actor.UNCLEAR: "역할 불분명"}
 
 
 class DelegatedItem(BaseModel):
@@ -247,7 +247,7 @@ class Delegation:
         lines = [f"{key} {_AGENT_LABELS[result.agent]} 결과 ({candidate_ref(scope.chat, result.application_id)})"]
         for item in result.items:
             first = item.evidence[0] if item.evidence else None
-            actor = _ACTOR_LABELS.get(Actor(item.actor)) if item.actor else None
+            actor = ACTOR_LABELS.get(Actor(item.actor)) if item.actor else None
             ref = self.ledger.add(
                 result.application_id,
                 f"{actor} · {item.text}" if actor else item.text,

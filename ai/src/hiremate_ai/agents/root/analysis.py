@@ -18,7 +18,7 @@ from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.delegation import KEEP_CALLS, Delegation
 from hiremate_ai.agents.root.find import SearchQuery, plan_find, search_criteria
 from hiremate_ai.agents.root.ledger import Ledger
-from hiremate_ai.agents.root.plan import EMPTY_FIND, Form, has_condition
+from hiremate_ai.agents.root.plan import EMPTY_FIND, NO_MESSAGE, Form, has_condition
 from hiremate_ai.agents.root.progress import Progress
 from hiremate_ai.agents.root.toolkit import (
     OUT_OF_SCOPE,
@@ -51,7 +51,6 @@ UNKNOWN_CANDIDATE = "candidate에는 현재 전형 지원자의 C번호를 쓰�
 BAD_FIND = "find에는 search_candidates가 돌려준 S번호를 쓰세요."
 OUTSIDE_TARGETS = "확인할 점은 대상 지원자에게만 쓰세요."
 NO_FOCUS = "확인할 점을 focus에 지원자별로 쓰세요."
-NO_MESSAGE = "message에 담당자에게 보여 줄 답을 쓰세요."
 NO_ITEMS = "근거 번호를 단 항목을 items에 하나 이상 쓰세요."
 NO_TURNS = "앞 대화가 없어요."
 SEARCH_BUDGET = "호출 한도가 남지 않아 검색 후보를 다시 확인하지 못했어요. 지금까지 읽은 자료로 답하세요."

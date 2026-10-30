@@ -27,7 +27,7 @@ from hiremate_ai.agents.root.ledger import (
     Cap,
     Ledger,
 )
-from hiremate_ai.agents.root.stages import StageData, not_yet, stage_data, stage_plan
+from hiremate_ai.agents.root.stages import DECISION_LABELS, STAGE_LABELS, StageData, not_yet, stage_data, stage_plan
 from hiremate_ai.agents.root.turns import Turn, verified_turn_items
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, StageStatus
 from hiremate_ai.contract import InterviewQuestion, StageType
@@ -230,8 +230,6 @@ EARLIER_SCORE = "앞 평가 전형의 점수는 이 전형에서 불러오지 �
 NO_ANSWER = "(답변 기록 없음)"
 NOT_ANSWERED = "(답변 아직 입력하지 않음)"
 _REF = re.compile(r"^\s*[Cc]?(\d+)\s*$")
-_DECISIONS = {Decision.PENDING: "미결정", Decision.PASS: "합격", Decision.FAIL: "불합격"}
-_STAGES = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
 
 
 def candidate_ref(context: ChatContext, application_id: UUID) -> str:
@@ -256,7 +254,7 @@ def stage_result_text(chat: ChatContext, row: CandidateRow) -> str:
     document = chat.document_scores.get(row.application_id)
     lines = [
         _who(chat, row),
-        f"결정: {_DECISIONS[row.decision]}",
+        f"결정: {DECISION_LABELS[row.decision]}",
         f"선택 여부: {'선택됨' if row.selected else '미선택'}",
     ]
     match stage_data(chat, StageType.ASSESSMENT):
@@ -282,7 +280,7 @@ def candidate_summary_text(chat: ChatContext, row: CandidateRow) -> str:
     """전형 요약에 표시한 이 지원자의 공식 행. 근거 검증도 같은 지원자의 행만 쓴다."""
     score = f", 평가 {row.score:g}점" if row.score is not None else ""
     return (
-        f"{_who(chat, row)}, {_DECISIONS[row.decision]}{score}, 경력 {_career(row)}, "
+        f"{_who(chat, row)}, {DECISION_LABELS[row.decision]}{score}, 경력 {_career(row)}, "
         f"선택 여부: {'선택됨' if row.selected else '미선택'}"
     )
 
@@ -340,8 +338,8 @@ def stage_summary_text(chat: ChatContext) -> str:
     """현재 범위 전체의 공식 집계와 목록. 답변의 전형 결과 근거도 같은 글로 검증한다."""
     counts = {decision: sum(row.decision is decision for row in chat.candidates) for decision in Decision}
     lines = [
-        f"{chat.stage_name} ({_STAGES[chat.stage_type]}) 지원자 {len(chat.candidates)}명: "
-        + ", ".join(f"{_DECISIONS[decision]} {count}명" for decision, count in counts.items()),
+        f"{chat.stage_name} ({STAGE_LABELS[chat.stage_type]}) 지원자 {len(chat.candidates)}명: "
+        + ", ".join(f"{DECISION_LABELS[decision]} {count}명" for decision, count in counts.items()),
         f"전형 순서: {stage_plan(chat)}",
     ]
     selected = [row for row in chat.candidates if row.selected]
@@ -448,7 +446,7 @@ def cited_agents(recorded: Mapping[UUID, Sequence[AgentEvidence]], cited: Iterab
 NO_PROFILE = "저장된 지원자 프로필이 없어요."
 NO_REVIEW = "저장된 서류 분석이 없어요. 필요하면 review_documents로 검토하세요."
 NO_MEMOS = "저장된 면접관 메모가 없어요."
-_ACTOR_LABELS = {Actor.SELF: "본인", Actor.TEAM: "팀", Actor.UNCLEAR: "역할 불분명"}
+ACTOR_LABELS = {Actor.SELF: "본인", Actor.TEAM: "팀", Actor.UNCLEAR: "역할 불분명"}
 _SURE: frozenset[str] = frozenset({Verification.EVIDENCED, Verification.CONFIRMED})
 
 
@@ -566,7 +564,7 @@ def application_block(ledger: Ledger, chat: ChatContext, row: CandidateRow, revi
         first = fact.quotes[0] if fact.quotes else None
         cap: Cap = "OK" if fact.actor is Actor.SELF and fact.supported else "CHECK"
         source = first.document.label if first else "제출 문서"
-        add(f"{_ACTOR_LABELS[fact.actor]} · {fact.statement}", first.sentence if first else None, source, cap)
+        add(f"{ACTOR_LABELS[fact.actor]} · {fact.statement}", first.sentence if first else None, source, cap)
     for period in review.periods:
         span = f"{period.start} ~ {period.end or '현재'}"
         text = f"경력 기간 · {period.company} {period.role} {span} ({period.months}개월)"

@@ -4,14 +4,15 @@ import re
 
 from pydantic import BaseModel, Field
 
-from hiremate_ai.agents.root.toolkit import resolve_ref
+from hiremate_ai.agents.root.toolkit import AGENT_NAMES, resolve_ref
 from hiremate_ai.agents.root.types import ChatContext
+from hiremate_ai.db.profile import ItemAgent
 
 TEXT_LENGTH = 120
 BULK_LIMIT = 20
 FOCUS_WITH_REQUEST = "{focus} (담당자 요청: {request})"
 QUESTIONS_REQUESTED = "{count}명의 면접 질문 생성을 요청했어요."
-INTERVIEW_AGENT = "Interview Agent"
+INTERVIEW_AGENT = AGENT_NAMES[ItemAgent.INTERVIEW]
 
 _REF = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)(?![0-9])")
 _REF_WITH_NAME = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)\s+([^\s,.!?]+)")

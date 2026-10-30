@@ -12,9 +12,10 @@ from uuid import UUID
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema
 
 from hiremate_ai.agents.guardrails import evidence_source
+from hiremate_ai.agents.root.ledger import POSTING_SOURCE
 from hiremate_ai.agents.root.progress import SILENT, Progress
 from hiremate_ai.agents.root.stages import StageData, not_yet, stage_data
-from hiremate_ai.agents.root.toolkit import RootToolkit, cited_agents, scope_of
+from hiremate_ai.agents.root.toolkit import EARLIER_SCORE, RootToolkit, cited_agents, scope_of
 from hiremate_ai.agents.root.types import (
     CandidateRow,
     ChatContext,
@@ -42,7 +43,6 @@ DEFAULT_CLARIFY = "찾을 직무 조건이나 점수 기준을 알려 주세요.
 NOT_UNDERSTOOD = "검색 결과를 확인하지 못했어요. 조건을 좁혀 다시 말씀해 주세요."
 LOCKED = "결과를 확정한 전형이라 선택 지원자를 바꿀 수 없어요. 분석이나 요약은 계속 물어볼 수 있어요."
 NO_ASSESSMENT = "이 채용에는 평가 전형이 없어요. 서류 점수나 직무 조건으로 찾아 주세요."
-EARLIER_SCORE = "앞 평가 전형의 점수는 이 전형에서 불러오지 않았어요. 점수가 없다는 뜻은 아니에요."
 REPLACED = "{scope} {pool}명 중 조건에 맞는 **{{count}}명**을 선택했어요."
 ADDED = "조건에 맞는 **{count}명**을 선택 지원자에 더했어요."
 NARROWED = "{pool}명 중 **{{count}}명**으로 좁혔어요."
@@ -62,7 +62,6 @@ CRITERIA_ALL = " {label} {n}개를 모두 충족한 사람이에요."
 CRITERIA_MOST = " {label} {n}개 중 {k}개를 충족해 가장 많이 맞는 사람이에요."
 CRITERIA_ANY = " {label} {n}개 중 하나 이상을 충족한 사람이에요. 많이 충족한 순서예요."
 NONE_ALL = "{label} {n}개를 모두 충족한 지원자는 없어요. 가장 많이 충족한 사람은 {k}개예요. 선택 지원자는 그대로예요."
-POSTING_SOURCE = "공고"
 
 RECHECK_SYSTEM = """너는 채용 담당자의 지원자 찾기 요청에서, 검색으로 모은 후보가 조건을 실제로 충족하는지 판정한다.
 후보마다 주어진 원문 문장만 보고 판단한다. 문장에 없는 내용을 짐작하지 않는다.
