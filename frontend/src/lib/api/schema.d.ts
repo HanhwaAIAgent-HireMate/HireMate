@@ -1379,6 +1379,7 @@ export interface components {
             schedule: components["schemas"]["Schedule"] | null;
             questions: components["schemas"]["Question"][];
             previous: components["schemas"]["PreviousInterview"][];
+            singleInterview: boolean;
         };
         PreviousInterview: {
             /** Format: uuid */
@@ -2248,8 +2249,8 @@ export interface components {
         };
         CsrfToken: {
             parameterName: string;
-            headerName: string;
             token: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;

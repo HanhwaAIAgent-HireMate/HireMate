@@ -120,6 +120,7 @@ class InterviewView(ContractModel):
     schedule: InterviewSchedule | None
     questions: list[InterviewQuestion]
     previous: list[PreviousInterview]
+    single_interview: bool = False
 
 
 class StageStatus(StrEnum):

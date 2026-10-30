@@ -69,6 +69,20 @@ class StubInterviewAgent implements InterviewAgent {
                 .map(InterviewView.Question::text).toList());
         List<String> fresh = new ArrayList<>(questions);
         fresh.removeAll(existing);
+        if (interview.singleInterview() && questionCount == null && scope.isBlank() && existing.isEmpty()) {
+            List<String> core = new ArrayList<>(fresh.stream().limit(3).toList());
+            for (String fallback : List.of("직무와 관련해 직접 맡은 일과 선택한 방법의 이유를 말해 주세요.",
+                    "이 직무의 결과가 좋은지 판단할 기준을 설명해 주세요.",
+                    "업무 결과가 예상과 다를 때 먼저 확인할 자료와 그 이유를 설명해 주세요.")) {
+                if (core.size() < 3 && !core.contains(fallback)) {
+                    core.add(fallback);
+                }
+            }
+            core.add("동료의 피드백을 반영해 일하는 방식을 바꾼 경험이 있다면 말해 주세요.");
+            core.add("이 회사와 직무에 지원한 이유와 입사 후 하고 싶은 일을 말해 주세요.");
+            return core.stream().map(text -> new InterviewQuestionDraft(text,
+                    "개발용 기본 질문입니다. 실제 모델의 생성 근거가 아닙니다.")).toList();
+        }
         return fresh.stream().limit(questionCount == null ? 3 : questionCount)
                 .map(text -> new InterviewQuestionDraft(text, "개발용 기본 질문입니다. 실제 모델의 생성 근거가 아닙니다."))
                 .toList();

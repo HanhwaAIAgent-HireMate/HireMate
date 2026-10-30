@@ -103,12 +103,14 @@ public class InterviewAiService {
     public void regenerate(UUID companyId, UUID stageId, UUID applicationId) {
         InterviewView current = interviews.view(companyId, stageId, applicationId);
         String target = InterviewAgent.jobTarget(companyId, stageId, applicationId);
-        if (!settings.isStub(AiAgent.INTERVIEW) && jobs.isOpen(InterviewAgent.QUESTIONS_JOB, target)) {
+        if (interviews.preparing(companyId, stageId, applicationId)
+                || !settings.isStub(AiAgent.INTERVIEW) && jobs.isOpen(InterviewAgent.QUESTIONS_JOB, target)) {
             throw new ApiException(HttpStatus.CONFLICT, "QUESTIONS_PREPARING",
                     "Questions are already being generated.");
         }
         Inputs in = inputs(companyId, stageId, applicationId,
-                new InterviewView(applicationId, current.schedule(), List.of(), current.previous()));
+                new InterviewView(applicationId, current.schedule(), List.of(), current.previous(),
+                        current.singleInterview()));
         interviews.clearQuestions(companyId, stageId, applicationId);
         agent.prepare(target, in.applicant(), in.posting(), in.analysis(), in.current(), in.company())
                 .ifPresent(questions -> addPreparedDrafts(companyId, stageId, applicationId, questions));
@@ -135,8 +137,11 @@ public class InterviewAiService {
     public void prepare(UUID companyId, UUID stageId, UUID applicationId) {
         InterviewView current = interviews.preparationView(companyId, stageId, applicationId);
         String target = InterviewAgent.jobTarget(companyId, stageId, applicationId);
-        if (!current.questions().isEmpty()
-                || !settings.isStub(AiAgent.INTERVIEW) && jobs.isOpen(InterviewAgent.QUESTIONS_JOB, target)) {
+        if (!current.questions().isEmpty()) {
+            interviews.finishPreparing(companyId, stageId, applicationId);
+            return;
+        }
+        if (!settings.isStub(AiAgent.INTERVIEW) && jobs.isOpen(InterviewAgent.QUESTIONS_JOB, target)) {
             return;
         }
         Inputs in = inputs(companyId, stageId, applicationId, current);
@@ -155,12 +160,17 @@ public class InterviewAiService {
             return false;
         }
         try {
-            return jobs.isOpen(InterviewAgent.QUESTIONS_JOB,
+            return interviews.preparing(companyId, stageId, applicationId) || jobs.isOpen(InterviewAgent.QUESTIONS_JOB,
                     InterviewAgent.jobTarget(companyId, stageId, applicationId));
         } catch (RuntimeException exception) {
             log.warn("Interview question job state could not be read for {}", applicationId, exception);
             return false;
         }
+    }
+
+    /** 생성 실패도 로딩을 끝내 담당자가 재생성을 요청할 수 있게 한다. */
+    public void finishPreparing(UUID companyId, UUID stageId, UUID applicationId) {
+        interviews.finishPreparing(companyId, stageId, applicationId);
     }
 
     /** 미리 만든 질문을 카드에 넣는다. 카드에 이미 있는 문장은 건너뛴다. */
@@ -172,6 +182,7 @@ public class InterviewAiService {
     public void addPreparedDrafts(UUID companyId, UUID stageId, UUID applicationId,
             List<InterviewQuestionDraft> questions) {
         interviews.addPreparedDrafts(companyId, stageId, applicationId, questions);
+        interviews.finishPreparing(companyId, stageId, applicationId);
     }
 
     /** 질문 생성 재료: 지원서 · 공고 · 서류 분석 · 지금 카드(이전 면접 기록 포함) · 회사 인재상과 조직 문화. */
