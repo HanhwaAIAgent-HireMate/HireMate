@@ -25,6 +25,7 @@ import {
 } from '@/features/interview/api'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import { QuestionReason } from '@/features/interview/QuestionReason'
+import { RoleTag } from '@/features/interview/RoleTag'
 import { STAGE_TYPE_LABELS } from '@/features/recruit/labels'
 import type { CandidateDetail } from '@/features/screening/api'
 import { DocumentViewer } from '@/features/screening/DocumentViewer'
@@ -144,15 +145,9 @@ function Questions({
                 text={`Q${index + 1}. ${question.text}`}
                 reason={question.reason}
                 source={question.source}
+                // 🎤 담당은 이번 질문의 선택 상자와 같은 자리(첫 줄 맨 앞)에 글자로만 보여 준다 (지난 기록이라 바꿀 수 없음)
+                leading={<RoleTag role={question.interviewerRole} questionText={question.text} />}
               />
-              <p className="text-xs text-muted-foreground">
-                담당:{' '}
-                {question.interviewerRole === 'HR'
-                  ? '인사'
-                  : question.interviewerRole === 'PRACTICAL'
-                    ? '실무'
-                    : '배정 필요'}
-              </p>
               <p className="text-xs text-muted-foreground">
                 {question.answer || '기록한 답변이 없어요.'}
               </p>
@@ -251,6 +246,24 @@ function Questions({
               text={question.text}
               reason={question.reason}
               source={question.source}
+              // 🎤 담당(인사 · 실무) 선택은 유형 배지 왼쪽(첫 줄 맨 앞)에 둔다. 오른쪽 끝의 삭제(X)와 떨어지게 (10/30)
+              leading={
+                <RoleTag
+                  role={question.interviewerRole}
+                  questionText={question.text}
+                  disabled={actions.assignRole.isPending}
+                  // 확정 · 종료된 전형(editable 아님)에서는 바꿀 수 없는 태그로 보여 준다
+                  onChange={
+                    editable
+                      ? (interviewerRole) =>
+                          actions.assignRole.mutate(
+                            { questionId: question.questionId, interviewerRole },
+                            { onError: fail },
+                          )
+                      : undefined
+                  }
+                />
+              }
             />
             {editable && (
               <button
@@ -262,32 +275,6 @@ function Questions({
               </button>
             )}
           </div>
-          <select
-            aria-label={`${question.text} 담당`}
-            value={question.interviewerRole ?? ''}
-            disabled={!editable || actions.assignRole.isPending}
-            onChange={(event) =>
-              actions.assignRole.mutate(
-                {
-                  questionId: question.questionId,
-                  // 🎤 선택지는 인사 · 실무뿐이다 (아래 안내 칸은 고를 수 없음)
-                  interviewerRole: event.target.value as 'HR' | 'PRACTICAL',
-                },
-                { onError: fail },
-              )
-            }
-            className="rounded-md border px-2 py-1 text-xs"
-          >
-            {/* 🎤 면접관은 인사 · 실무 2명이라 '미지정'은 고를 수 없다.
-                담당 칸이 생기기 전에 저장된 질문(null)만 '담당 선택' 안내를 보여 주고, 다시 고르지는 못하게 막는다 */}
-            {question.interviewerRole == null && (
-              <option value="" disabled>
-                담당 선택
-              </option>
-            )}
-            <option value="HR">인사</option>
-            <option value="PRACTICAL">실무</option>
-          </select>
           <Textarea
             aria-label={`${question.text} 답변`}
             defaultValue={question.answer}
