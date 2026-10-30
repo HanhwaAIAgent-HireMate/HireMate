@@ -59,6 +59,7 @@ def test_write_shows_only_examples_of_the_same_kind() -> None:
     user = llm.calls[0].user
     assert "[예시 1] 이번 전형: 최종 면접\n" in user
     assert "[예시 2] 이번 전형: 임원 면접\n" in user
+    assert "[예시 3]" not in user
     assert "다음 전형은" not in user
     assert "불합격" not in user
 
@@ -102,6 +103,7 @@ def test_write_sends_current_content_and_request_when_revising() -> None:
     assert "HR 요청: 떨어진 이유도 써 주고, 조금 더 따뜻하게" in user
     assert "HR 요청: 면접 날짜도 넣어 줘" in user
     assert "skipped: SCHEDULE" in user
+    assert "[예시 5]" not in user
     # 예시 뒤에 이번에 고칠 본문과 요청이 온다
     assert (
         user.index("[예시 4]") < user.index("지금 본문:\n지금 본문입니다.") < user.index("HR 요청: 더 따뜻하게 써 줘")
@@ -126,7 +128,25 @@ def test_revised_reply_tells_why_a_request_was_skipped() -> None:
         reply = response.json()["reply"]
         assert expected in reply
         assert "고쳤어요" not in reply
+        assert "반영했어요" not in reply
         assert reply.count("넣지 않았어요") == 1
+
+
+def test_revised_reply_says_the_rest_was_applied_when_the_body_changed() -> None:
+    """'떨어진 이유도 써 주고, 더 따뜻하게'처럼 일부만 따랐으면 나머지는 반영했다고 먼저 알린다."""
+    llm = FakeLlm(NoticeBody(content="따뜻하게 고친 본문입니다.", skipped=["EVALUATION"]))
+
+    response = client(llm).post(
+        "/agents/communication/write",
+        json={
+            "notice": notice(templateType="REJECT", content="지금 본문입니다."),
+            "request": "떨어진 이유도 써 주고, 더 따뜻하게",
+        },
+    )
+
+    assert response.json()["reply"] == (
+        "나머지 요청은 반영했어요. 불합격 사유, 점수, 평가 내용은 메일에 쓰지 않아서 넣지 않았어요."
+    )
 
 
 def test_first_draft_ignores_skipped() -> None:
