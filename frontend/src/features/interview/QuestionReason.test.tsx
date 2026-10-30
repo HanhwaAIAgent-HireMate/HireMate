@@ -89,6 +89,29 @@ describe('질문 생성 근거', () => {
     )
   })
 
+  it('자기소개에는 공통 배지를 붙인다', () => {
+    // 🎤 10/30: 모든 지원자에게 똑같이 묻는 자기소개는 질문 위에 '공통' 표시
+    render(<QuestionReason text="1분 자기소개 부탁드립니다." source="AI" reason={null} />)
+    expect(screen.getByLabelText('질문 유형: 공통')).toBeInTheDocument()
+  })
+
+  it('담당 같은 leading 요소는 유형 배지 왼쪽(첫 줄 맨 앞)에 둔다', () => {
+    // 🎤 10/30: [인사 ▾][본인 역할 확인] 순서. 오른쪽 끝의 삭제(X) 버튼과 떨어지게 왼쪽에 둔다
+    render(
+      <QuestionReason
+        text="경험을 설명해 주세요."
+        source="AI"
+        reason="질문 유형: 본인 역할 확인"
+        leading={<span>실무</span>}
+      />,
+    )
+    const badge = screen.getByLabelText('질문 유형: 본인 역할 확인')
+    const role = screen.getByText('실무')
+    const row = badge.parentElement
+    expect(row).toBe(role.parentElement?.parentElement) // 같은 첫 줄
+    expect(row?.firstElementChild).toBe(role.parentElement) // 맨 앞이 담당
+  })
+
   it('자기소개에는 실제 문서 근거 대신 공통 질문의 목적을 보여준다', () => {
     render(<QuestionReason text="1분 자기소개 부탁드립니다." source="AI" reason={null} />)
     fireEvent.click(screen.getByRole('button', { name: '질문 생성 근거' }))

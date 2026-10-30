@@ -40,7 +40,9 @@ describe('면접 질문 로딩', () => {
   })
 })
 
-it('미지정 질문의 담당 변경을 전달한다', () => {
+// 🎤 10/30: 담당은 색깔 태그. 누를 때마다 인사 ↔ 실무로 바뀐다
+function renderWith(interviewerRole: 'HR' | 'PRACTICAL' | null, editable = true) {
+  state.assign.mockClear()
   state.questions = [
     {
       questionId: 'q1',
@@ -48,55 +50,55 @@ it('미지정 질문의 담당 변경을 전달한다', () => {
       source: 'AI',
       answer: '',
       reason: null,
-      interviewerRole: null,
+      interviewerRole,
     },
   ]
-  const { unmount } = render(
+  return render(
     <InterviewViewer
       stageId="stage"
       recruitmentId="recruit"
       detail={{ row: { applicationId: 'kim' } } as CandidateDetail}
-      editable
+      editable={editable}
     />,
   )
-  const select = screen.getByRole('combobox', { name: '경험 질문 담당' })
-  expect(select).toHaveValue('')
-  // 🎤 담당이 비어 있으면 고를 수 없는 안내 칸만 보이고, '미지정' 선택지는 없다
-  expect(screen.getByRole('option', { name: '담당 선택' })).toBeDisabled()
-  expect(screen.queryByRole('option', { name: '미지정' })).not.toBeInTheDocument()
-  fireEvent.change(select, { target: { value: 'HR' } })
+}
+
+it('인사 태그를 누르면 실무로 바꾼다', () => {
+  const { unmount } = renderWith('HR')
+  const tag = screen.getByRole('button', { name: /경험 질문 담당: 인사/ })
+  expect(tag).toHaveAttribute('title', '클릭하면 실무로 바꿔요')
+  fireEvent.click(tag)
+  expect(state.assign).toHaveBeenCalledWith(
+    { questionId: 'q1', interviewerRole: 'PRACTICAL' },
+    expect.any(Object),
+  )
+  unmount()
+})
+
+it('실무 태그를 다시 누르면 인사로 바꾼다', () => {
+  const { unmount } = renderWith('PRACTICAL')
+  fireEvent.click(screen.getByRole('button', { name: /경험 질문 담당: 실무/ }))
   expect(state.assign).toHaveBeenCalledWith(
     { questionId: 'q1', interviewerRole: 'HR' },
     expect.any(Object),
   )
   unmount()
-  state.questions = []
 })
 
-it('담당이 정해진 질문은 인사 · 실무만 고를 수 있다', () => {
-  // 🎤 면접관 2명 고정: 정해진 담당을 비우는 선택지(미지정 · 담당 선택)가 없다
-  state.questions = [
-    {
-      questionId: 'q2',
-      text: '지원 동기 질문',
-      source: 'AI',
-      answer: '',
-      reason: null,
-      interviewerRole: 'HR',
-    },
-  ]
-  const { unmount } = render(
-    <InterviewViewer
-      stageId="stage"
-      recruitmentId="recruit"
-      detail={{ row: { applicationId: 'kim' } } as CandidateDetail}
-      editable
-    />,
+it('담당이 비어 있던 옛 질문은 담당 선택 태그로 보이고, 누르면 인사부터 정한다', () => {
+  const { unmount } = renderWith(null)
+  fireEvent.click(screen.getByRole('button', { name: /경험 질문 담당: 담당 선택/ }))
+  expect(state.assign).toHaveBeenCalledWith(
+    { questionId: 'q1', interviewerRole: 'HR' },
+    expect.any(Object),
   )
-  const select = screen.getByRole('combobox', { name: '지원 동기 질문 담당' })
-  expect(select).toHaveValue('HR')
-  const options = Array.from((select as HTMLSelectElement).options).map((option) => option.text)
-  expect(options).toEqual(['인사', '실무'])
+  unmount()
+})
+
+it('확정된 전형에서는 담당 태그를 누를 수 없다', () => {
+  const { unmount } = renderWith('HR', false)
+  expect(screen.queryByRole('button', { name: /경험 질문 담당/ })).not.toBeInTheDocument()
+  expect(screen.getByLabelText('경험 질문 담당: 인사')).toBeInTheDocument()
   unmount()
   state.questions = []
 })

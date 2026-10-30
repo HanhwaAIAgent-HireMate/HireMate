@@ -20,6 +20,8 @@ const BADGE_COLORS: Record<string, string> = {
   '사실 관계 확인': 'border-slate-200 bg-slate-50 text-slate-700',
   '이전 면접에서 확인 안 됨': 'border-indigo-200 bg-indigo-50 text-indigo-800',
   '메모 참고 확인': 'border-violet-200 bg-violet-50 text-violet-800',
+  // 🎤 1분 자기소개처럼 모든 지원자에게 똑같이 묻는 질문 (10/30: '공통' 표시를 다시 붙임)
+  공통: 'border-slate-200 bg-slate-50 text-slate-700',
 }
 
 const FIELD =
@@ -51,10 +53,13 @@ export function QuestionReason({
   text,
   reason,
   source,
+  leading,
 }: {
   text: string
   reason?: string | null
   source: 'AI' | 'MANUAL'
+  /** 🎤 첫 줄 맨 앞(유형 배지 왼쪽)에 둘 요소 (예: 담당 인사 · 실무 선택 상자). 오른쪽 끝의 삭제(X) 버튼과 떨어지게 왼쪽에 둔다 */
+  leading?: ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const id = useId()
@@ -74,10 +79,16 @@ export function QuestionReason({
 
   return (
     <div className="min-w-0 flex-1 text-sm">
-      {/* 🎤 질문 유형 배지는 질문 바로 위에 두어, 면접관이 어떤 질문인지 먼저 보고 읽게 한다 */}
-      {type && !common && (
-        <div className="mb-2">
-          <ReasonBadge label="질문 유형" value={type.value} />
+      {/* 🎤 첫 줄: [담당(leading)] [질문 유형 배지(자기소개는 '공통')] 순서로 왼쪽부터 둔다 (10/30).
+          배지는 질문 바로 위에 두어, 면접관이 어떤 질문인지 먼저 보고 읽게 한다 */}
+      {(common || type || leading) && (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          {leading && <div className="shrink-0">{leading}</div>}
+          {common ? (
+            <ReasonBadge label="질문 유형" value="공통" />
+          ) : (
+            type && <ReasonBadge label="질문 유형" value={type.value} />
+          )}
         </div>
       )}
       <p className="leading-relaxed font-semibold">{text}</p>
