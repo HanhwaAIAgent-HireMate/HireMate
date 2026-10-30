@@ -6,7 +6,7 @@
 import re
 from enum import Enum
 
-from hiremate_ai.agents.root.types import ChatContext, ChatStage, StageStatus
+from hiremate_ai.agents.root.types import ChatContext, ChatStage, Decision, StageStatus
 from hiremate_ai.contract import StageType
 
 STAGE_LABELS = {StageType.DOCUMENT: "서류", StageType.ASSESSMENT: "평가", StageType.INTERVIEW: "면접"}
@@ -16,6 +16,7 @@ STATUS_LABELS = {
     StageStatus.CONFIRMED: "결과 확정",
     StageStatus.DONE: "종료",
 }
+DECISION_LABELS = {Decision.PENDING: "미결정", Decision.PASS: "합격", Decision.FAIL: "불합격"}
 NOT_YET = "{label} 자료는 {order}번째 전형 '{name}'에서 생겨요. 아직 진행하지 않은 전형이라 없는 자료가 아니에요."
 
 # 모델이 아직 진행하지 않은 전형의 자료를 부족한 점으로 쓴 문장 ("면접 기록이 없어 확인이 필요해요")

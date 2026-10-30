@@ -13,10 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from hiremate_ai.agents.root.conversation import CONVERSATION_INVALID, review_conversation
 from hiremate_ai.agents.root.find import SearchQuery
 from hiremate_ai.agents.root.scope import Scope
-from hiremate_ai.agents.root.stages import STAGE_LABELS, STATUS_LABELS
+from hiremate_ai.agents.root.stages import DECISION_LABELS, STAGE_LABELS, STATUS_LABELS
 from hiremate_ai.agents.root.toolkit import candidate_ref
 from hiremate_ai.agents.root.turns import Turn
-from hiremate_ai.agents.root.types import ChatContext, Decision, EditAction
+from hiremate_ai.agents.root.types import ChatContext, EditAction
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import data_block
 
@@ -28,7 +28,6 @@ NO_MESSAGE = "message에 담당자에게 보여 줄 답을 쓰세요."
 NO_MENTIONS_HINT = (
     "멘션한 지원자가 없어요. 생략된 주어가 직전 대상이면 sources에 subject를 쓰고, 그 밖에는 clarify로 물으세요."
 )
-_DECISIONS = {Decision.PENDING: "미결정", Decision.PASS: "합격", Decision.FAIL: "불합격"}
 
 PLAN_SYSTEM = """[역할]
 너는 채용 담당자의 전형 화면에서 일하는 Root Agent의 계획 단계다. 현재 요청을 읽고 처리 종류 하나와 그 인자를 정한다.
@@ -203,7 +202,7 @@ def screen_text(
     stage = context.stages[context.stage_index]
     counts = ", ".join(
         f"{label} {sum(row.decision is decision for row in context.candidates)}"
-        for decision, label in _DECISIONS.items()
+        for decision, label in DECISION_LABELS.items()
     )
     lines = [
         f"[전형] {context.stage_name} ({STAGE_LABELS[context.stage_type]}, {STATUS_LABELS[stage.status]}) · "
