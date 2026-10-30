@@ -18,7 +18,8 @@ from hiremate_ai.agents.analysis.application.types import AnalyzeRequest
 from hiremate_ai.agents.generation.interview import generate_questions, load_review
 from hiremate_ai.agents.generation.interview.router import QuestionsRequest
 from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
-from hiremate_ai.agents.generation.report import load_profiles, write_report
+from hiremate_ai.agents.generation.report import compose_report, enrich
+from hiremate_ai.agents.generation.report.enrich import DbStageItems
 from hiremate_ai.api import assessment, interview, report
 from hiremate_ai.config import settings
 from hiremate_ai.db.profile_store import ProfileScopeError
@@ -40,7 +41,7 @@ def job_handlers(
     *,
     application_llm: LlmClient | None = None,
 ) -> Mapping[str, Handler]:
-    """워커가 처리하는 작업 유형. 자료가 들어오거나 전형이 시작될 때 미리 돌리는 분석 · 생성만 둔다.
+    """워커가 처리하는 작업 유형. 자료가 들어오거나 전형이 시작될 때 미리 돌리는 분석 · 생성과 리포트를 둔다.
 
     Chat과 화면에서 기다리는 요청은 워커를 거치지 않고 ai 서버 경로로 바로 받는다.
     """
@@ -97,12 +98,11 @@ def job_handlers(
                 raise PermanentError(str(error)) from error
         return result.model_dump(mode="json")
 
-    async def report_write(payload: dict[str, Any]) -> dict[str, Any]:
-        request = report.WriteRequest.model_validate(payload)
-        # 합격자의 평가 · 면접 분석은 프로필에서 읽어 함께 쓴다
-        async with sessions() as session:
-            profiles = await load_profiles(session, request.input)
-        return (await write_report(request.input, llm, profiles)).model_dump(mode="json")
+    async def report_compose(payload: dict[str, Any]) -> dict[str, Any]:
+        # 전형 결과 · 지원자 비교 · 최종 리포트. backend가 만든 묶음만 읽고 DB를 조회하지 않는다
+        request = report.ComposeRequest.model_validate(payload)
+        bundle = await enrich(request.bundle, store, DbStageItems(sessions))
+        return (await compose_report(bundle, llm)).model_dump(mode="json")
 
     async def interview_questions(payload: dict[str, Any]) -> dict[str, Any]:
         # 면접 전형이 시작될 때 지원자마다 미리 만드는 맞춤 질문 (FR-27). Chat 요청은 ai 서버 경로로 바로 받는다
@@ -131,7 +131,7 @@ def job_handlers(
         "interview/questions": interview_questions,
         "assessment/analyze": assessment_analyze,
         "interview-analyst/analyze": interview_analyze,
-        "report/write": report_write,
+        "report/compose": report_compose,
     }
     return {job_type: _traced(job_type, handler) for job_type, handler in handlers.items()}
 

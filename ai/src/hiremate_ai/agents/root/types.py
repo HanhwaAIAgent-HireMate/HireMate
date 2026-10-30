@@ -39,11 +39,12 @@ class SelectionMode(StrEnum):
 
 
 class Intent(StrEnum):
-    """요청 유형: 지원자 찾기 · 분석과 생성 · 선택 지원자 편집 · 되묻기 · 차단 (ChatPlan.Intent)."""
+    """요청 유형: 지원자 찾기 · 분석과 생성 · 선택 지원자 편집 · 리포트 · 되묻기 · 차단 (ChatPlan.Intent)."""
 
     FIND = "FIND"
     ANSWER = "ANSWER"
     EDIT = "EDIT"
+    REPORT = "REPORT"
     CLARIFY = "CLARIFY"
     BLOCKED = "BLOCKED"
 
@@ -175,6 +176,28 @@ class ChatStatus(ContractModel):
     text: str
 
 
+class ReportRequestKind(StrEnum):
+    """Chat 리포트 요청 종류. COMPARE는 현재 전형 지원자 비교, STAGE는 전형 결과 리포트 보기 (ChatReport.Kind)."""
+
+    COMPARE = "COMPARE"
+    STAGE = "STAGE"
+
+
+class ChatReport(ContractModel):
+    """Chat 리포트 요청 (ChatPlan.report). backend가 대상 · 전형을 검증한 뒤 리포트를 만들거나 찾는다.
+
+    stage_id는 STAGE에서 볼 전형이다 (없으면 현재 전형). targets는 COMPARE의 비교 대상이다.
+    report_id는 backend가 만든 · 찾은 리포트로, 대화 기록에서 카드를 다시 열 때 쓴다. Root는 비워 둔다.
+    """
+
+    kind: ReportRequestKind
+    stage_id: UUID | None
+    targets: list[UUID]
+    focus: str
+    brief: bool
+    report_id: UUID | None = None
+
+
 class ChatPlan(ContractModel):
     """Root Agent의 실행 계획 (ai.application.ChatPlan). 선택 지원자 변경은 명령(동작, 대상)으로만 담는다.
 
@@ -193,6 +216,7 @@ class ChatPlan(ContractModel):
     question_focus: dict[UUID, str]  # 지원자별로 Interview Agent에 넘길 확인할 점
     question_memos: dict[UUID, InterviewerMemo] = {}  # 명시적으로 요청해 원문을 확인한 메모만 전달
     question_replace: bool = False  # 만들기 전에 답변 없는 AI 질문을 지운다
+    report: ChatReport | None = None  # 리포트 요청 (intent REPORT일 때)
 
     @classmethod
     def answer(

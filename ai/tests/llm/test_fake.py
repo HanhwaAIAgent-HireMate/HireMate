@@ -46,7 +46,7 @@ async def test_fake_rejects_wrong_type_and_missing_response() -> None:
 def test_router_gets_fake_through_dependency_override() -> None:
     router = APIRouter()
 
-    @router.post("/agents/report/write")
+    @router.post("/agents/report/compose")
     async def write(llm: LlmDep) -> Summary:
         return await llm.structured(Summary, agent="report", system="", user="")
 
@@ -54,6 +54,6 @@ def test_router_gets_fake_through_dependency_override() -> None:
     app.include_router(router)
     app.dependency_overrides[get_llm] = lambda: FakeLlm(Summary(text="리포트"))
 
-    response = TestClient(app).post("/agents/report/write")
+    response = TestClient(app).post("/agents/report/compose")
 
     assert response.json() == {"text": "리포트"}

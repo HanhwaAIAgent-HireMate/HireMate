@@ -211,6 +211,7 @@ class ChatLlm:
         tools: Sequence[BaseTool],
         context: type[Any] | None = None,
         forms: Mapping[str, type[BaseModel]] | None = None,
+        max_calls: int | None = None,
     ) -> "ToolAgent[T]":
         return build_tool_agent(
             self._model,
@@ -221,7 +222,7 @@ class ChatLlm:
             system=system,
             tools=tools,
             context=context,
-            max_calls=self._agent_max_calls,
+            max_calls=max_calls or self._agent_max_calls,
             forms=forms,
         )
 
@@ -230,7 +231,7 @@ class ToolAgent[T: BaseModel]:
     """도구 루프 Agent (ReAct). 모델이 도구를 골라 부르며 자료를 확인하고, 마지막에 output 형식으로 답한다.
 
     LlmClient.tool_agent로 만든다. 모델 호출마다 호출 로그를 남기고, 도구 결과는 자료 블록으로 감싸며,
-    모델 호출이 정한 횟수(settings.llm_agent_max_calls)를 넘으면 멈춘다.
+    모델 호출이 정한 횟수(기본 settings.llm_agent_max_calls)를 넘으면 멈춘다.
     최종 답을 형식별 도구(forms)로 나눴으면 받은 답을 {"kind": 도구 이름, **인자}로 검증해 output으로 바꾼다.
     """
 
@@ -253,15 +254,16 @@ class ToolAgent[T: BaseModel]:
         *,
         context: object = None,
         validate: Callable[[T], Awaitable[str | None]] | None = None,
+        rewrites: int = 1,
     ) -> T:
         """user 지시로 실행해 output 형식의 답을 받는다.
 
         context는 도구가 ToolRuntime의 runtime.context로 읽는 값이다. 조회 범위(기업 · 채용 · 전형)는
         도구 인자가 아니라 여기에 넣어 모델이 바꿀 수 없게 한다 (아키텍처 규칙 4).
-        validate가 오류를 돌려주면 같은 자료와 호출 예산 안에서 한 번만 고쳐 쓴다.
+        validate가 오류를 돌려주면 같은 자료와 호출 예산 안에서 rewrites번까지 고쳐 쓴다.
         """
         state: dict[str, Any] = {"messages": [HumanMessage(user)]}
-        for attempt in range(2):
+        for attempt in range(rewrites + 1):
             try:
                 state = await self._graph.ainvoke(
                     state,
@@ -285,7 +287,7 @@ class ToolAgent[T: BaseModel]:
             problem = await validate(result) if validate is not None else None
             if problem is None:
                 return result
-            if attempt:
+            if attempt == rewrites:
                 raise LlmOutputError(
                     f"{self._output.__name__} 답을 검증하지 못했다: {problem}", reason=LlmFailureReason.VALIDATION
                 )

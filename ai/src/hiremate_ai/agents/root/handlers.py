@@ -1,4 +1,4 @@
-"""정해진 흐름의 처리기: 찾기, 선택 편집, 확인할 점 없는 면접 질문, 고정 답. 계획이 정한 인자만 쓴다.
+"""정해진 흐름의 처리기: 찾기, 선택 편집, 확인할 점 없는 면접 질문, 리포트 요청, 고정 답. 계획이 정한 인자만 쓴다.
 
 데이터 사실(결과를 확정한 전형, 면접 전형이 아님, 메모 없음)은 모델에게 다시 묻지 않고 바로 안내한다.
 """
@@ -18,12 +18,30 @@ from hiremate_ai.agents.root.plan import (
     EditPlan,
     FindPlan,
     QuestionsPlan,
+    ReportPlan,
     RootPlan,
 )
 from hiremate_ai.agents.root.progress import Progress
+from hiremate_ai.agents.root.report import (
+    COMPARE_COUNT,
+    COMPARING,
+    MAX_COMPARED,
+    MIN_COMPARED,
+    OPENING_STAGE,
+    report_stage,
+)
 from hiremate_ai.agents.root.scope import NO_SELECTED
 from hiremate_ai.agents.root.toolkit import NO_MEMOS, RootToolkit
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan, EditAction, Intent, SelectionMode
+from hiremate_ai.agents.root.types import (
+    CandidateRow,
+    ChatContext,
+    ChatPlan,
+    ChatReport,
+    EditAction,
+    Intent,
+    ReportRequestKind,
+    SelectionMode,
+)
 from hiremate_ai.contract import StageType
 from hiremate_ai.llm.client import LlmClient
 
@@ -121,6 +139,43 @@ def handle_questions(context: ChatContext, form: QuestionsPlan, rows: Sequence[C
     plan = ChatPlan.answer(Intent.ANSWER, QUESTIONS_REQUESTED.format(count=len(rows)), agents=[INTERVIEW_AGENT])
     update = {"question_targets": [row.application_id for row in rows], "question_replace": form.replace}
     return Handled(plan.model_copy(update=update), "ANSWER")
+
+
+def handle_report(context: ChatContext, form: ReportPlan, rows: Sequence[CandidateRow]) -> Handled:
+    """리포트 요청. 비교는 현재 전형 지원자 2~5명이고, 멘션이 두 명 이상이면 멘션한 사람만 비교한다.
+
+    전형 결과 리포트는 전형만 정한다. 결과 확정 · 안내 발송 여부와 저장된 리포트는 backend가 확인한다.
+    """
+    if blocked_attribute(form.perspective):
+        return Handled(ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY), "ANSWER")
+    if form.view == "stage":
+        stage_id = report_stage(form.stage, context) if form.stage else context.stage_id
+        if isinstance(stage_id, str):
+            return Handled(ChatPlan.answer(Intent.CLARIFY, stage_id), "ANSWER")
+        stage = next(stage for stage in context.stages if stage.id == stage_id)
+        request = ChatReport(
+            kind=ReportRequestKind.STAGE,
+            stage_id=None if stage_id == context.stage_id else stage_id,
+            targets=[],
+            focus="",
+            brief=form.brief,
+        )
+        plan = ChatPlan.answer(Intent.REPORT, OPENING_STAGE.format(stage=stage.name))
+        return Handled(plan.model_copy(update={"report": request}), "ANSWER")
+    mentioned = [row for row in context.candidates if row.application_id in set(context.mentions)]
+    targets = mentioned if len(mentioned) >= MIN_COMPARED else list(rows)
+    if not MIN_COMPARED <= len(targets) <= MAX_COMPARED:
+        return Handled(ChatPlan.answer(Intent.CLARIFY, COMPARE_COUNT), "ANSWER")
+    request = ChatReport(
+        kind=ReportRequestKind.COMPARE,
+        stage_id=None,
+        targets=[row.application_id for row in targets],
+        focus=form.perspective.strip(),
+        brief=form.brief,
+    )
+    names = ", ".join(row.name for row in targets)
+    plan = ChatPlan.answer(Intent.REPORT, COMPARING.format(names=names))
+    return Handled(plan.model_copy(update={"report": request}), "ANSWER")
 
 
 def handle_reply(context: ChatContext, plan: RootPlan) -> Handled:

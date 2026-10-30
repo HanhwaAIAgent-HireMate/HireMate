@@ -11,6 +11,7 @@ from hiremate_ai.agents.generation.interview.router import QuestionsRequest
 from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.agents.generation.posting.poster import PosterDesign, PosterProposal, PosterTurn
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, PostingFocus, PostingSuggestion
+from hiremate_ai.agents.generation.report import ComposedReport, ReportBundle
 from hiremate_ai.agents.root.types import ChatApplied, ChatContext, ChatHistoryTurn, ChatPlan, ChatStatus
 from hiremate_ai.api.profile import CandidateProfileView
 from hiremate_ai.contract import (
@@ -38,6 +39,7 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "ChatPlan": ChatPlan,
     "ChatStatus": ChatStatus,
     "CompanyProfile": CompanyProfile,
+    "ComposedReport": ComposedReport,
     "InterviewAnalysis": InterviewAnalysis,
     "InterviewView": InterviewView,
     "InterviewQuestionDraft": InterviewQuestionDraft,
@@ -53,6 +55,7 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "PostingDraftContext": PostingDraftContext,
     "PostingFocus": PostingFocus,
     "PostingSuggestion": PostingSuggestion,
+    "ReportBundle": ReportBundle,
     "ScreeningRubric": ScreeningRubric,
 }
 

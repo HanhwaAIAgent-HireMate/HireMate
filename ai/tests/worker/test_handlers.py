@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.agents.analysis.assessment import AssessmentInput
 from hiremate_ai.agents.analysis.interview import InterviewAnalysisInput
-from hiremate_ai.agents.generation.report import ReportContent, ReportInput
+from hiremate_ai.agents.generation.report import ComposedReport, ReportBundle
 from hiremate_ai.api import interview
 from hiremate_ai.api.assessment import AnalyzeResult
 from hiremate_ai.contract import ApplicantDetail, PostingContent
@@ -26,6 +26,8 @@ from hiremate_ai.worker.handlers import PermanentError, job_handlers
 CONTRACT_DIR = Path(__file__).resolve().parents[3] / "contract"
 # DB에 붙지 않는 세션. Assessment 처리 함수는 저장 함수를 바꿔 끼워 세션을 쓰지 않는다
 SESSIONS: async_sessionmaker[AsyncSession] = async_sessionmaker()
+REPORT_BUNDLE_JSON = (CONTRACT_DIR / "ReportBundle.json").read_text(encoding="utf-8")
+COMPOSED_REPORT_JSON = (CONTRACT_DIR / "ComposedReport.json").read_text(encoding="utf-8")
 
 
 class MemoryStore:
@@ -144,32 +146,23 @@ async def test_assessment_of_another_company_is_permanent(monkeypatch: pytest.Mo
         await handle({"input": ASSESSMENT_JSON})
 
 
-async def test_report_write_returns_report_content(monkeypatch: pytest.MonkeyPatch) -> None:
-    stage = {"name": "서류 전형", "target": 8, "pass": 4, "fail": 4}
-    received: list[ReportInput] = []
+async def test_report_compose_reads_only_the_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """backend가 넣는 리포트 작업: 요청 본문은 POST /agents/report/compose와 같고, 결과는 ComposedReport다."""
+    composed = ComposedReport.model_validate_json(COMPOSED_REPORT_JSON)
+    received: list[ReportBundle] = []
 
-    async def write_report(data: ReportInput, llm: LlmClient, profiles: object = None) -> ReportContent:
+    async def compose_report(data: ReportBundle, llm: LlmClient) -> ComposedReport:
         received.append(data)
-        return ReportContent.model_validate(
-            {"summary": "요약", "applicantCount": 8, "finalCount": 0, "stages": [stage], "finalists": [], "notes": []}
-        )
+        return composed
 
-    monkeypatch.setattr(worker_handlers, "write_report", write_report)
-    handle = job_handlers(FakeLlm(), MemoryStore(), SESSIONS)["report/write"]
-    report_input = {
-        "companyId": "3c1f5e2a-7b4d-4e8a-9f60-1a2b3c4d5e6f",
-        "recruitmentId": "7a1e2b3c-4d5e-4f60-8a9b-0c1d2e3f4a51",
-        "title": "응용 소프트웨어 엔지니어",
-        "applicantCount": 8,
-        "stages": [stage],
-        "finalists": [],
-        "undecided": [0],
-    }
+    monkeypatch.setattr(worker_handlers, "compose_report", compose_report)
+    result = await job_handlers(FakeLlm(), MemoryStore(), SESSIONS)["report/compose"](
+        {"bundle": json.loads(REPORT_BUNDLE_JSON)}
+    )
 
-    result = await handle({"input": report_input})
-
-    assert received[0].applicant_count == 8
-    assert result["applicantCount"] == 8 and result["stages"] == [stage]
+    assert received[0].targets == ["A-0017", "A-0026"]
+    assert result["spec"]["sections"][0]["blocks"][0]["type"] == "rings"
+    assert result["fallback"] is False
 
 
 async def test_interview_questions_returns_questions_made_by_the_agent(
