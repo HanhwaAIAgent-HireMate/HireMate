@@ -7,9 +7,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
-from hiremate_ai.agents.root.answer import BULK_LIMIT, INTERVIEW_AGENT, readable
+from hiremate_ai.agents.root.answer import BULK_LIMIT, INTERVIEW_AGENT, QUESTIONS_REQUESTED, readable
 from hiremate_ai.agents.root.edit import plan_edit, selectable
-from hiremate_ai.agents.root.find import LOCKED, SearchQuery, plan_find
+from hiremate_ai.agents.root.find import LOCKED, SearchQuery, plan_find, search_criteria
 from hiremate_ai.agents.root.plan import (
     BlockedPlan,
     ClarifyPlan,
@@ -28,7 +28,6 @@ from hiremate_ai.contract import StageType
 from hiremate_ai.llm.client import LlmClient
 
 DECISION_REPLY = "합격과 불합격 결정, 결과 확정, 공고 게시와 안내 발송은 담당자가 화면에서 직접 실행해 주세요."
-QUESTIONS_REQUESTED = "{count}명의 면접 질문 생성을 요청했어요."
 NOT_INTERVIEW = "면접 질문은 면접 전형에서 만들 수 있어요."
 TOO_MANY = f"면접 질문은 한 번에 {BULK_LIMIT}명까지 만들 수 있어요."
 NOTHING_TO_ADD = "선택 지원자에 넣을 수 있는 미선택 지원자가 없어요."
@@ -57,18 +56,6 @@ def precheck(context: ChatContext, plan: RootPlan, rows: Sequence[CandidateRow])
         if form.checks == "memos" and not any(context.interviewer_memos.get(row.application_id) for row in rows):
             return ChatPlan.answer(Intent.CLARIFY, NO_MEMOS)
     return None
-
-
-def search_criteria(query: SearchQuery, context: ChatContext) -> list[str]:
-    """찾기에 실제로 쓰일 조건 전부. 차별 조건 검사에 쓴다 (규칙 6)."""
-    criteria = list(query.concepts)
-    if query.use_talents:
-        criteria += [f"{talent.title} {talent.description}" for talent in context.company.talents]
-    if query.posting_criteria in ("qualifications", "both"):
-        criteria += context.posting.qualifications
-    if query.posting_criteria in ("preferred", "both"):
-        criteria += context.posting.preferred
-    return criteria
 
 
 async def handle_find(

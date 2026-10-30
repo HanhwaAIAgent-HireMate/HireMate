@@ -10,6 +10,7 @@ from hiremate_ai.agents.root.types import ChatContext
 TEXT_LENGTH = 120
 BULK_LIMIT = 20
 FOCUS_WITH_REQUEST = "{focus} (담당자 요청: {request})"
+QUESTIONS_REQUESTED = "{count}명의 면접 질문 생성을 요청했어요."
 INTERVIEW_AGENT = "Interview Agent"
 
 _REF = re.compile(r"(?<![A-Za-z0-9])[Cc](\d+)(?![0-9])")

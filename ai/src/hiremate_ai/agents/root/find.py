@@ -220,6 +220,18 @@ class CriteriaResult(BaseModel):
     results: list[CriteriaItem]
 
 
+def search_criteria(query: SearchQuery, context: ChatContext) -> list[str]:
+    """찾기에 실제로 쓰일 조건 전부. 차별 조건 검사에 쓴다 (규칙 6)."""
+    criteria = list(query.concepts)
+    if query.use_talents:
+        criteria += [f"{talent.title} {talent.description}" for talent in context.company.talents]
+    if query.posting_criteria in ("qualifications", "both"):
+        criteria += context.posting.qualifications
+    if query.posting_criteria in ("preferred", "both"):
+        criteria += context.posting.preferred
+    return criteria
+
+
 def candidate_pool(query: SearchQuery, context: ChatContext, pool: Sequence[UUID] | None = None) -> list[CandidateRow]:
     """명시한 결정의 지원자. 미결정 서류 지원자는 기준선 위만 조회한다.
 
