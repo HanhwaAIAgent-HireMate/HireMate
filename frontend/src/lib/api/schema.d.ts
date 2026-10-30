@@ -2054,7 +2054,7 @@ export interface components {
             /** Format: uuid */
             fileId: string;
             /** @enum {string} */
-            category: "INTRO" | "POSTING";
+            category: "INTRO";
             name: string;
             /** Format: int64 */
             size: number;
@@ -2183,31 +2183,31 @@ export interface components {
             fallback: boolean;
         };
         JsonNode: {
-            floatingPointNumber: boolean;
-            number: boolean;
-            valueNode: boolean;
-            container: boolean;
-            missingNode: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            string: boolean;
-            integralNumber: boolean;
-            pojo: boolean;
-            short: boolean;
-            int: boolean;
-            long: boolean;
-            double: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
-            /** @deprecated */
-            textual: boolean;
-            boolean: boolean;
-            binary: boolean;
             empty: boolean;
             array: boolean;
             null: boolean;
             object: boolean;
             float: boolean;
+            number: boolean;
+            string: boolean;
+            short: boolean;
+            int: boolean;
+            long: boolean;
+            binary: boolean;
+            /** @deprecated */
+            textual: boolean;
+            pojo: boolean;
+            boolean: boolean;
+            double: boolean;
+            floatingPointNumber: boolean;
+            bigInteger: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            missingNode: boolean;
+            valueNode: boolean;
+            integralNumber: boolean;
+            container: boolean;
+            bigDecimal: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -4237,7 +4237,7 @@ export interface operations {
     files: {
         parameters: {
             query: {
-                category: "INTRO" | "POSTING";
+                category: "INTRO";
             };
             header?: never;
             path?: never;
@@ -4259,7 +4259,7 @@ export interface operations {
     uploadFile: {
         parameters: {
             query: {
-                category: "INTRO" | "POSTING";
+                category: "INTRO";
             };
             header?: never;
             path?: never;

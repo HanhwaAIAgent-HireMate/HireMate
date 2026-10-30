@@ -8,7 +8,6 @@ import { z } from 'zod'
 import { Textarea } from '@/components/ui/textarea'
 import { usePostingSettings, useSavePostingSettings } from '@/features/company/api'
 import { AddButton } from '@/features/company/CompanyProfileForm'
-import { ReferenceFiles } from '@/features/company/ReferenceFiles'
 import { SettingsRow, SettingsSection } from '@/features/company/SettingsSection'
 import { errorMessage } from '@/lib/api/client'
 
@@ -104,10 +103,6 @@ export function PostingSettingsForm() {
             <AddButton onClick={() => notices.append({ value: '' })}>문구 추가</AddButton>
           )}
         </div>
-      </SettingsRow>
-      <div className="border-t" />
-      <SettingsRow label="기존 채용공고">
-        <ReferenceFiles category="POSTING" />
       </SettingsRow>
     </SettingsSection>
   )
