@@ -13,6 +13,7 @@ import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageInfo;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
+import com.hiremate.report.AgentReportKind;
 import com.hiremate.screening.CandidatePage;
 import com.hiremate.screening.CandidateRow;
 import com.hiremate.screening.CandidateSort;
@@ -32,6 +33,7 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -43,6 +45,10 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class ChatService {
+
+    /** 비교 리포트의 지원자 수 범위. 도넛 · 막대가 견줄 수 있는 만큼이다. */
+    static final int MIN_COMPARED = 2;
+    static final int MAX_COMPARED = 5;
 
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
     private static final Pattern QUESTION_COUNT = Pattern.compile("(?<!\\d)(\\d+)\\s*(?:개|문항)");
@@ -59,10 +65,11 @@ public class ChatService {
     private final AiSettings settings;
     private final AssessmentService assessments;
     private final StageTabService tabs;
+    private final ReportComposer composer;
 
     public ChatService(ScreeningService screening, RecruitService recruits, ApplicationService applications,
             CompanyService companies, PostingService postings, RootAgent root, InterviewAiService interviews,
-            AiSettings settings, AssessmentService assessments, StageTabService tabs) {
+            AiSettings settings, AssessmentService assessments, StageTabService tabs, ReportComposer composer) {
         this.screening = screening;
         this.recruits = recruits;
         this.applications = applications;
@@ -73,6 +80,7 @@ public class ChatService {
         this.settings = settings;
         this.assessments = assessments;
         this.tabs = tabs;
+        this.composer = composer;
     }
 
     /**
@@ -113,7 +121,8 @@ public class ChatService {
                 mentions, checked, companies.profile(companyId),
                 postings.draftContext(companyId, recruitment.id()).content(), message, interviewerMemos,
                 assessmentScores, asker);
-        return new ChatInput(companyId, stageId, tabId, stage.status(), candidates, context);
+        return new ChatInput(companyId, stageId, tabId, asker == null ? null : asker.memberId(), stage.status(),
+                candidates, context);
     }
 
     private List<CandidateRow> allCandidates(UUID companyId, UUID stageId, UUID tabId) {
@@ -150,6 +159,9 @@ public class ChatService {
         if (!plan.questionTargets().isEmpty()) {
             plan = withQuestions(companyId, stageId, plan, candidates, input.context().message(), after);
         }
+        if (plan.intent() == ChatPlan.Intent.REPORT && plan.report() != null) {
+            return completed(input.context(), previous, report(input, plan), false, 0, candidates.size());
+        }
         int applied = 0;
         boolean changed = false;
         if (plan.intent() == ChatPlan.Intent.FIND) {
@@ -185,9 +197,7 @@ public class ChatService {
             int applied, int total) {
         String message = plan.message().replace("{count}", String.valueOf(applied))
                 .replace("{total}", String.valueOf(total));
-        ChatPlan finalPlan = new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), message,
-                plan.items(), plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(),
-                plan.questionMemos(), plan.questionReplace());
+        ChatPlan finalPlan = plan.with(message, plan.items());
         if (!context.threadId().isBlank()) {
             try {
                 root.applied(new ChatApplied(context.threadId(), context.message(), previous, finalPlan));
@@ -196,6 +206,78 @@ public class ChatService {
             }
         }
         return answer(finalPlan, changed, applied, total);
+    }
+
+    /**
+     * 리포트 요청을 실행한다. 비교는 현재 전형 지원자 2~5명만 받고, 전형 결과 리포트는 같은 채용에서 결과를 확정하고
+     * 안내를 모두 보낸 전형만 받는다.
+     * 저장된 전형 결과 리포트가 있으면 다시 만들지 않는다. 이전 전형처럼 다른 전형의 리포트는 저장된 것만 연다.
+     * 만든 · 찾은 리포트 ID를 계획에 적어 대화 기록에서도 다시 연다.
+     */
+    private ChatPlan report(ChatInput input, ChatPlan plan) {
+        ChatReport request = plan.report();
+        if (request.kind() == ChatReport.Kind.COMPARE) {
+            Set<UUID> here = input.candidates().stream().map(CandidateRow::applicationId).collect(Collectors.toSet());
+            List<UUID> targets = request.targets().stream().distinct().filter(here::contains).toList();
+            if (targets.size() < MIN_COMPARED) {
+                return ChatPlan.answer(ChatPlan.Intent.CLARIFY,
+                        "비교할 지원자를 현재 전형에서 두 명 이상 알려 주세요. @이름으로 지정하거나 선택 지원자에 넣어 주세요.",
+                        List.of(), plan.sources(), plan.agents());
+            }
+            List<UUID> compared = targets.stream().limit(MAX_COMPARED).toList();
+            UUID reportId = composer.request(input.companyId(), input.stageId(), AgentReportKind.COMPARE, compared,
+                    request.focus(), request.brief(), input.memberId());
+            String message = targets.size() > MAX_COMPARED
+                    ? plan.message() + " 비교는 " + MAX_COMPARED + "명까지라 앞의 " + MAX_COMPARED + "명으로 만들어요."
+                    : plan.message();
+            return withReport(plan.with(message, plan.items()), request.withReport(reportId));
+        }
+        UUID stageId = request.stageId() != null ? request.stageId() : input.stageId();
+        RecruitmentInfo recruitment = recruits.getByStage(input.companyId(), input.stageId());
+        StageInfo stage = recruitment.stage(stageId).orElse(null);
+        if (stage == null) {
+            return ChatPlan.answer(ChatPlan.Intent.CLARIFY, "이 채용의 전형이 아니라 리포트를 열 수 없어요.", List.of(),
+                    plan.sources(), plan.agents());
+        }
+        if (stage.confirmedAt() == null) {
+            return ChatPlan.answer(ChatPlan.Intent.CLARIFY,
+                    stage.name() + "은 아직 결과를 확정하지 않아 전형 결과 리포트가 없어요. 확정하면 Report Agent가 써요.",
+                    List.of(), plan.sources(), plan.agents());
+        }
+        String title = stageTitle(stage.name());
+        if (!composer.stageReportOpen(input.companyId(), stageId)) {
+            return ChatPlan.answer(ChatPlan.Intent.CLARIFY,
+                    title + " 결과 리포트는 합격 · 불합격 안내를 모두 보낸 뒤에 열 수 있어요.", List.of(),
+                    plan.sources(), plan.agents());
+        }
+        UUID saved = composer.latestStageReport(input.companyId(), stageId);
+        if (stageId.equals(input.stageId())) {
+            UUID reportId = composer.stageReport(input.companyId(), stageId, input.memberId());
+            String message = saved != null ? title + " 결과 리포트를 열어요."
+                    : title + " 결과 리포트를 Report Agent가 쓰고 있어요.";
+            return withReport(plan.with(message, plan.items()), request.withReport(reportId));
+        }
+        // 다른 전형의 리포트는 토큰을 아끼려고 저장된 것만 연다 (현재 전형에 남은 지원자로 다시 쓰지 않는다)
+        if (saved == null) {
+            return ChatPlan.answer(ChatPlan.Intent.CLARIFY,
+                    "저장된 " + title + " 결과 리포트가 없어요. " + title + " 종료 화면에서 만들 수 있어요.",
+                    List.of(), plan.sources(), plan.agents());
+        }
+        return withReport(plan.with(title + " 결과 리포트를 열어요.", plan.items()), request.withReport(saved));
+    }
+
+    /** 메시지에 쓰는 전형 이름. '서류 전형'처럼 이미 '전형'으로 끝나면 그대로 쓴다. */
+    private static String stageTitle(String name) {
+        return name.endsWith("전형") ? name : name + " 전형";
+    }
+
+    /** 리포트 답. 화면이 답 아래에 리포트를 쓴 Agent를 보여 주도록 Report Agent를 붙인다. */
+    private static ChatPlan withReport(ChatPlan plan, ChatReport report) {
+        List<String> agents = plan.agents().contains(ReportResults.AGENT) ? plan.agents()
+                : Stream.concat(plan.agents().stream(), Stream.of(ReportResults.AGENT)).toList();
+        return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), plan.message(), plan.items(),
+                plan.sources(), agents, plan.questionTargets(), plan.questionFocus(), plan.questionMemos(),
+                plan.questionReplace(), report);
     }
 
     private Map<UUID, Boolean> selected(UUID companyId, UUID stageId, UUID tabId) {
@@ -258,7 +340,7 @@ public class ChatService {
                 .filter(item -> item.applicationId() == null || targets.contains(item.applicationId())).toList();
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), targets, message, items,
                 plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos(),
-                plan.questionReplace());
+                plan.questionReplace(), plan.report());
     }
 
     /**
@@ -306,7 +388,7 @@ public class ChatService {
         String reply = plan.message() + (notes.isEmpty() ? "" : "\n" + String.join("\n", notes));
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), reply, items,
                 plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos(),
-                plan.questionReplace());
+                plan.questionReplace(), plan.report());
     }
 
     static int requestedQuestionCount(String message) {
@@ -383,6 +465,6 @@ public class ChatService {
         String message = plan.message().replace("{count}", String.valueOf(applied))
                 .replace("{total}", String.valueOf(total));
         return new ChatAnswer(plan.intent(), plan.mode(), message, plan.items(), plan.sources(), plan.agents(),
-                changed, settings.isStub(AiAgent.ROOT));
+                changed, settings.isStub(AiAgent.ROOT), plan.report() == null ? null : plan.report().reportId());
     }
 }

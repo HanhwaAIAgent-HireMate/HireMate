@@ -482,9 +482,51 @@ class ScreeningTests extends IntegrationTest {
         assertThat(json(expect(hr.post(next + "/finish", null), 200)).path("nextStageId").isNull()).isTrue();
 
         String recruitment = json(expect(hr.get(stage.path()), 200)).path("recruitmentId").asString();
-        JsonNode report = awaitReport(hr, recruitment);
-        assertThat(report.path("content").path("stages").size()).isEqualTo(2);
-        assertThat(report.path("content").path("finalists").get(0).path("name").asString()).isEqualTo("지원자1");
+        JsonNode finals = awaitFinalReports(hr, recruitment);
+        assertThat(finals.get(0).path("stageId").asString()).isEqualTo(interview);
+        JsonNode agentReport = json(expect(hr.get(next + "/reports/" + finals.get(0).path("id").asString()), 200));
+        JsonNode bundle = agentReport.path("bundle");
+        assertThat(bundle.path("kind").asString()).isEqualTo("FINAL");
+        assertThat(bundle.path("stages")).hasSize(2);
+        assertThat(bundle.path("applicants")).hasSize(2);
+        assertThat(bundle.path("metrics").findValuesAsString("id")).contains("m-applicants", "m-finalists",
+                "m-document-pass", "m-interview-pass");
+        assertThat(bundle.toString()).doesNotContain("지원자1");
+        String reopened = json(expect(hr.post("/api/recruitments/" + recruitment + "/reports/final", null), 202))
+                .path("id").asString();
+        assertThat(reopened).isEqualTo(finals.get(0).path("id").asString());
+    }
+
+    @Test
+    @DisplayName("전형 결과 리포트는 결과를 확정하고 안내를 모두 보낸 뒤에 열고, 이미 있으면 같은 리포트를 연다")
+    void stageReportOpensAfterConfirm() throws Exception {
+        Stage stage = startDocumentStage(2);
+        TestApi hr = stage.hr();
+        expect(hr.post(stage.path() + "/reports/stage", null), 409);
+        expect(hr.post(stage.path() + "/decisions",
+                Map.of("applicationIds", stage.ids().subList(0, 1), "decision", "PASS")), 204);
+        expect(hr.post(stage.path() + "/confirm", null), 200);
+
+        // 확정 때 이벤트로 만든 리포트가 생길 때까지 기다린 뒤 연다
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
+        JsonNode list = json(expect(hr.get(stage.path() + "/reports"), 200));
+        while (list.isEmpty() && Instant.now().isBefore(deadline)) {
+            Thread.sleep(200);
+            list = json(expect(hr.get(stage.path() + "/reports"), 200));
+        }
+        String made = list.get(0).path("id").asString();
+        expect(hr.post(stage.path() + "/reports/stage", null), 409);
+        expect(hr.get(stage.path() + "/reports/" + made), 409);
+
+        // 합격 · 불합격 안내를 모두 보내면 열린다
+        expect(hr.post(stage.path() + "/notices/prepare", null), 200);
+        expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
+        expect(hr.post(stage.path() + "/notices/FAIL/send", null), 200);
+        String opened = json(expect(hr.post(stage.path() + "/reports/stage", null), 202)).path("reportId").asString();
+        assertThat(opened).isEqualTo(made);
+        expect(hr.get(stage.path() + "/reports/" + made), 200);
+        String recruitment = json(expect(hr.get(stage.path()), 200)).path("recruitmentId").asString();
+        expect(hr.post("/api/recruitments/" + recruitment + "/reports/final", null), 409);
     }
 
     @Test
@@ -656,16 +698,16 @@ class ScreeningTests extends IntegrationTest {
         return "/api/stages/" + json(expect(hr.post(stagePath + "/finish", null), 200)).path("nextStageId").asString();
     }
 
-    private static JsonNode awaitReport(TestApi hr, String recruitmentId) throws Exception {
+    private static JsonNode awaitFinalReports(TestApi hr, String recruitmentId) throws Exception {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {
-            var response = hr.get("/api/recruitments/" + recruitmentId + "/report");
-            if (response.statusCode() == 200) {
-                return json(response);
+            JsonNode list = json(expect(hr.get("/api/recruitments/" + recruitmentId + "/reports"), 200));
+            if (!list.isEmpty()) {
+                return list;
             }
             Thread.sleep(200);
         }
-        throw new AssertionError("Report was not generated.");
+        throw new AssertionError("Final report was not requested.");
     }
 
     /** 제출 서류를 비운 입사 안내. 기타 안내는 빈 줄을 섞어 쓴다. */

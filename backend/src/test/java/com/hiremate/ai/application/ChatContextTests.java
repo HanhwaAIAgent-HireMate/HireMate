@@ -74,7 +74,7 @@ class ChatContextTests {
                 RecruitmentStatus.IN_PROGRESS, content, List.of(), Set.of()));
         ChatService chat = new ChatService(screening, recruits, mock(ApplicationService.class), companies,
                 postings, mock(RootAgent.class), mock(InterviewAiService.class), mock(AiSettings.class),
-                mock(AssessmentService.class), mock(StageTabService.class));
+                mock(AssessmentService.class), mock(StageTabService.class), mock(ReportComposer.class));
 
         ChatInput input = chat.prepare(companyId, stageId, UUID.randomUUID(), null,
                 "선택 지원자 중 경력이 가장 긴 사람은?", List.of(), List.of());
@@ -122,7 +122,7 @@ class ChatContextTests {
         when(assessments.find(companyId, stageId, empty.applicationId())).thenReturn(Optional.empty());
         ChatService chat = new ChatService(screening, recruits, mock(ApplicationService.class), companies,
                 postings, mock(RootAgent.class), mock(InterviewAiService.class), mock(AiSettings.class), assessments,
-                mock(StageTabService.class));
+                mock(StageTabService.class), mock(ReportComposer.class));
 
         ChatInput input = chat.prepare(companyId, stageId, UUID.randomUUID(), null,
                 "의사소통능력 90점 이상인 사람만 옮겨줘", List.of(), List.of());

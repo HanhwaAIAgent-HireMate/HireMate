@@ -1,0 +1,155 @@
+{
+  "kind": "COMPARE",
+  "companyId": "1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7a01",
+  "recruitmentId": "2c3d4e5f-6071-4829-8b3c-4d5e6f7a8b01",
+  "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+  "title": "백엔드 개발자 (Java/Spring)",
+  "asOf": "2026-10-27T14:20:00Z",
+  "focus": "협업",
+  "brief": false,
+  "stages": [
+    {
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "name": "서류 전형",
+      "type": "DOCUMENT",
+      "confirmedAt": null
+    }
+  ],
+  "applicants": [
+    {
+      "number": "A-0017",
+      "applicationId": "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60",
+      "careerYears": 6,
+      "lastCompany": "OO카드"
+    },
+    {
+      "number": "A-0026",
+      "applicationId": null,
+      "careerYears": null,
+      "lastCompany": null
+    }
+  ],
+  "targets": [
+    "A-0017",
+    "A-0026"
+  ],
+  "totalKey": "document.total",
+  "areas": [
+    {
+      "id": "qualification",
+      "label": "자격요건",
+      "scoreKey": "document.qualification",
+      "keys": [
+        "document.criterion.Q-01",
+        "document.criterion.Q-04"
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "id": "m-q-avg",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "label": "자격요건 평균",
+      "value": 21.5,
+      "unit": "점",
+      "key": "document.qualification",
+      "group": null
+    },
+    {
+      "id": "m-career-pass-0",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "label": "합격자 신입",
+      "value": 1.0,
+      "unit": "명",
+      "key": null,
+      "group": "career-pass"
+    }
+  ],
+  "facts": [
+    {
+      "id": "A-0017-q",
+      "applicant": "A-0017",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "key": "document.qualification",
+      "label": "자격요건",
+      "value": 50.0,
+      "max": 50.0
+    },
+    {
+      "id": "A-0017-p",
+      "applicant": "A-0017",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "key": "document.preference",
+      "label": "우대사항",
+      "value": 40.0,
+      "max": 50.0
+    },
+    {
+      "id": "A-0017-Q-01",
+      "applicant": "A-0017",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "key": "document.criterion.Q-01",
+      "label": "Q-01 서버 개발 3년 이상",
+      "value": "MET",
+      "max": null
+    },
+    {
+      "id": "A-0017-Q-04",
+      "applicant": "A-0017",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "key": "document.criterion.Q-04",
+      "label": "Q-04 Git 코드 리뷰 · 협업",
+      "value": "MET",
+      "max": null
+    },
+    {
+      "id": "A-0026-q",
+      "applicant": "A-0026",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "key": "document.qualification",
+      "label": "자격요건",
+      "value": 40.0,
+      "max": 50.0
+    },
+    {
+      "id": "A-0026-p",
+      "applicant": "A-0026",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "key": "document.preference",
+      "label": "우대사항",
+      "value": 25.0,
+      "max": 50.0
+    },
+    {
+      "id": "A-0026-Q-01",
+      "applicant": "A-0026",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "key": "document.criterion.Q-01",
+      "label": "Q-01 서버 개발 3년 이상",
+      "value": "MET",
+      "max": null
+    },
+    {
+      "id": "A-0026-Q-04",
+      "applicant": "A-0026",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "key": "document.criterion.Q-04",
+      "label": "Q-04 Git 코드 리뷰 · 협업",
+      "value": "NOT_MET",
+      "max": null
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e-A-0017-Q-04",
+      "applicant": "A-0017",
+      "stageId": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a01",
+      "agent": "application",
+      "text": "팀 PR 리뷰 규칙을 직접 만들고 리뷰를 이끈 경험이 확인돼요.",
+      "source": "자기소개서",
+      "quote": "팀 PR 리뷰 규칙을 만들고 주 2회 리뷰를 이끌었어요",
+      "label": "Git 코드 리뷰 · 협업",
+      "verdict": "MET"
+    }
+  ]
+}
