@@ -1,6 +1,7 @@
 package com.hiremate.ai.application;
 
 import com.hiremate.screening.SelectionMode;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -12,13 +13,23 @@ import java.util.UUID;
  * @param questionTargets 맞춤 면접 질문을 만들어 카드에 넣을 지원자 (면접 전형)
  * @param questionFocus 지원자별로 Interview Agent에 넘길 확인할 점. 없는 지원자는 HR 문장을 넘긴다
  * @param questionReplace 질문을 만들기 전에 답변 없는 AI 질문을 지우는가. 직접 넣은 질문과 답변을 기록한 질문은 남긴다
+ * @param report 리포트 요청 (intent REPORT일 때). backend가 Report Agent에 맡긴 뒤 리포트 ID를 적는다
  */
 public record ChatPlan(Intent intent, SelectionMode mode, EditAction edit, List<UUID> targets, String message,
         List<ChatItem> items, List<String> sources, List<String> agents, List<UUID> questionTargets,
-        Map<UUID, String> questionFocus, Map<UUID, InterviewerMemo> questionMemos, boolean questionReplace) {
+        Map<UUID, String> questionFocus, Map<UUID, InterviewerMemo> questionMemos, boolean questionReplace,
+        @Schema(nullable = true) ChatReport report) {
 
     public ChatPlan {
         questionMemos = questionMemos == null ? Map.of() : questionMemos;
+    }
+
+    /** 리포트 요청 없이 만드는 계획. */
+    public ChatPlan(Intent intent, SelectionMode mode, EditAction edit, List<UUID> targets, String message,
+            List<ChatItem> items, List<String> sources, List<String> agents, List<UUID> questionTargets,
+            Map<UUID, String> questionFocus, Map<UUID, InterviewerMemo> questionMemos, boolean questionReplace) {
+        this(intent, mode, edit, targets, message, items, sources, agents, questionTargets, questionFocus,
+                questionMemos, questionReplace, null);
     }
 
     public ChatPlan(Intent intent, SelectionMode mode, EditAction edit, List<UUID> targets, String message,
@@ -40,11 +51,18 @@ public record ChatPlan(Intent intent, SelectionMode mode, EditAction edit, List<
         this(intent, mode, edit, targets, message, items, sources, agents, questionTargets, Map.of());
     }
 
-    /** 요청 유형: 지원자 찾기 · 분석과 생성 · 선택 지원자 편집 · 되묻기 · 차단 */
+    /** 같은 계획에 메시지와 항목만 바꾼다. */
+    public ChatPlan with(String message, List<ChatItem> items) {
+        return new ChatPlan(intent, mode, edit, targets, message, items, sources, agents, questionTargets,
+                questionFocus, questionMemos, questionReplace, report);
+    }
+
+    /** 요청 유형: 지원자 찾기 · 분석과 생성 · 선택 지원자 편집 · 리포트 · 되묻기 · 차단 */
     public enum Intent {
         FIND,
         ANSWER,
         EDIT,
+        REPORT,
         CLARIFY,
         BLOCKED
     }
