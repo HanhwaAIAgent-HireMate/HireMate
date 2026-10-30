@@ -31,7 +31,7 @@ from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from hiremate_ai.agents.generation.interview.router import InterviewQuestion
+    from hiremate_ai.contract import InterviewQuestion
     from hiremate_ai.llm.client import LlmClient
 
 AGENT_KEY = "interview"

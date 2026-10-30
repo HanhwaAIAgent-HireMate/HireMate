@@ -18,10 +18,16 @@ from hiremate_ai.agents.root.types import (
     ChatItem,
     ChatStage,
     Decision,
-    InterviewView,
     StageStatus,
 )
-from hiremate_ai.contract import AnalysisStatus, ApplicantDetail, CompanyProfile, PostingContent, StageType
+from hiremate_ai.contract import (
+    AnalysisStatus,
+    ApplicantDetail,
+    CompanyProfile,
+    InterviewView,
+    PostingContent,
+    StageType,
+)
 from hiremate_ai.db.profile import ItemAgent
 from hiremate_ai.db.profile_store import NewItem, ProfileFields, save_profile
 from hiremate_ai.llm.fake import ToolCall

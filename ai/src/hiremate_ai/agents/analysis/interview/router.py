@@ -9,8 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter
 
 from hiremate_ai.agents.analysis.interview.agent import analyze_answers
-from hiremate_ai.agents.generation.interview.router import InterviewView
-from hiremate_ai.contract import ContractModel
+from hiremate_ai.contract import ContractModel, InterviewView
 from hiremate_ai.llm.client import LlmDep
 
 router = APIRouter(prefix="/agents/interview", tags=["interview"])

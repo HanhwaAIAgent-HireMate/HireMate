@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from hiremate_ai.agents.analysis.application.types import ApplicationAnalysis, ScreeningRubric
 from hiremate_ai.agents.analysis.interview import InterviewAnalysisInput
 from hiremate_ai.agents.analysis.interview.router import InterviewAnalysis
-from hiremate_ai.agents.generation.interview.router import InterviewView, QuestionsRequest
+from hiremate_ai.agents.generation.interview.router import QuestionsRequest
 from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.agents.generation.posting.poster import PosterDesign, PosterProposal, PosterTurn
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, PostingFocus, PostingSuggestion
@@ -18,6 +18,7 @@ from hiremate_ai.contract import (
     CandidateAnalysis,
     CompanyProfile,
     InterviewerMemo,
+    InterviewView,
     Job,
     JobResult,
     PostingContent,

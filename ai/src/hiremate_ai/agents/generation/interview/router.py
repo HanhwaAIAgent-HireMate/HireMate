@@ -8,9 +8,6 @@ POST /agents/interview/questions
   서류 전형 Agent가 저장한 상세 판정(ApplicationReview)이 ai DB에 있으면 읽어서 1차 빈틈을 고른다 (읽기만 한다).
   없으면 요청의 analysis(요약)로 고른다.
   응답 질문·생성 근거 객체 목록 [{"text": 질문, "reason": 생성 시 확인 목적과 출처}]
-
-InterviewView는 Root Agent가 먼저 정의한 타입(agents/root/types.py)을 그대로 쓴다. 면접 Agent 쪽 모듈은 이 파일에서
-가져다 쓰도록 이름을 다시 내보낸다 (QuestionSource · InterviewQuestion · PreviousInterview · InterviewView · Schedule).
 """
 
 from fastapi import APIRouter
@@ -19,29 +16,18 @@ from pydantic import Field
 from hiremate_ai.agents.analysis.application.router import StoreDep
 from hiremate_ai.agents.generation.interview.agent import generate_questions, load_review
 from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
-from hiremate_ai.agents.root.types import InterviewQuestion, InterviewView, PreviousInterview, QuestionSource
-from hiremate_ai.agents.root.types import InterviewSchedule as Schedule
 from hiremate_ai.contract import (
     ApplicantDetail,
     CandidateAnalysis,
     CompanyProfile,
     ContractModel,
     InterviewerMemo,
+    InterviewView,
     PostingContent,
 )
 from hiremate_ai.llm.client import LlmDep
 
 router = APIRouter(prefix="/agents/interview", tags=["interview"])
-
-__all__ = [
-    "InterviewQuestion",
-    "InterviewView",
-    "PreviousInterview",
-    "QuestionSource",
-    "QuestionsRequest",
-    "Schedule",
-    "router",
-]
 
 
 class QuestionsRequest(ContractModel):
