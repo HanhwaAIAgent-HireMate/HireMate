@@ -69,6 +69,7 @@ class FakeLlm:
         tools: Sequence[BaseTool],
         context: type[Any] | None = None,
         forms: Mapping[str, type[BaseModel]] | None = None,
+        max_calls: int | None = None,
     ) -> ToolAgent[T]:
         return build_tool_agent(
             _FakeChatModel(llm=self, agent=agent, output=output, forms=dict(forms or {})),
@@ -79,7 +80,7 @@ class FakeLlm:
             system=system,
             tools=tools,
             context=context,
-            max_calls=settings.llm_agent_max_calls,
+            max_calls=max_calls or settings.llm_agent_max_calls,
             forms=forms,
         )
 

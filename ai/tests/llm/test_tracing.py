@@ -32,7 +32,7 @@ def test_off_sends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     client = MagicMock(spec=Client)
     monkeypatch.setattr(tracing, "_client", lambda: client)
 
-    with traced("/agents/report/write"):
+    with traced("/agents/report/compose"):
         assert get_current_run_tree() is None
         RunnableLambda(lambda text: text).invoke("리포트")
 
@@ -40,11 +40,11 @@ def test_off_sends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_groups_langchain_runs_into_one_trace(langsmith: MagicMock) -> None:
-    with traced("report/write"):
+    with traced("report/compose"):
         RunnableLambda(lambda text: text).invoke("리포트")
 
     created = runs(langsmith, "create_run")
-    assert [run["name"] for run in created] == ["report/write", "RunnableLambda"]
+    assert [run["name"] for run in created] == ["report/compose", "RunnableLambda"]
     root, child = created
     assert root.get("parent_run_id") is None
     assert child["parent_run_id"] == root["id"]
@@ -98,5 +98,5 @@ def test_on_without_key_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "langsmith_api_key", SecretStr(""))
     tracing._client.cache_clear()
 
-    with pytest.raises(TracingNotConfiguredError, match="LANGSMITH_API_KEY"), traced("report/write"):
+    with pytest.raises(TracingNotConfiguredError, match="LANGSMITH_API_KEY"), traced("report/compose"):
         pass

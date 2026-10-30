@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     llm_structured_output: Literal["json_schema", "function_calling", "json_mode"] = "json_schema"
     # 도구 루프 Agent가 질문 하나에 모델을 부르는 최대 횟수. 넘으면 답을 내지 못한 것으로 보고 실패한다
     llm_agent_max_calls: int = 8
+    # Report Agent의 상한. 백그라운드 작업이고 스킬 · 자료 · 근거를 읽은 뒤 검사에 걸리면 두 번까지 고쳐 쓴다
+    llm_report_max_calls: int = 18
     # 호출 한 번에 모델이 쓰는 최대 토큰. 모델이 끝없이 쓰다 시간을 다 쓰는 것을 막는다
     llm_max_tokens: int = 2048
     # 0이면 같은 질문에 같은 답을 낸다. Root의 지원자 찾기는 같은 질문에 같은 후보가 나와야 한다

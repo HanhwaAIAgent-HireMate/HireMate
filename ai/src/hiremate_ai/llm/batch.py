@@ -448,5 +448,6 @@ class BatchLlm:
         tools: Sequence[BaseTool],
         context: type[Any] | None = None,
         forms: Mapping[str, type[BaseModel]] | None = None,
+        max_calls: int | None = None,
     ) -> ToolAgent[T]:
         raise BatchError("배치 모델은 지원서의 structured 호출에만 사용한다")

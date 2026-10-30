@@ -1,0 +1,183 @@
+"""Report Agent 도구 루프. 스킬을 골라 읽고, 묶음을 조회하고, 필요하면 분석 Agent에게 근거 확인을 맡긴 뒤 설계서를 낸다.
+
+설계서는 check.problems로 검사해 한 번 고쳐 쓰게 하고, 끝내 통과하지 못하면 기본 구성을 쓴다.
+"""
+
+import logging
+
+from hiremate_ai.agents.generation.report.bundle import ReportBundle, ReportKind
+from hiremate_ai.agents.generation.report.check import MAX_BRIEF_SUMMARY, problems
+from hiremate_ai.agents.generation.report.derive import drawable
+from hiremate_ai.agents.generation.report.fallback import fallback_spec
+from hiremate_ai.agents.generation.report.repair import repair
+from hiremate_ai.agents.generation.report.skills import catalog
+from hiremate_ai.agents.generation.report.spec import ReportSpec
+from hiremate_ai.agents.generation.report.tools import TOOLS, ReportScope
+from hiremate_ai.config import settings
+from hiremate_ai.contract import ContractModel, StageType
+from hiremate_ai.llm.chat import LlmOutputError
+from hiremate_ai.llm.client import LlmClient
+
+logger = logging.getLogger(__name__)
+
+AGENT = "report"
+REWRITES = 2
+"""검사에 걸린 설계서를 고쳐 쓰는 횟수. 백그라운드 작업이라 Root보다 넉넉하다."""
+REWRITE = (
+    "설계서에 고칠 점이 있다. 아래 문제만 고치고, 문제가 없는 섹션과 부품은 그대로 두어 설계서 전체를 다시 낸다:\n"
+)
+"""고쳐 쓰기 지시. 고치다가 앞에서 맞춘 부품을 빼 버리지 않게 한다."""
+
+SYSTEM = """너는 채용 담당자가 읽을 리포트를 설계하는 Report Agent다.
+글만 쓰지 않는다. 정해진 부품(kpi · bar · stacked · radar · distribution · donut · cross · share · composition ·
+position · rings · matrix · tally · table · evidence · text)을 골라 묶음의 지표 id · 값 key · 근거 id로 채우는
+설계서(ReportSpec)를 낸다. 화면과 PDF가 그것을 그린다.
+
+설계서는 섹션으로 나눈다. 한눈에 보기 → 영역마다 섹션 하나(area에 영역 id) → 요청 관점(있으면) → 정리.
+섹션마다 읽을 점(takeaway) 한 문장과 부품 1~3개를 둔다. 한 부품에는 한 가지만 그린다.
+takeaway는 '무엇을 보여 줘요'가 아니라 그림에서 읽은 사실이다 (예: 'Q-05 테스트 코드만 판정이 갈렸어요').
+
+반드시 지킬 것:
+- 숫자는 지표 · 값으로만 보여 준다. 문장에 쓰는 숫자는 도구로 읽은 값만 쓴다.
+- 판단 문장에는 근거 id를 붙인다.
+- 합격 · 불합격을 판단하거나, 순위를 매기거나('가장 높다' 포함), 누구를 뽑으라고 쓰지 않는다.
+- 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 쓰지 않는다.
+- 지원자는 지원자번호(A-0012)로만 쓴다.
+- 모든 문장은 해요체(~어요 · ~예요)로 짧게 쓴다. ~습니다 · ~합니다는 쓰지 않는다.
+- 시각화 부품은 모두 합쳐 셋 이상, 시각화 부품마다 caption 한 줄.
+- 같은 모양의 그래프만 되풀이하지 말고 자료에 맞는 부품을 고른다.
+
+먼저 visual-guide와 리포트 종류에 맞는 스킬을 load_skill로 읽고, 읽은 스킬 이름을 skills에 적는다.
+
+스킬 목록:
+{catalog}"""
+
+_STAGE_SKILL = {
+    StageType.DOCUMENT: "stage-document",
+    StageType.ASSESSMENT: "stage-assessment",
+    StageType.INTERVIEW: "stage-interview",
+}
+
+
+class ComposedReport(ContractModel):
+    """Report Agent 결과 (contract/ComposedReport.json). fallback이면 모델 설계서 대신 기본 구성을 썼다.
+
+    skills · specialists는 읽은 스킬과 근거 확인을 맡긴 분석 Agent로, 화면의 실행 기록 칩에 쓴다.
+    bundle은 Agent가 실제로 읽은 묶음이다 (ai가 분석 판정 · 근거를 붙인 뒤). 화면은 이 묶음으로 그린다.
+    """
+
+    spec: ReportSpec
+    skills: list[str]
+    specialists: list[str]
+    fallback: bool
+    bundle: ReportBundle
+
+
+async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport:
+    """묶음으로 리포트 설계서를 만든다. 채용 상태는 바꾸지 않는다."""
+    scope = ReportScope(bundle=bundle, llm=llm)
+    agent = llm.tool_agent(
+        ReportSpec,
+        agent=AGENT,
+        system=SYSTEM.format(catalog=catalog()),
+        tools=TOOLS,
+        context=ReportScope,
+        max_calls=settings.llm_report_max_calls,
+    )
+
+    repaired: list[ReportSpec] = []
+
+    async def validate(spec: ReportSpec) -> str | None:
+        # 기계적인 규칙 위반은 코드가 먼저 고치고, 고친 설계서를 검사한다
+        # 관점 묶음은 다시 쓸 기회가 남았으면 모델에게 돌려주고, 마지막 시도에서는 코드가 묶는다
+        spec = repair(spec, bundle, group_by_code=len(repaired) >= REWRITES)
+        repaired.append(spec)
+        found = problems(spec, bundle)
+        if unread := [name for name in recommended_skills(bundle) if name not in scope.skills]:
+            found.append(f"권하는 스킬 {', '.join(unread)}을 읽지 않았다. load_skill로 읽고 그 구성을 따른다")
+        if not found:
+            return None
+        # 지원자 정보 없이 검사 문구만 남긴다 (지원자번호 · 값 key · 근거 id)
+        logger.info("리포트 설계서 검사에 걸림 (%s): %s", bundle.kind, " | ".join(found))
+        return REWRITE + "\n".join(f"- {p}" for p in found)
+
+    try:
+        spec = await agent.run(request(bundle), context=scope, validate=validate, rewrites=REWRITES)
+    except LlmOutputError as error:
+        logger.warning("리포트를 기본 구성으로 만든다 (reason=%s)", error.reason.value)
+        return ComposedReport(
+            spec=fallback_spec(bundle),
+            skills=scope.skills,
+            specialists=scope.specialists,
+            fallback=True,
+            bundle=bundle,
+        )
+    spec = repaired[-1] if repaired else spec
+    return ComposedReport(
+        spec=spec.model_copy(update={"skills": scope.skills}),
+        skills=scope.skills,
+        specialists=scope.specialists,
+        fallback=False,
+        bundle=bundle,
+    )
+
+
+def recommended_skills(bundle: ReportBundle) -> list[str]:
+    """리포트 종류에 맞는 스킬. 읽지 않고 낸 설계서는 검사에 걸린다."""
+    if bundle.kind is ReportKind.COMPARE:
+        kind = "compare"
+    elif bundle.kind is ReportKind.FINAL:
+        kind = "final"
+    else:
+        kind = _STAGE_SKILL.get(bundle.current.type, "stage-document")
+    return ["visual-guide", kind, "evidence"]
+
+
+def request(bundle: ReportBundle) -> str:
+    """user 지시. 리포트 종류, 권하는 스킬, 비교 대상과 관점이다. 자료는 도구로 읽는다."""
+    kind = {
+        ReportKind.STAGE: "전형 결과 리포트",
+        ReportKind.COMPARE: "지원자 비교 리포트",
+        ReportKind.FINAL: "채용 최종 리포트",
+    }
+    scope = (
+        f"범위: 모든 전형 ({', '.join(stage.name for stage in bundle.stages)})"
+        if bundle.kind is ReportKind.FINAL
+        else f"현재 전형: {bundle.current.name}"
+    )
+    lines = [
+        f"{kind[bundle.kind]}를 설계한다. {scope}.",
+        f"권하는 스킬: {', '.join(recommended_skills(bundle))}. 모두 load_skill로 먼저 읽는다.",
+    ]
+    if bundle.brief:
+        lines.append(
+            f"간략히 요청이다. summary는 {MAX_BRIEF_SUMMARY}자 이내 두 문장, 섹션 한두 개, 부품 셋까지만 쓴다. "
+            "영역마다 섹션을 두지 않아도 된다."
+        )
+    elif bundle.areas:
+        areas = ", ".join(f"{area.id}({area.label})" for area in bundle.areas)
+        lines.append(f"영역: {areas}. 영역마다 섹션을 하나씩 둔다.")
+    if bundle.targets:
+        lines.append(f"비교 대상: {', '.join(bundle.targets)}")
+    if bundle.focus:
+        lines.append(f"요청 관점: {bundle.focus}")
+    if len(bundle.stages) > 1 and bundle.kind is not ReportKind.FINAL:
+        lines.append(f"범위: {', '.join(stage.name for stage in bundle.stages)}")
+    if bundle.kind is not ReportKind.COMPARE and not bundle.brief and (found := hints(bundle)):
+        lines.append("이 묶음으로 그릴 수 있는 자료 (모두 부품으로 쓴다):")
+        lines += found
+    return "\n".join(lines)
+
+
+def hints(bundle: ReportBundle) -> list[str]:
+    """영역 밖에서 바로 그릴 수 있는 자료. 모델이 부품 종류를 고를 때 놓치지 않게 알려 준다."""
+    data = drawable(bundle)
+    lines = []
+    if data.flags:
+        shown = ", ".join(f"{key}({'/'.join(sorted(found))})" for key, found in data.flags.items())
+        lines.append(f"- 두 갈래 판정 {shown} → distribution split" + (", cross" if len(data.flags) > 1 else ""))
+    lines += [f"- 있음 · 없음 key {prefix}.* {len(keys)}개 → share" for prefix, keys in data.families.items()]
+    if data.groups:
+        shown = ", ".join(f"{group}({len(ids)}조각)" for group, ids in data.groups.items())
+        lines.append(f"- 조각 지표 group {shown} → donut, 구간이 같은 group 둘 이상이면 composition")
+    return lines

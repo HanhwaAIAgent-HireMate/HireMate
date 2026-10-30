@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hiremate_ai.agents.root.conversation import CONVERSATION_INVALID, review_conversation
 from hiremate_ai.agents.root.find import SearchQuery
+from hiremate_ai.agents.root.report import ANSWER_HINT, REPORT_HINT, asks_report, wants_report
 from hiremate_ai.agents.root.scope import Scope
 from hiremate_ai.agents.root.stages import DECISION_LABELS, STAGE_LABELS, STATUS_LABELS
 from hiremate_ai.agents.root.toolkit import candidate_ref
@@ -51,6 +52,9 @@ PLAN_SYSTEM = """[역할]
   면접관 메모를 반영하면 memos, 그 밖에는 none이다. 기존 AI 질문을 다시 만들거나 바꾸라고 하면 replace=true다.
 - conversation: 인사, 감사, 기능 안내, 말투 변경처럼 자료가 필요 없는 답. message에 짧게 답한다.
   message는 '~요'로 끝나는 존댓말로 쓰고, 앞 대화에서 말투를 바꿔 달라고 했으면 그 말투를 쓴다.
+- report: 리포트, 그래프, 차트, 한눈에 볼 정리 자료를 바라는 요청. 지원자 비교는 view=compare와 scope(2~5명),
+  전형 결과 리포트는 view=stage와 stage(현재 전형은 null, 바로 앞 전형은 '이전 전형')다.
+  리포트, 그래프, 정리 자료를 말하지 않은 '두 사람 비교해줘'는 answer다.
 - clarify: 요청, 화면, 앞 대화로도 정할 수 없는 것이 있을 때만 묻는다. 이미 정해진 조건은 다시 묻지 않는다.
 - blocked: 나이, 성별, 출신 지역, 혼인 여부, 신체 조건으로 찾거나 고르는 요청.
 - decision: 채용 결정의 실행 요청.
@@ -70,6 +74,8 @@ PLAN_SYSTEM = """[역할]
 - 멘션 C5, 체크 C2일 때 '이 사람 리더십 경험은?' → answer, scope.sources=[mentions].
 - '@봉지후 서류에서 애매한 부분으로 질문 새로 뽑아줘'
   → questions, checks=documents, replace=true, scope.sources=[mentions].
+- 체크 C2, C6일 때 '두 명 점수를 그래프로 보여줘' → report, view=compare, scope.sources=[checked].
+- '이전 전형 리포트 보여줘' → report, view=stage, stage='이전 전형'.
 - '이 사람 불합격 처리해' → decision."""
 
 
@@ -132,6 +138,21 @@ class EditPlan(Form):
     scope: Scope = Field(description="넣거나 뺄 지원자. 비우기와 되돌리기는 비운다")
 
 
+class ReportPlan(Form):
+    """리포트, 그래프, 차트, 한눈에 볼 정리 자료를 바랄 때만. 리포트를 말하지 않은 '비교해줘'는 answer다.
+
+    지원자 비교 리포트를 만들거나 전형 결과 리포트를 연다. 리포트 내용은 Report Agent가 쓴다.
+    """
+
+    view: Literal["compare", "stage"] = Field(description="지원자 비교는 compare, 전형 결과 리포트 보기는 stage")
+    scope: Scope = Field(description="compare의 비교 대상 지원자 2~5명. stage는 비운다")
+    stage: str | None = Field(
+        default=None, description="stage에서 볼 전형 이름. 현재 전형이면 null, 바로 앞 전형이면 '이전 전형'"
+    )
+    perspective: str = Field(default="", description="compare의 관점 (예: 협업). 없으면 빈 문자열")
+    brief: bool = Field(default=False, description="'간략히, 짧게, 요약만' 요청이면 true")
+
+
 class ConversationPlan(Form):
     """인사, 감사, 기능 안내, 말투 변경처럼 자료가 필요 없는 답."""
 
@@ -158,15 +179,26 @@ PLAN_FORMS: dict[str, type[Form]] = {
     "answer": AnswerPlan,
     "questions": QuestionsPlan,
     "edit": EditPlan,
+    "report": ReportPlan,
     "conversation": ConversationPlan,
     "clarify": ClarifyPlan,
     "blocked": BlockedPlan,
     "decision": DecisionPlan,
 }
 
-type PlanKind = Literal["find", "answer", "questions", "edit", "conversation", "clarify", "blocked", "decision"]
+type PlanKind = Literal[
+    "find", "answer", "questions", "edit", "report", "conversation", "clarify", "blocked", "decision"
+]
 type PlanForm = (
-    FindPlan | AnswerPlan | QuestionsPlan | EditPlan | ConversationPlan | ClarifyPlan | BlockedPlan | DecisionPlan
+    FindPlan
+    | AnswerPlan
+    | QuestionsPlan
+    | EditPlan
+    | ReportPlan
+    | ConversationPlan
+    | ClarifyPlan
+    | BlockedPlan
+    | DecisionPlan
 )
 
 
@@ -239,6 +271,13 @@ def check_plan(
         return NO_SCOPE
     if isinstance(form, QuestionsPlan) and form.scope.empty:
         return NO_SCOPE
+    if isinstance(form, ReportPlan) and form.view == "compare" and form.scope.empty:
+        return NO_SCOPE
+    # 리포트 · 그래프를 바라는 말이 분명한데 글 답을 골랐으면 한 번 다시 고르게 한다
+    if isinstance(form, AnswerPlan | ConversationPlan) and asks_report(context.message):
+        return REPORT_HINT
+    if isinstance(form, ReportPlan) and not wants_report(context.message):
+        return ANSWER_HINT
     if isinstance(form, ConversationPlan | ClarifyPlan) and not form.message.strip():
         return NO_MESSAGE
     return None

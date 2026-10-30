@@ -28,8 +28,16 @@ from hiremate_ai.agents.root.analysis import (
     run_analysis,
 )
 from hiremate_ai.agents.root.answer import readable
-from hiremate_ai.agents.root.handlers import Handled, handle_edit, handle_find, handle_questions, handle_reply, precheck
-from hiremate_ai.agents.root.plan import EditPlan, FindPlan, QuestionsPlan, make_plan
+from hiremate_ai.agents.root.handlers import (
+    Handled,
+    handle_edit,
+    handle_find,
+    handle_questions,
+    handle_reply,
+    handle_report,
+    precheck,
+)
+from hiremate_ai.agents.root.plan import EditPlan, FindPlan, QuestionsPlan, ReportPlan, make_plan
 from hiremate_ai.agents.root.progress import StepRecorder, writer_progress
 from hiremate_ai.agents.root.review import (
     NO_EVIDENCE,
@@ -128,7 +136,7 @@ def build_root_graph(
             return {"plan": checked, "kind": "ANSWER", "steps": progress.steps}
         return {"run": replace(run, plan=root_plan, rows=rows), "steps": progress.steps}
 
-    def after_plan(state: RootState) -> Literal["find", "edit", "questions", "analyze", "reply", "record"]:
+    def after_plan(state: RootState) -> Literal["find", "edit", "questions", "report", "analyze", "reply", "record"]:
         if state.get("plan") is not None:
             return "record"
         root_plan = _run(state).plan
@@ -139,6 +147,8 @@ def build_root_graph(
                 return "find"
             case "edit":
                 return "edit"
+            case "report":
+                return "report"
             case "questions":
                 form = root_plan.form
                 return "questions" if isinstance(form, QuestionsPlan) and form.checks == "none" else "analyze"
@@ -169,6 +179,11 @@ def build_root_graph(
         return _handled(
             handle_questions(runtime.context, _form(run, QuestionsPlan), run.rows), _progress(state, runtime)
         )
+
+    def report(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
+        run = _run(state)
+        handled = handle_report(runtime.context, _form(run, ReportPlan), run.rows)
+        return _handled(handled, _progress(state, runtime))
 
     def reply(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         root_plan = _run(state).plan
@@ -269,6 +284,7 @@ def build_root_graph(
     graph.add_node("find", find)
     graph.add_node("edit", edit)
     graph.add_node("questions", questions)
+    graph.add_node("report", report)
     graph.add_node("reply", reply)
     graph.add_node("analyze", analyze)
     graph.add_node("review", review)
@@ -277,7 +293,7 @@ def build_root_graph(
     graph.add_conditional_edges("guard", after_guard)
     graph.add_conditional_edges("plan", after_plan)
     graph.add_conditional_edges("analyze", after_analyze)
-    for node in ("find", "edit", "questions", "reply", "review"):
+    for node in ("find", "edit", "questions", "report", "reply", "review"):
         graph.add_edge(node, "record")
     graph.add_edge("record", END)
     return graph.compile(checkpointer=checkpointer)
