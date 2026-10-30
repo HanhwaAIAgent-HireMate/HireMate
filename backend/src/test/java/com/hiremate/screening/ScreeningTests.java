@@ -16,6 +16,7 @@ import com.hiremate.apply.QualificationStatus;
 import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
+import com.hiremate.interview.InterviewerRole;
 import java.math.BigDecimal;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -568,6 +569,12 @@ class ScreeningTests extends IntegrationTest {
         assertThat(prepared.questions().getFirst().text()).isEqualTo("1분 자기소개 부탁드립니다.");
         JsonNode pending = json(expect(hr.get("/api/stages/" + nextId), 200));
         assertThat(pending.path("status").asString()).isEqualTo("PENDING");
+        // 🎤 자기소개는 인사 담당으로 만들어지고, 면접 전(PENDING)에도 HR이 담당을 바꿀 수 있다
+        assertThat(prepared.questions().getFirst().interviewerRole()).isEqualTo(InterviewerRole.HR);
+        String rolePath = "/api/stages/" + nextId + "/interview/questions/"
+                + prepared.questions().getFirst().questionId() + "/role";
+        JsonNode reassigned = json(expect(hr.put(rolePath, Map.of("interviewerRole", "PRACTICAL")), 200));
+        assertThat(reassigned.path("questions").get(0).path("interviewerRole").asString()).isEqualTo("PRACTICAL");
         assertThat(pending.path("counts").path("total").asLong()).isZero();
         for (String rejected : stage.ids().subList(1, 3)) {
             assertThatThrownBy(() -> interviews.addPreparedQuestions(companyId, nextId,

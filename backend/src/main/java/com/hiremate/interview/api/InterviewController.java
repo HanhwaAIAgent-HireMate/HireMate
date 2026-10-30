@@ -3,14 +3,13 @@ package com.hiremate.interview.api;
 import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
-import com.hiremate.interview.QuestionSource;
+import com.hiremate.interview.InterviewerRole;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -42,8 +41,8 @@ public class InterviewController {
     @PostMapping("/candidates/{applicationId}/interview/questions")
     public InterviewView addQuestion(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID applicationId, @Valid @RequestBody QuestionRequest request) {
-        return interviews.addQuestions(member.companyId(), stageId, applicationId, List.of(request.text()),
-                QuestionSource.MANUAL);
+        return interviews.addManualQuestion(member.companyId(), stageId, applicationId, request.text(),
+                request.interviewerRole());
     }
 
     @PutMapping("/candidates/{applicationId}/interview/schedule")
@@ -60,13 +59,23 @@ public class InterviewController {
         return interviews.answer(member.companyId(), stageId, questionId, request.answer());
     }
 
+    @PutMapping("/interview/questions/{questionId}/role")
+    public InterviewView assignRole(AuthenticatedMember member, @PathVariable UUID stageId,
+            @PathVariable UUID questionId, @Valid @RequestBody RoleRequest request) {
+        return interviews.assignRole(member.companyId(), stageId, questionId, request.interviewerRole());
+    }
+
+    public record RoleRequest(@Schema(nullable = true) InterviewerRole interviewerRole) {
+    }
+
     @DeleteMapping("/interview/questions/{questionId}")
     public InterviewView delete(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID questionId) {
         return interviews.deleteQuestion(member.companyId(), stageId, questionId);
     }
 
-    public record QuestionRequest(@NotBlank @Size(max = 500) String text) {
+    public record QuestionRequest(@NotBlank @Size(max = 500) String text,
+            @Schema(nullable = true) InterviewerRole interviewerRole) {
     }
 
     public record AnswerRequest(@NotNull @Size(max = 5000) String answer) {

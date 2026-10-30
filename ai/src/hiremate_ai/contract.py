@@ -26,6 +26,11 @@ class ContractModel(BaseModel):
     )
 
 
+class InterviewerRole(StrEnum):
+    HR = "HR"
+    PRACTICAL = "PRACTICAL"
+
+
 class InterviewerMemo(ContractModel):
     """담당자의 면접 메모. 지원자의 발언이나 검증된 사실과 구분한다."""
 
@@ -56,6 +61,8 @@ class InterviewQuestion(ContractModel):
     source: QuestionSource
     answer: str
     reason: str | None = None
+    # 🎤 질문 담당 (HR 인사 · PRACTICAL 실무). 담당 칸이 생기기 전에 저장된 질문은 None
+    interviewer_role: InterviewerRole | None = None
 
 
 class PreviousInterview(ContractModel):

@@ -115,6 +115,15 @@ public class InterviewService {
         return view(companyId, stage, applicationId);
     }
 
+    @Transactional
+    public InterviewView addManualQuestion(UUID companyId, UUID stageId, UUID applicationId,
+            String text, InterviewerRole role) {
+        StageInfo stage = interviewStage(companyId, stageId, applicationId);
+        saveDrafts(companyId, stageId, applicationId,
+                List.of(new InterviewQuestionDraft(text, null, role)), QuestionSource.MANUAL);
+        return view(companyId, stage, applicationId);
+    }
+
     /** 확정 합격자의 다음 면접 질문을 저장한다. 면접 대상자 등록이나 전형 상태는 바꾸지 않는다. */
     @Transactional
     public void addPreparedQuestions(UUID companyId, UUID stageId, UUID applicationId, List<String> texts) {
@@ -152,16 +161,35 @@ public class InterviewService {
         Set<String> seen = existing.stream().map(InterviewQuestion::getText).collect(Collectors.toSet());
         if (source == QuestionSource.AI && seen.add(INTRO)) {
             questions.save(new InterviewQuestion(stageId, applicationId, companyId, 0, INTRO, source,
-                    "공통 질문: 모든 면접에서 지원자의 주요 경험과 지원 동기를 먼저 듣기 위한 자기소개입니다."));
+                    "공통 질문: 모든 면접에서 지원자의 주요 경험과 지원 동기를 먼저 듣기 위한 자기소개입니다.", InterviewerRole.HR));
         }
         int seq = existing.stream().mapToInt(InterviewQuestion::getSeq).max().orElse(0);
         for (InterviewQuestionDraft draft : drafts) {
             String trimmed = draft.text().strip();
             if (!trimmed.isEmpty() && seen.add(trimmed)) {
                 questions.save(new InterviewQuestion(stageId, applicationId, companyId, ++seq, trimmed, source,
-                        draft.reason()));
+                        draft.reason(), draft.interviewerRole()));
             }
         }
+    }
+
+    /**
+     * 🎤 질문 담당(인사 · 실무)을 바꾼다.
+     *
+     * <p>담당은 면접 전에 정하는 일이라 시작 전(PENDING) 전형에 미리 만든 질문도 바꿀 수 있다.
+     * 시작 전 전형의 지원자는 아직 그 전형에 등록되지 않았으므로 preparationStage로 "이전 전형 합격자"인지 확인한다.
+     * 결과를 확정(CONFIRMED)했거나 끝난(DONE) 면접은 기록이 바뀌지 않게 막는다.
+     */
+    @Transactional
+    public InterviewView assignRole(UUID companyId, UUID stageId, UUID questionId, InterviewerRole role) {
+        InterviewQuestion question = question(companyId, stageId, questionId);
+        StageInfo stage = preparationStage(companyId, stageId, question.getApplicationId());
+        if (stage.status() != StageStatus.PENDING && stage.status() != StageStatus.ACTIVE) {
+            throw new ApiException(HttpStatus.CONFLICT, "STAGE_CLOSED",
+                    "Roles can only be assigned before or during the interview.");
+        }
+        question.assignRole(role);
+        return view(companyId, stage, question.getApplicationId());
     }
 
     @Transactional
@@ -273,7 +301,7 @@ public class InterviewService {
                 .map(question -> new InterviewView.Question(question.getId(),
                         question.getText().replaceFirst("^([\"“]?)" + Pattern.quote(name) + "\\s*[|｜]\\s*", "$1"),
                         question.getSource(),
-                        question.getAnswer(), question.getReason()))
+                        question.getAnswer(), question.getReason(), question.getInterviewerRole()))
                 .toList();
     }
 }

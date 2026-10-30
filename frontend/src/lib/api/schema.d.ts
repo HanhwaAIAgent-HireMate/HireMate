@@ -36,6 +36,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/interview/questions/{questionId}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["assignRole"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/interview/questions/{questionId}/answer": {
         parameters: {
             query?: never;
@@ -1370,8 +1386,9 @@ export interface components {
             preparation: string;
             note: string;
         };
-        AnswerRequest: {
-            answer: string;
+        RoleRequest: {
+            /** @enum {string|null} */
+            interviewerRole: "HR" | "PRACTICAL" | null;
         };
         InterviewView: {
             /** Format: uuid */
@@ -1396,11 +1413,16 @@ export interface components {
             source: "AI" | "MANUAL";
             answer: string;
             reason: string | null;
+            /** @enum {string|null} */
+            interviewerRole: "HR" | "PRACTICAL" | null;
         };
         Schedule: {
             /** Format: date-time */
             scheduledAt: string | null;
             interviewers: string;
+        };
+        AnswerRequest: {
+            answer: string;
         };
         StageGuideRequest: {
             /** Format: date */
@@ -1771,6 +1793,8 @@ export interface components {
         };
         QuestionRequest: {
             text: string;
+            /** @enum {string|null} */
+            interviewerRole: "HR" | "PRACTICAL" | null;
         };
         TablePreview: {
             fileName: string;
@@ -2248,8 +2272,8 @@ export interface components {
             icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         CsrfToken: {
-            parameterName: string;
             token: string;
+            parameterName: string;
             headerName: string;
         };
         CsrfResponse: {
@@ -2316,6 +2340,33 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["NoticeView"];
+                };
+            };
+        };
+    };
+    assignRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                questionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
                 };
             };
         };

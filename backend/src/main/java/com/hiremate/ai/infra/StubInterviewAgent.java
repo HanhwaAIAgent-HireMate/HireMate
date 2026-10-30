@@ -8,10 +8,14 @@ import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewView;
+import com.hiremate.interview.InterviewerRole;
 import com.hiremate.posting.PostingContent;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Component;
@@ -32,6 +36,7 @@ class StubInterviewAgent implements InterviewAgent {
             InterviewView interview, CompanyProfile company, String focus,
             Integer questionCount) {
         Set<String> questions = new LinkedHashSet<>();
+        Map<String, InterviewerRole> roles = new HashMap<>();
         String scope = focus == null ? "" : focus;
         boolean onlyUnchecked = scope.contains("확인 안") || scope.contains("아직");
         if (scope.contains("프로젝트")) {
@@ -40,19 +45,26 @@ class StubInterviewAgent implements InterviewAgent {
         for (InterviewView.PreviousInterview previous : interview.previous()) {
             for (InterviewView.Question question : previous.questions()) {
                 if (question.answer().strip().length() < SHORT_ANSWER) {
-                    questions.add(previous.stageName() + "에서 충분히 확인하지 못한 \"" + shorten(question.text())
-                            + "\"을 조금 더 구체적으로 이야기해 주세요.");
+                    String followUp = previous.stageName() + "에서 충분히 확인하지 못한 \"" + shorten(question.text())
+                            + "\"을 조금 더 구체적으로 이야기해 주세요.";
+                    questions.add(followUp);
+                    // 🎤 후속 질문은 원래 질문의 담당이 잇는다. 원래 담당이 비어 있으면 실무 (AI 워커와 같은 규칙)
+                    //   null을 그대로 넣으면 아래 getOrDefault가 기본값 대신 null을 돌려준다
+                    roles.put(followUp,
+                            Objects.requireNonNullElse(question.interviewerRole(), InterviewerRole.PRACTICAL));
                 }
             }
         }
         if (scope.contains("협업")) {
             questions.add("동료와 의견이 달랐을 때 어떻게 조율했는지 사례로 말씀해 주세요.");
+            roles.put("동료와 의견이 달랐을 때 어떻게 조율했는지 사례로 말씀해 주세요.", InterviewerRole.HR);
         }
         if (scope.contains("리더") || onlyUnchecked) {
             questions.add("팀의 기술 방향을 정할 때 동료를 설득한 경험이 있나요?");
         }
         if (scope.contains("커리어") || scope.contains("성장") || onlyUnchecked) {
             questions.add("3년 뒤 우리 팀에서 하고 싶은 일은 무엇인가요?");
+            roles.put("3년 뒤 우리 팀에서 하고 싶은 일은 무엇인가요?", InterviewerRole.HR);
         }
         if (!onlyUnchecked) {
             analysis.notable().stream().filter(found -> !documentHeader(found.text(), applicant.info().name()))
@@ -79,12 +91,16 @@ class StubInterviewAgent implements InterviewAgent {
                 }
             }
             core.add("동료의 피드백을 반영해 일하는 방식을 바꾼 경험이 있다면 말해 주세요.");
+            roles.put("동료의 피드백을 반영해 일하는 방식을 바꾼 경험이 있다면 말해 주세요.", InterviewerRole.HR);
             core.add("이 회사와 직무에 지원한 이유와 입사 후 하고 싶은 일을 말해 주세요.");
+            roles.put("이 회사와 직무에 지원한 이유와 입사 후 하고 싶은 일을 말해 주세요.", InterviewerRole.HR);
             return core.stream().map(text -> new InterviewQuestionDraft(text,
-                    "개발용 기본 질문입니다. 실제 모델의 생성 근거가 아닙니다.")).toList();
+                    "개발용 기본 질문입니다. 실제 모델의 생성 근거가 아닙니다.",
+                        roles.getOrDefault(text, InterviewerRole.PRACTICAL))).toList();
         }
         return fresh.stream().limit(questionCount == null ? 3 : questionCount)
-                .map(text -> new InterviewQuestionDraft(text, "개발용 기본 질문입니다. 실제 모델의 생성 근거가 아닙니다."))
+                .map(text -> new InterviewQuestionDraft(text, "개발용 기본 질문입니다. 실제 모델의 생성 근거가 아닙니다.",
+                        roles.getOrDefault(text, InterviewerRole.PRACTICAL)))
                 .toList();
     }
 

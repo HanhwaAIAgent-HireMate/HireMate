@@ -77,6 +77,21 @@ class RootFocusChatTests extends IntegrationTest {
         assertThat(chat.path("items").get(0).path("text").asString()).isEqualTo("자기소개서의 협업 사례를 실제 역할로 확인");
         JsonNode card = json(expect(hr.get(interview + "/candidates/" + id + "/interview"), 200));
         assertThat(card.path("questions").toString()).contains("동료와 의견이 달랐을 때");
+        JsonNode manual = json(expect(hr.post(interview + "/candidates/" + id + "/interview/questions",
+                Map.of("text", "직접 추가한 인사 질문", "interviewerRole", "HR")), 200));
+        assertThat(manual.path("questions").toString()).contains("직접 추가한 인사 질문");
+        assertThat(manual.path("questions").get(manual.path("questions").size() - 1)
+                .path("interviewerRole").asString()).isEqualTo("HR");
+        String questionId = card.path("questions").get(0).path("questionId").asString();
+        String rolePath = interview + "/interview/questions/" + questionId + "/role";
+        expect(hr.put(rolePath, Map.of("interviewerRole", "PRACTICAL")), 200);
+        JsonNode assigned = json(expect(hr.get(interview + "/candidates/" + id + "/interview"), 200));
+        assertThat(assigned.path("questions").get(0).path("interviewerRole").asString()).isEqualTo("PRACTICAL");
+        expect(hr.put(rolePath, Map.of("interviewerRole", "UNKNOWN")), 400);
+        expect(newHr().put(rolePath, Map.of("interviewerRole", "HR")), 404);
+        expect(hr.put(rolePath, java.util.Collections.singletonMap("interviewerRole", null)), 200);
+        JsonNode cleared = json(expect(hr.get(interview + "/candidates/" + id + "/interview"), 200));
+        assertThat(cleared.path("questions").get(0).path("interviewerRole").isNull()).isTrue();
         ArgumentCaptor<ChatContext> sent = ArgumentCaptor.forClass(ChatContext.class);
         verify(root, atLeastOnce()).plan(sent.capture(), any());
         assertThat(sent.getValue().interviews()).containsKey(id);

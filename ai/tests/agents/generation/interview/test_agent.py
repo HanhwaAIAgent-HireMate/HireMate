@@ -21,6 +21,7 @@ from hiremate_ai.agents.generation.interview.agent import (
     CONCEPT,
     FACT,
     FINAL_SLOTS,
+    HR_STRENGTH,
     INTRO,
     NOTABLE,
     OVERCLAIM,
@@ -188,11 +189,12 @@ async def test_required_experience_and_concept_have_separate_slots(
         focus=None,
     )
 
-    assert len(questions) == 4
+    assert len(questions) == 5  # 🎤 + 1차 인사 질문 1개 (10/30)
     assert questions[0] == INTRO  # 맨 앞은 1분 자기소개 ('공통' 표시 없이 일반 질문)
     assert "Spring Boot와 MySQL" in questions[1]  # 🎤 자기소개 다음에는 실제 지원자 경험부터
     assert "있다면" in questions[2]  # 그다음 필수 조건 근거 없음 빈틈 (경험이 있다고 전제하지 않음)
-    assert "원리" in questions[-1]  # 개념·적용 판단도 별도 자리
+    assert "원리" in questions[3]  # 개념·적용 판단도 별도 자리
+    assert questions[4] == HR_STRENGTH  # 🎤 맨 뒤는 인사 질문 (신입 · 서류에 어려움 · 성장 문장 없음 → 기본 질문)
     [call] = llm.calls
     assert "필수 조건 근거 없음" in call.user
     assert "free_pick: 요청하지 않음" in call.user
@@ -271,6 +273,7 @@ async def test_previous_unconfirmed_answer_becomes_follow_up(
         {"results": [{"no": 1, "status": "NOT_CONFIRMED", "unconfirmed": ["취소 API를 설계한 본인 판단"]}]}
     )
     llm = FakeLlm(answers, draft)
+    drafts: list[InterviewQuestionDraft] = []
 
     questions = await generate_questions(
         llm,
@@ -279,9 +282,16 @@ async def test_previous_unconfirmed_answer_becomes_follow_up(
         analysis=newcomer_analysis,
         interview=view(first),
         focus=None,
+        drafts=drafts,
     )
 
     assert [call.output.__name__ for call in llm.calls] == ["AnswerReading", "QuestionDraft"]
+    # 🎤 자기소개는 인사, 담당이 비어 있던 1차 질문의 후속 질문은 실무가 묻는다
+    assert drafts[0].interviewer_role == "HR"
+    assert drafts[1].interviewer_role == "PRACTICAL"
+    assert all(item.interviewer_role is not None for item in drafts)
+    # 🎤 최종면접 네 자리(인성 · 조직 적응 · 리더십 · 진정성)는 모두 인사가 묻는다
+    assert [item.interviewer_role for item in drafts[2:]] == ["HR"] * len(FINAL_SLOTS)
     gap_lines = [line for line in llm.calls[1].user.splitlines() if "gap_id: " in line]
     assert "이전 면접에서 확인 안 됨" in gap_lines[0]
     assert "취소 API를 설계한 본인 판단" in gap_lines[0]
@@ -371,7 +381,7 @@ async def test_questions_route(
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert len(response.json()) == 4  # 1분 자기소개 + 3개
+    assert len(response.json()) == 5  # 1분 자기소개 + 실무 3개 + 인사 1개 (10/30)
 
 
 def test_similar_ignores_shared_template_wording() -> None:
@@ -748,7 +758,7 @@ async def test_intro_is_not_added_twice(
     )
 
     assert INTRO not in questions
-    assert len(questions) == 3
+    assert len(questions) == 4  # 🎤 + 1차 인사 질문 1개 (10/30)
 
 
 async def test_previous_intro_is_not_followed_up_and_intro_comes_again(
@@ -1084,7 +1094,7 @@ async def test_detailed_review_is_used_instead_of_the_summary(
         review=newcomer_review(applicant),
     )
 
-    assert len(questions) == 4
+    assert len(questions) == 5  # 🎤 + 1차 인사 질문 1개 (10/30)
     assert "부분 충족 — 취소 API" in llm.calls[0].user
     assert "경력 없음" not in llm.calls[0].user
     assert SDK in llm.calls[0].user  # 확인 메모가 경험 자리를 밀어내지 않는다.
@@ -1297,7 +1307,7 @@ async def test_no_experience_uses_explicit_situations_without_inventing_projects
     questions = await generate_questions(
         llm, applicant=applicant, posting=sample_posting, analysis=analysis, interview=view(), focus=None
     )
-    assert len(questions) == 4 and questions[0] == INTRO
+    assert len(questions) == 5 and questions[0] == INTRO  # 🎤 + 1차 인사 질문 1개 (10/30)
     assert any("원리" in text for text in questions[1:])
     assert sum("한다면" in text for text in questions) == 2
     assert all("적어 주셨" not in text and "하셨" not in text for text in questions)
@@ -1376,7 +1386,7 @@ def test_same_purpose_is_not_restored_by_fallback(
     state["kept"], state["redundant"] = validated["kept"], validated["redundant"]
     assert state["redundant"] == ["G2"]
     result = finalize(state)["result"]
-    assert len(result) == 2  # 최소 개수 때문에 같은 질문을 복원하지 않는다.
+    assert len(result) == 3  # 최소 개수 때문에 같은 질문을 복원하지 않는다. (+ 인사 질문 1개)
     assert not any("파티션 키" in question for question in result)
 
 
@@ -1399,7 +1409,7 @@ async def test_unknown_career_survives_safe_fallback_as_fact_check(
         focus=None,
         review=review,
     )
-    assert 3 <= len(questions) <= 4  # 원문의 기술 소재를 검증했을 때만 개념 기본 질문을 허용한다.
+    assert 4 <= len(questions) <= 5  # 원문의 기술 소재를 검증했을 때만 개념 기본 질문을 허용한다. (+ 인사 1개)
     assert "경력" in questions[2] and "확인할 자료" in questions[2]  # 0번 자기소개, 1번 경험
     assert "3년 이상" not in questions[2] and "원리" not in questions[2]
     assert all("결혼" not in question for question in questions)
@@ -1623,7 +1633,7 @@ def test_broad_reasoning_is_retried_and_never_restored_as_template(
     result = finalize(state)["result"]
     assert not any("중요한 원리 하나" in text for text in result)
     # 🎤 주제를 지원자에게 고르게 한 질문은 버리고, 개수를 맞추려고 고른 공고 주제로 판단 기준을 묻는다
-    assert len(result) == 2 and "계좌 API" in result[1] and "기준" in result[1]
+    assert len(result) == 3 and "계좌 API" in result[1] and "기준" in result[1]  # 🎤 + 1차 인사 질문 1개 (10/30)
 
 
 def test_reasoning_same_objective_is_rejected_even_when_mode_differs(
@@ -2364,7 +2374,8 @@ async def test_style_repair_preserves_yang_material_and_accepts_the_fixed_fourth
     state["llm"] = FakeLlm(QuestionDraft(questions=[fixed]))
     result = await write(state)
     state["kept"] = result["kept"]
-    assert set(state["kept"]) == {"G1", "G2", "G3"} and len(finalize(state)["result"]) == 4
+    # 🎤 + 1차 인사 질문 1개 (10/30)
+    assert set(state["kept"]) == {"G1", "G2", "G3"} and len(finalize(state)["result"]) == 5
 
 
 def test_retry_uses_valid_fallbacks_even_when_no_model_question_was_kept(
@@ -3425,8 +3436,8 @@ def test_first_round_is_filled_to_three_from_reserve_when_model_questions_fail(
     state["balanced"] = True
     state["redundant"] = [gap.gap_id for gap in state["gaps"]]  # 모델 질문이 모두 쓸 수 없게 된 경우
     result = finalize(state)["result"]
-    assert result[0] == INTRO and len(result) == 4
-    assert len(set(result)) == 4
+    assert result[0] == INTRO and len(result) == 5  # 🎤 + 1차 인사 질문 1개 (10/30)
+    assert len(set(result)) == 5
 
 
 def test_task_topic_reads_naturally_before_the_word_work() -> None:
@@ -3485,6 +3496,7 @@ async def test_single_interview_combines_core_with_culture_and_motivation(
     assert any("피드백" in text or "협업" in text for text in questions[4:])
     assert any("지원" in text or "직무를 고르게" in text for text in questions[4:])
     assert all(item.reason for item in drafts)
+    assert [item.interviewer_role for item in drafts] == ["HR", "PRACTICAL", "PRACTICAL", "PRACTICAL", "HR", "HR"]
     assert all("지난 면접" not in text for text in questions)
     slot_calls = [call for call in llm.calls if "slot_picks: 요청함" in call.user]
     assert slot_calls

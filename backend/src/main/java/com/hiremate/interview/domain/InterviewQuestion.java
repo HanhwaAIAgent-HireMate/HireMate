@@ -1,5 +1,6 @@
 package com.hiremate.interview.domain;
 
+import com.hiremate.interview.InterviewerRole;
 import com.hiremate.interview.QuestionSource;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -47,6 +48,10 @@ public class InterviewQuestion {
     @Column(columnDefinition = "text")
     private String reason;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private InterviewerRole interviewerRole;
+
     @Column(nullable = false)
     private Instant updatedAt;
 
@@ -57,6 +62,12 @@ public class InterviewQuestion {
 
     public InterviewQuestion(UUID stageId, UUID applicationId, UUID companyId, int seq, String text,
             QuestionSource source, String reason) {
+        this(stageId, applicationId, companyId, seq, text, source, reason, null);
+    }
+
+    public InterviewQuestion(UUID stageId, UUID applicationId, UUID companyId, int seq, String text,
+            QuestionSource source, String reason, InterviewerRole interviewerRole) {
+        this.interviewerRole = interviewerRole;
         this.id = UUID.randomUUID();
         this.stageId = stageId;
         this.applicationId = applicationId;
@@ -65,6 +76,11 @@ public class InterviewQuestion {
         this.text = text;
         this.source = source;
         this.reason = reason;
+        this.updatedAt = Instant.now();
+    }
+
+    public void assignRole(InterviewerRole role) {
+        this.interviewerRole = role;
         this.updatedAt = Instant.now();
     }
 

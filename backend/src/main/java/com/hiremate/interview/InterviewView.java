@@ -19,7 +19,12 @@ public record InterviewView(UUID applicationId, @Schema(nullable = true) Schedul
     }
 
     public record Question(UUID questionId, String text, QuestionSource source, String answer,
-            @Schema(nullable = true) String reason) {
+            @Schema(nullable = true) String reason,
+            @Schema(nullable = true) InterviewerRole interviewerRole) {
+
+        public Question(UUID questionId, String text, QuestionSource source, String answer, String reason) {
+            this(questionId, text, source, answer, reason, null);
+        }
 
         public Question(UUID questionId, String text, QuestionSource source, String answer) {
             this(questionId, text, source, answer, null);
