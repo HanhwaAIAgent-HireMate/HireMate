@@ -66,6 +66,7 @@ from hiremate_ai.contract import (
     CriterionType,
     DocumentType,
     InterviewerMemo,
+    InterviewView,
     PostingContent,
     Verdict,
 )
@@ -73,7 +74,6 @@ from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 if TYPE_CHECKING:
-    from hiremate_ai.agents.generation.interview.router import InterviewView
     from hiremate_ai.llm.client import LlmClient
 
 logger = logging.getLogger(__name__)
@@ -409,14 +409,14 @@ class Gap:
 
 
 class State(TypedDict, total=False):
-    """그래프 상태. LangGraph가 실행 중에 타입 힌트를 읽으므로, 순환 import가 생기는 두 칸은 Any로 둔다."""
+    """그래프 상태. LangGraph가 실행 중에 타입 힌트를 읽으므로, 순환 import가 생기는 칸은 Any로 둔다."""
 
     llm: Any  # LlmClient
     applicant: ApplicantDetail
     posting: PostingContent
     analysis: CandidateAnalysis
     review: Any  # ApplicationReview | None: 서류 전형 Agent의 상세 판정 (없으면 analysis 요약으로)
-    interview: Any  # InterviewView (router.py에 있어 여기서 import하면 순환)
+    interview: InterviewView
     focus: str
     question_count: int | None  # Chat 추가 목표 개수. 최초 자동 생성은 None
     additional: bool

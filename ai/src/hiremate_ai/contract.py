@@ -34,6 +34,49 @@ class InterviewerMemo(ContractModel):
     text: str
 
 
+class QuestionSource(StrEnum):
+    """면접 질문을 만든 쪽 (interview.QuestionSource)."""
+
+    AI = "AI"
+    MANUAL = "MANUAL"
+
+
+class InterviewSchedule(ContractModel):
+    """면접 일정 (InterviewView.Schedule)."""
+
+    scheduled_at: datetime | None
+    interviewers: str
+
+
+class InterviewQuestion(ContractModel):
+    """면접 질문 하나와 기록한 답변 (InterviewView.Question). 답변이 없으면 빈 문자열이다."""
+
+    question_id: UUID
+    text: str
+    source: QuestionSource
+    answer: str
+    reason: str | None = None
+
+
+class PreviousInterview(ContractModel):
+    """이전 면접 전형의 질문과 답변 (InterviewView.PreviousInterview)."""
+
+    stage_id: UUID
+    stage_name: str
+    schedule: InterviewSchedule | None
+    questions: list[InterviewQuestion]
+
+
+class InterviewView(ContractModel):
+    """면접 전형 지원자 카드의 면접 기록 (interview.InterviewView). Root Agent와 면접 Agent가 같이 쓴다."""
+
+    application_id: UUID
+    schedule: InterviewSchedule | None
+    questions: list[InterviewQuestion]
+    previous: list[PreviousInterview]
+    single_interview: bool = False
+
+
 class DocumentType(StrEnum):
     """지원서 제출 항목 (posting.DocumentType)."""
 

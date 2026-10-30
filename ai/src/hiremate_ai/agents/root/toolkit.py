@@ -29,8 +29,8 @@ from hiremate_ai.agents.root.ledger import (
 )
 from hiremate_ai.agents.root.stages import StageData, not_yet, stage_data, stage_plan
 from hiremate_ai.agents.root.turns import Turn, verified_turn_items
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, InterviewQuestion, StageStatus
-from hiremate_ai.contract import StageType
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, StageStatus
+from hiremate_ai.contract import InterviewQuestion, StageType
 from hiremate_ai.db.analysis_store import AnalysisArtifactReader, DbAnalysisArtifacts
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.session import session_factory

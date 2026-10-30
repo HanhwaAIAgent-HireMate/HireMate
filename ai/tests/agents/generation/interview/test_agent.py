@@ -54,12 +54,6 @@ from hiremate_ai.agents.generation.interview.agent import (
     review_gaps,
     summary_gaps,
 )
-from hiremate_ai.agents.generation.interview.router import (
-    InterviewQuestion,
-    InterviewView,
-    PreviousInterview,
-    QuestionSource,
-)
 from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.contract import (
     ApplicantDetail,
@@ -70,8 +64,12 @@ from hiremate_ai.contract import (
     CriterionType,
     DocumentType,
     Finding,
+    InterviewQuestion,
+    InterviewView,
     PostingContent,
+    PreviousInterview,
     QualificationStatus,
+    QuestionSource,
     ScoreStatus,
     Verdict,
 )

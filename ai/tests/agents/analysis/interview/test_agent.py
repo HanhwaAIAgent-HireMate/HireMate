@@ -10,7 +10,7 @@ from hiremate_ai.agents.analysis.interview.agent import (
     AnswerReading,
     analyze_answers,
 )
-from hiremate_ai.agents.generation.interview.router import InterviewQuestion, InterviewView, QuestionSource
+from hiremate_ai.contract import InterviewQuestion, InterviewView, QuestionSource
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.main import app

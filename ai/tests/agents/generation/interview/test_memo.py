@@ -3,8 +3,14 @@ from uuid import uuid4
 import pytest
 
 from hiremate_ai.agents.generation.interview.agent import MemoQuestion, _memo_question
-from hiremate_ai.agents.root.types import InterviewQuestion, InterviewView, PreviousInterview, QuestionSource
-from hiremate_ai.contract import InterviewerMemo, PostingContent
+from hiremate_ai.contract import (
+    InterviewerMemo,
+    InterviewQuestion,
+    InterviewView,
+    PostingContent,
+    PreviousInterview,
+    QuestionSource,
+)
 from hiremate_ai.llm.fake import FakeLlm
 
 

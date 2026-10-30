@@ -35,13 +35,16 @@ from hiremate_ai.agents.root.toolkit import (
     turns_block,
 )
 from hiremate_ai.agents.root.turns import Turn, TurnItem
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext, InterviewQuestion, InterviewView, QuestionSource
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext
 from hiremate_ai.contract import (
     ApplicantDetail,
     CompanyProfile,
     DocumentType,
     InterviewerMemo,
+    InterviewQuestion,
+    InterviewView,
     PostingContent,
+    QuestionSource,
     StageType,
 )
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
