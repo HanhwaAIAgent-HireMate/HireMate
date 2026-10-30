@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hiremate_ai.agents.generation.communication.checks import problems, tidy
-from hiremate_ai.agents.generation.communication.writer import NoticeBody
+from hiremate_ai.agents.generation.communication.writer import _DRAFT_EXAMPLES, _REVISION_EXAMPLES, NoticeBody
 from hiremate_ai.api.communication import router
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
@@ -45,9 +45,22 @@ def test_write_returns_draft_from_model() -> None:
     assert "예시 기업" in call.user
     assert "다음 전형: 1차 면접" in call.user
     assert "HR 요청" not in call.user
-    assert "서류 전형에 합격하셨음을 알려드리며" in call.user
-    assert call.user.endswith("다음 전형은 1차 면접입니다.")
+    assert "[예시 1] 이번 전형: 서류 전형 / 다음 전형: 1차 면접" in call.user
+    assert "[예시 2] 이번 전형: 코딩 테스트 / 다음 전형: 직무 면접" in call.user
+    assert call.user.endswith("면접 전형에서 뵙기를 기대하겠습니다.")
     assert "별도로" not in call.user
+
+
+def test_write_shows_only_examples_of_the_same_kind() -> None:
+    llm = FakeLlm(NoticeBody(content="최종 합격하셨음을 알려드립니다."))
+
+    client(llm).post("/agents/communication/write", json={"notice": notice(templateType="FINAL_PASS"), "request": None})
+
+    user = llm.calls[0].user
+    assert "[예시 1] 이번 전형: 최종 면접\n" in user
+    assert "[예시 2] 이번 전형: 임원 면접\n" in user
+    assert "다음 전형은" not in user
+    assert "불합격" not in user
 
 
 def test_write_does_not_send_next_stage_for_rejection() -> None:
@@ -56,19 +69,23 @@ def test_write_does_not_send_next_stage_for_rejection() -> None:
     client(llm).post("/agents/communication/write", json={"notice": notice(templateType="REJECT"), "request": None})
 
     assert "불합격 안내" in llm.calls[0].user
-    assert "1차 면접" not in llm.calls[0].user
+    assert "다음 전형:" not in llm.calls[0].user
+    assert "다음 전형은" not in llm.calls[0].user
 
 
-def test_rejection_examples_start_with_the_result_not_thanks() -> None:
-    """양식의 인사말에 지원 감사가 있어, 예시 본문이 감사 인사로 시작하면 메일에 감사가 겹친다."""
-    for template in ("REJECT", "FINAL_REJECT"):
-        llm = FakeLlm(NoticeBody(content="결과를 알려드립니다."))
+def test_examples_keep_the_writing_rules() -> None:
+    """모델은 예시를 따라 쓴다. 예시가 검사에 걸리는 말(평가, 날짜, 나중 안내)을 쓰면 모델도 따라 써서 다시 쓰게 된다.
 
-        client(llm).post("/agents/communication/write", json={"notice": notice(templateType=template), "request": None})
+    양식의 인사말에 이름과 지원 감사가 있어, 예시는 결과부터 쓰고 "지원자님"처럼 부르지 않는다.
+    """
+    bodies = [example.content for examples in _DRAFT_EXAMPLES.values() for example in examples]
+    bodies += [example.revised for example in _REVISION_EXAMPLES]
 
-        example = llm.calls[0].user.split("예시 본문 (이 말투, 길이, 문단 나누기를 따른다):\n")[1]
-        assert example.startswith("아쉽게도 서류 전형 결과")
-        assert "지원해 주셔서" not in example
+    for body in bodies:
+        assert tidy(body) == body
+        assert problems(body, "") == []
+        assert not body.startswith(("감사", "지원해 주셔서"))
+        assert "지원자님" not in body
 
 
 def test_write_sends_current_content_and_request_when_revising() -> None:
@@ -80,9 +97,44 @@ def test_write_sends_current_content_and_request_when_revising() -> None:
     )
 
     assert response.json() == {"reply": "요청하신 대로 고쳤어요.", "content": "고친 본문"}
-    assert "지금 본문입니다." in llm.calls[0].user
-    assert "HR 요청: 더 따뜻하게 써 줘" in llm.calls[0].user
-    assert "예시 본문" not in llm.calls[0].user
+    user = llm.calls[0].user
+    assert "예시 본문" not in user
+    assert "HR 요청: 떨어진 이유도 써 주고, 조금 더 따뜻하게" in user
+    assert "HR 요청: 면접 날짜도 넣어 줘" in user
+    assert "skipped: SCHEDULE" in user
+    # 예시 뒤에 이번에 고칠 본문과 요청이 온다
+    assert (
+        user.index("[예시 4]") < user.index("지금 본문:\n지금 본문입니다.") < user.index("HR 요청: 더 따뜻하게 써 줘")
+    )
+
+
+def test_revised_reply_tells_why_a_request_was_skipped() -> None:
+    """일정이나 불합격 사유를 넣지 않았는데 "요청하신 대로 고쳤어요"라고 하면 HR이 반영된 줄 안다."""
+    cases = [
+        ("NEXT_STAGE", ["SCHEDULE"], "전형별 안내에 입력하면"),
+        ("FINAL_PASS", ["SCHEDULE"], "입사 안내에 입력하면"),
+        ("REJECT", ["EVALUATION", "EVALUATION"], "불합격 사유, 점수, 평가 내용은 메일에 쓰지 않아서 넣지 않았어요."),
+    ]
+    for template, skipped, expected in cases:
+        llm = FakeLlm(NoticeBody(content="지금 본문입니다.", skipped=skipped))
+
+        response = client(llm).post(
+            "/agents/communication/write",
+            json={"notice": notice(templateType=template, content="지금 본문입니다."), "request": "날짜도 넣어 줘"},
+        )
+
+        reply = response.json()["reply"]
+        assert expected in reply
+        assert "고쳤어요" not in reply
+        assert reply.count("넣지 않았어요") == 1
+
+
+def test_first_draft_ignores_skipped() -> None:
+    llm = FakeLlm(NoticeBody(content="서류 전형에 합격하셨습니다.", skipped=["SCHEDULE"]))
+
+    response = client(llm).post("/agents/communication/write", json={"notice": notice(), "request": None})
+
+    assert response.json()["reply"] == "초안을 만들었어요."
 
 
 def test_write_rejects_unknown_template_type() -> None:
