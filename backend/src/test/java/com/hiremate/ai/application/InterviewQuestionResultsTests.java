@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.job.JobResult;
@@ -55,7 +54,7 @@ class InterviewQuestionResultsTests {
         try (var context = context()) {
             context.getBean(JobResultPublisher.class).publish(result(JobStatus.FAILED));
 
-            verifyNoInteractions(interviews);
+            verify(interviews).finishPreparing(companyId, stageId, applicationId);
         }
     }
 

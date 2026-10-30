@@ -2,6 +2,8 @@ package com.hiremate.interview;
 
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.global.ApiException;
+import com.hiremate.interview.domain.InterviewPreparation;
+import com.hiremate.interview.domain.InterviewPreparationRepository;
 import com.hiremate.interview.domain.InterviewQuestion;
 import com.hiremate.interview.domain.InterviewQuestionRepository;
 import com.hiremate.interview.domain.InterviewSchedule;
@@ -37,6 +39,7 @@ public class InterviewService {
 
     private final InterviewQuestionRepository questions;
     private final InterviewScheduleRepository schedules;
+    private final InterviewPreparationRepository preparations;
     private final RecruitService recruits;
     private final ScreeningService screening;
     private final ApplicationEventPublisher events;
@@ -44,13 +47,14 @@ public class InterviewService {
 
     public InterviewService(InterviewQuestionRepository questions, InterviewScheduleRepository schedules,
             RecruitService recruits, ScreeningService screening, ApplicationEventPublisher events,
-            ApplicationService applications) {
+            ApplicationService applications, InterviewPreparationRepository preparations) {
         this.questions = questions;
         this.schedules = schedules;
         this.recruits = recruits;
         this.screening = screening;
         this.events = events;
         this.applications = applications;
+        this.preparations = preparations;
     }
 
     @Transactional(readOnly = true)
@@ -75,13 +79,31 @@ public class InterviewService {
                         toSchedule(scheduleByStage.get(other.id())), toQuestions(byStage.get(other.id()), name)))
                 .toList();
         return new InterviewView(applicationId, toSchedule(scheduleByStage.get(stageId)),
-                toQuestions(byStage.getOrDefault(stageId, List.of()), name), previous);
+                toQuestions(byStage.getOrDefault(stageId, List.of()), name), previous,
+                recruitment.stages().stream().filter(other -> other.type() == StageType.INTERVIEW).count() == 1);
     }
 
     /** 시작 전인 다음 면접의 자료. 바로 앞 전형에서 합격이 확정된 지원자만 준비할 수 있다. */
     @Transactional(readOnly = true)
     public InterviewView preparationView(UUID companyId, UUID stageId, UUID applicationId) {
         return view(companyId, preparationStage(companyId, stageId, applicationId), applicationId);
+    }
+
+    /** 대기열 등록 전 자료를 준비하는 시간도 지원자별 생성 상태에 포함한다. */
+    @Transactional
+    public void startPreparing(UUID companyId, UUID stageId, UUID applicationId) {
+        preparationStage(companyId, stageId, applicationId);
+        preparations.save(new InterviewPreparation(stageId, applicationId, companyId));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean preparing(UUID companyId, UUID stageId, UUID applicationId) {
+        return preparations.existsByStageIdAndApplicationIdAndCompanyId(stageId, applicationId, companyId);
+    }
+
+    @Transactional
+    public void finishPreparing(UUID companyId, UUID stageId, UUID applicationId) {
+        preparations.deleteByStageIdAndApplicationIdAndCompanyId(stageId, applicationId, companyId);
     }
 
     /** 맞춤 질문을 카드에 넣는다. 이미 있는 질문은 다시 넣지 않는다. */

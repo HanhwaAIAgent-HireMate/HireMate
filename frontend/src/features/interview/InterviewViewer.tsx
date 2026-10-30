@@ -108,8 +108,10 @@ function Questions({
   editable: boolean
 }) {
   const actions = useInterviewActions(stageId, applicationId)
+  const status = useInterviewPreparing(stageId, applicationId)
   const preparing =
-    useInterviewPreparing(stageId, applicationId).data?.preparing === true ||
+    (status.isPending && interview.questions.length === 0) ||
+    status.data?.preparing === true ||
     actions.regenerate.isPending
   const [draft, setDraft] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)

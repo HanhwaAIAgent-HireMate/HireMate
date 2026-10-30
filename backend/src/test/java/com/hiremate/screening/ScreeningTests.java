@@ -563,6 +563,8 @@ class ScreeningTests extends IntegrationTest {
             prepared = interviews.preparationView(companyId, nextId, applicationId);
         }
         assertThat(prepared.questions()).isNotEmpty();
+        assertThat(prepared.singleInterview()).isTrue();
+        assertThat(interviews.preparing(companyId, nextId, applicationId)).isFalse();
         assertThat(prepared.questions().getFirst().text()).isEqualTo("1분 자기소개 부탁드립니다.");
         JsonNode pending = json(expect(hr.get("/api/stages/" + nextId), 200));
         assertThat(pending.path("status").asString()).isEqualTo("PENDING");

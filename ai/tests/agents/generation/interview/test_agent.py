@@ -3465,3 +3465,46 @@ def test_career_line_counts_as_a_related_sentence_with_one_shared_word(
 def test_risk_question_does_not_read_the_internal_label_to_the_applicant() -> None:
     labelled = f"'{RISK_SAFETY}'라고 적어 주셨는데, 그때 어떤 위험 신호를 확인했는지 설명해 주세요."
     assert _checked(labelled, RISK, [], [RISK_SAFETY])[0] is None
+
+
+async def test_single_interview_combines_core_with_culture_and_motivation(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    llm = FakeLlm(*[draft for _ in range(8)])
+    drafts: list[InterviewQuestionDraft] = []
+    questions = await generate_questions(
+        llm,
+        applicant=sample_applicants["이도윤"],
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view().model_copy(update={"single_interview": True}),
+        focus=None,
+        drafts=drafts,
+    )
+    assert questions[0] == INTRO
+    assert len(questions) == 6
+    assert len(set(questions)) == 6
+    assert any("피드백" in text or "협업" in text for text in questions[4:])
+    assert any("지원" in text or "직무를 고르게" in text for text in questions[4:])
+    assert all(item.reason for item in drafts)
+    assert all("지난 면접" not in text for text in questions)
+    slot_calls = [call for call in llm.calls if "slot_picks: 요청함" in call.user]
+    assert slot_calls
+    assert all("- VALUES (" not in call.user and "- LEADERSHIP (" not in call.user for call in slot_calls)
+
+
+async def test_single_interview_chat_remains_additional_questions(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    llm = FakeLlm(*[draft for _ in range(8)])
+    questions = await generate_questions(
+        llm,
+        applicant=sample_applicants["이도윤"],
+        posting=sample_posting,
+        analysis=newcomer_analysis,
+        interview=view().model_copy(update={"single_interview": True}),
+        focus=None,
+        question_count=1,
+    )
+    assert len([text for text in questions if text != INTRO]) <= 1
+    assert all("slot_picks: 요청함" not in call.user for call in llm.calls)

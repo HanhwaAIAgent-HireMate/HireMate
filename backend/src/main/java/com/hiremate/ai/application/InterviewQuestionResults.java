@@ -41,6 +41,7 @@ class InterviewQuestionResults {
         UUID stageId = UUID.fromString(target[1]);
         UUID applicationId = UUID.fromString(target[2]);
         if (result.status() != JobStatus.DONE) {
+            interviews.finishPreparing(companyId, stageId, applicationId);
             log.warn("Interview questions were not prepared for {} in stage {}: {}", applicationId, stageId,
                     result.error());
             return;

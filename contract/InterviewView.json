@@ -1,5 +1,6 @@
 {
   "applicationId": "6f1c2a9e-1b7d-4c55-9a7e-2f3b1c4d5e01",
+  "singleInterview": false,
   "schedule": {"scheduledAt": "2026-11-07T01:00:00Z", "interviewers": "임원 2명"},
   "questions": [
     {

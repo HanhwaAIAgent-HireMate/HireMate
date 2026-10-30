@@ -3,6 +3,7 @@ package com.hiremate.ai.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -65,6 +66,15 @@ class InterviewAiServiceTests {
         service.prepare(companyId, stageId, applicationId);
 
         verifyNoInteractions(agent, jobs);
+        verify(interviews).finishPreparing(companyId, stageId, applicationId);
+    }
+
+    @Test
+    @DisplayName("대기열에 넣기 전 자료 준비 중인 첫 지원자도 로딩으로 표시한다")
+    void preparingIncludesInputPreparation() {
+        when(interviews.preparing(companyId, stageId, applicationId)).thenReturn(true);
+        assertThat(service.preparing(companyId, stageId, applicationId)).isTrue();
+        verifyNoInteractions(jobs);
     }
 
     @Test

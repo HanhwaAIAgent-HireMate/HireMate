@@ -46,7 +46,7 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
@@ -420,6 +420,7 @@ class State(TypedDict, total=False):
     focus: str
     question_count: int | None  # Chat 추가 목표 개수. 최초 자동 생성은 None
     additional: bool
+    single: bool  # 면접이 한 번인 최초 생성: 직무 3개 + 협업·가치관 + 지원 동기
     final: bool  # 이전 면접 기록이 있는 최초 자동 생성만 최종면접 자리 5개 구성
     balanced: bool  # 최초 자동 생성만 3개 구성. Chat의 추가 요청은 기존 범위·중복 처리를 유지한다.
     counting: bool  # 재시도 여부를 정하려고 통과한 질문 수만 셀 때 (개념 기본 질문을 넣지 않는다)
@@ -623,7 +624,8 @@ async def load_context(state: State) -> dict[str, Any]:
                 part for part in parts[max(0, index - 1) : index + 2] if not _FUTURE_ACTION.search(part)
             )
     return {
-        "final": bool(interview.previous) and not additional,
+        "final": bool(interview.previous) and not interview.single_interview and not additional,
+        "single": interview.single_interview and not additional,
         "additional": additional,
         "slot_kept": {},
         "slot_purposes": {},
@@ -1264,6 +1266,10 @@ def review_gaps(review: ApplicationReview) -> list[Gap]:
     return candidates
 
 
+def _question_slots(state: State) -> tuple[str, ...]:
+    return (CULTURE, MOTIVE) if state.get("single") else tuple(FINAL_SLOTS)
+
+
 async def _write_final(state: State) -> dict[str, Any]:
     """최종면접에 필요한 미확인·자리만 요청한다. 출력 오류는 기존 재작성 상한 안에서 복구한다."""
     gaps = [gap for gap in state["gaps"] if gap.gap_id not in state["kept"]]
@@ -1272,8 +1278,8 @@ async def _write_final(state: State) -> dict[str, Any]:
         for sid, text in state["sentences"].items()
         if _FUTURE_ACTION.search(text) or any(text in line for gap in state["gaps"] for line in gap.evidence)
     ]
-    want_pick = state["pick"] is None and not state["gaps"] and bool(state["sentences"])
-    slots = [key for key in FINAL_SLOTS if key not in state.get("slot_kept", {})]
+    want_pick = not state.get("single") and state["pick"] is None and not state["gaps"] and bool(state["sentences"])
+    slots = [key for key in _question_slots(state) if key not in state.get("slot_kept", {})]
     plan: list[str] = []
     for gap in gaps:
         plan.append(
@@ -1285,6 +1291,12 @@ async def _write_final(state: State) -> dict[str, Any]:
     company_lines: list[str] = []
     if company is not None:
         if company.talents and "VALUES" in slots:
+            company_lines.append(
+                data_block(
+                    "company_talents", "\n".join(f"{talent.title}: {talent.description}" for talent in company.talents)
+                )
+            )
+        if company.talents and state.get("single"):
             company_lines.append(
                 data_block(
                     "company_talents", "\n".join(f"{talent.title}: {talent.description}" for talent in company.talents)
@@ -1302,6 +1314,9 @@ async def _write_final(state: State) -> dict[str, Any]:
             "free_pick: " + ("요청함" if want_pick else "요청하지 않음 (free_pick은 null)"),
             "slot_picks: " + ("요청함" if slots else "요청하지 않음 (slot_picks는 빈 목록)"),
             *[f"- {key} ({FINAL_SLOTS[key].label}): {FINAL_SLOTS[key].hint}" for key in slots],
+            "면접 1회 구성: CULTURE는 협업·피드백 수용·책임 있는 행동과 가치관을 함께 확인한다."
+            if state.get("single")
+            else "",
             *company_lines,
             "sentences:",
             data_block("documents", "\n".join(f"{sid} {text}" for sid, text in state["sentences"].items())),
@@ -1380,7 +1395,7 @@ async def write(state: State) -> dict[str, Any]:
         and not (final and state["gaps"])
         and (not state.get("additional") or len(state["gaps"]) < _additional_count(state))
     )
-    slots = [key for key in FINAL_SLOTS if key not in state.get("slot_kept", {})] if final else []
+    slots = [key for key in _question_slots(state) if key not in state.get("slot_kept", {})] if final else []
     # (줄여 쓰면) slot_lines = [f"- {key} ({…label}): {…hint}" for key in slots]
     slot_lines = []
     for key in slots:
@@ -2860,43 +2875,44 @@ INTRO_REASON = "공통 질문: 모든 면접에서 지원자의 주요 경험과
 
 def _finalize_final(state: State) -> dict[str, Any]:
     """기본 질문도 생성 질문과 같은 검사를 거친다. 부적절한 문장을 개수 때문에 복원하지 않는다."""
-    result: list[str] = []
-    reasons: dict[str, str] = {}
+    result: list[str] = list(state.get("result", [])) if state.get("single") else []
+    reasons: dict[str, str] = dict(state.get("reasons", {})) if state.get("single") else {}
     purposes: list[str] = []
-    follow_up = state["gaps"][0] if state["gaps"] else None
-    if follow_up is not None:
-        first = state["kept"].get(follow_up.gap_id)
-        # 답변이 없더라도 답했다고 전제하지 않는다. 미확인 내용만 좁혀서 확인한다.
-        fallback = _fix_josa(
-            f"지난 면접 질문과 관련해, {_question_topic(follow_up.detail, 55)}을 구체적으로 설명해 주세요."
-        )
-        purpose = state.get("purposes", {}).get(follow_up.gap_id, follow_up.detail)
-        kind, others = FOLLOW_UP, _compare_with(state, FOLLOW_UP)
-    else:
-        first = state["pick"]
-        fallback = (
-            PICK_FALLBACK
-            if state["sentences"]
-            else ("직무와 관련해 배운 내용을 적용해 본 경험이 있다면, 본인이 한 일을 설명해 주세요.")
-        )
-        purpose = state.get("pick_purpose", "") or first or fallback
-        kind, others = "PICK", state["existing"]
-    for candidate in dict.fromkeys([first or "", fallback]):
-        if not candidate:
-            continue
-        checked, _ = _final_checked(candidate, kind, others)
-        if checked is not None:
-            result.append(checked)
-            reasons[checked] = (
-                _gap_reason(state, follow_up, checked)
-                if follow_up is not None
-                else _pick_reason(state)
-                if candidate == first
-                else "기본 질문: 지원자의 직무 관련 경험을 확인합니다. 특정 경험이 있다고 단정하지 않습니다."
+    if not state.get("single"):
+        follow_up = state["gaps"][0] if state["gaps"] else None
+        if follow_up is not None:
+            first = state["kept"].get(follow_up.gap_id)
+            # 답변이 없더라도 답했다고 전제하지 않는다. 미확인 내용만 좁혀서 확인한다.
+            fallback = _fix_josa(
+                f"지난 면접 질문과 관련해, {_question_topic(follow_up.detail, 55)}을 구체적으로 설명해 주세요."
             )
-            purposes.append(purpose)
-            break
-    for key in FINAL_SLOTS:
+            purpose = state.get("purposes", {}).get(follow_up.gap_id, follow_up.detail)
+            kind, others = FOLLOW_UP, _compare_with(state, FOLLOW_UP)
+        else:
+            first = state["pick"]
+            fallback = (
+                PICK_FALLBACK
+                if state["sentences"]
+                else ("직무와 관련해 배운 내용을 적용해 본 경험이 있다면, 본인이 한 일을 설명해 주세요.")
+            )
+            purpose = state.get("pick_purpose", "") or first or fallback
+            kind, others = "PICK", state["existing"]
+        for candidate in dict.fromkeys([first or "", fallback]):
+            if not candidate:
+                continue
+            checked, _ = _final_checked(candidate, kind, others)
+            if checked is not None:
+                result.append(checked)
+                reasons[checked] = (
+                    _gap_reason(state, follow_up, checked)
+                    if follow_up is not None
+                    else _pick_reason(state)
+                    if candidate == first
+                    else "기본 질문: 지원자의 직무 관련 경험을 확인합니다. 특정 경험이 있다고 단정하지 않습니다."
+                )
+                purposes.append(purpose)
+                break
+    for key in _question_slots(state):
         kept = state.get("slot_kept", {}).get(key)
         for candidate in dict.fromkeys(
             [kept or "", _slot_fallback(key, state.get("company")), FINAL_SLOTS[key].fallback, _FINAL_ALTERNATIVES[key]]
@@ -2916,7 +2932,7 @@ def _finalize_final(state: State) -> dict[str, Any]:
             reasons[checked] = _final_slot_reason(state, key, checked)
             purposes.append(purpose)
             break
-    if not any("자기소개" in question.text for question in state["interview"].questions):
+    if INTRO not in result and not any("자기소개" in question.text for question in state["interview"].questions):
         result.insert(0, INTRO)
     if INTRO in result:
         reasons[INTRO] = INTRO_REASON
@@ -3018,7 +3034,7 @@ def finalize(state: State) -> dict[str, Any]:
     result = result[:limit]
     # 이번 전형 카드에 자기소개가 이미 있으면(면접관이 직접 넣음 등) 다시 넣지 않는다
     #   이전 면접의 자기소개는 보지 않는다 (최종면접에서도 처음에 다시 묻는다)
-    if not any("자기소개" in question.text for question in state["interview"].questions):
+    if INTRO not in result and not any("자기소개" in question.text for question in state["interview"].questions):
         result.insert(0, INTRO)
     if INTRO in result:
         reasons[INTRO] = INTRO_REASON
@@ -3227,6 +3243,17 @@ async def _memo_question(
     return [InterviewQuestionDraft(text=checked, reason=reason)]
 
 
+async def _complete_single(state: State) -> State:
+    """검증된 직무 질문 뒤에 협업·가치관과 지원 동기만 보완한다. 이전 면접 질문은 만들지 않는다."""
+    slots = state.copy()
+    slots.update({"gaps": [], "kept": {}, "existing": state["existing"] + state["result"], "pick": None, "errors": []})
+    for _ in range(MAX_RETRY + 1):
+        slots = cast(State, {**slots, **await _write_final(slots)})
+        if all(key in slots.get("slot_kept", {}) for key in _question_slots(slots)):
+            break
+    return cast(State, _finalize_final(slots))
+
+
 async def generate_questions(
     llm: LlmClient,
     *,
@@ -3269,7 +3296,9 @@ async def generate_questions(
         "question_count": question_count,
         "company": company,
     }
-    out = await interview_graph.ainvoke(state)
+    out = cast(State, await interview_graph.ainvoke(state))
+    if out.get("single"):
+        out.update(await _complete_single(out))
     if drafts is not None:
         drafts.extend(InterviewQuestionDraft(text=text, reason=out["reasons"].get(text)) for text in out["result"])
     return list(out["result"])

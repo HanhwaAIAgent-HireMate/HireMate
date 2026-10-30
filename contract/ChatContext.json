@@ -90,6 +90,7 @@
   "interviews": {
     "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": {
       "applicationId": "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60",
+      "singleInterview": false,
       "schedule": {
         "scheduledAt": "2026-11-05T05:00:00Z",
         "interviewers": "면접관 2명"

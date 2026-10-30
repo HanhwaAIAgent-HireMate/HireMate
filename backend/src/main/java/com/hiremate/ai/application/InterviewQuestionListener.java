@@ -1,5 +1,6 @@
 package com.hiremate.ai.application;
 
+import com.hiremate.interview.InterviewService;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageConfirmed;
@@ -12,6 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
 
@@ -27,11 +29,16 @@ class InterviewQuestionListener {
     private final RecruitService recruits;
     private final ScreeningService screening;
     private final InterviewAiService interviews;
+    private final InterviewService records;
+    private final ApplicationEventPublisher events;
 
-    InterviewQuestionListener(RecruitService recruits, ScreeningService screening, InterviewAiService interviews) {
+    InterviewQuestionListener(RecruitService recruits, ScreeningService screening, InterviewAiService interviews,
+            InterviewService records, ApplicationEventPublisher events) {
         this.recruits = recruits;
         this.screening = screening;
         this.interviews = interviews;
+        this.records = records;
+        this.events = events;
     }
 
     @ApplicationModuleListener
@@ -44,6 +51,18 @@ class InterviewQuestionListener {
         prepare(event.companyId(), event.stageId());
     }
 
+    /** 지원자마다 독립된 비동기 트랜잭션에서 준비한다. */
+    @ApplicationModuleListener
+    void on(InterviewQuestionsRequested event) {
+        try {
+            interviews.prepare(event.companyId(), event.stageId(), event.applicationId());
+        } catch (RuntimeException exception) {
+            records.finishPreparing(event.companyId(), event.stageId(), event.applicationId());
+            log.warn("Interview questions were not prepared for {} in stage {}",
+                    event.applicationId(), event.stageId(), exception);
+        }
+    }
+
     private void prepare(UUID companyId, UUID confirmedStageId) {
         Optional<StageInfo> next = nextStage(recruits.getByStage(companyId, confirmedStageId), confirmedStageId);
         if (next.isEmpty() || next.get().type() != StageType.INTERVIEW) {
@@ -51,11 +70,8 @@ class InterviewQuestionListener {
         }
         UUID stageId = next.get().id();
         for (UUID applicationId : screening.results(companyId, confirmedStageId).passed()) {
-            try {
-                interviews.prepare(companyId, stageId, applicationId);
-            } catch (RuntimeException exception) {
-                log.warn("Interview questions were not prepared for {} in stage {}", applicationId, stageId, exception);
-            }
+            records.startPreparing(companyId, stageId, applicationId);
+            events.publishEvent(new InterviewQuestionsRequested(companyId, stageId, applicationId));
         }
     }
 

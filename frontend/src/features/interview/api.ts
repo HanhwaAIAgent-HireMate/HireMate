@@ -42,27 +42,22 @@ export function useInterviewPreparing(stageId: string, applicationId: string) {
   return useQuery({
     queryKey: preparingKey,
     queryFn: async () => {
-      const before = queryClient.getQueryData<{ preparing: boolean }>(preparingKey)
       const status = await unwrap(
         api.GET(
           '/api/stages/{stageId}/candidates/{applicationId}/interview/preparing',
           path(stageId, applicationId),
         ),
       )
-      if (finishedPreparing(before, status))
+      if (!status.preparing)
         await queryClient.invalidateQueries({ queryKey: key(stageId, applicationId), exact: true })
       return status
     },
-    refetchInterval: (query) => (query.state.data?.preparing ? PREPARING_POLL_MS : false),
+    refetchInterval: (query) =>
+      query.state.data?.preparing ||
+      !queryClient.getQueryData<Interview>(key(stageId, applicationId))?.questions.length
+        ? PREPARING_POLL_MS
+        : false,
   })
-}
-
-/** 직전에는 만드는 중이었는데 지금은 끝났는가. 이때만 카드 질문을 다시 불러온다 */
-export function finishedPreparing(
-  before: { preparing: boolean } | undefined,
-  now: { preparing: boolean },
-) {
-  return before?.preparing === true && !now.preparing
 }
 
 export function useStageHistory(stageId: string, applicationId: string) {
