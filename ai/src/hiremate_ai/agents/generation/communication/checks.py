@@ -21,6 +21,12 @@ _EVALUATION = re.compile(r"역량|열정|잠재력|자질|뛰어난|우수한|�
 # 나중에 따로 안내한다는 약속. 다음 전형 안내와 입사 안내는 backend가 본문 아래에 붙이는데, 모델이 예전 버릇대로
 # "일정은 별도로 안내드리겠습니다"를 쓰면 붙은 안내와 어긋난다. HR이 요청했거나 지금 본문에 있을 때만 쓴다
 _LATER = re.compile(r"(?:별도로?|따로|추후|나중에)\s*(?:안내|연락)")
+# 지시문에서 예시를 나누는 표시. 모델이 예시의 "skipped: 없음" 줄까지 본문으로 따라 쓰곤 한다
+# (deepseek-v4.1-flash, 생각을 켰을 때 36통 중 4통). 그대로 보내면 지원자 메일에 찍힌다.
+# 콜론이 붙은 줄머리만 본다. "HR 요청을 반영해…" 같은 문장은 표시가 아니다
+_PROMPT_LABEL = re.compile(
+    r"^\s*(?:(?:skipped|고친 본문|지금 본문|HR 요청)\s*:|\[예시 \d+\])", re.IGNORECASE | re.MULTILINE
+)
 # 줄 안의 연속 공백과 세 줄 이상 빈 줄. 메일이 글자로만 가서 그대로 보인다
 _INLINE_SPACES = re.compile(r"[ \t]{2,}")
 _BLANK_LINES = re.compile(r"\n{3,}")
@@ -63,6 +69,8 @@ def problems(content: str, source: str) -> list[str]:
         found.append(f"주어진 정보에 없는 평가나 불합격 사유를 썼다: {', '.join(judged)}")
     if (later := _LATER.search(content)) and not _LATER.search(source):
         found.append(f"쓸 내용에 없는 나중 안내 약속을 썼다: {later.group()}")
+    if label := _PROMPT_LABEL.search(content):
+        found.append(f"예시를 나누는 표시를 본문에 썼다: {label.group().strip()}")
     return found
 
 
