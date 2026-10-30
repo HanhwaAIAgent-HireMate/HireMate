@@ -79,6 +79,22 @@ export function useInterviewActions(stageId: string, applicationId: string) {
   const onSuccess = (interview: Interview) =>
     queryClient.setQueryData(key(stageId, applicationId), interview)
   return {
+    assignRole: useMutation({
+      mutationFn: ({
+        questionId,
+        interviewerRole,
+      }: {
+        questionId: string
+        interviewerRole: 'HR' | 'PRACTICAL' | null
+      }) =>
+        unwrap(
+          api.PUT('/api/stages/{stageId}/interview/questions/{questionId}/role', {
+            params: { path: { stageId, questionId } },
+            body: { interviewerRole },
+          }),
+        ),
+      onSuccess,
+    }),
     regenerate: useMutation({
       mutationFn: () =>
         unwrap(
@@ -97,7 +113,7 @@ export function useInterviewActions(stageId: string, applicationId: string) {
         unwrap(
           api.POST('/api/stages/{stageId}/candidates/{applicationId}/interview/questions', {
             ...path(stageId, applicationId),
-            body: { text },
+            body: { text, interviewerRole: null },
           }),
         ),
       onSuccess,

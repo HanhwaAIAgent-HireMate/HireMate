@@ -5,6 +5,7 @@ import pytest
 from hiremate_ai.agents.generation.interview.agent import MemoQuestion, _memo_question
 from hiremate_ai.contract import (
     InterviewerMemo,
+    InterviewerRole,
     InterviewQuestion,
     InterviewView,
     PostingContent,
@@ -89,3 +90,27 @@ async def test_no_answer_or_blocked_focus_does_not_invent_a_memo_question(
     llm = FakeLlm()
     assert await _memo_question(llm, memo, interview, sample_posting, "") == []
     assert llm.calls == []
+
+
+# 🎤 원래 질문의 담당을 잇고, 원래 담당이 비어 있으면(직접 추가한 질문 등) 실무로 넣는다
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [
+        (InterviewerRole.HR, InterviewerRole.HR),
+        (InterviewerRole.PRACTICAL, InterviewerRole.PRACTICAL),
+        (None, InterviewerRole.PRACTICAL),
+    ],
+)
+async def test_follow_up_keeps_original_role(
+    role: InterviewerRole | None,
+    expected: InterviewerRole,
+    memo_record: tuple[InterviewerMemo, InterviewView, MemoQuestion],
+    sample_posting: PostingContent,
+) -> None:
+    memo, interview, result = memo_record
+    previous = interview.previous[0]
+    original = previous.questions[0].model_copy(update={"interviewer_role": role})
+    interview = interview.model_copy(update={"previous": [previous.model_copy(update={"questions": [original]})]})
+    found = await _memo_question(FakeLlm(result), memo, interview, sample_posting, "본인 작업 범위 확인")
+    assert len(found) == 1
+    assert found[0].interviewer_role == expected

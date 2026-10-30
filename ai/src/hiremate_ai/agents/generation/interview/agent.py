@@ -66,6 +66,7 @@ from hiremate_ai.contract import (
     CriterionType,
     DocumentType,
     InterviewerMemo,
+    InterviewerRole,
     InterviewView,
     PostingContent,
     Verdict,
@@ -130,6 +131,32 @@ FINAL_SLOTS: dict[str, Slot] = {
         "저희 회사와 이 직무를 고르게 된 계기와, 입사하면 3년 안에 이루고 싶은 것을 말해 주세요.",
     ),
 }
+# 🎤 1차 인사 질문 (10/30 결정). 면접관이 인사 · 실무 2명이라 1차에도 인사가 기록할 질문을 1개 넣는다.
+#   최종면접 자리(원칙 · 협업 · 설득 · 지원 이유)와 겹치지 않는 주제만 쓴다. 우선순위는 모든 회사 · 직무에 같다.
+#   ⓪ 경력 1년 이상(이직자) → 이직 계기를 무조건 묻는다 (서류만으로 알 수 없는 내용)
+#   ① 서류에 어려움 · 실패를 이겨 낸 문장이 있으면 → 어떻게 이겨 냈고 무엇이 달라졌는지
+#   ② 서류에 스스로 배운 문장이 있으면 → 무엇을 배웠는지(기술)가 아니라 어떻게 배우고 적용했는지(과정)
+#   ③ 둘 다 없으면 → 강점 · 보완점 기본 질문
+HR_CAREER_MIN_YEARS = 1  # 이직자로 볼 최소 경력 연수 (지원서 분석의 career_years, 신입은 0 · 모르면 None)
+HR_QUOTE_LIMIT = 70  # 인사 질문에 인용할 서류 문장의 최대 길이. 넘으면 말줄임표로 자르지 않고 그 문장을 쓰지 않는다
+_HARDSHIP = re.compile(
+    r"실패|좌절|어려움|어려웠|위기|막막|포기|힘들었|난관|극복|실수|시행착오|지연|밀려|무산|탈락|떨어졌"
+)
+_GROWTH = re.compile(
+    r"독학|스스로\s*(?:공부|익히|익혔|배우|배웠|찾아)|혼자\s*(?:공부|익히|익혔|배우|배웠)|스터디|자격증|강의|"
+    r"부트캠프|교육\s*과정|수료|공부(?:했|하며|하면서|를\s*시작)"
+)
+# 기술 낱말: 영문 낱말(Java, API 등)과 개발 · 데이터 처리 용어. 서로 다른 낱말이 2개 이상이면 기술 문장으로 본다
+_TECH_WORD = re.compile(
+    r"[A-Za-z][A-Za-z0-9+#.]{1,}|멱등|트랜잭션|구현|아키텍처|서버|배포|쿼리|데이터베이스|알고리즘|캐시|비동기|"
+    r"동기\s*처리|성능|코드|테스트|프레임워크|인덱스|파티션|스키마"
+)
+HR_MOVE = "{company}에서 근무하시다가 새로운 회사를 찾게 된 계기를 말해 주세요."
+HR_MOVE_UNKNOWN = "이전 회사에서 근무하시다가 새로운 회사를 찾게 된 계기를 말해 주세요."
+HR_HARDSHIP = "'{quote}'라고 적어 주셨는데, 그 상황을 어떻게 이겨 냈고 그 경험으로 무엇이 달라졌는지 말해 주세요."
+HR_GROWTH = "'{quote}'라고 적어 주셨는데, 어떤 방법으로 배웠고 배운 것을 실제로 어디에 적용해 보셨는지 말해 주세요."
+HR_STRENGTH = "본인의 강점 하나와 보완하고 있는 점 하나를, 실제 사례와 함께 말해 주세요."
+
 # 최종면접 ① 1차 미확인 자리를 이전 면접 기록 · 서류 문장 어느 쪽으로도 못 채웠을 때
 PICK_FALLBACK = "서류에 적어 주신 경험 중 가장 자신 있는 일 하나를 골라, 본인이 맡은 부분과 결과를 말해 주세요."
 
@@ -391,6 +418,8 @@ class Gap:
     evidence: list[str] = field(default_factory=list)
     detail: str = ""
     status: str = ""
+    # 🎤 이 빈틈을 확인할 면접관. 면접관은 인사 · 실무 2명이라 모든 질문에 담당이 있다 (기본은 실무)
+    interviewer_role: InterviewerRole = InterviewerRole.PRACTICAL
     criterion_id: str = ""
     confirmed: list[str] = field(default_factory=list)
     targets: list[str] = field(default_factory=list)
@@ -449,6 +478,7 @@ class State(TypedDict, total=False):
     retry: int
     result: list[str]
     reasons: dict[str, str]
+    roles: dict[str, InterviewerRole]  # 🎤 질문 문장 → 담당 면접관
 
 
 _SPACES = re.compile(r"[\s\"'“”‘’.,!?·]+")
@@ -601,6 +631,8 @@ async def load_context(state: State) -> dict[str, Any]:
                     evidence=[f"[{previous.stage_name} 질문] {question.text}", f"[답변] {question.answer or '(없음)'}"],
                     detail=finding.unconfirmed[0] if finding.unconfirmed else "본인 역할과 결과",
                     status=finding.status,
+                    # 🎤 후속 질문은 원래 질문의 담당이 이어서 묻는다. 원래 담당이 비어 있으면(직접 추가 등) 실무
+                    interviewer_role=question.interviewer_role or InterviewerRole.PRACTICAL,
                 )
             )
     sentences: dict[str, str] = {}
@@ -2425,6 +2457,11 @@ def _final_slot_checked(
     checked, problem = _final_checked(text, key, others, [sentence] if sentence else None)
     if checked is not None and key == CULTURE and (focus_problem := _culture_focus_problem(checked)):
         return None, focus_problem
+    # 🎤 인성 · 리더십은 인사가 행동 · 태도를 보는 자리다. 기술 문장을 재료로 써서 구현 · 처리 방식을 물으면 버린다
+    #   예) "멱등성과 트랜잭션 처리가 중요하다고 배운 경험에서, 구현이나 검증 과정에서 지킨 원칙…" (10/30 Luna 결과)
+    #   조직 적응(CULTURE)은 '코드 리뷰 규칙'처럼 개발 협업 방식이 자연스럽게 나와서 보지 않는다
+    if checked is not None and key in (VALUES, LEADERSHIP) and _technical(checked):
+        return None, f"'{FINAL_SLOTS[key].label}' 자리인데 기술 내용을 물음 (구현 방법이 아니라 행동 · 태도를 묻도록)"
     if (
         checked is not None
         and not FINAL_SLOTS[key].topic.search(checked)
@@ -2873,10 +2910,117 @@ def _final_slot_reason(state: State, key: str, text: str) -> str:
 INTRO_REASON = "공통 질문: 모든 면접에서 지원자의 주요 경험과 지원 동기를 먼저 듣기 위한 자기소개입니다."
 
 
+def _technical(text: str) -> bool:
+    """🎤 기술 내용 위주의 문장인지. 서로 다른 기술 낱말이 2개 이상이면 기술 문장으로 본다.
+
+    예) "멱등성과 트랜잭션 처리가 중요하다고 배운 경험에서, 구현이나 검증 과정에서…" → 멱등 · 트랜잭션 · 구현 → True
+        "결제는 한 번의 실수가 고객의 돈과 신뢰에 바로 닿는 일이라고 생각합니다." → 기술 낱말 없음 → False
+    (줄여 쓰면) len({m.group(0).lower() for m in _TECH_WORD.finditer(text)}) >= 2
+    """
+    found: set[str] = set()
+    for match in _TECH_WORD.finditer(text):
+        found.add(match.group(0).lower())  # 'API'와 'api'처럼 대소문자만 다른 낱말은 하나로 센다
+    return len(found) >= 2
+
+
+def _hr_quote(sentence: str, pattern: re.Pattern[str]) -> str | None:
+    """🎤 인사 질문에 인용할 부분. 주제 낱말(예: '밀려', '독학')이 든 절부터 뒤 절을 길이 안에서 이어 붙인다.
+
+    예) "출시 일정이 2주 밀렸고, 팀원들과 매일 범위를 다시 정해 일정을 맞췄습니다." (40자)
+        → 문장 전체가 짧으니 그대로 인용
+    예) 앞에 관련 없는 긴 설명이 붙은 문장 → '밀려'가 든 절부터 인용
+    길이(HR_QUOTE_LIMIT)를 넘으면 None을 돌려준다. 말줄임표(…)로 자르면 _problem 검사에 걸리고 뜻도 흐려진다.
+    """
+    clauses = _CLAUSE_END.split(sentence.strip())
+    start = None
+    for index, clause in enumerate(clauses):
+        if pattern.search(clause):
+            start = index  # 주제 낱말이 처음 나오는 절
+            break
+    if start is None:
+        return None
+    chosen = ""
+    for clause in clauses[start:]:
+        joined = f"{chosen}, {clause}" if chosen else clause
+        if len(joined) > HR_QUOTE_LIMIT:
+            break
+        chosen = joined
+    chosen = _QUOTE_LEAD.sub("", chosen).rstrip(" .").replace("'", '"')
+    if not chosen or not pattern.search(chosen):
+        return None  # 주제 낱말이 든 절 하나만으로도 길이를 넘음
+    return chosen
+
+
+def _company_name(value: str | None) -> str | None:
+    """🎤 질문에 넣을 최근 회사 이름.
+
+    서류 분석이 뽑은 값이라 따옴표 · 줄바꿈을 지우고, 길거나 표지 문구(DEMO 등)면 쓰지 않는다.
+    """
+    if not value:
+        return None
+    name = re.sub(r"[\"'“”‘’\n\r]", "", value).strip()
+    if not name or len(name) > 30 or re.search(r"DEMO|SYNTHETIC", name, re.IGNORECASE):
+        return None
+    return name
+
+
+def _first_hr_question(state: State, others: list[str]) -> tuple[str, str] | None:
+    """🎤 1차 인사 질문 하나와 그 근거를 고른다 (우선순위는 HR_ 상수 위 설명).
+
+    others: 이미 고른 질문들. 같은 서류 문장을 다시 인용하거나 비슷한 질문이면 다음 후보로 넘어간다.
+    반환: (질문, 근거) — 기본 질문까지 검사에 걸리면 None (질문을 억지로 넣지 않는다)
+    """
+    candidates: list[tuple[str, str]] = []  # (질문, 근거)를 우선순위대로 모은 뒤 앞에서부터 검사한다
+    info = state["applicant"].info
+    if info.career_years is not None and info.career_years >= HR_CAREER_MIN_YEARS:
+        company = _company_name(info.last_company)
+        text = HR_MOVE.format(company=company) if company else HR_MOVE_UNKNOWN
+        source = f"출처: 지원서 경력 정보 (경력 {info.career_years}년" + (f", 최근 회사 {company})" if company else ")")
+        candidates.append(
+            (
+                text,
+                "질문 유형: 인사 · 이직 계기\n"
+                "확인할 내용: 이전 회사를 떠나 새로운 회사를 찾게 된 계기와 그때 중요하게 본 점을 확인합니다. "
+                "부정적인 이유를 전제하지 않습니다.\n" + source,
+            )
+        )
+    for pattern, template, label, purpose in (
+        (_HARDSHIP, HR_HARDSHIP, "어려움 극복", "어려운 상황에서의 대응 방식과 그 경험으로 달라진 점을 확인합니다."),
+        (_GROWTH, HR_GROWTH, "스스로 배운 경험", "배운 기술 내용이 아니라 배우는 방법과 실제 적용 과정을 확인합니다."),
+    ):
+        for sentence in state["sentences"].values():
+            if not pattern.search(sentence):
+                continue
+            if _FUTURE_ACTION.search(sentence) or _WISH.search(sentence) or _PROMPT_LINE.search(sentence):
+                continue  # 입사 후 계획 · 포부('되겠습니다') · 지원 문서에 넣은 AI 지시문은 지나간 경험이 아니다
+            if pattern is _HARDSHIP and _technical(sentence):
+                continue  # 장애 대응처럼 기술 내용이 중심인 어려움은 실무 질문 몫이다
+            quote = _hr_quote(sentence, pattern)
+            if quote is None:
+                continue
+            reason = f"질문 유형: 인사 · {label}\n확인할 내용: {purpose}"
+            if document := _document_reason(state, sentence):
+                reason += "\n" + document
+            candidates.append((template.format(quote=quote), reason))
+    candidates.append(
+        (
+            HR_STRENGTH,
+            "질문 유형: 인사 · 강점과 보완점\n"
+            "확인할 내용: 자신을 객관적으로 이해하고 보완하려는 태도를 확인합니다.\n"
+            "생성 방식: 서류에 어려움 극복 · 스스로 배운 경험 문장이 없어 기본 질문으로 구성했습니다.",
+        )
+    )
+    for text, reason in candidates:
+        if _problem(text, others) is None:  # 길이 · 내부 판단 · 같은 문장 재인용 · 비슷한 질문 검사
+            return text, reason
+    return None
+
+
 def _finalize_final(state: State) -> dict[str, Any]:
     """기본 질문도 생성 질문과 같은 검사를 거친다. 부적절한 문장을 개수 때문에 복원하지 않는다."""
     result: list[str] = list(state.get("result", [])) if state.get("single") else []
     reasons: dict[str, str] = dict(state.get("reasons", {})) if state.get("single") else {}
+    roles = dict(state.get("roles", {})) if state.get("single") else {}
     purposes: list[str] = []
     if not state.get("single"):
         follow_up = state["gaps"][0] if state["gaps"] else None
@@ -2903,6 +3047,7 @@ def _finalize_final(state: State) -> dict[str, Any]:
             checked, _ = _final_checked(candidate, kind, others)
             if checked is not None:
                 result.append(checked)
+                roles[checked] = follow_up.interviewer_role if follow_up else InterviewerRole.PRACTICAL
                 reasons[checked] = (
                     _gap_reason(state, follow_up, checked)
                     if follow_up is not None
@@ -2929,6 +3074,9 @@ def _finalize_final(state: State) -> dict[str, Any]:
             if checked is None:
                 continue
             result.append(checked)
+            # 🎤 최종면접 자리(인성 · 조직 적응 · 리더십 · 진정성)는 모두 행동 · 태도를 보는 질문이라 인사가 묻는다
+            #   리더십도 직책이 아니라 설득 · 조율한 행동을 보므로 인사 (10/30 결정)
+            roles[checked] = InterviewerRole.HR
             reasons[checked] = _final_slot_reason(state, key, checked)
             purposes.append(purpose)
             break
@@ -2936,7 +3084,8 @@ def _finalize_final(state: State) -> dict[str, Any]:
         result.insert(0, INTRO)
     if INTRO in result:
         reasons[INTRO] = INTRO_REASON
-    return {"result": result, "reasons": reasons}
+        roles[INTRO] = InterviewerRole.HR
+    return {"result": result, "reasons": reasons, "roles": roles}
 
 
 def finalize(state: State) -> dict[str, Any]:
@@ -2948,6 +3097,7 @@ def finalize(state: State) -> dict[str, Any]:
     """
     questions: list[str] = []
     reasons: dict[str, str] = {}
+    roles: dict[str, InterviewerRole] = {}
     follow_up = ""  # 최종면접 ① 1차 미확인 질문 (중복 검사를 이번 카드 질문하고만 한다)
     if state.get("final"):
         return _finalize_final(state)
@@ -2987,6 +3137,7 @@ def finalize(state: State) -> dict[str, Any]:
             if text:
                 questions.append(text)
                 reasons[text] = _gap_reason(state, gap, text)
+                roles[text] = gap.interviewer_role
                 accepted[gap.gap_id] = text
         if state.get("balanced") and not state.get("counting"):
             # 🎤 지원자마다 3개로 맞춘다. 같은 목표 · 비슷한 질문은 검사에서 걸러진다
@@ -3009,15 +3160,18 @@ def finalize(state: State) -> dict[str, Any]:
                 if text:
                     questions.append(text)
                     reasons[text] = _gap_reason(state, gap, text)
+                    roles[text] = gap.interviewer_role
                     accepted[gap.gap_id] = text
                     used.append(gap)
         if state["pick"]:
             questions.append(state["pick"])
             reasons[state["pick"]] = _pick_reason(state)
+            roles[state["pick"]] = InterviewerRole.PRACTICAL
         elif state["spare"]:
             text = _template(state["spare"][0])
             questions.append(text)
             reasons[text] = _gap_reason(state, state["spare"][0], text)
+            roles[text] = state["spare"][0].interviewer_role
         limit = MAX_QUESTIONS if state.get("balanced") else _additional_count(state)
     result: list[str] = []
     for text in questions:
@@ -3032,13 +3186,24 @@ def finalize(state: State) -> dict[str, Any]:
             continue
         result.append(text)
     result = result[:limit]
+    # 🎤 1차 첫 생성에만 인사 질문 1개를 뒤에 붙인다 (자기소개 + 실무 3개 + 인사 1개)
+    #   AI Chat 추가 요청(additional → balanced 아님), 질문 수 세기(counting), 면접 1회(single: 협업 · 지원 동기를
+    #   따로 붙임)에서는 넣지 않는다. 최종면접은 위에서 _finalize_final로 이미 빠졌다
+    if state.get("balanced") and not state.get("counting") and not state.get("single"):
+        hr = _first_hr_question(state, state["existing"] + result)
+        if hr is not None:
+            hr_text, hr_reason = hr
+            result.append(hr_text)
+            reasons[hr_text] = hr_reason
+            roles[hr_text] = InterviewerRole.HR
     # 이번 전형 카드에 자기소개가 이미 있으면(면접관이 직접 넣음 등) 다시 넣지 않는다
     #   이전 면접의 자기소개는 보지 않는다 (최종면접에서도 처음에 다시 묻는다)
     if INTRO not in result and not any("자기소개" in question.text for question in state["interview"].questions):
         result.insert(0, INTRO)
     if INTRO in result:
         reasons[INTRO] = INTRO_REASON
-    return {"result": result, "reasons": {text: reasons[text] for text in result}}
+        roles[INTRO] = InterviewerRole.HR
+    return {"result": result, "reasons": {text: reasons[text] for text in result}, "roles": roles}
 
 
 _ACTION_END = re.compile(
@@ -3240,7 +3405,9 @@ async def _memo_question(
             f"이전 면접 답변: {result.answer_quote}",
         ]
     )
-    return [InterviewQuestionDraft(text=checked, reason=reason)]
+    # 🎤 메모 참고 질문도 원래 질문의 담당을 잇는다. 원래 담당이 비어 있으면 실무 (load_context의 후속 질문과 같은 규칙)
+    role = question.interviewer_role or InterviewerRole.PRACTICAL
+    return [InterviewQuestionDraft(text=checked, reason=reason, interviewer_role=role)]
 
 
 async def _complete_single(state: State) -> State:
@@ -3300,7 +3467,10 @@ async def generate_questions(
     if out.get("single"):
         out.update(await _complete_single(out))
     if drafts is not None:
-        drafts.extend(InterviewQuestionDraft(text=text, reason=out["reasons"].get(text)) for text in out["result"])
+        drafts.extend(
+            InterviewQuestionDraft(text=text, reason=out["reasons"].get(text), interviewer_role=out["roles"].get(text))
+            for text in out["result"]
+        )
     return list(out["result"])
 
 

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.hiremate.interview.InterviewQuestionDraft;
+import com.hiremate.interview.InterviewerRole;
 import com.hiremate.job.JobResult;
 import com.hiremate.job.JobStatus;
 import com.hiremate.job.application.JobResultPublisher;
@@ -24,7 +25,7 @@ class InterviewQuestionResultsTests {
     private final UUID stageId = UUID.randomUUID();
     private final UUID applicationId = UUID.randomUUID();
     private final List<InterviewQuestionDraft> questions = List.of(
-            new InterviewQuestionDraft("본인이 담당한 장애 대응 과정을 말해 주세요.", "이력서의 장애 대응 경험 확인"));
+            new InterviewQuestionDraft("본인이 담당한 장애 대응 과정을 말해 주세요.", "이력서의 장애 대응 경험 확인", InterviewerRole.PRACTICAL));
 
     @Test
     @DisplayName("결과 발행이 끝나기 전에 질문을 카드에 저장한다")
@@ -76,6 +77,22 @@ class InterviewQuestionResultsTests {
             context.getBean(JobResultPublisher.class).publish(legacy);
             verify(interviews).addPreparedDrafts(companyId, stageId, applicationId,
                     List.of(new InterviewQuestionDraft("이전 질문", null)));
+        }
+    }
+
+    @Test
+    @DisplayName("모르는 담당 값은 저장 실패 대신 담당 없이 받는다")
+    void acceptsUnknownRoleWithoutRole() {
+        // 🎤 AI가 HR · PRACTICAL 밖의 값을 보내도 그 지원자의 질문 저장 전체가 실패하지 않는다
+        var unknown = new JobResult(UUID.randomUUID(), InterviewAgent.QUESTIONS_JOB,
+                InterviewAgent.jobTarget(companyId, stageId, applicationId), JobStatus.DONE,
+                JsonMapper.builder().build().valueToTree(Map.of("questions", List.of(
+                        Map.of("text", "역할을 모르는 질문", "reason", "근거", "interviewerRole", "MANAGER")))),
+                null);
+        try (var context = context()) {
+            context.getBean(JobResultPublisher.class).publish(unknown);
+            verify(interviews).addPreparedDrafts(companyId, stageId, applicationId,
+                    List.of(new InterviewQuestionDraft("역할을 모르는 질문", "근거", null)));
         }
     }
 

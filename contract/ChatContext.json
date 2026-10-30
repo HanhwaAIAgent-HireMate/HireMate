@@ -101,14 +101,16 @@
           "text": "정산 배치 시간을 줄일 때 가장 어려웠던 결정은?",
           "source": "AI",
           "answer": "파티셔닝 기준을 월 단위로 정한 것",
-          "reason": null
+          "reason": null,
+          "interviewerRole": null
         },
         {
           "questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c42",
           "text": "장애 회고는 어떻게 진행했나요?",
           "source": "MANUAL",
           "answer": "",
-          "reason": null
+          "reason": null,
+          "interviewerRole": null
         }
       ],
       "previous": [
@@ -122,7 +124,8 @@
               "text": "결제 승인 서버의 응답 시간을 어떻게 줄였나요?",
               "source": "AI",
               "answer": "짧음",
-              "reason": null
+              "reason": null,
+              "interviewerRole": null
             }
           ]
         }

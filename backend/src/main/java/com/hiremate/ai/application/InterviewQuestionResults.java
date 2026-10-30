@@ -1,6 +1,7 @@
 package com.hiremate.ai.application;
 
 import com.hiremate.interview.InterviewQuestionDraft;
+import com.hiremate.interview.InterviewerRole;
 import com.hiremate.job.JobFinished;
 import com.hiremate.job.JobResult;
 import com.hiremate.job.JobStatus;
@@ -51,8 +52,29 @@ class InterviewQuestionResults {
             // 배포 전 대기열에 남아 있는 문자열 결과도 근거 없이 정상 수신한다.
             questions.add(question.isString() ? new InterviewQuestionDraft(question.asString(), null)
                     : new InterviewQuestionDraft(question.path("text").asString(),
-                            question.path("reason").isString() ? question.path("reason").asString() : null));
+                            question.path("reason").isString() ? question.path("reason").asString() : null,
+                            role(question, applicationId)));
         }
         interviews.addPreparedDrafts(companyId, stageId, applicationId, questions);
+    }
+
+    /**
+     * 🎤 질문 담당(HR · PRACTICAL)을 읽는다.
+     *
+     * <p>InterviewerRole.valueOf는 모르는 값에서 예외를 던져 그 지원자의 질문 저장 전체를 실패시킨다.
+     * 담당은 HR이 나중에 고칠 수 있으므로, 값이 없거나 모르는 값이면 null(담당 배정 필요)로 받고 질문은 저장한다.
+     */
+    private static InterviewerRole role(JsonNode question, UUID applicationId) {
+        JsonNode value = question.path("interviewerRole");
+        if (!value.isString()) {
+            return null; // 담당 칸이 없는 이전 형식의 결과
+        }
+        for (InterviewerRole role : InterviewerRole.values()) {
+            if (role.name().equals(value.asString())) {
+                return role;
+            }
+        }
+        log.warn("Unknown interviewer role {} for {}; saved without a role", value.asString(), applicationId);
+        return null;
     }
 }
