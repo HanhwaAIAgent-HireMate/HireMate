@@ -204,7 +204,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
           </div>
           <p className="text-xs text-muted-foreground">
             고르는 중인 꾸밈이에요. 저장해야 메일에 들어가요.
-            {sample === 'receipt' && ' 글은 아래에 저장한 접수 확인 메일 양식이에요.'}
+            {sample === 'receipt' && ' 글은 위에 저장한 접수 확인 메일 양식이에요.'}
           </p>
           <MailFrame
             preview={preview.data}

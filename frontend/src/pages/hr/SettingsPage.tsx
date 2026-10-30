@@ -60,8 +60,8 @@ export function SettingsPage() {
           </>
         ) : section === 'mail' ? (
           <>
-            <MailStyleForm />
             <NoticeTemplateForm />
+            <MailStyleForm />
           </>
         ) : (
           <CompanyProfileForm />
