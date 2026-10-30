@@ -4,6 +4,7 @@ import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.interview.InterviewerRole;
+import com.hiremate.interview.QuestionSource;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -56,7 +57,16 @@ public class InterviewController {
     @PutMapping("/interview/questions/{questionId}/answer")
     public InterviewView answer(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID questionId, @Valid @RequestBody AnswerRequest request) {
-        return interviews.answer(member.companyId(), stageId, questionId, request.answer());
+        return interviews.answer(member.companyId(), stageId, questionId, request.answer(),
+                request.analyze() == null || request.analyze());
+    }
+
+    /** 🎤 면접관이 고른(또는 직접 쓴) 꼬리질문을 원래 질문 아래에 넣는다. 최대 2단계, 질문마다 하나. */
+    @PostMapping("/interview/questions/{questionId}/follow-ups")
+    public InterviewView addFollowUp(AuthenticatedMember member, @PathVariable UUID stageId,
+            @PathVariable UUID questionId, @Valid @RequestBody FollowUpRequest request) {
+        return interviews.addFollowUp(member.companyId(), stageId, questionId, request.text(), request.source(),
+                request.check());
     }
 
     @PutMapping("/interview/questions/{questionId}/role")
@@ -78,7 +88,20 @@ public class InterviewController {
             @Schema(nullable = true) InterviewerRole interviewerRole) {
     }
 
-    public record AnswerRequest(@NotNull @Size(max = 5000) String answer) {
+    /**
+     * @param analyze 💾 false면 자동 저장(DB에만 저장, 분석 없음). 면접관이 답변 칸을 떠날 때 true로 보내 분석을 요청한다.
+     *                없으면 true (예전 화면과 같다)
+     */
+    public record AnswerRequest(@NotNull @Size(max = 5000) String answer,
+            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true) Boolean analyze) {
+    }
+
+    /**
+     * @param source AI 제안을 골랐으면 AI, 직접 썼으면 MANUAL
+     * @param check AI 제안의 확인 포인트. 직접 썼으면 null
+     */
+    public record FollowUpRequest(@NotBlank @Size(max = 500) String text, @NotNull QuestionSource source,
+            @Schema(nullable = true) @Size(max = 300) String check) {
     }
 
     public record ScheduleRequest(@Schema(nullable = true) Instant scheduledAt,

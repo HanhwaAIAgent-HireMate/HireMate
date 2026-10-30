@@ -468,6 +468,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/interview/questions/{questionId}/follow-ups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addFollowUp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/interview/questions/{questionId}/follow-ups/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["followUps"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/finish": {
         parameters: {
             query?: never;
@@ -1495,6 +1527,8 @@ export interface components {
             reason: string | null;
             /** @enum {string|null} */
             interviewerRole: "HR" | "PRACTICAL" | null;
+            /** Format: uuid */
+            parentQuestionId: string | null;
         };
         Schedule: {
             /** Format: date-time */
@@ -1503,6 +1537,7 @@ export interface components {
         };
         AnswerRequest: {
             answer: string;
+            analyze: boolean | null;
         };
         StageGuideRequest: {
             /** Format: date */
@@ -1858,6 +1893,23 @@ export interface components {
             agent: string;
             stub: boolean;
         };
+        FollowUpRequest: {
+            text: string;
+            /** @enum {string} */
+            source: "AI" | "MANUAL";
+            check: string | null;
+        };
+        FollowUpsRequest: {
+            avoid: string[];
+        };
+        InterviewFollowUps: {
+            needed: boolean;
+            suggestions: components["schemas"]["Suggestion"][];
+        };
+        Suggestion: {
+            text: string;
+            check: string;
+        };
         FinishResponse: {
             /** Format: uuid */
             nextStageId: string | null;
@@ -2131,31 +2183,31 @@ export interface components {
             fallback: boolean;
         };
         JsonNode: {
+            floatingPointNumber: boolean;
+            number: boolean;
+            valueNode: boolean;
+            container: boolean;
+            missingNode: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            string: boolean;
+            integralNumber: boolean;
+            pojo: boolean;
+            short: boolean;
+            int: boolean;
+            long: boolean;
+            double: boolean;
+            bigDecimal: boolean;
+            bigInteger: boolean;
+            /** @deprecated */
+            textual: boolean;
+            boolean: boolean;
+            binary: boolean;
             empty: boolean;
             array: boolean;
             null: boolean;
             object: boolean;
             float: boolean;
-            number: boolean;
-            string: boolean;
-            double: boolean;
-            binary: boolean;
-            int: boolean;
-            short: boolean;
-            boolean: boolean;
-            pojo: boolean;
-            /** @deprecated */
-            textual: boolean;
-            long: boolean;
-            integralNumber: boolean;
-            valueNode: boolean;
-            floatingPointNumber: boolean;
-            container: boolean;
-            bigInteger: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            missingNode: boolean;
-            bigDecimal: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3323,6 +3375,60 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["NoticeView"][];
+                };
+            };
+        };
+    };
+    addFollowUp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                questionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
+                };
+            };
+        };
+    };
+    followUps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                questionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewFollowUps"];
                 };
             };
         };

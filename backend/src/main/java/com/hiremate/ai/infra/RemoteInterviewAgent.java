@@ -4,6 +4,8 @@ import com.hiremate.ai.application.AiAgent;
 import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.InterviewAgent;
+import com.hiremate.ai.application.InterviewFollowUps;
+import com.hiremate.ai.application.InterviewFollowUpsRequest;
 import com.hiremate.ai.application.InterviewQuestionsRequest;
 import com.hiremate.ai.application.InterviewerMemo;
 import com.hiremate.apply.ApplicantDetail;
@@ -54,6 +56,12 @@ class RemoteInterviewAgent implements InterviewAgent {
         return client.post(AiAgent.INTERVIEW, "questions",
                 new InterviewQuestionsRequest(applicant, posting, analysis, interview, company, focus, 1, memo),
                 QUESTIONS);
+    }
+
+    /** 🎤 꼬리질문 제안. 면접관이 버튼을 눌러 기다리므로 대기열 없이 바로 부른다. */
+    @Override
+    public InterviewFollowUps followUps(InterviewFollowUpsRequest request) {
+        return client.post(AiAgent.INTERVIEW, "follow-ups", request, InterviewFollowUps.class);
     }
 
     @Override

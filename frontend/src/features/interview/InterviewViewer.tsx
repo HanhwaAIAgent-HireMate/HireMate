@@ -1,4 +1,13 @@
-import { CalendarClock, Loader2Icon, Plus, RotateCcw, X } from 'lucide-react'
+import {
+  CalendarClock,
+  ChevronDown,
+  ChevronRight,
+  CornerDownRight,
+  Loader2Icon,
+  Plus,
+  RotateCcw,
+  X,
+} from 'lucide-react'
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -15,14 +24,15 @@ import {
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/textarea'
 import {
   useInterview,
   useInterviewActions,
   useInterviewPreparing,
   useStageHistory,
   type Interview,
+  type InterviewQuestion,
 } from '@/features/interview/api'
+import { AnswerBox } from '@/features/interview/AnswerBox'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import { QuestionReason } from '@/features/interview/QuestionReason'
 import { RoleTag } from '@/features/interview/RoleTag'
@@ -123,6 +133,20 @@ function Questions({
     () => new Set(interview.questions.map((question) => question.questionId)),
   )
   const scrolledTo = useRef<string | null>(null) // 같은 질문으로 여러 번 스크롤하지 않게
+  const { depths, roots, followUps } = followUpTree(interview.questions)
+  // 🎤 접어 둔 맨 위 질문 → 접을 때의 꼬리질문 수. 기본은 모두 펼침이다.
+  //   꼬리질문이 새로 생기면(수가 달라지면) 자동으로 펼쳐 방금 고른 질문에 바로 답을 적을 수 있게 한다
+  const [folded, setFolded] = useState<Map<string, number>>(new Map())
+  const isOpen = (rootId: string) => folded.get(rootId) !== (followUps.get(rootId)?.length ?? 0)
+  const toggle = (rootId: string) =>
+    setFolded((current) => {
+      const next = new Map(current)
+      if (isOpen(rootId)) next.set(rootId, followUps.get(rootId)?.length ?? 0)
+      else next.delete(rootId)
+      return next
+    })
+  // 🎤 이미 꼬리질문이 딸린 질문 (질문마다 꼬리질문은 하나)
+  const parents = new Set(interview.questions.map((question) => question.parentQuestionId))
 
   return (
     <div className="space-y-3">
@@ -139,20 +163,7 @@ function Questions({
                 .join(' · ')}
             </span>
           </div>
-          {previous.questions.map((question, index) => (
-            <div key={question.questionId}>
-              <QuestionReason
-                text={`Q${index + 1}. ${question.text}`}
-                reason={question.reason}
-                source={question.source}
-                // 🎤 담당은 이번 질문의 선택 상자와 같은 자리(첫 줄 맨 앞)에 글자로만 보여 준다 (지난 기록이라 바꿀 수 없음)
-                leading={<RoleTag role={question.interviewerRole} questionText={question.text} />}
-              />
-              <p className="text-xs text-muted-foreground">
-                {question.answer || '기록한 답변이 없어요.'}
-              </p>
-            </div>
-          ))}
+          <PreviousQuestions questions={previous.questions} />
         </section>
       ))}
       <div className="flex items-center gap-2 text-sm font-semibold">
@@ -237,6 +248,13 @@ function Questions({
           }}
           className={cn(
             'group space-y-2 rounded-xl border p-3',
+            // 🎤 꼬리질문은 원래 질문 아래에 한 단계씩 들여 쓴다
+            //   접혀 있으면 숨기기만 한다 (화면에서 빼지 않아 적던 답 · 자동 저장이 그대로 남는다)
+            (depths.get(question.questionId) ?? 0) > 0 &&
+              !isOpen(roots.get(question.questionId) ?? '') &&
+              'hidden',
+            depths.get(question.questionId) === 1 && 'ml-6 border-fuchsia-100',
+            (depths.get(question.questionId) ?? 0) >= 2 && 'ml-12 border-fuchsia-100',
             // 3초 동안 연한 노란 배경 · 테두리로 강조했다가 원래대로 (리스트의 보라 AI 선택 표시와 헷갈리지 않는 색)
             !initialIds.has(question.questionId) && 'animate-[question-new_3s_ease-out]',
           )}
@@ -275,22 +293,24 @@ function Questions({
               </button>
             )}
           </div>
-          <Textarea
-            aria-label={`${question.text} 답변`}
-            defaultValue={question.answer}
-            placeholder="답변"
-            disabled={!editable}
-            rows={2}
-            onBlur={(event) => {
-              const answer = event.target.value
-              if (answer !== question.answer)
-                actions.answer.mutate(
-                  { questionId: question.questionId, answer },
-                  { onError: fail },
-                )
-            }}
-            className="min-h-0 resize-none"
+          <AnswerBox
+            stageId={stageId}
+            applicationId={applicationId}
+            question={question}
+            editable={editable}
+            // 🎤 꼬리질문은 2단계까지, 질문마다 하나. 2단계 질문에는 버튼이 없고 남은 점은 다음 면접으로 넘긴다
+            canFollowUp={
+              (depths.get(question.questionId) ?? 0) < MAX_FOLLOW_UP_DEPTH &&
+              !parents.has(question.questionId)
+            }
           />
+          {followUps.has(question.questionId) && (
+            <FollowUpToggle
+              followUps={followUps.get(question.questionId) ?? []}
+              open={isOpen(question.questionId)}
+              onToggle={() => toggle(question.questionId)}
+            />
+          )}
         </div>
       ))}
       {editable &&
@@ -323,6 +343,139 @@ function Questions({
             </Button>
           </form>
         ))}
+    </div>
+  )
+}
+
+/**
+ * 지난 면접의 질문과 답. 처음 만든 질문만 Q번호를 붙이고, 🎤 꼬리질문은 원래 질문 아래에 들여 써서 기본으로 접어 둔다
+ * (지난 기록이라 다시 볼 일이 적다).
+ */
+function PreviousQuestions({ questions }: { questions: InterviewQuestion[] }) {
+  const { depths, roots, followUps } = followUpTree(questions)
+  const [opened, setOpened] = useState<Set<string>>(new Set())
+  const numbers = new Map(
+    questions
+      .filter((question) => depths.get(question.questionId) === 0)
+      .map((question, index) => [question.questionId, index + 1]),
+  )
+  return questions.map((question) => {
+    const depth = depths.get(question.questionId) ?? 0
+    if (depth > 0 && !opened.has(roots.get(question.questionId) ?? '')) return null
+    return (
+      <div
+        key={question.questionId}
+        className={cn(
+          depth === 1 && 'ml-5',
+          depth >= 2 && 'ml-10',
+          depth > 0 && 'border-l-2 border-fuchsia-100 pl-3',
+        )}
+      >
+        <QuestionReason
+          text={
+            depth === 0 ? `Q${numbers.get(question.questionId)}. ${question.text}` : question.text
+          }
+          reason={question.reason}
+          source={question.source}
+          // 🎤 담당은 이번 질문의 선택 상자와 같은 자리(첫 줄 맨 앞)에 글자로만 보여 준다 (지난 기록이라 바꿀 수 없음)
+          leading={<RoleTag role={question.interviewerRole} questionText={question.text} />}
+        />
+        <p className="text-xs text-muted-foreground">
+          {question.answer || '기록한 답변이 없어요.'}
+        </p>
+        {followUps.has(question.questionId) && (
+          <div className="mt-1">
+            <FollowUpToggle
+              followUps={followUps.get(question.questionId) ?? []}
+              open={opened.has(question.questionId)}
+              onToggle={() =>
+                setOpened((current) => {
+                  const next = new Set(current)
+                  if (!next.delete(question.questionId)) next.add(question.questionId)
+                  return next
+                })
+              }
+            />
+          </div>
+        )}
+      </div>
+    )
+  })
+}
+
+/** 🎤 꼬리질문은 2단계까지 (질문 → 꼬리질문 → 꼬리질문의 꼬리질문). 서버의 MAX_FOLLOW_UP_DEPTH와 같다 */
+const MAX_FOLLOW_UP_DEPTH = 2
+
+/**
+ * 질문마다 꼬리질문 단계(처음 질문 0, 꼬리질문 1, 꼬리질문의 꼬리질문 2)와 맨 위 질문,
+ * 맨 위 질문별로 딸린 꼬리질문 목록(화면 순서 그대로)을 구한다. 접기 · 들여쓰기 · 받기 버튼에 쓴다.
+ */
+function followUpTree(questions: InterviewQuestion[]) {
+  const parentOf = new Map(
+    questions.map((question) => [question.questionId, question.parentQuestionId]),
+  )
+  const depths = new Map<string, number>()
+  const roots = new Map<string, string>() // 질문 id → 맨 위(처음 만든) 질문 id
+  const followUps = new Map<string, InterviewQuestion[]>() // 맨 위 질문 id → 딸린 꼬리질문들
+  for (const question of questions) {
+    let depth = 0
+    let root = question.questionId
+    // 부모를 따라 올라가며 단계를 센다. 목록에 없는 부모(지워진 질문)를 만나면 거기서 멈춘다
+    for (
+      let at = question.parentQuestionId;
+      at && parentOf.has(at) && depth <= MAX_FOLLOW_UP_DEPTH;
+      at = parentOf.get(at) ?? null
+    ) {
+      depth++
+      root = at
+    }
+    depths.set(question.questionId, depth)
+    roots.set(question.questionId, root)
+    if (depth > 0) followUps.set(root, [...(followUps.get(root) ?? []), question])
+  }
+  return { depths, roots, followUps }
+}
+
+/**
+ * 🎤 꼬리질문 접기 버튼. 접혀 있어도 꼬리질문 첫 줄과 답 유무를 한 줄씩 보여 줘, 무엇을 물었는지는 알 수 있게 한다.
+ */
+function FollowUpToggle({
+  followUps,
+  open,
+  onToggle,
+}: {
+  followUps: InterviewQuestion[]
+  open: boolean
+  onToggle: () => void
+}) {
+  const answered = followUps.filter((question) => question.answer.trim()).length
+  return (
+    <div className="space-y-1">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="inline-flex items-center gap-1 rounded px-0.5 text-xs font-medium text-fuchsia-800 hover:text-fuchsia-950 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        꼬리질문 {followUps.length}개 {open ? '접기' : '펼치기'}
+        <span className="font-normal text-muted-foreground">
+          · 답변 {answered}/{followUps.length}
+        </span>
+      </button>
+      {!open && (
+        <ul className="space-y-0.5 pl-5 text-xs text-muted-foreground">
+          {followUps.map((question) => (
+            <li key={question.questionId} className="flex items-center gap-1.5">
+              <CornerDownRight className="size-3 shrink-0" />
+              <span className="truncate">{question.text}</span>
+              <span className="shrink-0">
+                {question.answer.trim() ? '· 답변 있음' : '· 답변 없음'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

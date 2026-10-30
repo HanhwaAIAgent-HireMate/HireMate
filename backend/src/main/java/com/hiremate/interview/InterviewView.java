@@ -18,9 +18,20 @@ public record InterviewView(UUID applicationId, @Schema(nullable = true) Schedul
     public record Schedule(@Schema(nullable = true) Instant scheduledAt, String interviewers) {
     }
 
+    /**
+     * 면접 질문 하나와 기록한 답변.
+     *
+     * @param parentQuestionId 🎤 꼬리질문이면 원래 질문의 id, 처음 만든 질문은 null. 목록은 원래 질문 바로 뒤에 꼬리질문을 둔다
+     */
     public record Question(UUID questionId, String text, QuestionSource source, String answer,
             @Schema(nullable = true) String reason,
-            @Schema(nullable = true) InterviewerRole interviewerRole) {
+            @Schema(nullable = true) InterviewerRole interviewerRole,
+            @Schema(nullable = true) UUID parentQuestionId) {
+
+        public Question(UUID questionId, String text, QuestionSource source, String answer, String reason,
+                InterviewerRole interviewerRole) {
+            this(questionId, text, source, answer, reason, interviewerRole, null);
+        }
 
         public Question(UUID questionId, String text, QuestionSource source, String answer, String reason) {
             this(questionId, text, source, answer, reason, null);

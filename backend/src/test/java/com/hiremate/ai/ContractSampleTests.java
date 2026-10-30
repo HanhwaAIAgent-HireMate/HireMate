@@ -12,6 +12,8 @@ import com.hiremate.ai.application.ChatStatus;
 import com.hiremate.ai.application.ComposedReport;
 import com.hiremate.ai.application.InterviewAnalysis;
 import com.hiremate.ai.application.InterviewAnalysisInput;
+import com.hiremate.ai.application.InterviewFollowUps;
+import com.hiremate.ai.application.InterviewFollowUpsRequest;
 import com.hiremate.ai.application.InterviewQuestionsRequest;
 import com.hiremate.ai.application.InterviewerMemo;
 import com.hiremate.ai.application.ReportBundle;
@@ -69,6 +71,8 @@ class ContractSampleTests {
             Map.entry("ComposedReport", ComposedReport.class),
             Map.entry("InterviewAnalysis", InterviewAnalysis.class),
             Map.entry("InterviewView", InterviewView.class),
+            Map.entry("InterviewFollowUps", InterviewFollowUps.class),
+            Map.entry("InterviewFollowUpsRequest", InterviewFollowUpsRequest.class),
             Map.entry("InterviewQuestionDraft", InterviewQuestionDraft.class),
             Map.entry("InterviewerMemo", InterviewerMemo.class),
             Map.entry("InterviewAnalysisInput", InterviewAnalysisInput.class),

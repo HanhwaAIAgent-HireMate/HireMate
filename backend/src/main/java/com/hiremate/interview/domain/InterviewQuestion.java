@@ -52,6 +52,13 @@ public class InterviewQuestion {
     @Column(length = 10)
     private InterviewerRole interviewerRole;
 
+    /** 🎤 꼬리질문이면 원래 질문의 id. 처음 만든 질문은 null (최대 2단계: 질문 → 꼬리질문 → 꼬리질문의 꼬리질문) */
+    private UUID parentQuestionId;
+
+    /** 💾 자동 저장만 되고 아직 답변 분석에 넘기지 않았으면 true. 다른 질문으로 넘어갈 때 분석하고 false로 돌린다. */
+    @Column(nullable = false)
+    private boolean answerPendingAnalysis;
+
     @Column(nullable = false)
     private Instant updatedAt;
 
@@ -67,6 +74,13 @@ public class InterviewQuestion {
 
     public InterviewQuestion(UUID stageId, UUID applicationId, UUID companyId, int seq, String text,
             QuestionSource source, String reason, InterviewerRole interviewerRole) {
+        this(stageId, applicationId, companyId, seq, text, source, reason, interviewerRole, null);
+    }
+
+    /** 🎤 꼬리질문을 만들 때 쓴다. 담당은 원래 질문을 따라간다. */
+    public InterviewQuestion(UUID stageId, UUID applicationId, UUID companyId, int seq, String text,
+            QuestionSource source, String reason, InterviewerRole interviewerRole, UUID parentQuestionId) {
+        this.parentQuestionId = parentQuestionId;
         this.interviewerRole = interviewerRole;
         this.id = UUID.randomUUID();
         this.stageId = stageId;
@@ -87,5 +101,16 @@ public class InterviewQuestion {
     public void answer(String answer) {
         this.answer = answer;
         this.updatedAt = Instant.now();
+    }
+
+    /** 💾 자동 저장: 답변만 바꾸고 분석은 뒤로 미룬다. */
+    public void saveDraft(String answer) {
+        answer(answer);
+        this.answerPendingAnalysis = true;
+    }
+
+    /** 미뤄 둔 분석을 넘겼다고 표시한다. */
+    public void markAnalyzed() {
+        this.answerPendingAnalysis = false;
     }
 }
