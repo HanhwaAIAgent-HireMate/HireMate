@@ -105,9 +105,10 @@ public class ReportBundles {
             case ASSESSMENT -> prefix + ".total";
             case INTERVIEW -> facts.has(prefix + ".score") ? prefix + ".score" : null;
         };
+        // 서류는 자격요건 · 우대사항을 영역으로 나누고, 평가 · 면접은 점수가 있으면 전형 하나를 영역으로 둔다
         List<ReportBundle.Area> areas = current.type() == StageType.DOCUMENT
                 ? documentAreas(postings.screeningRubric(companyId, recruitment.id()))
-                : List.of();
+                : stageArea(current, prefix, facts, companyId, recruitment.id()).stream().toList();
         List<ReportBundle.Applicant> applicants = rows.stream()
                 .map(row -> new ReportBundle.Applicant(numbers.get(row.applicationId()), row.applicationId(),
                         row.careerYears(), row.lastCompany()))
@@ -184,7 +185,7 @@ public class ReportBundles {
                 null, areas, metrics, facts.list, List.of());
     }
 
-    /** 최종 리포트에서 전형 하나의 영역. 점수가 있는 전형만 둔다. 서류는 심사 항목 판정을 함께 묶는다. */
+    /** 전형 하나의 영역. 점수가 있는 전형만 둔다. 서류는 심사 항목 판정을 함께 묶는다 (최종 리포트용). */
     private Optional<ReportBundle.Area> stageArea(StageInfo stage, String prefix, Facts facts, UUID companyId,
             UUID recruitmentId) {
         return switch (stage.type()) {

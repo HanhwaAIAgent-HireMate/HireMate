@@ -101,6 +101,37 @@ class AgentReportTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("평가 전형 리포트 묶음은 평가 전형을 영역으로 넣어, 영역 점수 key와 총점 key를 함께 준다")
+    void assessmentStageBundleHasAssessmentArea() throws Exception {
+        Stage document = startDocumentStage(2, "전형은 서류, 직무역량 평가 순으로 해줘");
+        TestApi hr = document.hr();
+        expect(hr.post(document.path() + "/decisions",
+                Map.of("applicationIds", document.ids(), "decision", "PASS")), 204);
+        expect(hr.post(document.path() + "/confirm", null), 200);
+        expect(hr.post(document.path() + "/notices/prepare", null), 200);
+        expect(hr.post(document.path() + "/notices/PASS/send", null), 200);
+        String stageId = json(expect(hr.post(document.path() + "/finish", null), 200)).path("nextStageId").asString();
+        Stage assessment = new Stage(hr, stageId, document.ids());
+        for (String applicationId : assessment.ids()) {
+            expect(hr.put(assessment.path() + "/assessment/results/" + applicationId,
+                    Map.of("total", 80, "areas", Map.of("의사소통능력", 70, "문제해결능력", 90))), 200);
+        }
+
+        JsonNode requested = json(expect(hr.post(assessment.path() + "/reports/compare",
+                Map.of("applicationIds", assessment.ids(), "focus", "", "brief", false)), 202));
+        JsonNode bundle = json(expect(hr.get(assessment.path() + "/reports/" + requested.path("reportId").asString()),
+                200)).path("bundle");
+
+        assertThat(bundle.path("totalKey").asString()).isEqualTo("assessment.total");
+        JsonNode areas = bundle.path("areas");
+        assertThat(areas).hasSize(1);
+        assertThat(areas.get(0).path("id").asString()).isEqualTo("assessment");
+        assertThat(areas.get(0).path("scoreKey").asString()).isEqualTo("assessment.total");
+        assertThat(areas.get(0).path("keys").toString())
+                .contains("assessment.area.의사소통능력", "assessment.area.문제해결능력");
+    }
+
+    @Test
     @DisplayName("AI 워커가 쓴 부품 설계서를 리포트에 저장하고, 실패하면 실패로 둔다")
     void savesWorkerResults() throws Exception {
         Stage stage = startDocumentStage(2);
@@ -136,8 +167,12 @@ class AgentReportTests extends IntegrationTest {
     }
 
     private Stage startDocumentStage(int applicants) throws Exception {
+        return startDocumentStage(applicants, null);
+    }
+
+    private Stage startDocumentStage(int applicants, String stagePlan) throws Exception {
         TestApi hr = newHr();
-        TestFixtures.Posting posting = TestFixtures.publish(hr, false);
+        TestFixtures.Posting posting = TestFixtures.publish(hr, false, stagePlan);
         for (int i = 1; i <= applicants; i++) {
             Map<String, Object> form = TestFixtures.form("applicant" + i + "@example.com", false);
             form.put("name", "지원자" + i);
