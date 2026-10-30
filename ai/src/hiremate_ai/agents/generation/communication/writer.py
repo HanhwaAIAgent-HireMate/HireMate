@@ -92,24 +92,6 @@ _DRAFT_EXAMPLES = {
             "코딩 테스트에 합격하셨음을 알려드립니다. 진심으로 축하드립니다.\n\n"
             "다음 전형은 직무 면접입니다. 면접 전형에서 뵙기를 기대하겠습니다.",
         ),
-        _DraftExample(
-            "인적성 검사",
-            "실무 면접",
-            "인적성 검사 결과, 다음 전형에 함께하시게 되었음을 알려드립니다. 진심으로 축하드립니다.\n\n"
-            "다음 전형은 실무 면접입니다.",
-        ),
-        _DraftExample(
-            "1차 면접",
-            "2차 면접",
-            "1차 면접에 합격하신 것을 축하드립니다.\n\n"
-            "다음 전형은 2차 면접입니다. 남은 전형도 좋은 결과 있으시기를 바랍니다.",
-        ),
-        _DraftExample(
-            "직무 평가",
-            "임원 면접",
-            "직무 평가 결과, 합격하셨음을 알려드립니다. 진심으로 축하드립니다.\n\n"
-            "다음 전형은 임원 면접입니다. 다음 전형에서 뵙기를 기대하겠습니다.",
-        ),
     ],
     NoticeTemplateType.REJECT: [
         _DraftExample(
@@ -123,24 +105,6 @@ _DRAFT_EXAMPLES = {
             None,
             "1차 면접 결과, 아쉽게도 불합격하셨음을 알려드립니다.\n\n"
             "바쁘신 가운데 면접에 참여해 주셔서 감사드립니다. 앞으로의 여정을 응원하겠습니다.",
-        ),
-        _DraftExample(
-            "코딩 테스트",
-            None,
-            "코딩 테스트 결과, 아쉽게도 다음 채용 단계에 함께하지 못하게 되었습니다.\n\n"
-            "시간을 내어 테스트에 응해 주셔서 감사드립니다. 앞으로의 길을 응원하겠습니다.",
-        ),
-        _DraftExample(
-            "실무 면접",
-            None,
-            "실무 면접 결과, 다음 전형에는 함께하지 못하게 되었습니다.\n\n"
-            "바쁘신 가운데 면접에 참여해 주셔서 감사드리며, 귀하의 무궁한 발전과 건승을 기원합니다.",
-        ),
-        _DraftExample(
-            "인적성 검사",
-            None,
-            "아쉽게도 인적성 검사를 끝으로 전형 안내를 마무리하게 되었습니다.\n\n"
-            "당사에 관심을 가져 주셔서 감사드리며, 앞날을 응원하겠습니다.",
         ),
     ],
     NoticeTemplateType.FINAL_PASS: [
@@ -157,24 +121,6 @@ _DRAFT_EXAMPLES = {
             "긴 과정을 거쳐 당사의 새로운 동료가 되신 것을 진심으로 축하드리며, 앞으로 함께하게 될 날을 "
             "기대하겠습니다.",
         ),
-        _DraftExample(
-            "2차 면접",
-            None,
-            "2차 면접 결과, 최종 합격하셨음을 알려드립니다. 진심으로 축하드립니다.\n\n"
-            "앞으로 함께하게 될 날을 기대하겠습니다.",
-        ),
-        _DraftExample(
-            "실무 면접",
-            None,
-            "실무 면접 결과 최종 합격하셨음을 알려드립니다.\n\n"
-            "그동안 긴 채용 과정에 함께해 주셔서 감사드리며, 당사와 함께하게 된 것을 진심으로 환영합니다.",
-        ),
-        _DraftExample(
-            "경영진 면접",
-            None,
-            "경영진 면접 결과, 최종 합격하셨음을 기쁜 마음으로 안내해드립니다.\n\n"
-            "저희의 새로운 동료로 함께하게 되신 것을 진심으로 환영합니다.",
-        ),
     ],
     NoticeTemplateType.FINAL_REJECT: [
         _DraftExample(
@@ -189,31 +135,8 @@ _DRAFT_EXAMPLES = {
             "임원 면접 결과, 아쉽게도 이번 채용에서 함께하기 어렵게 되었음을 알려드립니다.\n\n"
             "긴 전형 과정 동안 당사에 소중한 시간을 내주신 점 깊이 감사드리며, 앞날을 진심으로 응원하겠습니다.",
         ),
-        _DraftExample(
-            "2차 면접",
-            None,
-            "2차 면접 결과, 아쉽게도 이번 채용에서 함께하기 어렵게 되었음을 알려드립니다.\n\n"
-            "긴 채용 과정에 함께해 주셔서 진심으로 감사드립니다.",
-        ),
-        _DraftExample(
-            "경영진 면접",
-            None,
-            "경영진 면접 전형 결과, 아쉽게도 이번 채용에서는 최종 합격 소식을 전해드리지 못하게 되었습니다.\n\n"
-            "마지막 전형까지 귀한 시간 내어 함께해 주신 점 깊이 감사드리며, 앞으로 나아가실 길 위에 무궁한 발전과 "
-            "축복이 가득하기를 기원합니다.",
-        ),
-        _DraftExample(
-            "실무진 면접",
-            None,
-            "실무진 면접 결과, 최종 불합격하셨음을 알려드립니다.\n\n"
-            "긴 전형 과정 동안 시간을 내어 주셔서 감사드립니다. 향후 이어질 귀하의 행보에 좋은 결과가 따르기를 "
-            "바랍니다.",
-        ),
     ],
 }
-
-DRAFT_EXAMPLES_SHOWN = 2
-"""처음 쓸 때 보여 주는 같은 종류 예시 수. 앞에서부터 보여 준다. 예시가 많으면 지시문이 길어 느려진다."""
 
 # HR 요청으로 고칠 때 보여 주는 모범 답(퓨샷). 요청한 곳만 고치고, 쓰면 안 되는 요청(불합격 사유, 일정)은
 # 빼고 나머지만 따르는 법을 보여 준다. 메일 종류와 상관없이 보여 준다
@@ -243,23 +166,8 @@ _REVISION_EXAMPLES = [
         _DRAFT_EXAMPLES[NoticeTemplateType.NEXT_STAGE][0].content,
         ("SCHEDULE",),
     ),
-    _RevisionExample(
-        _DRAFT_EXAMPLES[NoticeTemplateType.REJECT][2].content,
-        "좀 더 따뜻하게 위로하는 느낌으로 써 줘",
-        "코딩 테스트 결과, 아쉽게도 이번에는 다음 단계에 함께하지 못하게 되었습니다.\n\n"
-        "바쁜 시간을 내어 테스트에 응해 주셔서 진심으로 감사드립니다. 준비하시는 일들이 좋은 결실로 이어지기를 "
-        "바랍니다.",
-    ),
-    _RevisionExample(
-        "2차 면접 결과, 최종 합격하셨어요. 축하드려요.\n\n앞으로 같이 일하게 되어 기뻐요.",
-        "좀 더 격식 있게 바꿔 줘",
-        "2차 면접 결과, 최종 합격하셨음을 알려드립니다. 진심으로 축하드립니다.\n\n"
-        "앞으로 함께하게 될 날을 기대하겠습니다.",
-    ),
 ]
 
-REVISION_EXAMPLES_SHOWN = 4
-"""고칠 때 보여 주는 예시 수. 앞에서부터 보여 준다."""
 
 # 따르지 않은 요청을 HR에게 알리는 답. 모델이 쓴 문장은 검사하지 않았으므로 정해 둔 문장만 보낸다
 _SKIPPED_REPLIES: dict[Skipped, str] = {
@@ -383,14 +291,14 @@ def _user_prompt(notice: NoticeDraftContext, request: str | None) -> str:
     lines += [f"쓸 내용: {notice.template_type.guide}", f"양식의 작성 안내: {notice.ai_guide}"]
     if request is None:
         lines += ["", "예시 본문 (이 말투, 길이, 문단 나누기를 따르고 전형 이름은 위 정보로 바꿔 쓴다):"]
-        for number, example in enumerate(_DRAFT_EXAMPLES[notice.template_type][:DRAFT_EXAMPLES_SHOWN], start=1):
+        for number, example in enumerate(_DRAFT_EXAMPLES[notice.template_type], start=1):
             stages = f"이번 전형: {example.stage}"
             if example.next_stage:
                 stages += f" / 다음 전형: {example.next_stage}"
             lines += ["", f"[예시 {number}] {stages}", example.content]
     else:
         lines += ["", "고쳐 쓴 예시 (고치는 방식만 따른다. 예시의 전형 이름과 문장은 옮기지 않는다):"]
-        for number, revision in enumerate(_REVISION_EXAMPLES[:REVISION_EXAMPLES_SHOWN], start=1):
+        for number, revision in enumerate(_REVISION_EXAMPLES, start=1):
             lines += [
                 "",
                 f"[예시 {number}] 지금 본문:",

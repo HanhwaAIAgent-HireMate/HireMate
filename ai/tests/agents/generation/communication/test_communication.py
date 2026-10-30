@@ -196,6 +196,15 @@ def test_problems_finds_later_notice_promise_not_in_source() -> None:
     assert problems("처우는 담당자가 따로 안내드릴 예정입니다.", source=request) == []
 
 
+def test_problems_finds_prompt_labels_copied_into_the_body() -> None:
+    """모델이 고쳐 쓴 예시의 'skipped: 없음' 줄까지 따라 쓴 적이 있다. 그대로 보내면 지원자 메일에 찍힌다."""
+    found = problems("서류 전형 결과를 알려드립니다.\n\nskipped: 없음", source="")
+
+    assert found == ["예시를 나누는 표시를 본문에 썼다: skipped:"]
+    assert problems("고친 본문:\n서류 전형 결과를 알려드립니다.", source="")
+    assert problems("HR 요청을 반영해 결과를 알려드립니다.", source="") == []
+
+
 def test_write_final_pass_leaves_onboarding_to_backend() -> None:
     llm = FakeLlm(NoticeBody(content="최종 합격을 축하드립니다."))
 
