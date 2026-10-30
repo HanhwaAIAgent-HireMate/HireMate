@@ -12,6 +12,7 @@ const answer: ChatTurn['answer'] = {
   agents: [],
   selectionChanged: false,
   stub: false,
+  reportId: null,
 }
 
 /** 멘션과 처리 단계, 질문한 담당자가 없는 지난 턴 (이 기능 전의 기록과 같다) */

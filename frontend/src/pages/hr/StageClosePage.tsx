@@ -1,5 +1,5 @@
-import { ArrowRight, Check, Send } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { ArrowRight, Check, FileChartColumn, Lock, Send } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
@@ -14,12 +14,25 @@ import {
   type Notice,
 } from '@/features/notice/api'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
+import {
+  toReportView,
+  useAgentReport,
+  useOpenStageReport,
+  useStageReports,
+  type ReportSummary,
+} from '@/features/report/api'
+import { AgentReportModal } from '@/features/report/AgentReportModal'
+import { ReportProgress } from '@/features/report/ReportProgress'
 import { useStageOverview, type StageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
 import { formatShortDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-// STG-09 · FIN-01 전형 종료 3단계: 결과 확정 → 합격 · 불합격 안내 → 전형 종료 (마지막 전형은 채용 종료)
+// STG-09 · FIN-01 전형 종료 4단계: 결과 확정 → 합격 · 불합격 안내 → 전형 결과 리포트 → 전형 종료
+// (마지막 전형은 채용 종료). 리포트는 안내를 모두 보낸 뒤 열리고, 전형 종료를 막지 않는다
+
+/** 리포트 칸에 보여 줄 핵심 지표 */
+const REPORT_METRICS = ['m-target', 'm-pass', 'm-pass-rate']
 export function StageClosePage() {
   const { stageId = '' } = useParams()
   const overview = useStageOverview(stageId)
@@ -71,7 +84,10 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
   const index = overview.steps.findIndex((step) => step.stageId === overview.stageId)
   const next = overview.steps[index + 1]
   const { counts } = overview
-  const step = done ? 4 : allSent ? 3 : 2
+  // 리포트는 안내를 모두 보낸 뒤 열린다. 다 쓴 리포트가 있으면 리포트 단계도 끝난 것으로 본다
+  const reports = useStageReports(overview.stageId)
+  const latest = reports.data?.find((report) => report.status !== 'FAILED') ?? null
+  const step = done ? 5 : !allSent ? 2 : latest?.status === 'DONE' ? 4 : 3
   const sentGroups =
     notices?.filter((notice) => notice.status === 'SENT' || notice.status === 'EMPTY').length ?? 0
   const sentPeople = notices?.reduce((sum, notice) => sum + notice.sentCount, 0) ?? 0
@@ -100,111 +116,123 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
       <div className="flex items-center gap-4 border-b px-6 py-4">
         <h1 className="text-xl font-bold">{overview.name} 종료</h1>
         <ol className="ml-auto flex items-center gap-2 text-sm">
-          {['결과 확정', '합격·불합격 안내', overview.last ? '채용 종료' : '전형 종료'].map(
-            (label, i) => (
-              <li key={label} className="flex items-center gap-2">
-                {i > 0 && <span className="h-px w-8 bg-border" />}
-                <span
-                  className={cn(
-                    'flex size-5 items-center justify-center rounded-full text-[11px] font-bold',
-                    i + 1 < step
-                      ? 'bg-pass-foreground text-white'
-                      : i + 1 === step
-                        ? 'bg-foreground text-background'
-                        : 'border text-muted-foreground',
-                  )}
-                >
-                  {i + 1 < step ? <Check className="size-3" /> : i + 1}
-                </span>
-                <span className={cn(i + 1 === step ? 'font-semibold' : 'text-muted-foreground')}>
-                  {label}
-                </span>
-              </li>
-            ),
-          )}
-        </ol>
-      </div>
-      <div className="mx-auto grid max-w-[1100px] grid-cols-3 items-start gap-4 p-6">
-        <StepCard title="① 결과 확정" badge={<Badge done>완료</Badge>}>
-          <div className="grid grid-cols-3 gap-2">
-            <Stat label="대상" value={counts.total} />
-            <Stat label="합격" value={counts.pass} />
-            <Stat
-              label="불합격"
-              value={counts.fail}
-              note={
-                overview.undecidedAtConfirm > 0
-                  ? `미결정 ${overview.undecidedAtConfirm}명 포함`
-                  : undefined
-              }
-            />
-          </div>
-          <p className="mt-4 border-t pt-3 text-xs text-muted-foreground">
-            {[
-              overview.confirmedByName,
-              overview.confirmedAt && formatShortDateTime(overview.confirmedAt),
-            ]
-              .filter(Boolean)
-              .join(' · ')}{' '}
-            확정
-          </p>
-        </StepCard>
-        <StepCard
-          title="② 합격·불합격 안내"
-          active={step === 2}
-          badge={step > 2 ? <Badge done>완료</Badge> : <Badge active>진행 중</Badge>}
-        >
-          <div className="space-y-2.5">
-            {!notices && <Skeleton className="h-20 w-full" />}
-            {notices?.map((notice) => (
-              <div
-                key={notice.group}
+          {[
+            '결과 확정',
+            '합격·불합격 안내',
+            '전형 결과 리포트',
+            overview.last ? '채용 종료' : '전형 종료',
+          ].map((label, i) => (
+            <li key={label} className="flex items-center gap-2">
+              {i > 0 && <span className="h-px w-8 bg-border" />}
+              <span
                 className={cn(
-                  'rounded-lg border p-3',
-                  notice.status === 'DRAFT' && 'border-foreground',
+                  'flex size-5 items-center justify-center rounded-full text-[11px] font-bold',
+                  i + 1 < step
+                    ? 'bg-pass-foreground text-white'
+                    : i + 1 === step
+                      ? 'bg-foreground text-background'
+                      : 'border text-muted-foreground',
                 )}
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">{notice.label}</span>
-                  <span
-                    className={cn(
-                      'rounded-md px-1.5 py-0.5 text-xs font-semibold',
-                      noticeBadge(notice).className,
-                    )}
-                  >
-                    {noticeBadge(notice).label}
-                  </span>
+                {i + 1 < step ? <Check className="size-3" /> : i + 1}
+              </span>
+              <span className={cn(i + 1 === step ? 'font-semibold' : 'text-muted-foreground')}>
+                {label}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div className="mx-auto grid max-w-[1200px] grid-cols-3 items-start gap-4 p-6">
+        <div className="flex flex-col gap-4">
+          <StepCard
+            title="합격·불합격 안내"
+            active={step === 2}
+            badge={step > 2 ? <Badge done>완료</Badge> : <Badge active>진행 중</Badge>}
+          >
+            <div className="space-y-2.5">
+              {!notices && <Skeleton className="h-20 w-full" />}
+              {notices?.map((notice) => (
+                <div
+                  key={notice.group}
+                  className={cn(
+                    'rounded-lg border p-3',
+                    notice.status === 'DRAFT' && 'border-foreground',
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold">{notice.label}</span>
+                    <span
+                      className={cn(
+                        'rounded-md px-1.5 py-0.5 text-xs font-semibold',
+                        noticeBadge(notice).className,
+                      )}
+                    >
+                      {noticeBadge(notice).label}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {notice.group === 'PASS' ? '합격' : '불합격'} {notice.recipientCount}명
+                    {notice.group === 'PASS' &&
+                      notice.recipientCount > 0 &&
+                      (next ? ` · ${next.name} 안내` : ' · 최종 합격 안내')}
+                  </p>
+                  {(notice.status === 'DRAFT' || notice.status === 'PARTIAL') && (
+                    <Button size="sm" className="mt-2.5" asChild>
+                      <Link to={`${base}/close/notices/${notice.group}`}>
+                        {needsDraft(notice) ? 'AI 초안 쓰기' : '초안 확인·수정'} <ArrowRight />
+                      </Link>
+                    </Button>
+                  )}
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {notice.group === 'PASS' ? '합격' : '불합격'} {notice.recipientCount}명
-                  {notice.group === 'PASS' &&
-                    notice.recipientCount > 0 &&
-                    (next ? ` · ${next.name} 안내` : ' · 최종 합격 안내')}
-                </p>
-                {(notice.status === 'DRAFT' || notice.status === 'PARTIAL') && (
-                  <Button size="sm" className="mt-2.5" asChild>
-                    <Link to={`${base}/close/notices/${notice.group}`}>
-                      {needsDraft(notice) ? 'AI 초안 쓰기' : '초안 확인·수정'} <ArrowRight />
-                    </Link>
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
-          {notices && (
-            <p className="mt-4 flex items-center gap-1.5 border-t pt-3 text-xs text-muted-foreground">
-              <Send className="size-3.5" />
-              발송 {sentGroups} / {notices.length} 그룹 · {sentPeople}명 발송, {waiting}명 대기
+              ))}
+            </div>
+            {notices && (
+              <p className="mt-4 flex items-center gap-1.5 border-t pt-3 text-xs text-muted-foreground">
+                <Send className="size-3.5" />
+                발송 {sentGroups} / {notices.length} 그룹 · {sentPeople}명 발송, {waiting}명 대기
+              </p>
+            )}
+          </StepCard>
+          <StepCard title="결과 확정" badge={<Badge done>완료</Badge>}>
+            <div className="grid grid-cols-3 gap-2">
+              <Stat label="대상" value={counts.total} />
+              <Stat label="합격" value={counts.pass} />
+              <Stat
+                label="불합격"
+                value={counts.fail}
+                note={
+                  overview.undecidedAtConfirm > 0
+                    ? `미결정 ${overview.undecidedAtConfirm}명 포함`
+                    : undefined
+                }
+              />
+            </div>
+            <p className="mt-4 border-t pt-3 text-xs text-muted-foreground">
+              {[
+                overview.confirmedByName,
+                overview.confirmedAt && formatShortDateTime(overview.confirmedAt),
+              ]
+                .filter(Boolean)
+                .join(' · ')}{' '}
+              확정
             </p>
-          )}
-        </StepCard>
-        <StepCard
-          title={overview.last ? '③ 채용 종료' : '③ 전형 종료'}
+          </StepCard>
+        </div>
+        <ReportStep
+          stageId={overview.stageId}
+          open={allSent}
+          latest={latest}
           active={step === 3}
+          onRequested={() => void reports.refetch()}
+        />
+        <StepCard
+          title={overview.last ? '채용 종료' : '전형 종료'}
+          active={step === 4}
           badge={
             done ? (
               <Badge done>완료</Badge>
-            ) : step === 3 ? (
+            ) : allSent ? (
               <Badge active>진행 중</Badge>
             ) : (
               <Badge>대기</Badge>
@@ -241,6 +269,133 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
         </StepCard>
       </div>
     </div>
+  )
+}
+
+/** 전형 결과 리포트 칸. 안내를 모두 보내면 열리고, 리포트 요약과 핵심 지표를 보여 준다 */
+function ReportStep({
+  stageId,
+  open,
+  latest,
+  active,
+  onRequested,
+}: {
+  stageId: string
+  open: boolean
+  latest: ReportSummary | null
+  active: boolean
+  onRequested: () => void
+}) {
+  const request = useOpenStageReport(stageId)
+  const [modalId, setModalId] = useState<string | null>(null)
+  // 리포트 내용은 안내를 모두 보낸 뒤에만 받을 수 있다
+  const report = useAgentReport(stageId, open && latest ? latest.id : null)
+  const view = report.data ? toReportView(report.data) : null
+  const make = () =>
+    request.mutate(undefined, {
+      onSuccess: (opened) => {
+        setModalId(opened.reportId)
+        onRequested()
+      },
+      onError: (error) => toast.error(errorMessage(error)),
+    })
+  const metrics = view
+    ? REPORT_METRICS.map((id) => view.bundle.metrics.find((metric) => metric.id === id)).filter(
+        (metric) => metric !== undefined,
+      )
+    : []
+
+  return (
+    <StepCard
+      title="전형 결과 리포트"
+      active={active}
+      badge={
+        !open ? (
+          <Badge>대기</Badge>
+        ) : latest?.status === 'DONE' ? (
+          <Badge done>완료</Badge>
+        ) : (
+          <Badge active>{latest?.status === 'PENDING' ? '작성 중' : '진행 중'}</Badge>
+        )
+      }
+    >
+      {!open ? (
+        <div className="flex flex-col items-center gap-2 rounded-lg bg-muted/50 px-3 py-6 text-center">
+          <Lock className="size-4 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">
+            합격·불합격 안내를 모두 보내면
+            <br />
+            Report Agent 리포트가 열려요.
+          </p>
+        </div>
+      ) : latest?.status === 'PENDING' ? (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold">Report Agent가 리포트를 쓰고 있어요</p>
+          <ReportProgress
+            createdAt={report.data?.createdAt}
+            expectedSeconds={report.data?.expectedSeconds}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => setModalId(latest.id)}
+          >
+            진행 보기
+          </Button>
+        </div>
+      ) : view ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="font-bold text-ai">◇ Report Agent</span>
+            <span className="text-muted-foreground">
+              {formatShortDateTime(view.bundle.asOf)} 기준
+            </span>
+            {view.fallback && (
+              <span className="rounded bg-fail px-1.5 py-0.5 font-semibold text-fail-foreground">
+                기본 구성
+              </span>
+            )}
+          </div>
+          <p className="text-sm font-semibold">{view.spec.title}</p>
+          <p className="line-clamp-4 text-xs leading-5 text-muted-foreground">
+            {view.spec.summary}
+          </p>
+          {metrics.length > 0 && (
+            <div className="grid grid-cols-3 gap-2 border-t pt-3">
+              {metrics.map((metric) => (
+                <div key={metric.id}>
+                  <div className="text-[11px] text-muted-foreground">{metric.label}</div>
+                  <div className="text-base font-bold">
+                    {metric.value}
+                    <span className="ml-0.5 text-[11px] font-medium text-muted-foreground">
+                      {metric.unit}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <Button className="w-full" onClick={() => setModalId(latest?.id ?? null)}>
+            <FileChartColumn />
+            리포트 보기
+          </Button>
+        </div>
+      ) : latest ? (
+        <Skeleton className="h-32 w-full" />
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            아직 리포트가 없어요. Report Agent가 전형 결과를 그래프와 근거로 정리해요.
+          </p>
+          <Button className="w-full" onClick={make} disabled={request.isPending}>
+            <FileChartColumn />
+            리포트 만들기
+          </Button>
+        </div>
+      )}
+      <AgentReportModal stageId={stageId} reportId={modalId} onClose={() => setModalId(null)} />
+    </StepCard>
   )
 }
 

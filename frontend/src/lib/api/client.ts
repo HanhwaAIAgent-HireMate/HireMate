@@ -75,6 +75,7 @@ const MESSAGES: Record<string, string> = {
   FORBIDDEN: '이 작업을 할 권한이 없어요.',
   INVALID_CSRF: '보안 토큰이 만료됐어요. 다시 시도해 주세요.',
   ANALYSIS_NOT_FAILED: '이미 분석 중이거나 분석이 끝난 지원자예요.',
+  NOTICES_NOT_SENT: '합격·불합격 안내를 모두 먼저 보내 주세요.',
 }
 
 /** 화면에 보여 줄 오류 문구. 모르는 오류는 일반 문구로 바꾼다. */

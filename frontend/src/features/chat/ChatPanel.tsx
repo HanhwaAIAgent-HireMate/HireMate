@@ -1,8 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowUp, AtSign, Check, Sparkles, X } from 'lucide-react'
+import { AlertCircle, ArrowUp, AtSign, Check, FileChartColumn, Sparkles, X } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { AgentChip } from '@/features/posting/AiRequestPanel'
+import { AgentReportModal } from '@/features/report/AgentReportModal'
 import {
   useChat,
   useChatHistory,
@@ -77,6 +78,7 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
   })
   const [text, setText] = useState('')
   const [expanded, setExpanded] = useState(false)
+  const [reportId, setReportId] = useState<string | null>(null)
   const bottom = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const mentionQuery = /@([^\s@]*)$/.exec(text)?.[1]
@@ -168,7 +170,7 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
           </div>
         )}
         {visible.map((message, index) => (
-          <Fragment key={index}>{renderMessage(message)}</Fragment>
+          <Fragment key={index}>{renderMessage(message, setReportId)}</Fragment>
         ))}
         {waitingHere && (
           <div className="flex gap-2">
@@ -267,11 +269,16 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
           </button>
         </form>
       </div>
+      <AgentReportModal
+        stageId={overview.stageId}
+        reportId={reportId}
+        onClose={() => setReportId(null)}
+      />
     </aside>
   )
 }
 
-function renderMessage(message: ChatMessage): ReactNode {
+function renderMessage(message: ChatMessage, openReport: (reportId: string) => void): ReactNode {
   if (message.role === 'user') {
     return (
       <div className="ml-8 space-y-1">
@@ -292,17 +299,26 @@ function renderMessage(message: ChatMessage): ReactNode {
   if (message.role === 'error') {
     return <p className="text-sm text-destructive">{message.text}</p>
   }
-  return <Answer answer={message.answer} steps={message.steps} seconds={message.seconds} />
+  return (
+    <Answer
+      answer={message.answer}
+      steps={message.steps}
+      seconds={message.seconds}
+      openReport={openReport}
+    />
+  )
 }
 
 function Answer({
   answer,
   steps,
   seconds,
+  openReport,
 }: {
   answer: ChatAnswer
   steps: string[]
   seconds: number | null
+  openReport: (reportId: string) => void
 }) {
   return (
     <div className="flex gap-2 text-sm">
@@ -311,6 +327,7 @@ function Answer({
         <StepsSummary steps={steps} seconds={seconds} />
         <p className="leading-6">{bold(answer.message)}</p>
         {answer.items.length > 0 && <ItemList items={answer.items} />}
+        {answer.reportId && <ReportCard onOpen={() => openReport(answer.reportId ?? '')} />}
         {answer.sources.length > 0 && (
           <p className="text-xs text-muted-foreground">출처 · {answer.sources.join(' · ')}</p>
         )}
@@ -323,6 +340,25 @@ function Answer({
         )}
       </div>
     </div>
+  )
+}
+
+/** 리포트 카드. 누르면 리포트 모달이 열린다. 쓰는 중이면 모달이 진행 화면을 보여 준다 */
+function ReportCard({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      onClick={onOpen}
+      className="flex w-full items-center gap-2.5 rounded-lg border border-ai/30 bg-ai-soft/60 px-3 py-2 text-left hover:bg-ai-soft"
+    >
+      <FileChartColumn className="size-4 shrink-0 text-ai" />
+      <span className="flex-1">
+        <span className="block text-sm font-semibold">Report Agent 리포트</span>
+        <span className="block text-xs text-muted-foreground">
+          눌러서 미리보기 · PDF는 모달 위 작은 버튼
+        </span>
+      </span>
+      <span className="text-xs font-semibold text-ai">보기</span>
+    </button>
   )
 }
 
