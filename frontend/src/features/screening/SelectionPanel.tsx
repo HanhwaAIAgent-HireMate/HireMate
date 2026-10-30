@@ -1,13 +1,21 @@
-import { Eraser, RotateCcw } from 'lucide-react'
+import { Eraser, FileChartColumn, RotateCcw } from 'lucide-react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useRequestCompareReport } from '@/features/report/api'
+import { AgentReportModal } from '@/features/report/AgentReportModal'
 import { useSelection, useSelectionActions, type StageOverview } from '@/features/screening/api'
 import { CandidateItem, RowButton } from '@/features/screening/CandidateItem'
 import type { StageTab } from '@/features/screening/tabs'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
+
+/** 비교 리포트의 지원자 수 범위. backend와 같다 */
+const MIN_COMPARED = 2
+const MAX_COMPARED = 5
 
 // 가운데 선택 지원자. AI가 고르거나 HR이 넣은 지원자를 모으는 작업 영역이고 탭마다 따로다
 export function SelectionPanel({
@@ -27,14 +35,44 @@ export function SelectionPanel({
   const ids = rows.map((row) => row.applicationId)
   const allChecked = ids.length > 0 && ids.every((id) => checked.includes(id))
   const fail = (error: unknown) => toast.error(errorMessage(error))
+  // 체크한 선택 지원자가 2명 이상이면 그 사람들로, 아니면 선택 지원자 전원으로 비교한다
+  const checkedHere = ids.filter((id) => checked.includes(id))
+  const compared = checkedHere.length >= MIN_COMPARED ? checkedHere : ids
+  const comparable = compared.length >= MIN_COMPARED && compared.length <= MAX_COMPARED
+  const requestReport = useRequestCompareReport(stageId)
+  const [reportId, setReportId] = useState<string | null>(null)
+  const createReport = () =>
+    requestReport.mutate(
+      { applicationIds: compared, focus: '', brief: false },
+      { onSuccess: (requested) => setReportId(requested.reportId), onError: fail },
+    )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+      <div className="flex items-center gap-3 px-4 pt-3 pb-3">
         <h2 className="flex-1 text-sm font-bold">
           선택 지원자{' '}
           <span className="ml-1 text-muted-foreground">{selection.data?.total ?? 0}</span>
         </h2>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <button
+                onClick={createReport}
+                disabled={!comparable || requestReport.isPending}
+                className="inline-flex items-center gap-1 text-xs font-medium text-ai hover:text-ai/80 disabled:opacity-50"
+              >
+                <FileChartColumn className="size-3.5" />
+                리포트 생성
+              </button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {comparable
+              ? `${compared.length}명을 비교하는 리포트를 Report Agent가 만들어요`
+              : `선택 지원자 ${MIN_COMPARED}~${MAX_COMPARED}명을 체크하면 비교 리포트를 만들 수 있어요`}
+          </TooltipContent>
+        </Tooltip>
         {editable && tab.canRestore && (
           <button
             onClick={() => actions.restore.mutate(undefined, { onError: fail })}
@@ -107,6 +145,7 @@ export function SelectionPanel({
           />
         ))}
       </div>
+      <AgentReportModal stageId={stageId} reportId={reportId} onClose={() => setReportId(null)} />
     </div>
   )
 }

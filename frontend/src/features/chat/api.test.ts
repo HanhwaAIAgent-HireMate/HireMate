@@ -16,6 +16,7 @@ const ANSWER = {
   agents: [],
   selectionChanged: false,
   stub: false,
+  reportId: null,
 }
 
 describe('readChat', () => {

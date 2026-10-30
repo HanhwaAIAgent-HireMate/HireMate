@@ -41,6 +41,17 @@ export const routes: RouteObject[] = [
       { path: 'recruitments/:recruitmentId/report', element: <ReportPage /> },
     ],
   },
+  // 개발용 리포트 미리보기. 개발 서버에서만 등록한다 (backend 연동 전 확인용)
+  ...(import.meta.env.DEV
+    ? [
+        {
+          path: '/dev/report',
+          lazy: async () => ({
+            Component: (await import('@/pages/hr/ReportPreviewPage')).ReportPreviewPage,
+          }),
+        },
+      ]
+    : []),
   // 지원자용 채용 페이지
   { path: '/careers/:postingId', element: <PostingPage /> },
   { path: '/careers/:postingId/apply', element: <ApplyPage /> },

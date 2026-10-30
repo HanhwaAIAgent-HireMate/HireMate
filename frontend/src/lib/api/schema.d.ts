@@ -372,6 +372,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/reports/stage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/reports/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["compare"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/notices/{group}/send": {
         parameters: {
             query?: never;
@@ -606,6 +638,22 @@ export interface paths {
         get: operations["recruitments"];
         put?: never;
         post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recruitments/{recruitmentId}/reports/final": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["finalReport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -916,6 +964,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["reports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/reports/{reportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["report"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/notices": {
         parameters: {
             query?: never;
@@ -1076,14 +1156,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/recruitments/{recruitmentId}/report": {
+    "/api/recruitments/{recruitmentId}/reports": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["report"];
+        get: operations["finalReports"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1738,7 +1818,7 @@ export interface components {
         };
         ChatAnswer: {
             /** @enum {string} */
-            intent: "FIND" | "ANSWER" | "EDIT" | "CLARIFY" | "BLOCKED";
+            intent: "FIND" | "ANSWER" | "EDIT" | "REPORT" | "CLARIFY" | "BLOCKED";
             /** @enum {string|null} */
             mode: "REPLACE" | "ADD" | "NARROW" | null;
             message: string;
@@ -1747,6 +1827,8 @@ export interface components {
             agents: string[];
             selectionChanged: boolean;
             stub: boolean;
+            /** Format: uuid */
+            reportId: string | null;
         };
         ChatTitle: {
             /** Format: uuid */
@@ -1757,6 +1839,15 @@ export interface components {
             /** Format: int32 */
             status: number;
             code: string;
+        };
+        Requested: {
+            /** Format: uuid */
+            reportId: string;
+        };
+        CompareRequest: {
+            applicationIds: string[];
+            focus: string;
+            brief: boolean;
         };
         NoticeAiRequest: {
             message: string;
@@ -1826,6 +1917,19 @@ export interface components {
             };
             unmatched: string[];
             saved: boolean;
+        };
+        ReportSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "STAGE" | "COMPARE" | "FINAL";
+            status: string;
+            /** Format: uuid */
+            stageId: string;
+            focus: string;
+            brief: boolean;
+            /** Format: date-time */
+            createdAt: string;
         };
         SuggestionFieldsRequest: {
             fields: string[];
@@ -2020,6 +2124,61 @@ export interface components {
             seconds: number | null;
             asker: components["schemas"]["ChatAsker"] | null;
         };
+        ComposedReport: {
+            spec: components["schemas"]["JsonNode"];
+            skills: string[];
+            specialists: string[];
+            fallback: boolean;
+        };
+        JsonNode: {
+            empty: boolean;
+            array: boolean;
+            null: boolean;
+            object: boolean;
+            float: boolean;
+            number: boolean;
+            string: boolean;
+            double: boolean;
+            binary: boolean;
+            int: boolean;
+            short: boolean;
+            boolean: boolean;
+            pojo: boolean;
+            /** @deprecated */
+            textual: boolean;
+            long: boolean;
+            integralNumber: boolean;
+            valueNode: boolean;
+            floatingPointNumber: boolean;
+            container: boolean;
+            bigInteger: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            missingNode: boolean;
+            bigDecimal: boolean;
+            embeddedValue: boolean;
+        };
+        ReportPayload: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "STAGE" | "COMPARE" | "FINAL";
+            status: string;
+            /** Format: uuid */
+            stageId: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            finishedAt: string | null;
+            /** Format: int32 */
+            expectedSeconds: number;
+            error: string | null;
+            bundle: components["schemas"]["JsonNode"];
+            report: components["schemas"]["ComposedReport"] | null;
+            names: {
+                [key: string]: string;
+            };
+        };
         MailPreview: {
             subject: string;
             html: string;
@@ -2200,39 +2359,6 @@ export interface components {
             /** Format: int64 */
             closed: number;
         };
-        Finalist: {
-            name: string;
-            reason: string;
-            sources: string[];
-        };
-        ReportContent: {
-            summary: string;
-            /** Format: int64 */
-            applicantCount: number;
-            /** Format: int64 */
-            finalCount: number;
-            stages: components["schemas"]["ReportStage"][];
-            finalists: components["schemas"]["Finalist"][];
-            notes: string[];
-        };
-        ReportStage: {
-            name: string;
-            /** Format: int64 */
-            target: number;
-            /** Format: int64 */
-            pass: number;
-            /** Format: int64 */
-            fail: number;
-        };
-        ReportView: {
-            /** Format: uuid */
-            recruitmentId: string;
-            title: string;
-            /** Format: date-time */
-            generatedAt: string;
-            agent: string;
-            content: components["schemas"]["ReportContent"];
-        };
         ApplicationPage: {
             /** Format: int64 */
             total: number;
@@ -2272,8 +2398,8 @@ export interface components {
             icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
         CsrfToken: {
-            token: string;
             parameterName: string;
+            token: string;
             headerName: string;
         };
         CsrfResponse: {
@@ -3058,6 +3184,54 @@ export interface operations {
             };
         };
     };
+    stage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Requested"];
+                };
+            };
+        };
+    };
+    compare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompareRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Requested"];
+                };
+            };
+        };
+    };
     send: {
         parameters: {
             query?: never;
@@ -3463,6 +3637,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PostingView"];
+                };
+            };
+        };
+    };
+    finalReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ReportSummary"];
                 };
             };
         };
@@ -4124,6 +4320,53 @@ export interface operations {
             };
         };
     };
+    reports: {
+        parameters: {
+            query?: {
+                kind?: "STAGE" | "COMPARE" | "FINAL";
+            };
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ReportSummary"][];
+                };
+            };
+        };
+    };
+    report: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                reportId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ReportPayload"];
+                };
+            };
+        };
+    };
     notices: {
         parameters: {
             query?: never;
@@ -4357,7 +4600,7 @@ export interface operations {
             };
         };
     };
-    report: {
+    finalReports: {
         parameters: {
             query?: never;
             header?: never;
@@ -4374,7 +4617,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ReportView"];
+                    "*/*": components["schemas"]["ReportSummary"][];
                 };
             };
         };
