@@ -5,6 +5,8 @@ import { stageKeys } from '@/features/screening/api'
 import { formatDateTime } from '@/lib/format'
 
 export type Interview = Schemas['InterviewView']
+export type InterviewQuestion = Schemas['Question']
+export type FollowUps = Schemas['InterviewFollowUps']
 export type StageHistory = Schemas['StageCandidateView']
 
 const key = (stageId: string, applicationId: string) => [
@@ -118,12 +120,61 @@ export function useInterviewActions(stageId: string, applicationId: string) {
         ),
       onSuccess,
     }),
+    /**
+     * 💾 답변 저장. analyze가 false면 자동 저장(DB에만 저장, 분석 없음), true면 답변 칸을 떠날 때라 분석까지 요청한다.
+     * 같은 답으로 칸을 여러 번 드나들어도 서버가 한 번만 분석한다.
+     */
     answer: useMutation({
-      mutationFn: ({ questionId, answer }: { questionId: string; answer: string }) =>
+      mutationFn: ({
+        questionId,
+        answer,
+        analyze = true,
+      }: {
+        questionId: string
+        answer: string
+        analyze?: boolean
+      }) =>
         unwrap(
           api.PUT('/api/stages/{stageId}/interview/questions/{questionId}/answer', {
             params: { path: { stageId, questionId } },
-            body: { answer },
+            body: { answer, analyze },
+          }),
+        ),
+      onSuccess,
+    }),
+    /**
+     * 🎤 [꼬리질문 받기] · [다시 제안]. 누를 때만 모델을 부른다. 제안은 저장하지 않는다.
+     * avoid는 [다시 제안]일 때 앞서 보여 준 제안이다.
+     */
+    suggestFollowUps: useMutation({
+      mutationFn: ({ questionId, avoid }: { questionId: string; avoid: string[] }) =>
+        unwrap(
+          api.POST(
+            '/api/stages/{stageId}/interview/questions/{questionId}/follow-ups/suggestions',
+            {
+              params: { path: { stageId, questionId } },
+              body: { avoid },
+            },
+          ),
+        ),
+    }),
+    /** 🎤 고른(또는 직접 쓴) 꼬리질문을 원래 질문 아래에 넣는다. 담당은 원래 질문을 잇는다. */
+    addFollowUp: useMutation({
+      mutationFn: ({
+        questionId,
+        text,
+        source,
+        check,
+      }: {
+        questionId: string
+        text: string
+        source: 'AI' | 'MANUAL'
+        check: string | null
+      }) =>
+        unwrap(
+          api.POST('/api/stages/{stageId}/interview/questions/{questionId}/follow-ups', {
+            params: { path: { stageId, questionId } },
+            body: { text, source, check },
           }),
         ),
       onSuccess,

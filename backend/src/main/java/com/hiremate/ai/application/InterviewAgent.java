@@ -38,6 +38,14 @@ public interface InterviewAgent {
         return List.of();
     }
 
+    /**
+     * 🎤 면접관이 [꼬리질문 받기]를 눌렀을 때만 부른다 (화면이 기다린다). 답이 충분하면 {@link InterviewFollowUps#none()}이다.
+     * 지원하지 않는 구현은 꼬리질문을 꾸며내지 않고 확인할 점이 없다고 돌려준다.
+     */
+    default InterviewFollowUps followUps(InterviewFollowUpsRequest request) {
+        return InterviewFollowUps.none();
+    }
+
     /** 앞 전형 결과를 확정할 때 질문을 미리 만든다. 매개변수는 {@link #questions}와 같고 범위(focus)는 없다. */
     Optional<List<InterviewQuestionDraft>> prepare(String target, ApplicantDetail applicant,
             PostingContent posting,

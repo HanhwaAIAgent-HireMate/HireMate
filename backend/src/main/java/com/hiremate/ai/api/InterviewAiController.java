@@ -1,12 +1,18 @@
 package com.hiremate.ai.api;
 
 import com.hiremate.ai.application.InterviewAiService;
+import com.hiremate.ai.application.InterviewFollowUps;
 import com.hiremate.global.AuthenticatedMember;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -28,6 +34,24 @@ public class InterviewAiController {
     }
 
     public record PreparingView(boolean preparing) {
+    }
+
+    /**
+     * 🎤 [꼬리질문 받기] · [다시 제안]. 면접관이 버튼을 누를 때만 모델을 부른다. 답이 충분하면 needed가 false다.
+     * 제안은 저장하지 않는다. 면접관이 고른 질문은 POST .../follow-ups로 넣는다.
+     */
+    @PostMapping("/api/stages/{stageId}/interview/questions/{questionId}/follow-ups/suggestions")
+    public InterviewFollowUps followUps(AuthenticatedMember member, @PathVariable UUID stageId,
+            @PathVariable UUID questionId, @Valid @RequestBody FollowUpsRequest request) {
+        return service.followUps(member.companyId(), stageId, questionId, request.avoid());
+    }
+
+    /**
+     * 꼬리질문 제안 요청.
+     *
+     * @param avoid [다시 제안]이면 앞서 보여 준 제안 문장. 처음이면 빈 목록
+     */
+    public record FollowUpsRequest(@NotNull @Size(max = 4) List<@Size(max = 500) String> avoid) {
     }
 
     /** HR이 요청한 현재 카드의 질문을 백업 없이 삭제하고 처음 구성부터 다시 만든다. */

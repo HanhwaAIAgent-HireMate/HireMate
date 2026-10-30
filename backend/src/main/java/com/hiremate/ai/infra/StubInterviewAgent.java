@@ -4,6 +4,8 @@ import com.hiremate.ai.application.AiAgent;
 import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
 import com.hiremate.ai.application.InterviewAgent;
+import com.hiremate.ai.application.InterviewFollowUps;
+import com.hiremate.ai.application.InterviewFollowUpsRequest;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.interview.InterviewQuestionDraft;
@@ -29,6 +31,7 @@ import org.springframework.stereotype.Component;
 class StubInterviewAgent implements InterviewAgent {
 
     private static final int SHORT_ANSWER = 15;
+    private static final int FOLLOW_UP_ANSWER = 40;
 
     @Override
     public List<InterviewQuestionDraft> questions(ApplicantDetail applicant, PostingContent posting,
@@ -109,6 +112,29 @@ class StubInterviewAgent implements InterviewAgent {
             PostingContent posting,
             CandidateAnalysis analysis, InterviewView interview, CompanyProfile company) {
         return Optional.of(questions(applicant, posting, analysis, interview, company, null, null));
+    }
+
+    /**
+     * 🎤 개발용 꼬리질문: 답이 짧으면(40자 미만) 구체적인 사례와 본인 역할을 묻는 두 질문을, 길면 확인할 점이 없다고 돌려준다.
+     * [다시 제안]이면 앞서 보여 준 제안을 빼고 다른 문장을 낸다.
+     */
+    @Override
+    public InterviewFollowUps followUps(InterviewFollowUpsRequest request) {
+        InterviewView.Question last = request.chain().getLast();
+        if (last.answer().strip().length() >= FOLLOW_UP_ANSWER) {
+            return InterviewFollowUps.none();
+        }
+        List<InterviewFollowUps.Suggestion> candidates = List.of(
+                new InterviewFollowUps.Suggestion("방금 말씀하신 내용을 실제 사례 하나로 조금 더 구체적으로 설명해 주시겠어요?",
+                        "답변에 구체적인 사례가 없습니다."),
+                new InterviewFollowUps.Suggestion("그 일에서 본인이 직접 맡은 부분과 결과는 무엇이었나요?",
+                        "본인 역할과 결과가 드러나지 않았습니다."),
+                new InterviewFollowUps.Suggestion("그때 다른 방법도 고려했다면 지금 방법을 고른 이유는 무엇인가요?",
+                        "판단 근거가 드러나지 않았습니다."),
+                new InterviewFollowUps.Suggestion("다시 같은 상황이 온다면 무엇을 다르게 하시겠어요?",
+                        "경험에서 배운 점이 드러나지 않았습니다."));
+        return new InterviewFollowUps(true, candidates.stream()
+                .filter(candidate -> !request.avoid().contains(candidate.text())).limit(2).toList());
     }
 
     private static String shorten(String text) {

@@ -1,0 +1,69 @@
+{
+  "posting": {
+    "title": "결제 플랫폼 백엔드 개발자",
+    "jobCategory": "백엔드 개발",
+    "employmentType": "정규직",
+    "career": "경력 3년 이상",
+    "location": "서울 중구",
+    "intro": "카드 결제와 정산을 처리하는 플랫폼을 함께 만들 백엔드 개발자를 찾습니다.",
+    "duties": [
+      "결제 승인 · 정산 API 개발",
+      "대용량 트랜잭션 처리 구조 개선"
+    ],
+    "qualifications": [
+      "Java · Spring Boot 기반 서버 개발 경력 3년 이상",
+      "RDBMS 설계와 운영 경험"
+    ],
+    "preferred": [
+      "금융 도메인 경험",
+      "대용량 트래픽 처리 경험"
+    ],
+    "benefits": [
+      "유연 근무",
+      "자기계발비 지원"
+    ],
+    "headcount": 2,
+    "position": "사원~대리",
+    "education": "학력 무관",
+    "workHours": "주 5일(월~금) 10:00~19:00",
+    "salary": "회사 내규에 따름",
+    "roles": [
+      {
+        "name": "백엔드 개발",
+        "career": "경력 3년 이상",
+        "duties": [
+          "결제 승인 API 개발"
+        ],
+        "qualifications": [
+          "서버 개발 경험"
+        ],
+        "preferred": [
+          "금융 도메인 경험"
+        ]
+      }
+    ]
+  },
+  "chain": [
+    {
+      "questionId": "0b7e1f0a-2c4d-4e5f-8a9b-1c2d3e4f5a01",
+      "text": "정산 배치 개선에서 직접 설계·구현한 부분은 무엇이었나요?",
+      "source": "AI",
+      "answer": "배치를 병렬로 바꿔서 빨라졌습니다.",
+      "reason": "확인할 내용: 정산 배치 개선의 본인 역할\n출처: 이력서\n원문: 정산 배치 처리 시간을 40% 줄였습니다.",
+      "interviewerRole": "PRACTICAL",
+      "parentQuestionId": null
+    },
+    {
+      "questionId": "0b7e1f0a-2c4d-4e5f-8a9b-1c2d3e4f5a02",
+      "text": "병렬로 나눌 때 작업 단위는 어떤 기준으로 정하셨나요?",
+      "source": "AI",
+      "answer": "가맹점별로 나눴습니다.",
+      "reason": "질문 유형: 꼬리질문\n앞 질문: 정산 배치 개선에서 직접 설계·구현한 부분은 무엇이었나요?\n확인할 내용: 병렬화의 판단 기준이 드러나지 않았습니다.\n생성 방식: 앞 질문의 답변을 보고 AI가 제안한 질문을 면접관이 골랐습니다.",
+      "interviewerRole": "PRACTICAL",
+      "parentQuestionId": "0b7e1f0a-2c4d-4e5f-8a9b-1c2d3e4f5a01"
+    }
+  ],
+  "avoid": [
+    "가맹점별로 나눴을 때 생긴 문제는 무엇이었나요?"
+  ]
+}

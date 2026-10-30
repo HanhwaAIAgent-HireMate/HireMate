@@ -102,7 +102,8 @@
           "source": "AI",
           "answer": "파티셔닝 기준을 월 단위로 정한 것",
           "reason": null,
-          "interviewerRole": null
+          "interviewerRole": null,
+          "parentQuestionId": null
         },
         {
           "questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c42",
@@ -110,7 +111,8 @@
           "source": "MANUAL",
           "answer": "",
           "reason": null,
-          "interviewerRole": null
+          "interviewerRole": null,
+          "parentQuestionId": null
         }
       ],
       "previous": [
@@ -125,7 +127,8 @@
               "source": "AI",
               "answer": "짧음",
               "reason": null,
-              "interviewerRole": null
+              "interviewerRole": null,
+              "parentQuestionId": null
             }
           ]
         }

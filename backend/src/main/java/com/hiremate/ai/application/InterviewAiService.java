@@ -185,6 +185,27 @@ public class InterviewAiService {
         interviews.finishPreparing(companyId, stageId, applicationId);
     }
 
+    /**
+     * 🎤 [꼬리질문 받기]: 처음 질문부터 지금 질문까지의 질문과 답을 보고 꼬리질문 2개를 제안받는다. 저장하지 않는다.
+     * 면접관이 하나를 고르면 {@link InterviewService#addFollowUp}으로 넣는다.
+     *
+     * <p>진행 중인 면접인지, 답을 적었는지, 2단계를 넘지 않는지는 모델을 부르기 전에 확인한다 (토큰을 쓰지 않는다).
+     * 제안 문장에 차별 조건이 섞였는지는 ai 서버가 걸러 낸다.
+     *
+     * @param avoid [다시 제안]이면 앞서 보여 준 제안
+     */
+    public InterviewFollowUps followUps(UUID companyId, UUID stageId, UUID questionId, List<String> avoid) {
+        List<InterviewView.Question> chain = interviews.followUpChain(companyId, stageId, questionId);
+        UUID recruitmentId = screening.overview(companyId, stageId).recruitmentId();
+        PostingContent posting = postings.draftContext(companyId, recruitmentId).content();
+        InterviewFollowUps found = agent.followUps(new InterviewFollowUpsRequest(posting, chain, avoid));
+        List<InterviewFollowUps.Suggestion> suggestions = found.suggestions().stream()
+                .filter(suggestion -> suggestion.text() != null && !suggestion.text().isBlank())
+                .limit(2).toList();
+        return found.needed() && !suggestions.isEmpty() ? new InterviewFollowUps(true, suggestions)
+                : InterviewFollowUps.none();
+    }
+
     /** 질문 생성 재료: 지원서 · 공고 · 서류 분석 · 지금 카드(이전 면접 기록 포함) · 회사 인재상과 조직 문화. */
     private Inputs inputs(UUID companyId, UUID stageId, UUID applicationId, InterviewView current) {
         ApplicantDetail applicant = applications.detail(companyId, applicationId);

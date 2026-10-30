@@ -15,9 +15,11 @@ import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.ScreeningService;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -36,6 +38,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class InterviewService {
 
     public static final String INTRO = "1분 자기소개 부탁드립니다.";
+
+    /** 🎤 꼬리질문은 2단계까지 (질문 → 꼬리질문 → 꼬리질문의 꼬리질문). 그 뒤 남은 확인할 점은 다음 면접의 미확인 질문으로 넘긴다. */
+    public static final int MAX_FOLLOW_UP_DEPTH = 2;
 
     private final InterviewQuestionRepository questions;
     private final InterviewScheduleRepository schedules;
@@ -194,19 +199,140 @@ public class InterviewService {
 
     @Transactional
     public InterviewView answer(UUID companyId, UUID stageId, UUID questionId, String answer) {
+        return answer(companyId, stageId, questionId, answer, true);
+    }
+
+    /**
+     * 질문별 답변 기록.
+     *
+     * <p>💾 analyze가 false면 자동 저장이다. 면접관이 타이핑을 멈출 때마다 DB에만 저장하고 답변 분석(모델 호출)은 하지 않는다.
+     * analyze가 true면 면접관이 그 답변 칸을 떠난(다른 질문으로 넘어간) 때다. 답이 바뀌었거나 자동 저장만 되고 아직
+     * 분석에 넘기지 않은 답이 있을 때만 분석을 요청한다. 같은 답으로 칸을 여러 번 드나들어도 다시 분석하지 않는다.
+     */
+    @Transactional
+    public InterviewView answer(UUID companyId, UUID stageId, UUID questionId, String answer, boolean analyze) {
         InterviewQuestion question = question(companyId, stageId, questionId);
-        if (!question.getAnswer().equals(answer)) {
+        boolean changed = !question.getAnswer().equals(answer);
+        if (!analyze) {
+            if (changed) {
+                question.saveDraft(answer);
+            }
+        } else if (changed || question.isAnswerPendingAnalysis()) {
             question.answer(answer);
+            question.markAnalyzed();
             events.publishEvent(new InterviewAnswersChanged(companyId, stageId, question.getApplicationId()));
         }
         return view(companyId, stageId, question.getApplicationId());
     }
 
+    /**
+     * 🎤 꼬리질문 제안 재료: 처음 질문부터 꼬리질문을 받을 질문까지의 사슬 (마지막이 지금 질문).
+     *
+     * <p>꼬리질문은 진행 중(ACTIVE)인 면접에서, 답변을 적은 질문에만, 질문마다 하나씩, 최대 2단계까지 받는다.
+     * 조건에 맞지 않으면 모델을 부르기 전에 409로 막아 토큰을 쓰지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public List<InterviewView.Question> followUpChain(UUID companyId, UUID stageId, UUID questionId) {
+        InterviewQuestion question = question(companyId, stageId, questionId);
+        List<InterviewQuestion> card = followUpCard(companyId, stageId, question);
+        checkFollowUp(question, card);
+        List<InterviewQuestion> chain = new ArrayList<>();
+        for (InterviewQuestion at = question; at != null; at = parentOf(at, card)) {
+            chain.addFirst(at);
+        }
+        return toQuestions(chain,
+                applications.applicants(companyId, List.of(question.getApplicationId())).getFirst().name());
+    }
+
+    /**
+     * 🎤 면접관이 고른(또는 직접 쓴) 꼬리질문을 원래 질문 아래에 넣는다. 담당(인사 · 실무)은 원래 질문을 잇는다.
+     *
+     * @param check AI 제안을 골랐으면 그 제안의 확인 포인트. 질문 근거로 저장해 카드에 보인다. 직접 썼으면 null
+     */
+    @Transactional
+    public InterviewView addFollowUp(UUID companyId, UUID stageId, UUID questionId, String text,
+            QuestionSource source, String check) {
+        InterviewQuestion parent = question(companyId, stageId, questionId);
+        List<InterviewQuestion> card = followUpCard(companyId, stageId, parent);
+        checkFollowUp(parent, card);
+        String trimmed = text.strip();
+        if (trimmed.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "EMPTY_FOLLOW_UP", "Follow-up question is empty.");
+        }
+        int seq = card.stream().mapToInt(InterviewQuestion::getSeq).max().orElse(0) + 1;
+        // 카드의 '근거'가 읽는 형식(항목: 값)으로 남긴다. 유형 배지는 '꼬리질문', 확인 포인트는 '면접 확인 부분'에 보인다
+        StringBuilder reason = new StringBuilder("질문 유형: 꼬리질문\n앞 질문: ").append(parent.getText().strip());
+        if (check != null && !check.isBlank()) {
+            reason.append("\n확인할 내용: ").append(check.strip());
+        }
+        reason.append(source == QuestionSource.AI
+                ? "\n생성 방식: 앞 질문의 답변을 보고 AI가 제안한 질문을 면접관이 골랐습니다."
+                : "\n생성 방식: 앞 질문의 답변을 듣고 면접관이 직접 쓴 질문입니다.");
+        questions.save(new InterviewQuestion(stageId, parent.getApplicationId(), companyId, seq, trimmed, source,
+                reason.toString(), parent.getInterviewerRole(), parent.getId()));
+        return view(companyId, stageId, parent.getApplicationId());
+    }
+
+    /** 꼬리질문을 받을 질문이 있는 카드(같은 전형 · 지원자의 질문 전체). 진행 중인 면접만 꼬리질문을 받는다. */
+    private List<InterviewQuestion> followUpCard(UUID companyId, UUID stageId, InterviewQuestion question) {
+        StageInfo stage = interviewStage(companyId, stageId, question.getApplicationId());
+        if (stage.status() != StageStatus.ACTIVE) {
+            throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE",
+                    "Follow-up questions are only available during the interview.");
+        }
+        return questions.findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(stageId, question.getApplicationId(),
+                companyId);
+    }
+
+    private static void checkFollowUp(InterviewQuestion question, List<InterviewQuestion> card) {
+        if (question.getAnswer().isBlank()) {
+            throw new ApiException(HttpStatus.CONFLICT, "ANSWER_REQUIRED", "Write the answer first.");
+        }
+        if (depth(question, card) >= MAX_FOLLOW_UP_DEPTH) {
+            throw new ApiException(HttpStatus.CONFLICT, "FOLLOW_UP_TOO_DEEP",
+                    "Follow-up questions go up to two levels.");
+        }
+        if (card.stream().anyMatch(other -> question.getId().equals(other.getParentQuestionId()))) {
+            throw new ApiException(HttpStatus.CONFLICT, "FOLLOW_UP_EXISTS",
+                    "This question already has a follow-up question.");
+        }
+    }
+
+    /** 처음 질문은 0, 꼬리질문은 1, 꼬리질문의 꼬리질문은 2. */
+    private static int depth(InterviewQuestion question, List<InterviewQuestion> card) {
+        int depth = 0;
+        for (InterviewQuestion at = parentOf(question, card); at != null; at = parentOf(at, card)) {
+            depth++;
+        }
+        return depth;
+    }
+
+    private static boolean descends(InterviewQuestion question, InterviewQuestion ancestor,
+            List<InterviewQuestion> card) {
+        for (InterviewQuestion at = parentOf(question, card); at != null; at = parentOf(at, card)) {
+            if (at == ancestor) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static InterviewQuestion parentOf(InterviewQuestion question, List<InterviewQuestion> card) {
+        UUID parentId = question.getParentQuestionId();
+        return parentId == null ? null
+                : card.stream().filter(other -> other.getId().equals(parentId)).findFirst().orElse(null);
+    }
+
     @Transactional
     public InterviewView deleteQuestion(UUID companyId, UUID stageId, UUID questionId) {
         InterviewQuestion question = question(companyId, stageId, questionId);
+        List<InterviewQuestion> card = questions.findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(stageId,
+                question.getApplicationId(), companyId);
+        // 🎤 딸린 꼬리질문은 DB가 함께 지운다(ON DELETE CASCADE). 꼬리질문에 적은 답이 있어도 분석을 다시 한다
+        boolean answered = card.stream().anyMatch(other -> !other.getAnswer().isBlank()
+                && (other == question || descends(other, question, card)));
         questions.delete(question);
-        if (!question.getAnswer().isBlank()) {
+        if (answered) {
             events.publishEvent(new InterviewAnswersChanged(companyId, stageId, question.getApplicationId()));
         }
         return view(companyId, stageId, question.getApplicationId());
@@ -221,8 +347,12 @@ public class InterviewService {
         }
         List<InterviewQuestion> existing = questions.findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(stageId,
                 applicationId, companyId);
+        // 🎤 꼬리질문은 면접관이 고른 질문이라 남긴다. 꼬리질문이 딸린 질문도 지우면 꼬리질문까지 함께 지워져 남긴다
+        Set<UUID> parents = existing.stream().map(InterviewQuestion::getParentQuestionId).filter(Objects::nonNull)
+                .collect(Collectors.toSet());
         questions.deleteAll(existing.stream()
                 .filter(question -> question.getSource() == QuestionSource.AI && question.getAnswer().isBlank())
+                .filter(question -> question.getParentQuestionId() == null && !parents.contains(question.getId()))
                 .toList());
         int manual = (int) existing.stream().filter(question -> question.getSource() == QuestionSource.MANUAL).count();
         int answered = (int) existing.stream()
@@ -296,12 +426,31 @@ public class InterviewService {
                 schedule.getInterviewers());
     }
 
+    /** 🎤 질문은 순서대로 두되, 꼬리질문은 원래 질문 바로 뒤에 둔다 (질문 → 꼬리질문 → 꼬리질문의 꼬리질문 → 다음 질문). */
     private static List<InterviewView.Question> toQuestions(List<InterviewQuestion> found, String name) {
-        return found.stream()
+        Set<UUID> ids = found.stream().map(InterviewQuestion::getId).collect(Collectors.toSet());
+        Map<UUID, List<InterviewQuestion>> children = found.stream()
+                .filter(question -> question.getParentQuestionId() != null
+                        && ids.contains(question.getParentQuestionId()))
+                .collect(Collectors.groupingBy(InterviewQuestion::getParentQuestionId));
+        List<InterviewQuestion> ordered = new ArrayList<>();
+        found.stream()
+                .filter(question -> question.getParentQuestionId() == null
+                        || !ids.contains(question.getParentQuestionId()))
+                .forEach(root -> addWithFollowUps(root, children, ordered));
+        return ordered.stream()
                 .map(question -> new InterviewView.Question(question.getId(),
                         question.getText().replaceFirst("^([\"“]?)" + Pattern.quote(name) + "\\s*[|｜]\\s*", "$1"),
                         question.getSource(),
-                        question.getAnswer(), question.getReason(), question.getInterviewerRole()))
+                        question.getAnswer(), question.getReason(), question.getInterviewerRole(),
+                        question.getParentQuestionId()))
                 .toList();
+    }
+
+    private static void addWithFollowUps(InterviewQuestion question, Map<UUID, List<InterviewQuestion>> children,
+            List<InterviewQuestion> ordered) {
+        ordered.add(question);
+        children.getOrDefault(question.getId(), List.of())
+                .forEach(child -> addWithFollowUps(child, children, ordered));
     }
 }

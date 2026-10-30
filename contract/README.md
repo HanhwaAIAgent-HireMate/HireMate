@@ -31,6 +31,15 @@ backend와 ai 서버가 주고받는 JSON의 샘플이다. 파일 하나가 타�
 backend는 모르는 담당 값을 받으면 질문은 저장하고 담당은 `null`로 둔다.
 HR은 시작 전(PENDING) · 진행 중(ACTIVE) 면접에서 질문의 `/role` PUT API로 담당을 바꿀 수 있다.
 
+`InterviewView.Question.parentQuestionId`는 꼬리질문이면 원래 질문의 id, 처음 만든 질문은 `null`이다.
+질문 목록은 원래 질문 바로 뒤에 꼬리질문을 둔다. 꼬리질문은 최대 2단계(질문 → 꼬리질문 → 꼬리질문의 꼬리질문)다.
+
+`InterviewFollowUpsRequest`는 면접관이 [꼬리질문 받기]를 눌렀을 때만 보내는 꼬리질문 제안 요청이다(`interview/follow-ups`).
+`chain`은 처음 질문부터 꼬리질문을 받을 질문까지(마지막이 지금 질문), `avoid`는 [다시 제안]일 때 앞서 보여 준 제안이다.
+`InterviewFollowUps`는 그 응답이다. 답이 충분하면 `needed`가 `false`이고 `suggestions`는 비어 있다(화면은
+"추가로 확인할 점이 없어요"). 그 밖에는 서로 다른 확인 포인트(`check`)를 가진 질문을 최대 2개 준다.
+제안은 저장하지 않으며, 면접관이 고르거나 직접 쓴 질문만 backend가 원래 질문 아래에 저장한다. 담당은 원래 질문을 잇는다.
+
 `InterviewQuestionDraft`는 생성된 질문 `text`와 생성 시 선택한 자료·확인 목적 `reason`이다.
 `interview/questions` API는 이 객체의 목록, 워커는 `questions`에 같은 목록을 반환한다.
 backend가 질문과 근거를 함께 저장해 `InterviewView.Question.reason`으로 제공한다.
