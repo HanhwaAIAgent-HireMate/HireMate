@@ -20,7 +20,7 @@ from hiremate_ai.llm.recipe import fingerprint
 if TYPE_CHECKING:
     from hiremate_ai.agents.analysis.application.extract import ExtractedFacts
     from hiremate_ai.agents.analysis.interview.types import InterviewAnalysis, InterviewAnalysisInput
-    from hiremate_ai.contract import ApplicantDocument
+    from hiremate_ai.contract import ApplicantDocument, TalentFit
 
 type Sessions = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 ARTIFACT_VERSION = "1"
@@ -135,6 +135,27 @@ class DbAnalysisArtifacts:
             fingerprint(data.model_dump(mode="json")),
             recipe_hash,
         )
+
+    async def find_talents(
+        self, *, company_id: UUID, recruitment_id: UUID, application_id: UUID, source_hash: str, recipe_hash: str
+    ) -> TalentFit | None:
+        from hiremate_ai.contract import TalentFit
+
+        return await self._find(
+            TalentFit, company_id, recruitment_id, application_id, None, "talent_fit", source_hash, recipe_hash
+        )
+
+    async def save_talents(
+        self,
+        fit: TalentFit,
+        *,
+        company_id: UUID,
+        recruitment_id: UUID,
+        application_id: UUID,
+        source_hash: str,
+        recipe_hash: str,
+    ) -> None:
+        await self._save(fit, company_id, recruitment_id, application_id, None, "talent_fit", source_hash, recipe_hash)
 
     async def _find[T: BaseModel](
         self,
