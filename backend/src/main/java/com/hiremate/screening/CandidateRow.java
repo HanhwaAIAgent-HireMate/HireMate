@@ -26,4 +26,11 @@ public record CandidateRow(UUID applicationId, String name, @Schema(nullable = t
         @Schema(nullable = true) BigDecimal documentScoreLow,
         @Schema(nullable = true) BigDecimal qualificationScore, int qualificationMax,
         @Schema(nullable = true) BigDecimal preferenceScore, int preferenceMax) {
+
+    /** 면접관에게 보낼 줄: 이번 전형의 결정과 선택 표시를 뺀다 (면접관은 결정에 끌려가지 않고 면접한다). */
+    public CandidateRow hideDecision() {
+        return new CandidateRow(applicationId, name, careerYears, lastCompany, Decision.PENDING, false, false,
+                aboveLine, score, analysisStatus, held, shortfalls, documentScore, documentScoreLow,
+                qualificationScore, qualificationMax, preferenceScore, preferenceMax);
+    }
 }

@@ -34,6 +34,18 @@ import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 @Configuration
 public class SecurityConfig {
 
+    /**
+     * 면접관 모드에서 배정된 지원자의 지원 자료를 읽는 경로 (InterviewerAccess). 그 밖의 업무 경로는 HR만 쓴다.
+     * 목록을 바꾸면 InterviewerAccessTests의 목록도 함께 고친다.
+     */
+    static final String[] INTERVIEWER_READS = {
+        "/api/stages/{stageId}/candidates/{applicationId}",
+        "/api/stages/{stageId}/candidates/{applicationId}/history",
+        "/api/stages/{stageId}/candidates/{applicationId}/analysis",
+        "/api/stages/{stageId}/candidates/{applicationId}/profile",
+        "/api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}",
+    };
+
     @Bean
     PasswordEncoder passwordEncoder() {
         Pbkdf2PasswordEncoder pbkdf2 = new Pbkdf2PasswordEncoder("", 16, 600_000,
@@ -68,7 +80,7 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityContextRepository contexts,
             HttpSessionCsrfTokenRepository csrfTokens, SessionAuthenticationStrategy sessionStrategy,
-            ProblemResponses problems) throws Exception {
+            ProblemResponses problems, InterviewerAccess interviewerAccess) throws Exception {
         return http
                 .csrf(csrf -> csrf.csrfTokenRepository(csrfTokens)
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
@@ -94,6 +106,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/public/**").permitAll()
                         .requestMatchers("/api/interviewer/**").hasAnyRole("HR", "INTERVIEWER")
+                        .requestMatchers(HttpMethod.GET, INTERVIEWER_READS).access(interviewerAccess)
                         .requestMatchers("/api/companies", "/api/companies/**", "/api/recruitments",
                                 "/api/recruitments/**", "/api/stages", "/api/stages/**").hasRole("HR")
                         .requestMatchers(HttpMethod.GET, "/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html",

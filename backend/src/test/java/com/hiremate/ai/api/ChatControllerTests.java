@@ -32,6 +32,11 @@ class ChatControllerTests {
             public String name() {
                 return "최은영";
             }
+
+            @Override
+            public boolean hr() {
+                return true;
+            }
         };
 
         SseEmitter emitter = controller.chat(member, UUID.randomUUID(), UUID.randomUUID(),

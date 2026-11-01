@@ -88,9 +88,21 @@ public class InterviewSessions {
             String name = applications.applicants(companyId, List.of(session.getApplicationId())).getFirst().name();
             return new AssignedInterview(session.getStageId(), session.getApplicationId(), recruit.title(),
                     recruit.stage(session.getStageId()).orElseThrow().name(), name, view.schedule(),
-                    session.roleOf(memberId), session.getStatus());
+                    session.roleOf(memberId), session.getStatus(), recruit.id());
         }).toList();
         return new AssignedInterviews(items, found.getTotalElements(), page, size);
+    }
+
+    /** 면접관 모드의 자료 읽기 권한: 이 지원자의 이 면접에 배정됐나. */
+    @Transactional(readOnly = true)
+    public boolean assigned(UUID companyId, UUID memberId, UUID stageId, UUID applicationId) {
+        return sessions.assignedTo(companyId, memberId, stageId, applicationId);
+    }
+
+    /** 지원 문서처럼 채용 단위 경로의 읽기 권한: 이 지원자의 면접 하나에라도 배정됐나. */
+    @Transactional(readOnly = true)
+    public boolean assignedToApplication(UUID companyId, UUID memberId, UUID applicationId) {
+        return sessions.assignedToApplication(companyId, memberId, applicationId);
     }
 
     @Transactional(readOnly = true)
@@ -386,7 +398,7 @@ public class InterviewSessions {
 
     public record AssignedInterview(UUID stageId, UUID applicationId, String recruitmentTitle, String stageName,
             String applicantName, @Schema(nullable = true) InterviewView.Schedule schedule,
-            InterviewerRole myRole, InterviewSessionStatus status) {
+            InterviewerRole myRole, InterviewSessionStatus status, UUID recruitmentId) {
     }
 
     public record AssignedInterviews(List<AssignedInterview> items, long total, int page, int size) {

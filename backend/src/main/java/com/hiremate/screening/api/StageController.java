@@ -75,7 +75,9 @@ public class StageController {
     @GetMapping("/candidates/{applicationId}")
     public CandidateDetail detail(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID applicationId) {
-        return screening.detail(member.companyId(), stageId, applicationId);
+        CandidateDetail detail = screening.detail(member.companyId(), stageId, applicationId);
+        // 면접관에게는 이번 전형의 합격 · 불합격 결정을 숨긴다 (결정은 면접 뒤 HR이 하고, 면접관은 결정에 끌려가지 않는다)
+        return member.hr() ? detail : detail.hideDecision();
     }
 
     /** 지원자의 전형별 결과 · 점수 · 메모 (지원자 카드의 전형 결과 탭). */
@@ -83,7 +85,9 @@ public class StageController {
     public List<StageCandidateView> history(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID applicationId) {
         screening.detail(member.companyId(), stageId, applicationId);
-        return screening.history(member.companyId(), applicationId);
+        List<StageCandidateView> history = screening.history(member.companyId(), applicationId);
+        return member.hr() ? history : history.stream()
+                .map(item -> item.stageId().equals(stageId) ? item.hideDecision() : item).toList();
     }
 
     @PutMapping("/candidates/{applicationId}/memo")
