@@ -25,7 +25,7 @@ public class MailService {
         List<MailClient.Inline> images = new ArrayList<>();
         String logoSrc = inline(images, MailLayout.LOGO_CID, brand.logo());
         String bannerSrc = inline(images, MailLayout.BANNER_CID, brand.banner());
-        MailLayout.Look look = new MailLayout.Look(brand.color(), brand.accentOrColor(), brand.header(), brand.box(),
+        MailLayout.Look look = new MailLayout.Look(brand.color(), brand.header(), brand.box(),
                 logoSrc, bannerSrc);
         try {
             client.send(to, subject, content.text(), MailLayout.html(subject, content, look), images);

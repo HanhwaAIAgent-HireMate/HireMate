@@ -4,14 +4,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
- * 참고 그림에서 고른 메일 색. 저장하지 않고 설정 화면의 색 칸만 채운다. HR이 미리보기를 보고 저장한다.
+ * 로고에서 고른 메일 대표 색. 저장하지 않고 설정 화면의 색 칸만 채운다. HR이 미리보기를 보고 저장한다.
  *
  * @param color 대표 색 (#rrggbb). 회사 색으로 볼 색이 없으면 null
- * @param accent 보조 색 (#rrggbb). 대표 색과 충분히 다른 색이 없으면 null
  * @param candidates 그림에서 많이 쓰인 색. 많은 순서로 최대 5개
  */
-public record MailColorSuggestion(@Schema(nullable = true) String color, @Schema(nullable = true) String accent,
-        List<ColorCandidate> candidates) {
+public record MailColorSuggestion(@Schema(nullable = true) String color, List<ColorCandidate> candidates) {
 
     /**
      * 그림에서 찾은 색 하나.

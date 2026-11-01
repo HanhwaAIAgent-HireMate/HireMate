@@ -30,9 +30,6 @@ public class CompanyMailStyle {
     @Column(length = 7)
     private String color;
 
-    @Column(length = 7)
-    private String accentColor;
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private Header header = Header.LINE;
@@ -53,10 +50,9 @@ public class CompanyMailStyle {
         this.updatedAt = Instant.now();
     }
 
-    /** 색과 부품을 한 번에 바꾼다. 보조 색은 null이면 뺀다. */
-    public void changeLook(String color, String accentColor, Header header, GuideBox guideBox) {
+    /** 색과 부품을 한 번에 바꾼다. */
+    public void changeLook(String color, Header header, GuideBox guideBox) {
         this.color = color;
-        this.accentColor = accentColor;
         this.header = header;
         this.guideBox = guideBox;
         this.updatedAt = Instant.now();

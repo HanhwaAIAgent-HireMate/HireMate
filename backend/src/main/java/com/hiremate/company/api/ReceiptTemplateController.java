@@ -46,9 +46,8 @@ public class ReceiptTemplateController {
      */
     @GetMapping("/preview")
     public MailPreview preview(AuthenticatedMember member, @RequestParam(required = false) String color,
-            @RequestParam(required = false) String accent, @RequestParam(required = false) Header header,
-            @RequestParam(required = false) GuideBox box) {
-        return templates.preview(member.companyId(), MailLook.draft(color, accent, header, box));
+            @RequestParam(required = false) Header header, @RequestParam(required = false) GuideBox box) {
+        return templates.preview(member.companyId(), MailLook.draft(color, header, box));
     }
 
     /** 길이는 company_receipt_templates 테이블과 같다. */

@@ -1809,7 +1809,6 @@ export interface components {
         };
         MailLookRequest: {
             color: string;
-            accent: string | null;
             /** @enum {string|null} */
             header: "LINE" | "BAND" | "CENTER" | "BANNER" | null;
             /** @enum {string|null} */
@@ -1817,7 +1816,6 @@ export interface components {
         };
         MailStyle: {
             color: string;
-            accent: string | null;
             /** @enum {string} */
             header: "LINE" | "BAND" | "CENTER" | "BANNER";
             /** @enum {string} */
@@ -2047,7 +2045,6 @@ export interface components {
         };
         MailColorSuggestion: {
             color: string | null;
-            accent: string | null;
             candidates: components["schemas"]["ColorCandidate"][];
         };
         CompanyFileInfo: {
@@ -2189,24 +2186,24 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            string: boolean;
+            double: boolean;
+            binary: boolean;
             short: boolean;
             int: boolean;
-            long: boolean;
-            binary: boolean;
             /** @deprecated */
             textual: boolean;
-            pojo: boolean;
             boolean: boolean;
-            double: boolean;
+            long: boolean;
+            string: boolean;
+            pojo: boolean;
+            container: boolean;
             floatingPointNumber: boolean;
+            missingNode: boolean;
+            integralNumber: boolean;
             bigInteger: boolean;
+            valueNode: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            missingNode: boolean;
-            valueNode: boolean;
-            integralNumber: boolean;
-            container: boolean;
             bigDecimal: boolean;
             embeddedValue: boolean;
         };
@@ -4869,7 +4866,6 @@ export interface operations {
         parameters: {
             query?: {
                 color?: string;
-                accent?: string;
                 header?: "LINE" | "BAND" | "CENTER" | "BANNER";
                 box?: "FILL" | "OUTLINE" | "ROWS";
             };
@@ -4914,7 +4910,6 @@ export interface operations {
         parameters: {
             query?: {
                 color?: string;
-                accent?: string;
                 header?: "LINE" | "BAND" | "CENTER" | "BANNER";
                 box?: "FILL" | "OUTLINE" | "ROWS";
             };

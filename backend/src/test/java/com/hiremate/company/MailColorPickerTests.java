@@ -20,25 +20,9 @@ class MailColorPickerTests {
         MailColorSuggestion picked = MailColorPicker.pick(logo);
 
         assertThat(picked.color()).isEqualTo("#0f8a5f");
-        assertThat(picked.accent()).isNull();
         assertThat(picked.candidates()).extracting(MailColorSuggestion.ColorCandidate::color)
                 .containsExactly("#0f8a5f");
         assertThat(picked.candidates().getFirst().share()).isBetween(0.49, 0.51);
-    }
-
-    @Test
-    @DisplayName("대표 색과 색상이 충분히 다른 두 번째 색을 보조 색으로 고르고, 비슷한 색은 보조 색으로 고르지 않는다")
-    void picksDistinctAccent() {
-        BufferedImage banner = image(600, 200, new Color(0x1b2a4a));
-        fill(banner, new Color(0x2a3b5c), 0, 0, 600, 40);
-        fill(banner, new Color(0x274472), 0, 160, 600, 40);
-        fill(banner, new Color(0xf28c28), 420, 60, 160, 80);
-
-        MailColorSuggestion picked = MailColorPicker.pick(banner);
-
-        assertThat(picked.color()).isEqualTo("#1b2a4a");
-        assertThat(picked.accent()).isNotNull().isNotEqualTo("#274472");
-        assertThat(hue(picked.accent())).isBetween(20f, 40f);
     }
 
     @Test

@@ -8,13 +8,13 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 참고 그림(로고, 배너, 예전 메일)에서 메일 색을 고른다. 모델 없이 코드 규칙으로만 고르며 같은 그림에는 늘 같은 답이다.
+ * 로고에서 메일 대표 색을 고른다. 모델 없이 코드 규칙으로만 고르며 같은 그림에는 늘 같은 답이다.
  *
  * 1. 불투명한 점의 색을 채널마다 16단계로 묶어 많이 쓰인 순서로 센다.
  * 2. 회색 · 흰색 · 검은색처럼 회사 색이 아닌 색(채도 0.25 미만, 밝기 0.93 초과나 0.15 미만)은 뺀다.
  * 3. 서로 비슷한 색(채널 차이 합 40 이하)은 많이 쓰인 쪽으로 합친다.
- * 4. 대표 색은 가장 많이 쓰인 색, 보조 색은 대표 색과 색상이 40도 이상 다른 색 가운데 가장 많이 쓰인 색이다.
- *    둘 다 흰 바탕 글자로 쓰여서 흰색과의 명암비가 3:1에 못 미치면 같은 색상으로 어둡게 맞춘다.
+ * 4. 대표 색은 가장 많이 쓰인 색이다. 흰 바탕 글자로 쓰여서 흰색과의 명암비가 3:1에 못 미치면 같은 색상으로
+ *    어둡게 맞춘다.
  */
 final class MailColorPicker {
 
@@ -25,7 +25,6 @@ final class MailColorPicker {
     private static final double MAX_LIGHTNESS = 0.93;
     private static final double MIN_LIGHTNESS = 0.15;
     private static final int NEAR = 40;
-    private static final double MIN_HUE_GAP = 40;
     private static final double MIN_CONTRAST = 3.0;
 
     private MailColorPicker() {
@@ -43,15 +42,9 @@ final class MailColorPicker {
                         (double) swatch.count / total))
                 .toList();
         if (brandLike.isEmpty()) {
-            return new MailColorSuggestion(null, null, candidates);
+            return new MailColorSuggestion(null, candidates);
         }
-        int[] main = brandLike.getFirst().rgb();
-        String accent = brandLike.stream().skip(1)
-                .filter(swatch -> hueGap(hue(swatch.rgb()), hue(main)) >= MIN_HUE_GAP)
-                .findFirst()
-                .map(swatch -> hex(readable(swatch.rgb())))
-                .orElse(null);
-        return new MailColorSuggestion(hex(readable(main)), accent, candidates);
+        return new MailColorSuggestion(hex(readable(brandLike.getFirst().rgb())), candidates);
     }
 
     /** 긴 쪽을 200px로 줄여 센다. 색의 비율은 거의 같고 큰 그림도 빨리 끝난다. */
@@ -140,15 +133,6 @@ final class MailColorPicker {
 
     private static int distance(int[] a, int[] b) {
         return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
-    }
-
-    private static double hueGap(double a, double b) {
-        double gap = Math.abs(a - b) % 360;
-        return gap > 180 ? 360 - gap : gap;
-    }
-
-    private static double hue(int[] rgb) {
-        return hsl(rgb)[0];
     }
 
     /** 색상(0~360), 채도(0~1), 밝기(0~1). */
