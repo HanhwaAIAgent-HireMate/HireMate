@@ -76,7 +76,7 @@ export function InterviewAssign({ stageId, editable }: { stageId: string; editab
         }
         onClick={configure}
       >
-        {canEdit ? (current ? '면접관 변경' : '면접관 배정') : '면접관 보기'}
+        {canEdit ? '면접관 배정' : '면접관 보기'}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
