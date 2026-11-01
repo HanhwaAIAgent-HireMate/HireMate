@@ -8,8 +8,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useCompanyProfile } from '@/features/company/api'
 import { useMe, type Member } from '@/lib/auth'
 
-// 면접관 모드. 검은 위쪽 띠로 HR 콘솔과 구분한다. 지정된 면접 전형만 열고, 결정 · 선택 · 마감 기능은 없다.
-// HR 계정도 면접관으로 지정되면 이 화면으로 면접을 본다
+// 면접관 모드. 검은 위쪽 띠로 HR 콘솔과 구분한다. 배정된 면접만 열고, 결정 · 선택 · 마감 기능은 없다.
+// 면접관 계정만 쓴다. HR 계정은 면접관으로 배정하지 않으므로 HR 콘솔로 보낸다
 export function InterviewerLayout() {
   const me = useMe()
   const location = useLocation()
@@ -25,6 +25,7 @@ export function InterviewerLayout() {
     const next = encodeURIComponent(location.pathname + location.search)
     return <Navigate to={`/login?next=${next}`} replace />
   }
+  if (me.data.role === 'HR') return <Navigate to="/hr" replace />
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -70,14 +71,6 @@ function InterviewerHeader({ member }: { member: Member }) {
           <span className="size-1.5 rounded-full bg-emerald-400" />
           면접관 모드
         </span>
-        {member.role === 'HR' && (
-          <Link
-            to="/hr"
-            className="rounded-md px-2 py-1 text-xs text-primary-foreground/70 hover:text-primary-foreground"
-          >
-            HR 화면
-          </Link>
-        )}
         <MemberMenu member={member} className="hover:bg-primary-foreground/10" />
       </div>
     </header>

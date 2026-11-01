@@ -117,12 +117,12 @@ class InterviewerChatTests extends IntegrationTest {
         }
     }
 
-    /** 인사는 HR 본인, 실무는 면접관 김지민으로 배정하고 김지민의 탭을 연 면접. */
+    /** 인사는 면접관 최인사, 실무는 면접관 김지민으로 배정하고 김지민의 탭을 연 면접. */
     private Room room() throws Exception {
         Interview interview = interviewStage();
         TestApi kim = newInterviewer(interview.hr(), "김지민");
         Map<String, Object> body = new HashMap<>();
-        body.put("hrMemberId", interview.hr().memberId().toString());
+        body.put("hrMemberId", newInterviewer(interview.hr(), "최인사").memberId().toString());
         body.put("practicalMemberId", kim.memberId().toString());
         body.put("expectedVersion", null);
         expect(interview.hr().put(interview.candidate() + "/interview/session", body), 200);

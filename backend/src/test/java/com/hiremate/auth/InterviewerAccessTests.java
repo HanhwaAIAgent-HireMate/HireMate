@@ -107,9 +107,10 @@ class InterviewerAccessTests extends IntegrationTest {
         return interviewer;
     }
 
-    private static void assign(Interview interview, TestApi interviewer) throws Exception {
+    /** 인사는 따로 만든 면접관 계정, 실무는 interviewer로 배정한다 (HR 계정은 면접관으로 배정하지 않는다). */
+    private void assign(Interview interview, TestApi interviewer) throws Exception {
         Map<String, Object> body = new HashMap<>();
-        body.put("hrMemberId", interview.hr().memberId().toString());
+        body.put("hrMemberId", newInterviewer(interview.hr(), "최인사").memberId().toString());
         body.put("practicalMemberId", interviewer.memberId().toString());
         body.put("expectedVersion", null);
         expect(interview.hr().put(interview.candidate() + "/interview/session", body), 200);

@@ -45,7 +45,7 @@ export const routes: RouteObject[] = [
     ],
   },
   {
-    // 면접관 모드 (면접관 계정, 면접관으로 배정된 HR)
+    // 면접관 모드 (면접관 계정만. HR 계정은 /hr로 보낸다)
     path: '/interviewer',
     element: <InterviewerLayout />,
     children: [
