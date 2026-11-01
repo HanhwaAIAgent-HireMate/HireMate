@@ -92,13 +92,12 @@ public class MailStyleController {
 
     /**
      * 고르는 중인 색과 부품으로 만든 예시 메일. color를 빼면 저장한 꾸밈이다.
-     * accent를 빼면 보조 색 없이, header와 box를 빼면 얇은 색 줄 머리와 옅은 바탕 안내 상자로 그린다.
+     * header와 box를 빼면 얇은 색 줄 머리와 옅은 바탕 안내 상자로 그린다.
      */
     @GetMapping("/preview")
     public MailPreview preview(AuthenticatedMember member, @RequestParam(required = false) String color,
-            @RequestParam(required = false) String accent, @RequestParam(required = false) Header header,
-            @RequestParam(required = false) GuideBox box) {
-        return styles.preview(member.companyId(), MailLook.draft(color, accent, header, box));
+            @RequestParam(required = false) Header header, @RequestParam(required = false) GuideBox box) {
+        return styles.preview(member.companyId(), MailLook.draft(color, header, box));
     }
 
     private static ResponseEntity<byte[]> image(FileContent image) {
@@ -112,16 +111,14 @@ public class MailStyleController {
      * 메일 색과 부품.
      *
      * @param color 대표 색. #0055A4처럼 6자리 색 코드이고 앞의 #는 빼도 된다
-     * @param accent 보조 색. 없으면 null이다
      * @param header 머리 모양. 없으면 얇은 색 줄이다
      * @param box 안내 상자 모양. 없으면 옅은 바탕이다
      */
     public record MailLookRequest(@NotNull @Pattern(regexp = "^#?[0-9a-fA-F]{6}$") String color,
-            @Schema(nullable = true) @Pattern(regexp = "^#?[0-9a-fA-F]{6}$") String accent,
             @Schema(nullable = true) Header header, @Schema(nullable = true) GuideBox box) {
 
         MailLook look() {
-            return new MailLook(color, accent, header == null ? Header.LINE : header,
+            return new MailLook(color, header == null ? Header.LINE : header,
                     box == null ? GuideBox.FILL : box);
         }
     }

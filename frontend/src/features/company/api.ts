@@ -9,7 +9,7 @@ export type NoticeTemplateType = NoticeTemplate['type']
 export type CompanyFile = Schemas['CompanyFileInfo']
 export type FileCategory = CompanyFile['category']
 export type MailStyle = Schemas['MailStyle']
-/** 저장하거나 미리볼 메일 색과 부품. 보조 색이 없으면 accent는 null이다 */
+/** 저장하거나 미리볼 메일 색과 부품 */
 export type MailLook = Schemas['MailLookRequest']
 export type ReceiptTemplate = Schemas['ReceiptTemplateView']
 
@@ -155,7 +155,7 @@ export function useUploadMailImage(kind: MailImage) {
 
 export type MailColorSuggestion = Schemas['MailColorSuggestion']
 
-/** 로고 그림에서 대표 색과 보조 색을 골라 받는다. 그림과 색은 저장하지 않는다 */
+/** 로고 그림에서 대표 색을 골라 받는다. 그림과 색은 저장하지 않는다 */
 export function useSuggestMailColors() {
   return useMutation({
     mutationFn: (file: Blob) => {
@@ -199,7 +199,6 @@ export function useMailStylePreview(look: MailLook | null) {
           params: {
             query: {
               color: look?.color,
-              accent: look?.accent ?? undefined,
               header: look?.header ?? undefined,
               box: look?.box ?? undefined,
             },
@@ -238,7 +237,6 @@ export function useReceiptTemplatePreview(look?: MailLook) {
           params: {
             query: {
               color: look?.color,
-              accent: look?.accent ?? undefined,
               header: look?.header ?? undefined,
               box: look?.box ?? undefined,
             },

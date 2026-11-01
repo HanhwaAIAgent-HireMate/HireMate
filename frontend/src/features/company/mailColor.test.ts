@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ACCENT_COLORS, isTooLight, normalizeColor } from './mailColor'
+import { isTooLight, normalizeColor } from './mailColor'
 
 describe('normalizeColor', () => {
   it('앞의 #를 빼거나 대문자로 넣어도 #rrggbb로 맞춘다', () => {
@@ -19,9 +19,5 @@ describe('isTooLight', () => {
   it('노란색 · 연한 하늘색처럼 흰 바탕에서 안 보이는 색은 밝다고 알린다', () => {
     expect(isTooLight('#ffeb3b')).toBe(true)
     expect(isTooLight('#a5d8ff')).toBe(true)
-  })
-
-  it('보조 색 추천은 흰 바탕에서 잘 보인다', () => {
-    for (const color of ACCENT_COLORS) expect(isTooLight(color.value)).toBe(false)
   })
 })

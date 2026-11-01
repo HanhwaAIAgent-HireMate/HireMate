@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -19,13 +18,7 @@ import {
   type MailLook,
   type MailStyle,
 } from '@/features/company/api'
-import {
-  ACCENT_COLORS,
-  GUIDE_BOXES,
-  HEADERS,
-  isTooLight,
-  normalizeColor,
-} from '@/features/company/mailColor'
+import { GUIDE_BOXES, HEADERS, isTooLight, normalizeColor } from '@/features/company/mailColor'
 import { SettingsRow, SettingsSection } from '@/features/company/SettingsSection'
 import { MailFrame } from '@/features/notice/MailFrame'
 import { errorMessage } from '@/lib/api/client'
@@ -69,23 +62,13 @@ function useColorInput(initial: string) {
 function MailStyleFields({ saved, version }: { saved: MailStyle; version: number }) {
   const save = useSaveMailLook()
   const main = useColorInput(saved.color)
-  // 보조 색은 끄면 저장하지 않고, 안내 상자에도 대표 색을 쓴다. 다시 켜면 고르던 색이 남아 있다
-  const [useAccent, setUseAccent] = useState(saved.accent != null)
-  const accent = useColorInput(saved.accent ?? ACCENT_COLORS[0].value)
   const [header, setHeader] = useState(saved.header)
   const [box, setBox] = useState(saved.box)
   const logoColors = useLogoColors((suggestion) => {
     if (!suggestion.color) return
     main.pick(suggestion.color)
-    setUseAccent(suggestion.accent !== null)
-    if (suggestion.accent) accent.pick(suggestion.accent)
   })
-  const look: MailLook = {
-    color: main.color,
-    accent: useAccent ? accent.color : null,
-    header,
-    box,
-  }
+  const look: MailLook = { color: main.color, header, box }
   // 색판을 끄는 동안 요청이 몰리지 않게 잠깐 멈췄을 때의 모양으로 미리보기를 받는다
   const [previewLook, setPreviewLook] = useState(look)
   const lookKey = JSON.stringify(look)
@@ -100,7 +83,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
   const preview = sample === 'notice' ? notice : receipt
 
   const onSave = () => {
-    if (main.invalid || (useAccent && accent.invalid)) {
+    if (main.invalid) {
       toast.error('색 코드는 #0055A4처럼 6자리로 넣어 주세요.')
       return
     }
@@ -149,29 +132,6 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
               input={main}
               lightWarning="밝은 색이라 흰 바탕에서 회사 이름이 잘 안 보일 수 있어요."
             />
-          </SettingsRow>
-          <SettingsRow label="보조 색">
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 pt-1.5 text-sm">
-                <Checkbox
-                  checked={useAccent}
-                  onCheckedChange={(checked) => setUseAccent(checked === true)}
-                />
-                안내 상자에 다른 색 쓰기
-              </label>
-              {useAccent ? (
-                <ColorField
-                  name="보조 색"
-                  input={accent}
-                  presets={ACCENT_COLORS}
-                  lightWarning="밝은 색이라 흰 바탕에서 안내 상자 제목이 잘 안 보일 수 있어요."
-                />
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  끄면 안내 상자 제목과 테두리도 대표 색이에요.
-                </p>
-              )}
-            </div>
           </SettingsRow>
           <SettingsRow label="머리 모양">
             <div className="space-y-1.5">
@@ -231,11 +191,7 @@ function useLogoColors(apply: (suggestion: MailColorSuggestion) => void) {
           return
         }
         apply(suggestion)
-        toast.success(
-          suggestion.accent
-            ? '로고에서 대표 색과 보조 색을 골랐어요. 미리보기를 보고 저장해 주세요.'
-            : '로고에서 대표 색을 골랐어요. 미리보기를 보고 저장해 주세요.',
-        )
+        toast.success('로고에서 대표 색을 골랐어요. 미리보기를 보고 저장해 주세요.')
       },
       onError: (error) => toast.error(errorMessage(error)),
     })
@@ -296,39 +252,16 @@ function LogoColors({
 function ColorField({
   name,
   input,
-  presets = [],
   lightWarning,
 }: {
   name: string
   input: ReturnType<typeof useColorInput>
-  /** 눌러 고르는 추천 색 동그라미. 대표 색은 로고에서 고르거나 직접 골라 없다 */
-  presets?: readonly { label: string; value: string }[]
   lightWarning: string
 }) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        {presets.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            title={option.label}
-            aria-label={`${name}: ${option.label}`}
-            aria-pressed={input.color === option.value}
-            onClick={() => input.pick(option.value)}
-            style={{ background: option.value }}
-            className={cn(
-              'size-7 rounded-full ring-offset-2 ring-offset-background',
-              input.color === option.value && 'ring-2 ring-foreground',
-            )}
-          />
-        ))}
-        <label
-          className={cn(
-            'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-sm',
-            presets.length > 0 && 'ml-1',
-          )}
-        >
+        <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-sm">
           <input
             type="color"
             aria-label={`${name} 다른 색 고르기`}

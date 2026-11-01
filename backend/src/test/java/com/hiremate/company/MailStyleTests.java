@@ -63,7 +63,7 @@ class MailStyleTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("참고 그림에서 대표 색과 보조 색을 골라 주고, 저장한 꾸밈은 바꾸지 않는다")
+    @DisplayName("로고에서 대표 색을 골라 주고, 저장한 꾸밈은 바꾸지 않는다")
     void suggestsColorsWithoutSaving() throws Exception {
         TestApi hr = newHr();
         BufferedImage banner = new BufferedImage(300, 100, BufferedImage.TYPE_INT_RGB);
@@ -80,7 +80,7 @@ class MailStyleTests extends IntegrationTest {
                 Map.of("file", new TestApi.FilePart("banner.png", "image/png", out.toByteArray()))), 200));
 
         assertThat(suggestion.path("color").asString()).isEqualTo("#1b2a4a");
-        assertThat(suggestion.path("accent").asString()).isEqualTo("#c2410c");
+        assertThat(suggestion.has("accent")).isFalse();
         assertThat(suggestion.path("candidates")).hasSize(2);
         assertThat(json(expect(hr.get(BASE), 200)).path("color").asString()).isEqualTo("#1e3a5f");
         byte[] fake = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3};
@@ -127,32 +127,29 @@ class MailStyleTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("보조 색과 머리 · 안내 상자 모양을 저장하고, 빼면 보조 색 없이 얇은 줄과 옅은 바탕으로 돌아간다")
-    void lookIsSavedWithAccentAndParts() throws Exception {
+    @DisplayName("머리 · 안내 상자 모양을 저장하고 안내 상자도 대표 색으로 그리며, 빼면 얇은 줄과 옅은 바탕으로 돌아간다")
+    void lookIsSavedWithParts() throws Exception {
         TestApi hr = newHr();
         JsonNode initial = json(expect(hr.get(BASE), 200));
-        assertThat(initial.path("accent").isNull()).isTrue();
+        assertThat(initial.has("accent")).isFalse();
         assertThat(initial.path("header").asString()).isEqualTo("LINE");
         assertThat(initial.path("box").asString()).isEqualTo("FILL");
 
-        JsonNode saved = json(expect(hr.put(BASE, Map.of("color", "#0055a4", "accent", "F97316", "header", "BAND",
-                "box", "OUTLINE")), 200));
-        assertThat(saved.path("accent").asString()).isEqualTo("#f97316");
+        JsonNode saved = json(expect(hr.put(BASE, Map.of("color", "#0055a4", "header", "BAND", "box", "OUTLINE")),
+                200));
         assertThat(saved.path("header").asString()).isEqualTo("BAND");
         assertThat(saved.path("box").asString()).isEqualTo("OUTLINE");
         assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString())
-                .contains("padding:26px 32px 30px;background:#0055a4;", "border:1px solid #f97316;");
-        expect(hr.put(BASE, Map.of("color", "#0055a4", "accent", "orange")), 400);
+                .contains("padding:26px 32px 30px;background:#0055a4;", "border:1px solid #0055a4;");
         expect(hr.put(BASE, Map.of("color", "#0055a4", "header", "WAVE")), 400);
 
         JsonNode reset = json(expect(hr.put(BASE, Map.of("color", "#0055a4")), 200));
-        assertThat(reset.path("accent").isNull()).isTrue();
         assertThat(reset.path("header").asString()).isEqualTo("LINE");
         assertThat(reset.path("box").asString()).isEqualTo("FILL");
 
-        String draft = json(expect(hr.get(BASE + "/preview?color=%230055a4&accent=%23f97316&header=CENTER&box=ROWS"),
-                200)).path("html").asString();
-        assertThat(draft).contains("text-align:center;", "border-left:4px solid #f97316;");
+        String draft = json(expect(hr.get(BASE + "/preview?color=%23047857&header=CENTER&box=ROWS"), 200))
+                .path("html").asString();
+        assertThat(draft).contains("text-align:center;", "border-left:4px solid #047857;");
 
         String receipt = "/api/companies/me/receipt-template/preview";
         assertThat(json(expect(hr.get(receipt + "?color=%23ff0000&header=BAND"), 200)).path("html").asString())

@@ -39,16 +39,15 @@ public final class MailLayout {
     /**
      * 메일 모양.
      *
-     * @param color 대표 색 (#rrggbb)
-     * @param accent 안내 상자에 쓸 색 (#rrggbb)
+     * @param color 대표 색 (#rrggbb). 머리와 안내 상자 제목 · 테두리에 쓴다
      * @param logoSrc 로고 그림 주소. 보낼 때는 cid:, 미리보기에서는 data: 주소다. 로고가 없으면 null이고 회사 이름을 쓴다
      * @param bannerSrc 배너 그림 주소. 없으면 null이고 배너 머리는 색 띠로 그린다
      */
-    public record Look(String color, String accent, Header header, GuideBox box, String logoSrc, String bannerSrc) {
+    public record Look(String color, Header header, GuideBox box, String logoSrc, String bannerSrc) {
 
         /** 얇은 색 줄 머리와 옅은 바탕 안내 상자. */
         public static Look basic(String color, String logoSrc) {
-            return new Look(color, color, Header.LINE, GuideBox.FILL, logoSrc, null);
+            return new Look(color, Header.LINE, GuideBox.FILL, logoSrc, null);
         }
     }
 
@@ -117,7 +116,7 @@ public final class MailLayout {
 
     /**
      * 띠 머리. 대표 색 띠 안 위쪽에 로고(흰 바탕, 높이 28px)나 회사 이름을 두고, 아래에 공고명과 큰 제목을 쓴다.
-     * 띠가 밝으면 흰 글자 대신 진한 글자를 쓴다. 보조 색이 따로 있으면 띠 아래에 보조 색 줄을 둔다.
+     * 띠가 밝으면 흰 글자 대신 진한 글자를 쓴다.
      */
     private static String band(String sender, Look look, String caption, String heading) {
         String text = onColor(look.color());
@@ -126,14 +125,11 @@ public final class MailLayout {
                 ? "<div style=\"font-size:15px;font-weight:bold;color:" + soft + ";\">" + escape(sender) + "</div>"
                 : "<span style=\"display:inline-block;background:" + WHITE + ";border-radius:8px;"
                         + "padding:8px 12px;\">" + logo(look.logoSrc(), sender, 28, false) + "</span>";
-        String stripe = look.accent() == null || look.accent().equalsIgnoreCase(look.color()) ? ""
-                : "<tr><td style=\"height:4px;background:" + escape(look.accent())
-                        + ";font-size:0;line-height:0;\">&nbsp;</td></tr>";
         return "<tr><td class=\"hm-pad\" style=\"padding:26px 32px 30px;background:" + escape(look.color()) + ";\">"
                 + mark + "<div style=\"height:28px;font-size:0;line-height:0;\">&nbsp;</div>"
                 + caption(caption, heading, soft)
                 + "<div style=\"font-size:24px;font-weight:bold;line-height:1.4;color:" + text + ";\">"
-                + escape(heading) + "</div></td></tr>" + stripe;
+                + escape(heading) + "</div></td></tr>";
     }
 
     /**
@@ -243,11 +239,11 @@ public final class MailLayout {
     }
 
     /**
-     * 안내 상자. 옅은 바탕은 회색 테두리 상자, 테두리는 보조 색 테두리의 흰 상자, 표는 상자 없이 제목 왼쪽의
-     * 보조 색 막대와 줄로 나눈 칸이다. 제목은 어느 모양이든 보조 색 글자다.
+     * 안내 상자. 옅은 바탕은 회색 테두리 상자, 테두리는 대표 색 테두리의 흰 상자, 표는 상자 없이 제목 왼쪽의
+     * 대표 색 막대와 줄로 나눈 칸이다. 제목은 어느 모양이든 대표 색 글자다.
      */
     private static String guide(MailContent.Guide guide, Look look) {
-        String accent = escape(look.accent());
+        String color = escape(look.color());
         boolean rows = look.box() == GuideBox.ROWS;
         String pad = rows ? "10px 4px" : "10px 14px";
         StringBuilder body = new StringBuilder();
@@ -272,16 +268,16 @@ public final class MailLayout {
         String table = switch (look.box()) {
             case FILL -> "border-collapse:separate;border:1px solid " + LINE + ";border-radius:8px;background:" + BOX
                     + ";";
-            case OUTLINE -> "border-collapse:separate;border:1px solid " + accent + ";border-radius:8px;background:"
+            case OUTLINE -> "border-collapse:separate;border:1px solid " + color + ";border-radius:8px;background:"
                     + WHITE + ";";
             case ROWS -> "border-collapse:collapse;";
         };
         String title = rows
                 ? "<tr><td colspan=\"2\" style=\"padding:2px 0 10px 0;\"><div style=\"border-left:4px solid "
-                        + accent + ";padding:2px 0 2px 10px;font-size:14px;font-weight:bold;color:" + accent + ";\">"
+                        + color + ";padding:2px 0 2px 10px;font-size:14px;font-weight:bold;color:" + color + ";\">"
                         + escape(guide.title()) + "</div></td></tr>"
                 : "<tr><td colspan=\"2\" style=\"padding:12px 14px;border-bottom:1px solid " + LINE
-                        + ";font-size:14px;font-weight:bold;color:" + accent + ";\">" + escape(guide.title())
+                        + ";font-size:14px;font-weight:bold;color:" + color + ";\">" + escape(guide.title())
                         + "</td></tr>";
         return "<p style=\"margin:6px 0 12px;font-size:15px;line-height:1.75;color:" + TEXT + ";\">"
                 + lines(guide.lead()) + "</p>"

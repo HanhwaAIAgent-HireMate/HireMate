@@ -48,8 +48,7 @@ class MailLayoutTests {
     }
 
     @Test
-    @DisplayName("띠 머리는 대표 색 띠 안에 회사 이름, 공고명, 제목을 쓰고, 띠가 밝으면 흰 글자 대신 진한 글자를 쓴다. "
-            + "보조 색이 따로 있으면 띠 아래에 보조 색 줄을 둔다")
+    @DisplayName("띠 머리는 대표 색 띠 안에 회사 이름, 공고명, 제목을 쓰고, 띠가 밝으면 흰 글자 대신 진한 글자를 쓴다")
     void bandHeaderHoldsHeading() {
         MailContent content = new MailContent("예시 기업", "백엔드 개발자", List.of(), "", "발신 전용");
 
@@ -57,14 +56,14 @@ class MailLayoutTests {
                 look("#1e3a5f", Header.BAND, GuideBox.FILL, null, null));
         String light = MailLayout.html("결과 안내", content, look("#fde68a", Header.BAND, GuideBox.FILL, null, null));
         String logo = MailLayout.html("결과 안내", content,
-                new MailLayout.Look("#1e3a5f", "#f97316", Header.BAND, GuideBox.FILL, "cid:company-logo", null));
+                look("#1e3a5f", Header.BAND, GuideBox.FILL, "cid:company-logo", null));
 
         assertThat(dark).containsSubsequence("padding:26px 32px 30px;background:#1e3a5f;", ">예시 기업</div>",
                 ">백엔드 개발자</div>", "color:#ffffff;\">결과 안내</div>", "</td></tr>", "padding:28px 32px 30px;")
                 .doesNotContain("height:4px;", "height:1px;");
         assertThat(light).contains("color:#1f2328;\">결과 안내</div>");
         assertThat(logo).containsSubsequence("background:#ffffff;border-radius:8px;", "<img src=\"cid:company-logo\"",
-                "height=\"28\"", ">결과 안내</div>", "height:4px;background:#f97316;");
+                "height=\"28\"", ">결과 안내</div>").doesNotContain("height:4px;");
     }
 
     @Test
@@ -89,8 +88,8 @@ class MailLayoutTests {
     }
 
     @Test
-    @DisplayName("안내 상자 제목은 보조 색이고, 테두리 상자는 보조 색 테두리, 표는 상자 없이 보조 색 막대로 그린다")
-    void guideBoxesUseAccent() {
+    @DisplayName("안내 상자 제목은 대표 색이고, 테두리 상자는 대표 색 테두리, 표는 상자 없이 대표 색 막대로 그린다")
+    void guideBoxesUseBrandColor() {
         MailContent content = new MailContent("예시 기업", "",
                 List.of(new MailContent.Guide("안내", "1차 면접 안내", List.of(new MailContent.Item("일정", "11월 5일")),
                         List.of())), "", "발신 전용");
@@ -99,20 +98,20 @@ class MailLayoutTests {
         String outline = MailLayout.html("결과 안내", content, look(GuideBox.OUTLINE));
         String rows = MailLayout.html("결과 안내", content, look(GuideBox.ROWS));
 
-        assertThat(fill).contains("background:#f6f8fb;", "color:#f97316;\">1차 면접 안내</td>")
+        assertThat(fill).contains("background:#f6f8fb;", "color:#0055a4;\">1차 면접 안내</td>")
                 .contains("height:4px;background:#0055a4;");
-        assertThat(outline).contains("border:1px solid #f97316;border-radius:8px;background:#ffffff;",
-                "color:#f97316;\">1차 면접 안내</td>");
-        assertThat(rows).contains("border-left:4px solid #f97316;", "color:#f97316;\">1차 면접 안내</div>")
+        assertThat(outline).contains("border:1px solid #0055a4;border-radius:8px;background:#ffffff;",
+                "color:#0055a4;\">1차 면접 안내</td>");
+        assertThat(rows).contains("border-left:4px solid #0055a4;", "color:#0055a4;\">1차 면접 안내</div>")
                 .doesNotContain("background:#f6f8fb;");
     }
 
     private static MailLayout.Look look(String color, Header header, GuideBox box, String logo, String banner) {
-        return new MailLayout.Look(color, color, header, box, logo, banner);
+        return new MailLayout.Look(color, header, box, logo, banner);
     }
 
     private static MailLayout.Look look(GuideBox box) {
-        return new MailLayout.Look("#0055a4", "#f97316", Header.LINE, box, null, null);
+        return new MailLayout.Look("#0055a4", Header.LINE, box, null, null);
     }
 
     @Test

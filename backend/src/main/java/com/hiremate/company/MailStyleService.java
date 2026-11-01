@@ -65,16 +65,14 @@ public class MailStyleService {
     @Transactional(readOnly = true)
     public MailStyle mailStyle(UUID companyId) {
         return styles.findById(companyId).map(MailStyleService::toView)
-                .orElseGet(() -> new MailStyle(MailBrand.DEFAULT_COLOR, null, Header.LINE, GuideBox.FILL, false,
-                        false));
+                .orElseGet(() -> new MailStyle(MailBrand.DEFAULT_COLOR, Header.LINE, GuideBox.FILL, false, false));
     }
 
     /** 색과 부품을 저장한다. 색 코드는 앞의 #를 빼거나 대문자로 넣어도 받는다. 저장은 #rrggbb다. */
     @Transactional
     public MailStyle changeLook(UUID companyId, MailLook look) {
         CompanyMailStyle style = style(companyId);
-        style.changeLook(normalize(look.color()), look.accent() == null ? null : normalize(look.accent()),
-                look.header(), look.box());
+        style.changeLook(normalize(look.color()), look.header(), look.box());
         return toView(style);
     }
 
@@ -144,8 +142,8 @@ public class MailStyleService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public MailBrand brand(UUID companyId) {
         return styles.findById(companyId).map(style -> new MailBrand(
-                style.getColor() == null ? MailBrand.DEFAULT_COLOR : style.getColor(), style.getAccentColor(),
-                style.getHeader(), style.getGuideBox(), image(companyId, style.getLogoFileId()),
+                style.getColor() == null ? MailBrand.DEFAULT_COLOR : style.getColor(), style.getHeader(),
+                style.getGuideBox(), image(companyId, style.getLogoFileId()),
                 image(companyId, style.getBannerFileId()))).orElse(MailBrand.BASIC);
     }
 
@@ -157,8 +155,7 @@ public class MailStyleService {
     public MailBrand brand(UUID companyId, MailLook draft) {
         MailBrand saved = brand(companyId);
         return draft == null ? saved
-                : new MailBrand(normalize(draft.color()), draft.accent() == null ? null : normalize(draft.accent()),
-                        draft.header(), draft.box(), saved.logo(), saved.banner());
+                : new MailBrand(normalize(draft.color()), draft.header(), draft.box(), saved.logo(), saved.banner());
     }
 
     /**
@@ -320,7 +317,6 @@ public class MailStyleService {
 
     private static MailStyle toView(CompanyMailStyle style) {
         return new MailStyle(style.getColor() == null ? MailBrand.DEFAULT_COLOR : style.getColor(),
-                style.getAccentColor(), style.getHeader(), style.getGuideBox(), style.getLogoFileId() != null,
-                style.getBannerFileId() != null);
+                style.getHeader(), style.getGuideBox(), style.getLogoFileId() != null, style.getBannerFileId() != null);
     }
 }
