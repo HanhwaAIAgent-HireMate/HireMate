@@ -64,8 +64,8 @@ public class StageTabService {
     @Transactional
     public List<StageTabView> tabs(UUID companyId, UUID stageId, AuthenticatedMember member) {
         UUID owner = owner(member);
-        if (owner != null && scope(companyId, stageId, owner).isEmpty()
-                && recruits.getByStage(companyId, stageId).stage(stageId).orElseThrow().status() == StageStatus.ACTIVE) {
+        StageStatus status = recruits.getByStage(companyId, stageId).stage(stageId).orElseThrow().status();
+        if (owner != null && scope(companyId, stageId, owner).isEmpty() && status == StageStatus.ACTIVE) {
             create(companyId, stageId, owner);
         }
         return views(companyId, stageId, owner);

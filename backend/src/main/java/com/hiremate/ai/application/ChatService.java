@@ -7,8 +7,8 @@ import com.hiremate.company.CompanyService;
 import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewSessions;
-import com.hiremate.interview.InterviewerRole;
 import com.hiremate.interview.InterviewView;
+import com.hiremate.interview.InterviewerRole;
 import com.hiremate.interview.KeptQuestions;
 import com.hiremate.posting.PostingService;
 import com.hiremate.recruit.RecruitService;
@@ -384,8 +384,9 @@ public class ChatService {
     /**
      * 지원자마다 맞춤 질문을 만들어 카드에 넣는다. Root가 정리한 확인할 점(questionFocus)이 있으면 그것을, 없으면 HR 문장을
      * Interview Agent에 넘긴다. Root가 생성 이유 항목을 주면 답에 그대로 두고, 없을 때만 새로 넣은 첫 질문을 보여 준다.
+     *
+     * @param interviewerRoles 면접관 모드면 지원자별 그 면접관의 담당. 만든 질문을 그 담당으로 넣고 기존 질문은 지우지 않는다
      */
-    /** @param interviewerRoles 면접관 모드면 지원자별 그 면접관의 담당. 만든 질문을 그 담당으로 넣고 기존 질문은 지우지 않는다 */
     private ChatPlan withQuestions(UUID companyId, UUID stageId, ChatPlan plan, List<CandidateRow> candidates,
             String message, ChatProgress progress, Map<UUID, InterviewerRole> interviewerRoles) {
         List<ChatItem> summaries = new ArrayList<>();
