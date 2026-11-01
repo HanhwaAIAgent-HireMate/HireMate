@@ -71,6 +71,8 @@ const MESSAGES: Record<string, string> = {
   UPDATE_CONFLICT: '기록이 변경됐어요. 최신 내용을 확인해 주세요.',
   ANSWER_VERSION_REQUIRED: '최신 질문을 다시 불러온 뒤 저장해 주세요.',
   INTERVIEW_ACCESS_DENIED: '배정된 면접관만 본인 담당 질문을 수정할 수 있어요.',
+  INTERVIEW_ASSIGNMENT_CONFLICT:
+    '기존 지원자별 면접관 배정이 서로 달라요. 면접 기록을 확인한 뒤 전형 공통 면접관을 설정해 주세요.',
   INTERVIEWERS_NOT_READY: '배정된 면접관이 모두 입장하고 접속 중인지 확인해 주세요.',
   STAGE_NOT_ACTIVE: '진행 중인 전형에서만 바꿀 수 있어요.',
   QUESTIONS_PREPARING: '질문 준비가 끝나면 면접을 시작할 수 있어요.',

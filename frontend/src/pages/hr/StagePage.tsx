@@ -11,6 +11,7 @@ import { useHeaderCrumb } from '@/app/header-store'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChatPanel } from '@/features/chat/ChatPanel'
+import { InterviewAssign } from '@/features/interview/InterviewAssign'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import {
   stageKeys,
@@ -100,6 +101,13 @@ export function StagePage() {
     <div className="flex h-full flex-col">
       <h1 className="sr-only">{data.name}</h1>
       <StageStepper overview={data} actions={<StageBar overview={data} />} />
+      {data.type === 'INTERVIEW' && (
+        <InterviewAssign
+          key={data.stageId}
+          stageId={data.stageId}
+          editable={data.status === 'PENDING' || editable}
+        />
+      )}
       {/* 칸 사이 경계선으로 너비를 바꾼다. 최소 너비가 있어 칸이 겹치거나 사라지지 않고,
           창 크기가 바뀌면 양옆은 너비를 유지하고 가운데가 늘고 준다 */}
       <ResizablePanelGroup

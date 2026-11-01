@@ -27,8 +27,8 @@ export function MyInterviewsPage() {
         <Skeleton className="h-28 w-full max-w-xl" />
       ) : groups.size === 0 ? (
         <p className="max-w-xl rounded-xl border border-dashed bg-background p-6 text-sm text-muted-foreground">
-          아직 배정된 면접이 없어요. 채용 담당자가 지원자 카드에서 면접관으로 배정하면 여기에
-          보여요.
+          아직 배정된 면접이 없어요. 채용 담당자가 면접 전형에 면접관을 지정하면 해당 전형의
+          지원자들이 여기에 보여요.
         </p>
       ) : (
         <div className="grid max-w-5xl gap-4 lg:grid-cols-2">
