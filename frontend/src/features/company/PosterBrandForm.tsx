@@ -11,7 +11,6 @@ import { PosterTemplateDialog } from '@/features/company/PosterTemplateDialog'
 import {
   companyPosterLogoUrl,
   usePosterBrand,
-  usePosterLogo,
   useSavePosterBrand,
 } from '@/features/posting/poster-api'
 import { POSTER_TEMPLATES } from '@/features/posting/poster-design'
@@ -28,7 +27,6 @@ type Values = z.infer<typeof schema>
 export function PosterBrandForm() {
   const brand = usePosterBrand()
   const save = useSavePosterBrand()
-  const logo = usePosterLogo()
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: { template: 'CLASSIC', mood: 'TRUST', color: '#2459a6', decoration: 1 },
@@ -43,20 +41,10 @@ export function PosterBrandForm() {
       onError: (error) => toast.error(errorMessage(error)),
     }),
   )
-  const changeLogo = (file: File | null) =>
-    logo.mutate(file, {
-      onSuccess: () =>
-        toast.success(
-          file
-            ? '로고와 대표 색상을 반영했어요. 흑백 로고는 기존 색상을 유지해요.'
-            : '기본 로고를 제거했어요.',
-        ),
-      onError: (error) => toast.error(errorMessage(error)),
-    })
   return (
     <SettingsSection
       title="포스터 템플릿"
-      saving={save.isPending || logo.isPending || !brand.data}
+      saving={save.isPending || !brand.data}
       onSave={() => void onSave()}
     >
       <p className="text-sm text-muted-foreground">
@@ -67,35 +55,24 @@ export function PosterBrandForm() {
           포스터 설정을 불러오지 못했어요.
         </p>
       )}
-      <fieldset disabled={!brand.data || save.isPending || logo.isPending} className="space-y-5">
+      <fieldset disabled={!brand.data || save.isPending} className="space-y-5">
+        {/* 로고는 설정 › 회사 소개에서 올려 안내 메일과 같이 쓴다. 여기서는 보여 주기만 한다 */}
         <SettingsRow label="회사 로고">
-          <div className="space-y-3">
+          <div className="space-y-2">
             {brand.data?.logoFileId && (
-              <div className="flex items-center gap-3">
-                <img
-                  src={companyPosterLogoUrl(brand.data.logoFileId)}
-                  alt="포스터용 회사 로고"
-                  className="h-14 max-w-40 rounded border bg-white object-contain p-2"
-                />
-                <Button variant="outline" size="sm" onClick={() => changeLogo(null)}>
-                  로고 제거
-                </Button>
-              </div>
-            )}
-            <label className="block text-xs text-muted-foreground">
-              PNG·JPEG / 500KB 이하 / 400만 화소 이하
-              <input
-                type="file"
-                accept="image/png,image/jpeg"
-                aria-label="포스터 회사 로고"
-                className="mt-2 block w-full rounded-md border p-2 text-sm"
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  if (file) changeLogo(file)
-                  event.target.value = ''
-                }}
+              <img
+                src={companyPosterLogoUrl(brand.data.logoFileId)}
+                alt="포스터용 회사 로고"
+                className="h-14 max-w-40 rounded border bg-white object-contain p-2"
               />
-            </label>
+            )}
+            <p className="text-xs text-muted-foreground">
+              로고는{' '}
+              <Link to="/hr/settings" className="underline">
+                설정 › 회사 소개
+              </Link>
+              에서 올리고 바꿔요. 올리면 포스터 대표 색상도 로고에 맞춰요.
+            </p>
           </div>
         </SettingsRow>
         <SettingsRow label="기본 템플릿">
