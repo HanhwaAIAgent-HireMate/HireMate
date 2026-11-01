@@ -12,19 +12,15 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
-import java.io.IOException;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/companies/me/poster-brand")
@@ -50,19 +46,9 @@ public class PosterBrandController {
                 request.color(), request.decoration(), old.logoFileId(), old.templates()));
     }
 
-    @PostMapping(path = "/logo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public PosterBrand upload(AuthenticatedMember member, @RequestPart("file") MultipartFile file) throws IOException {
-        return brands.upload(member.companyId(), file.getOriginalFilename(), file.getBytes());
-    }
-
     @PostMapping("/templates")
     public PosterBrand addTemplate(AuthenticatedMember member, @Valid @RequestBody PosterTemplateRequest request) {
         return companies.addPosterTemplate(member.companyId(), request.name(), request.template(), request.color());
-    }
-
-    @DeleteMapping("/logo")
-    public PosterBrand delete(AuthenticatedMember member) {
-        return brands.delete(member.companyId());
     }
 
     @GetMapping("/logo")

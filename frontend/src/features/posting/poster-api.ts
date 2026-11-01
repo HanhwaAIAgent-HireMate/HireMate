@@ -31,23 +31,6 @@ export function useAddPosterTemplate() {
   })
 }
 
-export function usePosterLogo() {
-  const query = useQueryClient()
-  return useMutation({
-    mutationFn: (file: File | null) => {
-      if (!file) return unwrap(api.DELETE('/api/companies/me/poster-brand/logo'))
-      const body = new FormData()
-      body.append('file', file)
-      return unwrap(
-        api.POST('/api/companies/me/poster-brand/logo', {
-          body: body as unknown as { file: string },
-        }),
-      )
-    },
-    onSuccess: (brand: PosterBrand) => query.setQueryData(posterBrandKey, brand),
-  })
-}
-
 export function useSavePoster(recruitmentId: string) {
   const query = useQueryClient()
   return useMutation({

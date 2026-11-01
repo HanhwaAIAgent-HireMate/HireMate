@@ -156,10 +156,8 @@ export function useCompanyLogo() {
   })
 }
 
-/** 메일 꾸밈 그림. 로고는 머리에, 배너는 배너 머리에 들어간다 */
-export type MailImage = 'logo' | 'banner'
-
-export function useUploadMailImage(kind: MailImage) {
+/** 메일 배너. 배너 머리에 들어간다. 로고는 설정 › 회사 소개에서 올린다 (useCompanyLogo) */
+export function useUploadMailBanner() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (file: File) => {
@@ -167,11 +165,7 @@ export function useUploadMailImage(kind: MailImage) {
       form.append('file', file)
       // openapi-fetch는 FormData를 그대로 보낸다
       const body = form as unknown as { file: string }
-      return unwrap(
-        kind === 'logo'
-          ? api.POST('/api/companies/me/mail-style/logo', { body })
-          : api.POST('/api/companies/me/mail-style/banner', { body }),
-      )
+      return unwrap(api.POST('/api/companies/me/mail-style/banner', { body }))
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle })
@@ -180,15 +174,10 @@ export function useUploadMailImage(kind: MailImage) {
   })
 }
 
-export function useDeleteMailImage(kind: MailImage) {
+export function useDeleteMailBanner() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () =>
-      unwrap(
-        kind === 'logo'
-          ? api.DELETE('/api/companies/me/mail-style/logo')
-          : api.DELETE('/api/companies/me/mail-style/banner'),
-      ),
+    mutationFn: () => unwrap(api.DELETE('/api/companies/me/mail-style/banner')),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle })
       void queryClient.invalidateQueries({ queryKey: companyKeys.receiptTemplate })

@@ -14,13 +14,13 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  useDeleteMailImage,
+  COMPANY_LOGO_URL,
+  useDeleteMailBanner,
   useMailStyle,
   useMailStylePreview,
   useReceiptTemplatePreview,
   useSaveMailLook,
-  useUploadMailImage,
-  type MailImage,
+  useUploadMailBanner,
   type MailLook,
   type MailStyle,
 } from '@/features/company/api'
@@ -28,17 +28,13 @@ import { GUIDE_BOXES, HEADERS, isTooLight, normalizeColor } from '@/features/com
 import { SettingsRow, SettingsSection } from '@/features/company/SettingsSection'
 import { MailFrame } from '@/features/notice/MailFrame'
 import { errorMessage } from '@/lib/api/client'
-import { cn } from '@/lib/utils'
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg']
 // 서버가 메일에 맞는 크기로 줄여 저장해서 큰 그림도 받는다
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024
 /** 회사 로고를 올리는 곳 */
 const COMPANY_SETTINGS_PATH = '/hr/settings'
-const IMAGES = {
-  logo: { url: '/api/companies/me/mail-style/logo', name: '로고' },
-  banner: { url: '/api/companies/me/mail-style/banner', name: '배너' },
-} as const
+const BANNER_URL = '/api/companies/me/mail-style/banner'
 
 // 모든 안내 메일과 접수 확인 메일의 색, 머리와 안내 상자 모양, 로고, 배너. 고르는 동안 예시 메일에 바로 보여 준다
 export function MailStyleForm() {
@@ -111,7 +107,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
             <div className="space-y-2">
               {saved.hasLogo && (
                 <img
-                  src={`${IMAGES.logo.url}?v=${version}`}
+                  src={`${COMPANY_LOGO_URL}?v=${version}`}
                   alt="회사 로고"
                   className="h-10 w-auto max-w-[220px] rounded border bg-white p-1"
                 />
@@ -130,12 +126,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
             </div>
           </SettingsRow>
           <SettingsRow label="배너">
-            <ImageField
-              kind="banner"
-              has={saved.hasBanner}
-              version={version}
-              hint="PNG · JPG, 5MB까지"
-            />
+            <BannerField has={saved.hasBanner} version={version} hint="PNG · JPG, 5MB까지" />
           </SettingsRow>
           <SettingsRow label="대표 색">
             <ColorField
@@ -255,20 +246,9 @@ function Dropdown<T extends string>({
   )
 }
 
-function ImageField({
-  kind,
-  has,
-  version,
-  hint,
-}: {
-  kind: MailImage
-  has: boolean
-  version: number
-  hint: string
-}) {
-  const image = IMAGES[kind]
-  const upload = useUploadMailImage(kind)
-  const remove = useDeleteMailImage(kind)
+function BannerField({ has, version, hint }: { has: boolean; version: number; hint: string }) {
+  const upload = useUploadMailBanner()
+  const remove = useDeleteMailBanner()
   const input = useRef<HTMLInputElement>(null)
 
   const onPick = (file: File | undefined) => {
@@ -279,11 +259,11 @@ function ImageField({
       return
     }
     if (file.size > IMAGE_MAX_BYTES) {
-      toast.error(`${image.name}는 5MB까지 올릴 수 있어요.`)
+      toast.error('배너는 5MB까지 올릴 수 있어요.')
       return
     }
     upload.mutate(file, {
-      onSuccess: () => toast.success(`${image.name}를 올렸어요.`),
+      onSuccess: () => toast.success('배너를 올렸어요.'),
       onError: (error) => toast.error(errorMessage(error)),
     })
   }
@@ -293,12 +273,9 @@ function ImageField({
       <div className="flex flex-wrap items-center gap-2">
         {has && (
           <img
-            src={`${image.url}?v=${version}`}
-            alt={`올린 ${image.name}`}
-            className={cn(
-              'w-auto rounded border bg-white p-1',
-              kind === 'logo' ? 'h-10 max-w-[220px]' : 'h-14 max-w-[300px]',
-            )}
+            src={`${BANNER_URL}?v=${version}`}
+            alt="올린 배너"
+            className="h-14 w-auto max-w-[300px] rounded border bg-white p-1"
           />
         )}
         <Button
@@ -308,7 +285,7 @@ function ImageField({
           onClick={() => input.current?.click()}
         >
           <ImageUp />
-          {has ? `${image.name} 바꾸기` : `${image.name} 올리기`}
+          {has ? '배너 바꾸기' : '배너 올리기'}
         </Button>
         {has && (
           <Button

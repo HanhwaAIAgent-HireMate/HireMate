@@ -121,8 +121,9 @@ class PosterTests extends IntegrationTest {
         ByteArrayOutputStream image = new ByteArrayOutputStream();
         ImageIO.write(logo, "png", image);
         byte[] bytes = image.toByteArray();
-        JsonNode brand = json(expect(hr.multipart("/api/companies/me/poster-brand/logo", Map.of("file",
-                new TestApi.FilePart("logo.png", "image/png", bytes))), 200));
+        expect(hr.multipart("/api/companies/me/logo", Map.of("file",
+                new TestApi.FilePart("logo.png", "image/png", bytes))), 204);
+        JsonNode brand = json(expect(hr.get("/api/companies/me/poster-brand"), 200));
         assertThat(brand.path("color").asString()).isNotEqualTo("#2459a6");
         JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
         String base = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
@@ -135,7 +136,7 @@ class PosterTests extends IntegrationTest {
         expect(newHr().get(base), 404);
         expect(hr.post(base + "/publish", Map.of("openAt", Instant.now().minusSeconds(60).toString(),
                 "closeAt", Instant.now().plusSeconds(3600).toString())), 200);
-        expect(hr.delete("/api/companies/me/poster-brand/logo"), 200);
+        expect(hr.delete("/api/companies/me/logo"), 204);
         assertThat(anonymous().getBytes(publicBase + "/poster/logo").body()).isEqualTo(bytes);
         assertThat(json(expect(anonymous().get(publicBase), 200)).path("poster").path("mood").asString())
                 .isEqualTo("CLEAR");
@@ -154,7 +155,7 @@ class PosterTests extends IntegrationTest {
         expect(hr.put(base + "/poster", design), 400);
         expect(hr.post(base + "/poster/ai-requests", Map.of("message", "고급스럽게", "design", design)), 400);
         expect(hr.put(base + "/poster", Map.of("template", "INVALID", "mood", "CLEAR", "color", "red")), 400);
-        expect(hr.multipart("/api/companies/me/poster-brand/logo", Map.of("file",
+        expect(hr.multipart("/api/companies/me/logo", Map.of("file",
                 new TestApi.FilePart("logo.png", "image/png", new byte[] {1, 2, 3}))), 400);
         Map<String, Object> turn = Map.of("role", "USER", "text", "이전 추천", "recommendations", List.of());
         expect(hr.post(base + "/poster/ai-requests", Map.of("message", "두 번째로",

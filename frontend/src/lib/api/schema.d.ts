@@ -100,6 +100,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/candidates/{applicationId}/interview/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["interviewAssignment"];
+        put: operations["assignInterviewers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates/{applicationId}/interview/schedule": {
         parameters: {
             query?: never;
@@ -173,6 +189,38 @@ export interface paths {
         };
         get?: never;
         put: operations["poster"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/{applicationId}/memo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["personalInterviewMemo"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/questions/{questionId}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["interviewerAnswer"];
         post?: never;
         delete?: never;
         options?: never;
@@ -820,6 +868,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/interviewer/sessions/{stageId}/{applicationId}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["startInterviewSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/{applicationId}/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["interviewerQuestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/{applicationId}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["endInterviewSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/questions/{questionId}/follow-ups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["interviewerFollowUp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/questions/{questionId}/follow-ups/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["interviewerSuggestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/poster-brand/templates": {
         parameters: {
             query?: never;
@@ -831,38 +959,6 @@ export interface paths {
         put?: never;
         post: operations["addTemplate"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/companies/me/poster-brand/logo": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["logo"];
-        put?: never;
-        post: operations["upload"];
-        delete: operations["delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/companies/me/mail-style/logo": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["logo_1"];
-        put?: never;
-        post: operations["uploadLogo"];
-        delete: operations["deleteLogo"];
         options?: never;
         head?: never;
         patch?: never;
@@ -891,10 +987,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["logo_2"];
+        get: operations["logo"];
         put?: never;
-        post: operations["upload_1"];
-        delete: operations["delete_1"];
+        post: operations["upload"];
+        delete: operations["delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1300,6 +1396,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/interviewer/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["assignedInterviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/{applicationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["interviewerWorkspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/receipt-template/preview": {
         parameters: {
             query?: never;
@@ -1308,6 +1436,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["preview_2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/poster-brand/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["logo_1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1364,6 +1508,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/companies/current/interview-members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["interviewMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/me": {
         parameters: {
             query?: never;
@@ -1406,7 +1566,23 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete: operations["delete_2"];
+        delete: operations["delete_1"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/questions/{questionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteInterviewerQuestion"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1529,6 +1705,8 @@ export interface components {
             interviewerRole: "HR" | "PRACTICAL" | null;
             /** Format: uuid */
             parentQuestionId: string | null;
+            /** Format: int64 */
+            version: number;
         };
         Schedule: {
             /** Format: date-time */
@@ -1538,6 +1716,8 @@ export interface components {
         AnswerRequest: {
             answer: string;
             analyze: boolean | null;
+            /** Format: int64 */
+            expectedVersion: number | null;
         };
         StageGuideRequest: {
             /** Format: date */
@@ -1570,6 +1750,32 @@ export interface components {
         };
         MemoRequest: {
             memo: string;
+        };
+        InterviewAssignmentRequest: {
+            /** Format: uuid */
+            hrMemberId: string;
+            /** Format: uuid */
+            practicalMemberId: string;
+            /** Format: int64 */
+            expectedVersion: number | null;
+        };
+        InterviewAssignment: {
+            /** Format: uuid */
+            stageId: string;
+            /** Format: uuid */
+            applicationId: string;
+            /** Format: uuid */
+            hrMemberId: string;
+            /** Format: uuid */
+            practicalMemberId: string;
+            /** @enum {string} */
+            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED";
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            endedAt: string | null;
+            /** Format: int64 */
+            version: number;
         };
         ScheduleRequest: {
             /** Format: date-time */
@@ -1722,6 +1928,33 @@ export interface components {
         };
         StagesRequest: {
             stages: components["schemas"]["StageItem"][];
+        };
+        PersonalInterviewMemo: {
+            text: string;
+            /** Format: int64 */
+            expectedVersion: number;
+        };
+        InterviewerQuestionAccess: {
+            question: components["schemas"]["Question"];
+            canAnswer: boolean;
+            canRequestFollowUp: boolean;
+            canDelete: boolean;
+            readOnlyReason: string | null;
+        };
+        InterviewerWorkspace: {
+            session: components["schemas"]["InterviewAssignment"];
+            /** @enum {string} */
+            myRole: "HR" | "PRACTICAL";
+            personalMemo: string;
+            questions: components["schemas"]["InterviewerQuestionAccess"][];
+            previous: components["schemas"]["PreviousInterview"][];
+            schedule: components["schemas"]["Schedule"] | null;
+        };
+        InterviewerAnswer: {
+            answer: string;
+            analyze: boolean;
+            /** Format: int64 */
+            expectedVersion: number;
         };
         ReceiptTemplateRequest: {
             subject: string;
@@ -2033,6 +2266,28 @@ export interface components {
             companyName: string;
             postingTitle: string;
         };
+        InterviewerManualQuestion: {
+            text: string;
+            /** @enum {string} */
+            interviewerRole: "HR" | "PRACTICAL";
+        };
+        InterviewerFollowUp: {
+            text: string;
+            /** @enum {string} */
+            source: "AI" | "MANUAL";
+            check: string;
+        };
+        InterviewerSuggestionsRequest: {
+            avoid: string[];
+        };
+        InterviewerFollowUps: {
+            needed: boolean;
+            suggestions: components["schemas"]["InterviewerSuggestion"][];
+        };
+        InterviewerSuggestion: {
+            text: string;
+            check: string;
+        };
         PosterTemplateRequest: {
             name: string;
             template: string;
@@ -2177,25 +2432,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            pojo: boolean;
-            string: boolean;
+            /** @deprecated */
+            textual: boolean;
+            double: boolean;
+            int: boolean;
             binary: boolean;
             short: boolean;
             long: boolean;
-            double: boolean;
-            /** @deprecated */
-            textual: boolean;
-            int: boolean;
             boolean: boolean;
-            missingNode: boolean;
+            string: boolean;
+            pojo: boolean;
+            integralNumber: boolean;
             valueNode: boolean;
-            container: boolean;
             bigDecimal: boolean;
-            bigInteger: boolean;
-            floatingPointNumber: boolean;
+            container: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            integralNumber: boolean;
+            missingNode: boolean;
+            floatingPointNumber: boolean;
+            bigInteger: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -2437,9 +2692,40 @@ export interface components {
             /** @enum {string|null} */
             icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
+        AssignedInterview: {
+            /** Format: uuid */
+            stageId: string;
+            /** Format: uuid */
+            applicationId: string;
+            recruitmentTitle: string;
+            stageName: string;
+            applicantName: string;
+            schedule: components["schemas"]["Schedule"] | null;
+            /** @enum {string} */
+            myRole: "HR" | "PRACTICAL";
+            /** @enum {string} */
+            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED";
+        };
+        AssignedInterviews: {
+            items: components["schemas"]["AssignedInterview"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            size: number;
+        };
+        InterviewMemberChoice: {
+            /** Format: uuid */
+            memberId: string;
+            name: string;
+            email: string;
+            /** @enum {string} */
+            accountRole: "HR" | "INTERVIEWER";
+        };
         CsrfToken: {
-            token: string;
             parameterName: string;
+            token: string;
             headerName: string;
         };
         CsrfResponse: {
@@ -2612,6 +2898,56 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    interviewAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewAssignment"];
+                };
+            };
+        };
+    };
+    assignInterviewers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterviewAssignmentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewAssignment"];
+                };
             };
         };
     };
@@ -2788,6 +3124,60 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PostingView"];
+                };
+            };
+        };
+    };
+    personalInterviewMemo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonalInterviewMemo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerWorkspace"];
+                };
+            };
+        };
+    };
+    interviewerAnswer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                questionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterviewerAnswer"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
                 };
             };
         };
@@ -3970,6 +4360,133 @@ export interface operations {
             };
         };
     };
+    startInterviewSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerWorkspace"];
+                };
+            };
+        };
+    };
+    interviewerQuestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterviewerManualQuestion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
+                };
+            };
+        };
+    };
+    endInterviewSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerWorkspace"];
+                };
+            };
+        };
+    };
+    interviewerFollowUp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                questionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterviewerFollowUp"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
+                };
+            };
+        };
+    };
+    interviewerSuggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                questionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterviewerSuggestionsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerFollowUps"];
+                };
+            };
+        };
+    };
     addTemplate: {
         parameters: {
             query?: never;
@@ -3990,140 +4507,6 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PosterBrand"];
-                };
-            };
-        };
-    };
-    logo: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": string;
-                };
-            };
-        };
-    };
-    upload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "multipart/form-data": {
-                    /** Format: binary */
-                    file: string;
-                };
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["PosterBrand"];
-                };
-            };
-        };
-    };
-    delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["PosterBrand"];
-                };
-            };
-        };
-    };
-    logo_1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": string;
-                };
-            };
-        };
-    };
-    uploadLogo: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "multipart/form-data": {
-                    /** Format: binary */
-                    file: string;
-                };
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["MailStyle"];
-                };
-            };
-        };
-    };
-    deleteLogo: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["MailStyle"];
                 };
             };
         };
@@ -4195,7 +4578,7 @@ export interface operations {
             };
         };
     };
-    logo_2: {
+    logo: {
         parameters: {
             query?: never;
             header?: never;
@@ -4215,7 +4598,7 @@ export interface operations {
             };
         };
     };
-    upload_1: {
+    upload: {
         parameters: {
             query?: never;
             header?: never;
@@ -4240,7 +4623,7 @@ export interface operations {
             };
         };
     };
-    delete_1: {
+    delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -4889,6 +5272,52 @@ export interface operations {
             };
         };
     };
+    assignedInterviews: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AssignedInterviews"];
+                };
+            };
+        };
+    };
+    interviewerWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerWorkspace"];
+                };
+            };
+        };
+    };
     preview_2: {
         parameters: {
             query?: {
@@ -4909,6 +5338,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["MailPreview"];
+                };
+            };
+        };
+    };
+    logo_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
                 };
             };
         };
@@ -4979,6 +5428,26 @@ export interface operations {
             };
         };
     };
+    interviewMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewMemberChoice"][];
+                };
+            };
+        };
+    };
     me: {
         parameters: {
             query?: never;
@@ -5021,7 +5490,30 @@ export interface operations {
             };
         };
     };
-    delete_2: {
+    delete_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                questionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewView"];
+                };
+            };
+        };
+    };
+    deleteInterviewerQuestion: {
         parameters: {
             query?: never;
             header?: never;

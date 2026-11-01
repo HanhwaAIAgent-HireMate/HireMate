@@ -31,6 +31,7 @@ import tools.jackson.databind.JsonNode;
 class MailStyleTests extends IntegrationTest {
 
     private static final String BASE = "/api/companies/me/mail-style";
+    private static final String LOGO = "/api/companies/me/logo";
     private static final byte[] PNG = image(80, 40, "png");
 
     @Autowired
@@ -43,12 +44,11 @@ class MailStyleTests extends IntegrationTest {
         byte[] logo = image(1600, 800, "png");
         byte[] banner = image(3000, 1000, "jpg");
 
-        expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("logo.png", "image/png", logo))),
-                200);
+        expect(hr.multipart(LOGO, Map.of("file", new TestApi.FilePart("logo.png", "image/png", logo))), 204);
         expect(hr.multipart(BASE + "/banner",
                 Map.of("file", new TestApi.FilePart("banner.jpg", "image/jpeg", banner))), 200);
 
-        BufferedImage savedLogo = ImageIO.read(new ByteArrayInputStream(hr.getBytes(BASE + "/logo").body()));
+        BufferedImage savedLogo = ImageIO.read(new ByteArrayInputStream(hr.getBytes(LOGO).body()));
         BufferedImage savedBanner = ImageIO.read(new ByteArrayInputStream(hr.getBytes(BASE + "/banner").body()));
         assertThat(savedLogo.getHeight()).isEqualTo(120);
         assertThat(savedLogo.getWidth()).isEqualTo(240);
@@ -56,8 +56,7 @@ class MailStyleTests extends IntegrationTest {
         assertThat(savedBanner.getHeight()).isEqualTo(400);
 
         byte[] fake = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3};
-        expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("fake.png", "image/png", fake))),
-                400);
+        expect(hr.multipart(LOGO, Map.of("file", new TestApi.FilePart("fake.png", "image/png", fake))), 400);
     }
 
     /** 20px 칸마다 색이 다른 그림. */
@@ -170,24 +169,24 @@ class MailStyleTests extends IntegrationTest {
     @DisplayName("로고는 PNG · JPEG만 5MB까지 받고, 올리면 미리보기에 보이며 지운 뒤에는 회사 이름 글자로 돌아간다")
     void logoIsCheckedShownAndRemoved() throws Exception {
         TestApi hr = newHr();
-        expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("logo.png", "image/png",
+        expect(hr.multipart(LOGO, Map.of("file", new TestApi.FilePart("logo.png", "image/png",
                 "%PDF-1.4".getBytes(StandardCharsets.US_ASCII)))), 400);
         byte[] large = Arrays.copyOf(PNG, 5 * 1024 * 1024 + 1);
-        assertThat(json(expect(hr.multipart(BASE + "/logo",
+        assertThat(json(expect(hr.multipart(LOGO,
                 Map.of("file", new TestApi.FilePart("big.png", "image/png", large))), 400)).path("code").asString())
                 .isEqualTo("LOGO_TOO_LARGE");
 
-        JsonNode uploaded = json(expect(hr.multipart(BASE + "/logo",
-                Map.of("file", new TestApi.FilePart("logo.png", "image/png", PNG))), 200));
-        assertThat(uploaded.path("hasLogo").asBoolean()).isTrue();
-        HttpResponse<byte[]> logo = hr.getBytes(BASE + "/logo");
+        expect(hr.multipart(LOGO, Map.of("file", new TestApi.FilePart("logo.png", "image/png", PNG))), 204);
+        assertThat(json(expect(hr.get(BASE), 200)).path("hasLogo").asBoolean()).isTrue();
+        HttpResponse<byte[]> logo = hr.getBytes(LOGO);
         assertThat(logo.body()).isEqualTo(PNG);
         assertThat(logo.headers().firstValue("Content-Type")).hasValue("image/png");
         assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString())
                 .contains("<img src=\"data:image/png;base64,");
 
-        assertThat(json(expect(hr.delete(BASE + "/logo"), 200)).path("hasLogo").asBoolean()).isFalse();
-        expect(hr.get(BASE + "/logo"), 404);
+        expect(hr.delete(LOGO), 204);
+        assertThat(json(expect(hr.get(BASE), 200)).path("hasLogo").asBoolean()).isFalse();
+        expect(hr.get(LOGO), 404);
         assertThat(json(expect(hr.get(BASE + "/preview"), 200)).path("html").asString()).doesNotContain("<img");
     }
 
@@ -196,8 +195,7 @@ class MailStyleTests extends IntegrationTest {
     void receiptMailCarriesBrand() throws Exception {
         TestApi hr = newHr();
         // 로고를 올리면 대표 색이 로고 색으로 바뀌고, 그 뒤에 HR이 고른 색이 메일에 들어간다
-        expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("logo.png", "image/png", PNG))),
-                200);
+        expect(hr.multipart(LOGO, Map.of("file", new TestApi.FilePart("logo.png", "image/png", PNG))), 204);
         expect(hr.put(BASE, Map.of("color", "#0055a4")), 200);
         JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
         String posting = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
