@@ -34,7 +34,7 @@ public class InterviewerController {
     /** 담당별 면접관을 통째로 바꾼다. 비운 담당은 지정이 풀린다. */
     @PutMapping("/api/stages/{stageId}/interviewers")
     public StageInterviewers assign(AuthenticatedMember member, @PathVariable UUID stageId,
-            @Valid @RequestBody AssignRequest request) {
+            @Valid @RequestBody InterviewerAssignRequest request) {
         return assignments.assign(member.companyId(), stageId, member.memberId(), request.slots().stream()
                 .map(slot -> new StageInterviewers.Slot(slot.role(), slot.memberId(), "")).toList());
     }
@@ -45,9 +45,10 @@ public class InterviewerController {
         return assignments.stages(member.companyId(), member.memberId());
     }
 
-    public record AssignRequest(@NotNull @Size(max = 10) List<@Valid @NotNull SlotRequest> slots) {
+    public record InterviewerAssignRequest(
+            @NotNull @Size(max = 10) List<@Valid @NotNull InterviewerSlotRequest> slots) {
     }
 
-    public record SlotRequest(@NotNull InterviewerRole role, @NotNull UUID memberId) {
+    public record InterviewerSlotRequest(@NotNull InterviewerRole role, @NotNull UUID memberId) {
     }
 }

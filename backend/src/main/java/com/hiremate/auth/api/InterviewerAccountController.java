@@ -36,7 +36,7 @@ public class InterviewerAccountController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public InterviewerAccount create(AuthenticatedMember member, @Valid @RequestBody CreateRequest request) {
+    public InterviewerAccount create(AuthenticatedMember member, @Valid @RequestBody InterviewerAccountRequest request) {
         return InterviewerAccount.from(accounts.create(member.companyId(), request.name(), request.email(),
                 request.password()));
     }
@@ -48,7 +48,7 @@ public class InterviewerAccountController {
         }
     }
 
-    public record CreateRequest(@NotBlank @Size(max = 100) String name,
+    public record InterviewerAccountRequest(@NotBlank @Size(max = 100) String name,
             @NotBlank @Email @Size(max = 254) String email,
             @NotBlank @Size(min = 12, max = 128) String password) {
     }

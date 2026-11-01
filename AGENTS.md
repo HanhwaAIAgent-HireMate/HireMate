@@ -75,7 +75,9 @@ src/main/java/com/hiremate/
   한 계층의 클래스만 보는 테스트는 그 하위 패키지(`ai/infra/AiServerClientTests`)에 둔다. 여러 모듈 테스트가 같이 쓰는
   도구(`IntegrationTest`, `TestApi`, `TestFixtures`)와 앱 전체 테스트(`ModularityTests`)는 최상위 `com.hiremate`에 둔다.
 - DB나 Redis가 필요한 테스트는 `TestcontainersConfiguration`을 `@Import`한다.
-- `auth/config/SecurityConfig`는 모든 요청을 허용하는 임시 설정이다. 인증 작업이 아니면 고치지 않는다.
+- `auth/config/SecurityConfig`는 인증 작업이 아니면 고치지 않는다. 업무 경로는 HR 역할에만 열고, 면접관 계정은 면접관 경로
+  목록(`INTERVIEWER_READS` 등)만 지정된 면접 전형에서 연다(`InterviewerAccess`). 면접관에게 API를 새로 열려면 그 목록과
+  `InterviewerAccessTests`의 목록을 함께 고친다. 업무 모듈은 auth 대신 `global.AuthenticatedMember.hr()`와 `global.MemberDirectory`를 쓴다.
 - AI Agent 구현은 `ai/infra`에 둔다. stub은 `@ConditionalOnAiMode(agent = ..., mode = AiMode.STUB)`,
   ai 서버를 부르는 구현은 `mode = AiMode.REMOTE`로 달고 `AiServerClient`로만 호출한다.
   연동 방식은 `hiremate.ai.agents.{key}`로 Agent마다 바꾼다(없으면 `hiremate.ai.mode`).
@@ -104,6 +106,7 @@ src/
 ├── index.css
 ├── app/
 │   ├── HrLayout.tsx             HR 콘솔 공통 레이아웃
+│   ├── InterviewerLayout.tsx    면접관 모드 공통 레이아웃
 │   ├── providers.tsx            Provider
 │   ├── router.tsx              라우트 등록
 │   └── router.test.tsx          라우트 검사
@@ -115,9 +118,11 @@ src/
 │   │   ├── StagePage.tsx        전형 운영
 │   │   ├── StageClosePage.tsx   전형 마감
 │   │   └── ReportPage.tsx       최종 리포트
-│   └── careers/
-│       ├── PostingPage.tsx      지원자용 공고
-│       └── ApplyPage.tsx        지원서 제출
+│   ├── careers/
+│   │   ├── PostingPage.tsx      지원자용 공고
+│   │   └── ApplyPage.tsx        지원서 제출
+│   └── interviewer/
+│       └── MyInterviewsPage.tsx 내 면접 (지정된 면접 전형)
 ├── features/                   기능 단위 컴포넌트와 훅
 │   ├── company/, recruit/, posting/, apply/, dashboard/
 │   └── screening/, assessment/, interview/, notice/, report/, chat/
@@ -125,7 +130,8 @@ src/
 └── test/                       공통 테스트 설정
 ```
 
-- HR 화면은 `app/HrLayout.tsx` 아래에 등록한다. 지원자용 화면은 `/careers/:postingId`와 `/careers/:postingId/apply`로 연다.
+- HR 화면은 `app/HrLayout.tsx` 아래에 등록한다. 면접관 모드 화면은 `app/InterviewerLayout.tsx` 아래 `/interviewer`에 등록한다.
+  지원자용 화면은 `/careers/:postingId`와 `/careers/:postingId/apply`로 연다.
 - `features` 이름은 backend 업무 모듈 이름과 맞춘다. `chat`은 AI Chat 전용이다.
 - API는 `lib/api/client.ts`의 `api`로만 호출한다. 타입은 `npm run api:generate`로 만든 `lib/api/schema.d.ts`를 쓰고, 이 파일은 직접 고치지 않는다.
 - 서버 상태는 TanStack Query, 전역 클라이언트 상태는 Zustand, 폼은 React Hook Form + Zod를 쓴다.

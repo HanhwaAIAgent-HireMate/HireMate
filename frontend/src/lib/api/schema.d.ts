@@ -36,6 +36,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/interviewers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["interviewers"];
+        put: operations["assign"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/interview/questions/{questionId}/role": {
         parameters: {
             query?: never;
@@ -900,6 +916,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/companies/me/interviewers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["interviewers_1"];
+        put?: never;
+        post: operations["create_1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/files": {
         parameters: {
             query?: never;
@@ -1300,6 +1332,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/interviewer/stages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["myStages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/receipt-template/preview": {
         parameters: {
             query?: never;
@@ -1497,6 +1545,25 @@ export interface components {
             documents: string;
             preparation: string;
             note: string;
+        };
+        InterviewerAssignRequest: {
+            slots: components["schemas"]["InterviewerSlotRequest"][];
+        };
+        InterviewerSlotRequest: {
+            /** @enum {string} */
+            role: "HR" | "PRACTICAL";
+            /** Format: uuid */
+            memberId: string;
+        };
+        InterviewerSlot: {
+            /** @enum {string} */
+            role: "HR" | "PRACTICAL";
+            /** Format: uuid */
+            memberId: string;
+            name: string;
+        };
+        StageInterviewers: {
+            slots: components["schemas"]["InterviewerSlot"][];
         };
         RoleRequest: {
             /** @enum {string|null} */
@@ -2047,6 +2114,20 @@ export interface components {
             color: string | null;
             candidates: components["schemas"]["ColorCandidate"][];
         };
+        InterviewerAccountRequest: {
+            name: string;
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        InterviewerAccount: {
+            /** Format: uuid */
+            memberId: string;
+            name: string;
+            email: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
         CompanyFileInfo: {
             /** Format: uuid */
             fileId: string;
@@ -2180,31 +2261,31 @@ export interface components {
             fallback: boolean;
         };
         JsonNode: {
+            valueNode: boolean;
+            container: boolean;
+            missingNode: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            string: boolean;
+            integralNumber: boolean;
+            pojo: boolean;
+            floatingPointNumber: boolean;
+            short: boolean;
+            int: boolean;
+            long: boolean;
+            double: boolean;
+            bigDecimal: boolean;
+            bigInteger: boolean;
+            /** @deprecated */
+            textual: boolean;
+            boolean: boolean;
+            binary: boolean;
+            number: boolean;
             empty: boolean;
             array: boolean;
             null: boolean;
             object: boolean;
             float: boolean;
-            number: boolean;
-            double: boolean;
-            binary: boolean;
-            short: boolean;
-            int: boolean;
-            /** @deprecated */
-            textual: boolean;
-            boolean: boolean;
-            long: boolean;
-            string: boolean;
-            pojo: boolean;
-            container: boolean;
-            floatingPointNumber: boolean;
-            missingNode: boolean;
-            integralNumber: boolean;
-            bigInteger: boolean;
-            valueNode: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            bigDecimal: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -2446,10 +2527,23 @@ export interface components {
             /** @enum {string|null} */
             icon: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE" | null;
         };
+        AssignedStage: {
+            /** Format: uuid */
+            stageId: string;
+            stageName: string;
+            /** @enum {string} */
+            status: "PENDING" | "ACTIVE" | "CONFIRMED" | "DONE";
+            /** Format: uuid */
+            recruitmentId: string;
+            recruitmentTitle: string;
+            roles: ("HR" | "PRACTICAL")[];
+            /** Format: int64 */
+            candidateCount: number;
+        };
         CsrfToken: {
+            headerName: string;
             parameterName: string;
             token: string;
-            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -2515,6 +2609,54 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["NoticeView"];
+                };
+            };
+        };
+    };
+    interviewers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageInterviewers"];
+                };
+            };
+        };
+    };
+    assign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterviewerAssignRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageInterviewers"];
                 };
             };
         };
@@ -4231,6 +4373,50 @@ export interface operations {
             };
         };
     };
+    interviewers_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerAccount"][];
+                };
+            };
+        };
+    };
+    create_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterviewerAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerAccount"];
+                };
+            };
+        };
+    };
     files: {
         parameters: {
             query: {
@@ -4858,6 +5044,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": string;
+                };
+            };
+        };
+    };
+    myStages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AssignedStage"][];
                 };
             };
         };

@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { RegisterDialog } from '@/features/assessment/RegisterDialog'
+import { InterviewerAssign } from '@/features/interview/InterviewerAssign'
 import { useConfirmStage, type StageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
 
@@ -26,6 +27,7 @@ export function StageBar({ overview }: { overview: StageOverview }) {
 
   return (
     <>
+      {overview.type === 'INTERVIEW' && <InterviewerAssign overview={overview} />}
       <Count color="bg-muted-foreground/40" label="미결정" value={counts.pending} />
       <Count color="bg-pass-foreground" label="합격" value={counts.pass} />
       <Count color="bg-fail-foreground" label="불합격" value={counts.fail} />

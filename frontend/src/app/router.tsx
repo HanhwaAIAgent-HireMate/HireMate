@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, type RouteObject } from 'react-router'
 
 import { HrLayout } from '@/app/HrLayout'
+import { InterviewerLayout } from '@/app/InterviewerLayout'
 import { ApplyPage } from '@/pages/careers/ApplyPage'
 import { PostingPage } from '@/pages/careers/PostingPage'
 import { DashboardPage } from '@/pages/hr/DashboardPage'
@@ -15,6 +16,7 @@ import { SettingsPage } from '@/pages/hr/SettingsPage'
 import { SignupPage } from '@/pages/hr/SignupPage'
 import { StageClosePage } from '@/pages/hr/StageClosePage'
 import { StagePage } from '@/pages/hr/StagePage'
+import { MyInterviewsPage } from '@/pages/interviewer/MyInterviewsPage'
 
 export const routes: RouteObject[] = [
   { path: '/', element: <Navigate to="/hr" replace /> },
@@ -40,6 +42,12 @@ export const routes: RouteObject[] = [
       },
       { path: 'recruitments/:recruitmentId/report', element: <ReportPage /> },
     ],
+  },
+  {
+    // 면접관 모드 (면접관 계정, 면접관으로 지정된 HR)
+    path: '/interviewer',
+    element: <InterviewerLayout />,
+    children: [{ index: true, element: <MyInterviewsPage /> }],
   },
   // 개발용 리포트 미리보기. 개발 서버에서만 등록한다 (backend 연동 전 확인용)
   ...(import.meta.env.DEV

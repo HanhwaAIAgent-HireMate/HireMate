@@ -14,14 +14,14 @@ const member = {
   role: 'HR',
 }
 
-function mockServer(loggedIn: boolean) {
+function mockServer(loggedIn: boolean, role = 'HR') {
   vi.stubGlobal(
     'fetch',
     vi.fn((input: Request | string) => {
       const url = typeof input === 'string' ? input : input.url
       if (url.endsWith('/api/auth/me')) {
         return Promise.resolve(
-          Response.json(loggedIn ? member : { code: 'UNAUTHENTICATED' }, {
+          Response.json(loggedIn ? { ...member, role } : { code: 'UNAUTHENTICATED' }, {
             status: loggedIn ? 200 : 401,
           }),
         )
@@ -60,11 +60,20 @@ describe('routes', () => {
     ['/hr/recruitments/1/report', '채용 리포트'],
     ['/careers/1', '채용 공고'],
     ['/careers/1/apply', '지원서'],
+    ['/interviewer', '내 면접'],
   ])('%s 경로는 "%s" 화면을 연다', async (path, title) => {
     mockServer(true)
     renderAt(path)
 
     expect(await screen.findByRole('heading', { level: 1, name: title })).toBeInTheDocument()
+  })
+
+  it('면접관 계정은 HR 화면 대신 면접관 모드의 내 면접으로 보낸다', async () => {
+    mockServer(true, 'INTERVIEWER')
+    renderAt('/hr/settings')
+
+    expect(await screen.findByRole('heading', { level: 1, name: '내 면접' })).toBeInTheDocument()
+    expect(screen.getByText('면접관 모드')).toBeInTheDocument()
   })
 
   it('로그인하지 않으면 HR 화면 대신 로그인 화면으로 보낸다', async () => {

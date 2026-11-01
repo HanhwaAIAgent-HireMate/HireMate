@@ -12,6 +12,7 @@ export type MailStyle = Schemas['MailStyle']
 /** 저장하거나 미리볼 메일 색과 부품 */
 export type MailLook = Schemas['MailLookRequest']
 export type ReceiptTemplate = Schemas['ReceiptTemplateView']
+export type InterviewerAccount = Schemas['InterviewerAccount']
 
 export const companyKeys = {
   profile: ['company', 'profile'] as const,
@@ -20,6 +21,24 @@ export const companyKeys = {
   files: (category: FileCategory) => ['company', 'files', category] as const,
   mailStyle: ['company', 'mail-style'] as const,
   receiptTemplate: ['company', 'receipt-template'] as const,
+  interviewers: ['company', 'interviewers'] as const,
+}
+
+/** 기업 설정의 면접관 계정. HR만 연다. */
+export function useInterviewerAccounts() {
+  return useQuery({
+    queryKey: companyKeys.interviewers,
+    queryFn: () => unwrap(api.GET('/api/companies/me/interviewers')),
+  })
+}
+
+export function useCreateInterviewer() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Schemas['InterviewerAccountRequest']) =>
+      unwrap(api.POST('/api/companies/me/interviewers', { body })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: companyKeys.interviewers }),
+  })
 }
 
 export function useCompanyProfile() {
