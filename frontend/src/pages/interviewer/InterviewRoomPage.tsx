@@ -272,7 +272,7 @@ function Room({
                 editable={attendance.data?.stageActive === true}
               />
               <PersonalMemo
-                key={data.session.version}
+                key={data.personalMemoVersion}
                 stageId={stageId}
                 applicationId={applicationId}
                 workspace={data}
@@ -406,7 +406,7 @@ function PersonalMemo({
           disabled={!editable || !changed || actions.memo.isPending}
           onClick={() =>
             actions.memo.mutate(
-              { text, expectedVersion: workspace.session.version },
+              { text, expectedVersion: workspace.personalMemoVersion },
               {
                 onSuccess: () => toast.success('메모를 저장했어요.'),
                 onError: (error) => toast.error(errorMessage(error)),

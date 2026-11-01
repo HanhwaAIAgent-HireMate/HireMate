@@ -2175,7 +2175,10 @@ export interface components {
         };
         PersonalInterviewMemo: {
             text: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Workspace personalMemoVersion, not session.version
+             */
             expectedVersion: number;
         };
         InterviewAssignment: {
@@ -2208,6 +2211,8 @@ export interface components {
             /** @enum {string} */
             myRole: "HR" | "PRACTICAL";
             personalMemo: string;
+            /** Format: int64 */
+            personalMemoVersion: number;
             questions: components["schemas"]["InterviewerQuestionAccess"][];
             previous: components["schemas"]["PreviousInterview"][];
             schedule: components["schemas"]["Schedule"] | null;

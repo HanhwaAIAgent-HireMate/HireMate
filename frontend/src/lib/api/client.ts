@@ -81,6 +81,8 @@ const MESSAGES: Record<string, string> = {
   INTERVIEW_IN_PROGRESS: '진행 중인 면접을 모두 종료한 뒤 전형 결과를 확정해 주세요.',
   QUESTION_ANSWERED: '답변이 기록된 질문의 담당 변경이나 삭제는 할 수 없어요.',
   SESSION_CONFLICT: '면접 정보가 변경됐어요. 최신 내용을 확인해 주세요.',
+  MEMO_CONFLICT:
+    '본인의 메모가 다른 화면에서 변경됐어요. 작성한 내용을 보관하고 최신 메모를 확인해 주세요.',
   QUESTION_OWNER_REQUIRED: '질문의 인사·실무 담당을 먼저 지정해 주세요.',
   INVALID_INTERVIEWER: '같은 기업의 계정만 면접관으로 배정할 수 있어요.',
   DISTINCT_INTERVIEWERS: '인사 면접관과 실무 면접관은 서로 다른 계정으로 배정해 주세요.',

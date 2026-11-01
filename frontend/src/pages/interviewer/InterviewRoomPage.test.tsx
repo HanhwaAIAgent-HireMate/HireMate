@@ -30,6 +30,7 @@ const workspace = (status: string) => ({
   },
   myRole: 'PRACTICAL',
   personalMemo: '',
+  personalMemoVersion: 0,
   previous: [],
   schedule: null,
   questions: [

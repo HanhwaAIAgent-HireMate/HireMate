@@ -136,17 +136,20 @@ HR 관리 API:
 | 메서드 | 기준 주소 뒤 경로 | 내용 |
 |---|---|---|
 | GET | 없음 | 본인 배정 목록. page=0, size=30(최대 50) |
-| GET | /{stageId}/{applicationId} | myRole, personalMemo, session, questions |
+| GET | /{stageId}/{applicationId} | myRole, personalMemo, personalMemoVersion, session, questions |
 | POST | /{stageId}/{applicationId}/start 또는 /end | 예정 → 진행 중 → 종료 |
 | PUT | /{stageId}/questions/{questionId}/answer | answer, analyze, expectedVersion |
 | POST | /{stageId}/{applicationId}/questions | text, interviewerRole. 본인 역할만 지정 |
 | POST | /{stageId}/questions/{questionId}/follow-ups | text, source, check. 원래 담당 유지 |
 | POST | /{stageId}/questions/{questionId}/follow-ups/suggestions | avoid 목록. 자기 담당만 AI 제안 요청 |
 | DELETE | /{stageId}/questions/{questionId} | 자기 담당의 미응답 질문만 삭제 |
-| PUT | /{stageId}/{applicationId}/memo | text, expectedVersion(session.version). 개인 메모 |
+| PUT | /{stageId}/{applicationId}/memo | text, expectedVersion(personalMemoVersion). 개인 메모 |
 
 questions는 자기 담당이 먼저이며 각 항목에 question, canAnswer, canRequestFollowUp, canDelete,
 readOnlyReason이 있다. personalMemo는 현재 면접관의 것만 반환한다. 기존 HR 공용 메모는 그대로다.
+개인 메모 저장에는 personalMemoVersion을 expectedVersion으로 보낸다. session.version은 배정·진행 상태의
+버전이며 메모 저장에 사용하지 않는다. 인사·실무가 서로의 개인 메모를 저장해도 충돌하지 않고, 같은 개인 메모의
+오래된 버전으로 저장하면 409 MEMO_CONFLICT를 반환한다. 상대방의 개인 메모와 메모 버전은 응답에 포함하지 않는다.
 면접 시작 전 모든 질문의 담당을 지정한다. 시작·종료는 합격·불합격 결정과 별개이며, 미입력으로 자동 종료하지
 않는다. 종료할 때 자동 저장만 된 답변도 분석에 넘긴다.
 진행 중인 면접이 하나라도 있으면 전형 결과 확정은 409 INTERVIEW_IN_PROGRESS로 거절한다.
