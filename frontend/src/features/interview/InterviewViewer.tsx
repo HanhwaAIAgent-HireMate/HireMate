@@ -34,7 +34,7 @@ import {
 } from '@/features/interview/api'
 import { AnswerBox } from '@/features/interview/AnswerBox'
 import { HrOpinions } from '@/features/interview/HrOpinions'
-import { InterviewAssign } from '@/features/interview/InterviewAssign'
+import { CandidateInterviewProgress } from '@/features/interview/CandidateInterviewProgress'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import { QuestionReason } from '@/features/interview/QuestionReason'
 import { RoleTag } from '@/features/interview/RoleTag'
@@ -170,6 +170,7 @@ function Questions({
           <PreviousQuestions questions={previous.questions} />
         </section>
       ))}
+      <CandidateInterviewProgress stageId={stageId} applicationId={applicationId} />
       <div className="flex items-center gap-2 text-sm font-semibold">
         맞춤 질문
         <AgentChip name="Interview Agent" />
@@ -185,7 +186,6 @@ function Questions({
               질문 재생성
             </Button>
           )}
-          <InterviewAssign stageId={stageId} applicationId={applicationId} editable={editable} />
           <ScheduleButton
             stageId={stageId}
             applicationId={applicationId}
@@ -508,7 +508,6 @@ function ScheduleButton({
   const actions = useInterviewActions(stageId, applicationId)
   const [open, setOpen] = useState(false)
   const [at, setAt] = useState('')
-  const [interviewers, setInterviewers] = useState('')
   return (
     <Popover
       open={open}
@@ -520,7 +519,6 @@ function ScheduleButton({
               ? toLocalInput(new Date(interview.schedule.scheduledAt))
               : '',
           )
-          setInterviewers(interview.schedule?.interviewers ?? '')
         }
       }}
     >
@@ -539,18 +537,16 @@ function ScheduleButton({
           onChange={(event) => setAt(event.target.value)}
           className="h-9 w-full rounded-lg border px-3 text-sm"
         />
-        <Input
-          aria-label="면접관"
-          placeholder="예: 면접관 2명"
-          value={interviewers}
-          onChange={(event) => setInterviewers(event.target.value)}
-        />
+        <p className="text-xs text-muted-foreground">면접관은 전형 상단의 공통 배정을 사용해요.</p>
         <div className="flex justify-end">
           <Button
             size="sm"
             onClick={() =>
               actions.schedule.mutate(
-                { scheduledAt: at ? new Date(at).toISOString() : null, interviewers },
+                {
+                  scheduledAt: at ? new Date(at).toISOString() : null,
+                  interviewers: interview.schedule?.interviewers ?? '',
+                },
                 {
                   onSuccess: () => setOpen(false),
                   onError: (error) => toast.error(errorMessage(error)),

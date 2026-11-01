@@ -16,11 +16,14 @@ const state = vi.hoisted(() => ({
   }[],
   assign: vi.fn(),
   add: vi.fn(),
+  schedule: vi.fn(),
   previous: [] as unknown[],
 }))
 
-// 면접관 배정은 따로 검사한다 (InterviewAssign.test.tsx)
-vi.mock('@/features/interview/InterviewAssign', () => ({ InterviewAssign: () => null }))
+// 공통 면접관은 전형 상단에 두고 이 카드에서는 진행 현황만 읽는다
+vi.mock('@/features/interview/CandidateInterviewProgress', () => ({
+  CandidateInterviewProgress: () => <p>지원자 면접 진행 현황</p>,
+}))
 vi.mock('@/features/interview/HrOpinions', () => ({ HrOpinions: () => null }))
 
 vi.mock('@/features/interview/api', () => ({
@@ -31,6 +34,7 @@ vi.mock('@/features/interview/api', () => ({
   useInterviewActions: () => ({
     regenerate: { isPending: false },
     assignRole: { isPending: false, mutate: state.assign },
+    schedule: { isPending: false, mutate: state.schedule },
     add: { isPending: false, mutate: state.add },
     answer: { mutateAsync: vi.fn() },
     suggestFollowUps: { mutateAsync: vi.fn() },
@@ -252,4 +256,20 @@ it('지난 면접 기록의 꼬리질문은 기본으로 접어 두고 펼칠 �
   expect(screen.getByText('pf1 지난 답')).toBeInTheDocument()
   unmount()
   state.previous = []
+})
+
+it('지원자 카드에서는 면접관을 배정하지 않고 일정만 수정한다', () => {
+  const { unmount } = renderWith('HR')
+  expect(screen.getByText('지원자 면접 진행 현황')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /면접관 배정|면접관 변경/ })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '일정' }))
+  expect(screen.getByText('면접관은 전형 상단의 공통 배정을 사용해요.')).toBeInTheDocument()
+  expect(screen.queryByRole('textbox', { name: '면접관' })).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('면접 일시'), { target: { value: '2026-11-02T10:00' } })
+  fireEvent.click(screen.getByRole('button', { name: '저장' }))
+  expect(state.schedule).toHaveBeenCalledWith(
+    { scheduledAt: new Date('2026-11-02T10:00').toISOString(), interviewers: '' },
+    expect.any(Object),
+  )
+  unmount()
 })
