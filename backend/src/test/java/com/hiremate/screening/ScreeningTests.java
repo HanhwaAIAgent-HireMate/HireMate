@@ -12,6 +12,7 @@ import com.hiremate.TestFixtures;
 import com.hiremate.TestMailConfiguration;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
+import com.hiremate.apply.CriterionMark;
 import com.hiremate.apply.QualificationStatus;
 import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewService;
@@ -24,7 +25,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -49,13 +52,19 @@ class ScreeningTests extends IntegrationTest {
     private TestMailConfiguration.RecordingMailClient mail;
 
     @Test
-    @DisplayName("마감하면 지원자 전원이 첫 전형 대상이 되고, 서류 점수 순으로 서며 상위만 AI 추천이다")
-    void documentStageListsApplicantsByScore() throws Exception {
+    @DisplayName("마감하면 지원자 전원이 첫 전형 대상이 되고, 필수 조건을 채운 지원자만 선 위에 충족 개수 순으로 선다")
+    void documentStageListsApplicantsByMetCount() throws Exception {
         Stage stage = startDocumentStage(4);
         JsonNode list = json(expect(stage.hr().get(stage.path() + "/candidates"), 200));
         assertThat(list.path("total").asLong()).isEqualTo(4);
-        assertThat(list.path("items").get(0).path("aboveLine").asBoolean()).isTrue();
-        assertThat(list.path("items").get(3).path("aboveLine").asBoolean()).isFalse();
+        assertThat(names(list.path("items"))).containsExactly("지원자1", "지원자2", "지원자3", "지원자4");
+        JsonNode first = list.path("items").get(0);
+        assertThat(first.path("aboveLine").asBoolean()).isTrue();
+        assertThat(first.path("metCount").asInt()).isEqualTo(8);
+        assertThat(first.path("criterionTotal").asInt()).isEqualTo(10);
+        JsonNode last = list.path("items").get(3);
+        assertThat(last.path("aboveLine").asBoolean()).isFalse();
+        assertThat(last.path("missingRequired")).extracting(JsonNode::asString).containsExactly("Q-01");
 
         JsonNode overview = json(expect(stage.hr().get(stage.path()), 200));
         assertThat(overview.path("type").asString()).isEqualTo("DOCUMENT");
@@ -64,50 +73,60 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("서류 전형은 자격요건 점수 순(같으면 총점 순)으로 전원을 세우고, 보류는 확인 필요를 0점으로 계산한 점수로 선다")
-    void documentStageSortsByQualificationThenTotal() throws Exception {
-        Stage stage = startDocumentStage(6);
+    @DisplayName("필수 조건을 못 채우면 개수가 많아도 맨 아래이고, 같은 개수는 이름 순이며 인재상 포함 정렬은 상인 인재상을 더한다")
+    void documentStageSortsByCountThenName() throws Exception {
+        Stage stage = startDocumentStage(5);
+        expect(stage.hr().put("/api/companies/me/profile", Map.of("intro", "", "culture", "",
+                "talents", List.of(Map.of("title", "협업", "description", ""), Map.of("title", "끈기", "description", "")),
+                "benefits", List.of())), 200);
         record(stage, Map.of(
-                1, scored(50, 80, true),
-                2, scored(50, 90, true),
-                3, scored(37.5, 95, true),
-                // 확인 필요가 남아 점수를 보류했다. 확인 필요를 0점으로 계산하면 자격요건 25, 총점 60
-                4, held(25, 60),
-                5, scored(25, 70, false),
-                6, scored(45, 50, true)));
+                1, marked(3, true),
+                2, marked(5, true),
+                3, marked(4, true),
+                // 충족 개수는 가장 많지만 필수 조건(Q-01)을 확인하지 못했다
+                4, marked(9, false),
+                5, marked(4, true)));
+        Map<String, String> ids = idsByName(stage);
+        applications.recordTalents(UUID.fromString(ids.get("지원자3")), List.of("협업", "끈기"));
+        // 지금 인재상에 없는 제목은 세지 않는다
+        applications.recordTalents(UUID.fromString(ids.get("지원자1")), List.of("예전 인재상"));
 
-        JsonNode items = json(expect(stage.hr().get(stage.path() + "/candidates?size=50"), 200)).path("items");
+        JsonNode basic = json(expect(stage.hr().get(stage.path() + "/candidates?size=50"), 200)).path("items");
+        assertThat(names(basic)).containsExactly("지원자2", "지원자3", "지원자5", "지원자1", "지원자4");
+        assertThat(basic.get(4).path("aboveLine").asBoolean()).isFalse();
 
-        // 자격요건 미달(지원자5)과 보류(지원자4)도 따로 묶지 않고 같은 줄에서 점수로 선다
-        assertThat(names(items)).containsExactly("지원자2", "지원자1", "지원자6", "지원자3", "지원자5", "지원자4");
-        JsonNode held = items.get(5);
-        assertThat(held.path("held").asBoolean()).isTrue();
-        assertThat(held.path("documentScore").isNull()).isTrue();
-        assertThat(held.path("documentScoreLow").decimalValue()).isEqualByComparingTo("60");
-
-        JsonNode byTotal = json(expect(stage.hr().get(stage.path() + "/candidates?size=50&sort=TOTAL"), 200))
+        JsonNode talent = json(expect(stage.hr().get(stage.path() + "/candidates?size=50&sort=TALENT"), 200))
                 .path("items");
-        assertThat(names(byTotal)).containsExactly("지원자3", "지원자2", "지원자1", "지원자5", "지원자4", "지원자6");
+        assertThat(names(talent)).containsExactly("지원자3", "지원자2", "지원자5", "지원자1", "지원자4");
+        assertThat(talent.get(0).path("talentCount").asInt()).isEqualTo(2);
+        assertThat(talent.get(0).path("talentTotal").asInt()).isEqualTo(2);
+        assertThat(talent.get(3).path("talentCount").asInt()).isZero();
     }
 
     @Test
-    @DisplayName("AI 추천은 선발 인원 10배수까지이고, 끝 순위와 점수가 같은 지원자는 모두 추천한다")
-    void recommendationKeepsTiesAtTheLine() throws Exception {
-        Stage stage = startDocumentStage(13);
-        Map<Integer, ApplicationAnalysis> analyses = new HashMap<>();
-        for (int order = 1; order <= 13; order++) {
-            // 9등까지는 점수가 모두 다르고 10 ~ 12등은 공동이다. 13등은 추천 밖이다
-            analyses.put(order, scored(50, order <= 9 ? 100 - order : order <= 12 ? 80 : 70, true));
-        }
-        record(stage, analyses);
+    @DisplayName("필수 조건은 처음에 중요 표시한 자격요건이고, HR이 바꾸면 선 위 지원자가 바로 달라진다")
+    void requirementsMoveTheLine() throws Exception {
+        Stage stage = startDocumentStage(3);
+        JsonNode initial = json(expect(stage.hr().get(stage.path() + "/requirements"), 200));
+        assertThat(initial.path("criterionIds")).extracting(JsonNode::asString).containsExactly("Q-01", "Q-02");
 
-        JsonNode items = json(expect(stage.hr().get(stage.path() + "/candidates?size=50"), 200)).path("items");
+        // 지원자3은 Q-01을 못 채웠다. 필수 조건을 비우면 분석이 끝난 지원자 모두 선 위다
+        expect(stage.hr().put(stage.path() + "/requirements", Map.of("criterionIds", List.of())), 200);
+        JsonNode items = json(expect(stage.hr().get(stage.path() + "/candidates"), 200)).path("items");
+        items.forEach(item -> assertThat(item.path("aboveLine").asBoolean()).isTrue());
 
-        // 선발 인원 1명(더미) × 10 = 10명이지만 공동 10등 3명을 모두 넣어 12명이다
+        // 지원자1만 P-03을 채웠다
+        expect(stage.hr().put(stage.path() + "/requirements", Map.of("criterionIds", List.of("P-03"))), 200);
+        items = json(expect(stage.hr().get(stage.path() + "/candidates"), 200)).path("items");
+        assertThat(names(items).getFirst()).isEqualTo("지원자1");
         List<Boolean> above = new ArrayList<>();
         items.forEach(item -> above.add(item.path("aboveLine").asBoolean()));
-        assertThat(above.subList(0, 12)).containsOnly(true);
-        assertThat(above.get(12)).isFalse();
+        assertThat(above).containsExactly(true, false, false);
+        String second = stage.ids().get(1);
+        expect(stage.hr().post(stage.tabPath() + "/selection/add", Map.of("applicationIds", List.of(second))), 409);
+
+        expect(stage.hr().put(stage.path() + "/requirements", Map.of("criterionIds", List.of("X-99"))), 400);
+        expect(newHr().get(stage.path() + "/requirements"), 404);
     }
 
     @Test
@@ -298,6 +317,39 @@ class ScreeningTests extends IntegrationTest {
         assertCode(expect(stage.hr().get(stage.tabPath(another.tabId()) + "/selection"), 404), "TAB_NOT_FOUND");
         assertCode(expect(stage.hr().patch(stage.tabPath(another.tabId()), Map.of("name", "x")), 404),
                 "TAB_NOT_FOUND");
+    }
+
+    @Test
+    @DisplayName("표 보기의 열은 자격요건 · 우대사항 · 인재상 순서이고, 인재상 문장은 짧은 키워드로 쓴다")
+    void tableFeaturesAndTalents() throws Exception {
+        Stage stage = startDocumentStage(1);
+        String id = stage.ids().getFirst();
+        expect(stage.hr().put("/api/companies/me/profile", Map.of("intro", "", "culture", "",
+                "talents", List.of(Map.of("title", "인성을 중요시한다", "description", ""),
+                        Map.of("title", "고객 신뢰", "description", "책임감")),
+                "benefits", List.of())), 200);
+
+        JsonNode features = json(expect(stage.hr().get(stage.path() + "/table"), 200)).path("features");
+        List<String> groups = new ArrayList<>();
+        features.forEach(feature -> groups.add(feature.path("group").asString()));
+        List<String> order = List.of("QUALIFICATION", "PREFERENCE", "TALENT");
+        assertThat(groups).contains("QUALIFICATION", "TALENT")
+                .isSortedAccordingTo(Comparator.comparing(order::indexOf));
+        JsonNode talent = features.get(features.size() - 2);
+        assertThat(talent.path("id").asString()).isEqualTo("T-1");
+        assertThat(talent.path("label").asString()).isEqualTo("인성");
+        assertThat(talent.path("kind").asString()).isEqualTo("EXPERIENCE");
+        assertThat(features.get(features.size() - 1).path("text").asString()).isEqualTo("고객 신뢰 - 책임감");
+
+        // 개발용(stub) 판정은 모두 확인 필요다. 실제 판정은 ai 서버에서 온다
+        JsonNode fit = json(expect(stage.hr().get(stage.path() + "/candidates/" + id + "/talents"), 200));
+        assertThat(fit.path("items").size()).isEqualTo(2);
+        assertThat(fit.path("items").get(0).path("level").asString()).isEqualTo("UNKNOWN");
+        assertThat(fit.path("stub").asBoolean()).isTrue();
+
+        TestApi other = newHr();
+        expect(other.get(stage.path() + "/table"), 404);
+        expect(other.get(stage.path() + "/candidates/" + id + "/talents"), 404);
     }
 
     @Test
@@ -744,6 +796,32 @@ class ScreeningTests extends IntegrationTest {
         return Map.of("message", message, "mentionIds", mentions, "checkedIds", List.of());
     }
 
+    @Test
+    @DisplayName("인재상은 설정의 인재상에 회사 소개 · 조직 문화 글에서 뽑은 요소를 더하고, 이름이 겹치면 한 번만 둔다")
+    void talentsIncludeFactorsFromCompanyText() throws Exception {
+        Stage stage = startDocumentStage(1);
+        expect(stage.hr().put("/api/companies/me/profile", Map.of("intro", "결제 플랫폼을 만듭니다.",
+                "culture", "협업을 중요시합니다. 도전하는 분을 환영합니다.",
+                "talents", List.of(Map.of("title", "협업", "description", "")), "benefits", List.of())), 200);
+
+        // 글의 요소는 저장한 뒤 AI가 따로 뽑는다
+        List<String> texts = new ArrayList<>();
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(10));
+        while (texts.size() < 2 && Instant.now().isBefore(deadline)) {
+            texts.clear();
+            json(expect(stage.hr().get(stage.path() + "/table"), 200)).path("features").forEach(feature -> {
+                if ("TALENT".equals(feature.path("group").asString())) {
+                    texts.add(feature.path("text").asString());
+                }
+            });
+            Thread.sleep(200);
+        }
+
+        assertThat(texts).hasSize(2);
+        assertThat(texts.getFirst()).isEqualTo("협업");
+        assertThat(texts.get(1)).contains("도전하는 분을 환영합니다.");
+    }
+
     private Stage startDocumentStage(int applicants) throws Exception {
         return startDocumentStage(applicants, null);
     }
@@ -759,12 +837,11 @@ class ScreeningTests extends IntegrationTest {
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());
         awaitAnalyzed(hr.companyId(), recruitmentId, applicants);
         List<String> ids = new ArrayList<>();
-        // 점수를 고정해 지원자1이 가장 높고 마지막 지원자는 자격요건 미달로 선 아래가 되게 한다
+        // 충족 개수를 고정해 지원자1이 가장 많고 마지막 지원자는 필수 조건(Q-01) 미달로 선 아래가 되게 한다
         for (var applicant : applications.applicants(hr.companyId(), recruitmentId)) {
             int order = Integer.parseInt(applicant.name().replace("지원자", ""));
             boolean last = order == applicants && applicants > 1;
-            applications.recordAnalysis(applicant.applicationId(), ApplicationAnalysis.of(order, "OO카드",
-                    BigDecimal.valueOf(100 - order * 10 - (last ? 40 : 0)), !last, false, last ? List.of("신입") : List.of()));
+            applications.recordAnalysis(applicant.applicationId(), marked(Math.max(2, 9 - order), !last));
         }
         applications.applicants(hr.companyId(), recruitmentId).stream()
                 .sorted(java.util.Comparator.comparing(applicant -> applicant.name()))
@@ -786,20 +863,36 @@ class ScreeningTests extends IntegrationTest {
         }
     }
 
-    /** 확정 점수. 확인 필요가 없어 0점으로 계산한 점수도 같다. */
-    private static ApplicationAnalysis scored(double qualification, double total, boolean passed) {
-        BigDecimal score = BigDecimal.valueOf(total);
-        BigDecimal qualificationScore = BigDecimal.valueOf(qualification);
-        return new ApplicationAnalysis(3, "OO카드", null,
-                passed ? QualificationStatus.PASSED : QualificationStatus.FAILED, null, qualificationScore, 50,
-                score.subtract(qualificationScore), 50, score, score, qualificationScore, passed, false, List.of());
+    /**
+     * 평가 항목 판정을 고정한 결과. 앞에서부터 met개 항목을 충족(MET)으로 두고 나머지는 미충족이다.
+     * required가 false면 필수 조건 Q-01을 확인 필요로 둔다(충족 개수는 그대로).
+     */
+    private static ApplicationAnalysis marked(int met, boolean required) {
+        Map<String, CriterionMark> marks = new LinkedHashMap<>();
+        List<String> order = new ArrayList<>(List.of("Q-01", "Q-02", "Q-03", "Q-04", "Q-05", "P-01", "P-02",
+                "P-03", "P-04", "P-05"));
+        if (!required) {
+            order.remove("Q-01");
+            order.add("Q-01");
+        }
+        for (int index = 0; index < order.size(); index++) {
+            marks.put(order.get(index), index < met ? CriterionMark.MET : CriterionMark.NOT_MET);
+        }
+        if (!required) {
+            marks.put("Q-01", CriterionMark.UNKNOWN);
+        }
+        BigDecimal score = BigDecimal.valueOf(met * 10L);
+        return new ApplicationAnalysis(3, "OO카드", null, QualificationStatus.PASSED, null, score, 50, null, 50,
+                score, score, score, true, false, required ? List.of() : List.of("경력 확인 필요"), marks);
     }
 
-    /** 확인 필요가 남아 점수를 보류한 결과. 확인 필요를 0점으로 계산한 점수만 있다. */
-    private static ApplicationAnalysis held(double qualificationLow, double low) {
-        return new ApplicationAnalysis(3, "OO카드", null, QualificationStatus.UNDETERMINED, null, null, 50, null, 50,
-                null, BigDecimal.valueOf(low), BigDecimal.valueOf(qualificationLow), false, true,
-                List.of("경력 확인 필요"));
+    private Map<String, String> idsByName(Stage stage) throws Exception {
+        UUID recruitmentId = UUID.fromString(json(expect(stage.hr().get(stage.path()), 200))
+                .path("recruitmentId").asString());
+        Map<String, String> ids = new HashMap<>();
+        applications.applicants(stage.hr().companyId(), recruitmentId)
+                .forEach(applicant -> ids.put(applicant.name(), applicant.applicationId().toString()));
+        return ids;
     }
 
     private static List<String> names(JsonNode items) {

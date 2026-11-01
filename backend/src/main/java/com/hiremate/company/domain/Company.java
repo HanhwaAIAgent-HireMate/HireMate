@@ -53,6 +53,15 @@ public class Company {
 
     private String posterBrand;
 
+    /** 회사 소개 · 조직 문화 글에서 AI가 뽑은 인재상 요소. */
+    @Convert(converter = TalentListConverter.class)
+    @Column(nullable = false)
+    private List<Talent> cultureFactors = new ArrayList<>();
+
+    /** cultureFactors를 뽑을 때 읽은 글. 지금 글과 다르면 요소가 낡은 것이다. */
+    @Column(nullable = false)
+    private String cultureFactorsSource = "";
+
     public void changePosterBrand(String value) {
         this.posterBrand = value;
     }
@@ -68,6 +77,21 @@ public class Company {
         this.culture = culture;
         this.talents = new ArrayList<>(talents);
         this.benefits = new ArrayList<>(benefits);
+    }
+
+    /** AI가 회사 글에서 인재상 요소를 찾을 때 읽을 글. */
+    public String cultureText() {
+        return (intro.strip() + "\n" + culture.strip()).strip();
+    }
+
+    /** source가 지금 글과 같을 때만 남긴다. 그 사이 글이 다시 바뀌었으면 새 요청의 결과를 기다린다. */
+    public boolean recordCultureFactors(String source, List<Talent> factors) {
+        if (!source.equals(cultureText())) {
+            return false;
+        }
+        this.cultureFactors = new ArrayList<>(factors);
+        this.cultureFactorsSource = source;
+        return true;
     }
 
     public void updatePostingSettings(String writingStyle, List<String> requiredNotices) {
