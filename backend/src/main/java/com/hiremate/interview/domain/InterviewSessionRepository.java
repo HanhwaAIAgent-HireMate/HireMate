@@ -25,4 +25,12 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     @Query("select s from InterviewSession s where s.companyId = :companyId "
             + "and (s.hrMemberId = :memberId or s.practicalMemberId = :memberId) order by s.stageId, s.applicationId")
     Page<InterviewSession> assigned(UUID companyId, UUID memberId, Pageable pageable);
+
+    @Query("select count(s) > 0 from InterviewSession s where s.companyId = :companyId and s.stageId = :stageId "
+            + "and s.applicationId = :applicationId and (s.hrMemberId = :memberId or s.practicalMemberId = :memberId)")
+    boolean assignedTo(UUID companyId, UUID memberId, UUID stageId, UUID applicationId);
+
+    @Query("select count(s) > 0 from InterviewSession s where s.companyId = :companyId "
+            + "and s.applicationId = :applicationId and (s.hrMemberId = :memberId or s.practicalMemberId = :memberId)")
+    boolean assignedToApplication(UUID companyId, UUID memberId, UUID applicationId);
 }

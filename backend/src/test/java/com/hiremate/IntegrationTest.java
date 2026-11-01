@@ -1,7 +1,16 @@
 package com.hiremate;
 
+import static com.hiremate.TestApi.expect;
+import static com.hiremate.TestApi.json;
+
+import com.hiremate.apply.ApplicantInfo;
+import com.hiremate.apply.ApplicationService;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
@@ -22,6 +31,9 @@ public abstract class IntegrationTest {
     @LocalServerPort
     private int port;
 
+    @Autowired
+    private ApplicationService applicationService;
+
     /** 새 기업과 HR 계정을 만들고 로그인한 클라이언트. */
     protected TestApi newHr() throws Exception {
         TestApi api = anonymous();
@@ -41,5 +53,48 @@ public abstract class IntegrationTest {
 
     protected TestApi anonymous() {
         return new TestApi(port);
+    }
+
+    /** 진행 중인 면접 전형 하나. stage는 전형 경로(/api/stages/{id})다. */
+    protected record Interview(TestApi hr, UUID recruitmentId, UUID stageId, String stage, UUID applicationId) {
+
+        public String candidate() {
+            return stage + "/candidates/" + applicationId;
+        }
+    }
+
+    /** 서류 합격자 한 명이 있는 진행 중 1차 면접. */
+    protected Interview interviewStage() throws Exception {
+        TestApi hr = newHr();
+        TestFixtures.Posting posting = TestFixtures.publish(hr, false, "전형은 서류, 1차 면접 순으로 해줘");
+        expect(anonymous().multipart(posting.applyPath(),
+                TestFixtures.form("applicant-" + UUID.randomUUID() + "@example.com", false)), 201);
+        UUID recruitmentId = UUID.fromString(posting.recruitmentId());
+        UUID applicationId = awaitAnalyzed(hr.companyId(), recruitmentId);
+        String document = "/api/stages/" + json(expect(hr.post("/api/recruitments/" + recruitmentId
+                + "/posting/close", null), 200)).path("stages").get(0).path("id").asString();
+        expect(hr.post(document + "/decisions",
+                Map.of("applicationIds", List.of(applicationId.toString()), "decision", "PASS")), 204);
+        expect(hr.post(document + "/confirm", null), 200);
+        expect(hr.post(document + "/notices/prepare", null), 200);
+        expect(hr.post(document + "/notices/PASS/send", null), 200);
+        UUID stageId = UUID.fromString(json(expect(hr.post(document + "/finish", null), 200)).path("nextStageId")
+                .asString());
+        return new Interview(hr, recruitmentId, stageId, "/api/stages/" + stageId, applicationId);
+    }
+
+    private UUID awaitAnalyzed(UUID companyId, UUID recruitmentId) throws InterruptedException {
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
+        while (Instant.now().isBefore(deadline)) {
+            var analyzed = applicationService.applicants(companyId, recruitmentId).stream()
+                    .filter(applicant -> applicant.documentScore() != null)
+                    .map(ApplicantInfo::applicationId)
+                    .findFirst();
+            if (analyzed.isPresent()) {
+                return analyzed.get();
+            }
+            Thread.sleep(200);
+        }
+        throw new AssertionError("Analysis did not finish.");
     }
 }
