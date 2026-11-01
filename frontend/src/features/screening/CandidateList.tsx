@@ -1,24 +1,31 @@
-import { ListFilter, Search } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { ListChecks, ListFilter, Search } from 'lucide-react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   useCandidates,
+  useRequirements,
   useSelectionActions,
+  useUpdateRequirements,
   type CandidateRow,
   type CandidateSort,
   type StageOverview,
 } from '@/features/screening/api'
-import { CandidateItem, RowButton } from '@/features/screening/CandidateItem'
+import { RowButton } from '@/features/screening/CandidateItem'
+import { CandidateTile } from '@/features/screening/CandidateTile'
 import { useStageUi } from '@/features/screening/store'
+import { GROUP_LABELS, useCandidateTable } from '@/features/screening/table'
 import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 
@@ -32,12 +39,17 @@ const FILTERS: Record<Filter, string> = {
 }
 
 const SORTS: Record<CandidateSort, string> = {
-  QUALIFICATION: '자격요건 순',
-  TOTAL: '총점 순',
+  BASIC: '기본',
+  TALENT: '인재상 포함',
 }
 
-// 왼쪽 전체 지원자. 서류 전형은 자격요건 순(같으면 총점 순)으로 한 줄로 서고 총점 순으로도 볼 수 있다.
-// AI 추천(선발 인원 10배수)은 굵게, 추천 밖은 회색이다
+const SORT_HINTS: Record<CandidateSort, string> = {
+  BASIC: '자격요건 + 우대사항에서 충족한 개수가 많은 순 (같으면 이름 순)',
+  TALENT: '자격요건 + 우대사항 + 인재상(상)에서 충족한 개수가 많은 순 (같으면 이름 순)',
+}
+
+// 왼쪽 전체 지원자. 한 줄에 카드 3장이다. 서류 전형은 필수 조건을 모두 채운 지원자가 충족 개수 순으로 먼저 서고,
+// 필수 조건을 못 채운 지원자는 회색으로 맨 아래에 모인다. 점수는 보여 주지 않는다
 export function CandidateList({
   overview,
   tabId,
@@ -52,7 +64,7 @@ export function CandidateList({
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [filter, setFilter] = useState<Filter>('ALL')
-  const [sort, setSort] = useState<CandidateSort>('QUALIFICATION')
+  const [sort, setSort] = useState<CandidateSort>('BASIC')
   const candidates = useCandidates(stageId, tabId, debounced, sort)
   const actions = useSelectionActions(stageId, tabId ?? '')
   const { openId, open } = useStageUi()
@@ -79,15 +91,19 @@ export function CandidateList({
     (row) => filter === 'ALL' || row.decision === filter,
   )
   const total = candidates.data?.pages[0]?.total ?? overview.counts.total
+  const firstBelow = documentStage ? rows.findIndex((row) => !row.aboveLine) : -1
+  // 선 위 지원자가 먼저 서므로, 거르지 않았으면 전체 수에서 선 위 수를 빼면 아직 안 불러온 카드까지 센 선 아래 수다
+  const below = filter === 'ALL' ? total - firstBelow : rows.length - firstBelow
   const fail = (error: unknown) => toast.error(errorMessage(error))
 
+  // 회색(필수 조건 미충족) 카드는 ↑로 선 위에 올린다. 올리면 줄을 다시 서고 ↑ 대신 넣기(+)가 생긴다
   const action = (row: CandidateRow) => {
     if (!editable) return null
     if (documentStage && !row.aboveLine) {
       return (
         <RowButton
           kind="up"
-          label={`${row.name} AI 추천으로 올리기`}
+          label={`${row.name} 선 위로 올리기`}
           onClick={() => actions.promote.mutate(row.applicationId, { onError: fail })}
         />
       )
@@ -114,10 +130,11 @@ export function CandidateList({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between px-4 pt-4 pb-3">
-        <h2 className="text-sm font-bold">
+      <div className="flex items-center gap-2 px-4 pt-4 pb-3">
+        <h2 className="mr-auto text-sm font-bold">
           전체 지원자 <span className="ml-1 text-muted-foreground">{total}</span>
         </h2>
+        {documentStage && <RequirementsMenu stageId={stageId} editable={editable} />}
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="결정 상태로 거르기"
@@ -150,6 +167,7 @@ export function CandidateList({
               key={key}
               type="button"
               role="tab"
+              title={SORT_HINTS[key]}
               aria-selected={sort === key}
               onClick={() => setSort(key)}
               className={cn(
@@ -176,27 +194,94 @@ export function CandidateList({
           />
         </label>
       </div>
-      <div className="min-h-0 flex-1 space-y-1 overflow-auto px-3 pt-1.5 pb-4">
-        {candidates.isPending &&
-          Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-12 w-full" />)}
-        {!candidates.isPending && rows.length === 0 && (
-          <p className="px-2 py-8 text-center text-sm text-muted-foreground">
-            {debounced ? '조건에 맞는 지원자가 없어요.' : '아직 지원자가 없어요.'}
-          </p>
-        )}
-        {rows.map((row) => (
-          <CandidateItem
-            key={row.applicationId}
-            row={row}
-            documentStage={documentStage}
-            scoreStage={overview.type === 'ASSESSMENT'}
-            active={openId === row.applicationId}
-            action={action(row)}
-            onOpen={() => open({ applicationId: row.applicationId, name: row.name })}
-          />
-        ))}
+      <div className="min-h-0 flex-1 overflow-auto px-3 pt-1.5 pb-4">
+        <div className="grid grid-cols-3 gap-2">
+          {candidates.isPending &&
+            Array.from({ length: 9 }, (_, index) => <Skeleton key={index} className="h-14" />)}
+          {!candidates.isPending && rows.length === 0 && (
+            <p className="col-span-3 px-2 py-8 text-center text-sm text-muted-foreground">
+              {debounced ? '조건에 맞는 지원자가 없어요.' : '아직 지원자가 없어요.'}
+            </p>
+          )}
+          {rows.map((row, index) => (
+            <Fragment key={row.applicationId}>
+              {index === firstBelow && (
+                <p className="col-span-3 mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="h-px flex-1 bg-border" />
+                  필수 조건 미충족 {below}명
+                  <span className="h-px flex-1 bg-border" />
+                </p>
+              )}
+              <CandidateTile
+                row={row}
+                documentStage={documentStage}
+                scoreStage={overview.type === 'ASSESSMENT'}
+                active={openId === row.applicationId}
+                action={action(row)}
+                onOpen={() => open({ applicationId: row.applicationId, name: row.name })}
+              />
+            </Fragment>
+          ))}
+        </div>
         <div ref={sentinel} className="h-4" />
       </div>
     </section>
+  )
+}
+
+/**
+ * 필수 조건 체크. 자격요건 · 우대사항 가운데 체크한 항목을 모두 충족한 지원자만 선 위(AI 단계)에 오른다.
+ * 체크하면 바로 저장하고 리스트를 다시 세운다
+ */
+function RequirementsMenu({ stageId, editable }: { stageId: string; editable: boolean }) {
+  const table = useCandidateTable(stageId)
+  const required = useRequirements(stageId, true)
+  const update = useUpdateRequirements(stageId)
+  const criteria = (table.data?.features ?? []).filter((feature) => feature.group !== 'TALENT')
+  const chosen = required.data ?? []
+
+  const toggle = (id: string, checked: boolean) => {
+    const next = checked ? [...chosen, id] : chosen.filter((item) => item !== id)
+    update.mutate(next, { onError: (error) => toast.error(errorMessage(error)) })
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        title="필수 조건: 모두 충족한 지원자만 선 위(AI 단계)에 올라가요"
+        className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs text-muted-foreground hover:text-foreground"
+      >
+        <ListChecks className="size-3.5" />
+        필수 조건 {chosen.length}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+          체크한 조건을 모두 충족한 지원자만 선 위(AI 단계)에 올라가요.
+        </DropdownMenuLabel>
+        {table.isPending && <Skeleton className="m-1.5 h-24" />}
+        {(['QUALIFICATION', 'PREFERENCE'] as const).map((group) => {
+          const items = criteria.filter((feature) => feature.group === group)
+          if (items.length === 0) return null
+          return (
+            <Fragment key={group}>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs">{GROUP_LABELS[group]}</DropdownMenuLabel>
+              {items.map((feature) => (
+                <DropdownMenuCheckboxItem
+                  key={feature.id}
+                  title={feature.text}
+                  checked={chosen.includes(feature.id)}
+                  disabled={!editable || update.isPending || required.isPending}
+                  onSelect={(event) => event.preventDefault()}
+                  onCheckedChange={(checked) => toggle(feature.id, checked === true)}
+                >
+                  {feature.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </Fragment>
+          )
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
