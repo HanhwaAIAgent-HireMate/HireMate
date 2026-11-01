@@ -1,6 +1,7 @@
 package com.hiremate.screening;
 
 import com.hiremate.global.ApiException;
+import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.screening.domain.SelectionSnapshotRepository;
@@ -12,6 +13,7 @@ import com.hiremate.screening.domain.TabSelection;
 import com.hiremate.screening.domain.TabSelectionRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -49,11 +51,29 @@ public class StageTabService {
         this.events = events;
     }
 
-    /** 전형의 탭. 만든 순서다. 시작하지 않은 전형에는 탭이 없다. */
+    /** 전형의 HR 공유 탭. 만든 순서다. 시작하지 않은 전형에는 탭이 없다. */
     @Transactional(readOnly = true)
     public List<StageTabView> tabs(UUID companyId, UUID stageId) {
+        return views(companyId, stageId, null);
+    }
+
+    /**
+     * 계정이 보는 탭: HR은 같은 기업이 함께 쓰는 탭, 면접관은 자기만 보는 탭. 면접관에게 아직 탭이 없으면 진행 중인
+     * 전형에서 하나 만든다 (면접관 모드의 AI Chat).
+     */
+    @Transactional
+    public List<StageTabView> tabs(UUID companyId, UUID stageId, AuthenticatedMember member) {
+        UUID owner = owner(member);
+        if (owner != null && scope(companyId, stageId, owner).isEmpty()
+                && recruits.getByStage(companyId, stageId).stage(stageId).orElseThrow().status() == StageStatus.ACTIVE) {
+            create(companyId, stageId, owner);
+        }
+        return views(companyId, stageId, owner);
+    }
+
+    private List<StageTabView> views(UUID companyId, UUID stageId, UUID owner) {
         recruits.getByStage(companyId, stageId);
-        List<StageTab> found = tabs.findByStageIdAndCompanyIdOrderByNumber(stageId, companyId);
+        List<StageTab> found = scope(companyId, stageId, owner);
         Set<UUID> pending = pending(companyId, stageId);
         Map<UUID, Long> counts = selections.findByTabIdIn(found.stream().map(StageTab::getId).toList()).stream()
                 .filter(selection -> pending.contains(selection.getApplicationId()))
@@ -64,13 +84,48 @@ public class StageTabService {
     /** 빈 탭을 만든다. 이름은 "새 탭"이고, 번호는 남은 탭의 가장 큰 번호 다음이다. */
     @Transactional
     public StageTabView create(UUID companyId, UUID stageId) {
+        return create(companyId, stageId, (UUID) null);
+    }
+
+    /** 계정의 탭을 만든다. 탭 수 제한(20개)은 HR 공유 탭과 면접관 각자의 탭을 따로 센다. */
+    @Transactional
+    public StageTabView create(UUID companyId, UUID stageId, AuthenticatedMember member) {
+        return create(companyId, stageId, owner(member));
+    }
+
+    private StageTabView create(UUID companyId, UUID stageId, UUID owner) {
         requireActive(companyId, stageId);
-        List<StageTab> found = tabs.findByStageIdAndCompanyIdOrderByNumber(stageId, companyId);
-        if (found.size() >= MAX_TABS) {
+        if (scope(companyId, stageId, owner).size() >= MAX_TABS) {
             throw new ApiException(HttpStatus.CONFLICT, "TAB_LIMIT", "A stage can have up to 20 tabs.");
         }
-        int number = found.stream().mapToInt(StageTab::getNumber).max().orElse(0) + 1;
-        return view(tabs.save(new StageTab(companyId, stageId, number)), 0);
+        // 번호는 전형 안에서 겹치지 않아야 해서 모든 탭에서 센다
+        int number = tabs.findByStageIdAndCompanyIdOrderByNumber(stageId, companyId).stream()
+                .mapToInt(StageTab::getNumber).max().orElse(0) + 1;
+        return view(tabs.save(new StageTab(companyId, stageId, number, owner)), 0);
+    }
+
+    /** 계정이 열 수 있는 탭인가: HR은 공유 탭, 면접관은 자기 탭. 아니면 다른 전형의 탭처럼 404다. */
+    @Transactional(readOnly = true)
+    public void requireAccess(AuthenticatedMember member, UUID stageId, UUID tabId) {
+        StageTab tab = tab(member.companyId(), stageId, tabId);
+        if (!Objects.equals(tab.getOwnerMemberId(), owner(member))) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "TAB_NOT_FOUND", "Tab not found in this stage.");
+        }
+    }
+
+    /** 면접관이 자기만 보는 탭인가. 이 탭의 Chat은 선택 지원자를 바꾸지 않는다. */
+    @Transactional(readOnly = true)
+    public boolean personal(UUID companyId, UUID stageId, UUID tabId) {
+        return tab(companyId, stageId, tabId).getOwnerMemberId() != null;
+    }
+
+    private List<StageTab> scope(UUID companyId, UUID stageId, UUID owner) {
+        return tabs.findByStageIdAndCompanyIdOrderByNumber(stageId, companyId).stream()
+                .filter(tab -> Objects.equals(tab.getOwnerMemberId(), owner)).toList();
+    }
+
+    private static UUID owner(AuthenticatedMember member) {
+        return member.hr() ? null : member.memberId();
     }
 
     /** 담당자가 이름을 바꾼다. 그 뒤로는 자동 제목이 붙지 않는다. */
@@ -86,7 +141,7 @@ public class StageTabService {
     public void delete(UUID companyId, UUID stageId, UUID tabId) {
         requireActive(companyId, stageId);
         StageTab tab = tab(companyId, stageId, tabId);
-        if (tabs.findByStageIdAndCompanyIdOrderByNumber(stageId, companyId).size() <= 1) {
+        if (scope(companyId, stageId, tab.getOwnerMemberId()).size() <= 1) {
             throw new ApiException(HttpStatus.CONFLICT, "LAST_TAB", "A stage keeps at least one tab.");
         }
         tabs.delete(tab);

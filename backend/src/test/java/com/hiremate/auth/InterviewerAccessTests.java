@@ -25,13 +25,19 @@ import tools.jackson.databind.JsonNode;
 /** 면접관은 /api/interviewer와 배정된 지원자의 지원 자료 읽기 경로만 쓴다. 그 밖의 업무 API는 모두 403이다. */
 class InterviewerAccessTests extends IntegrationTest {
 
-    /** SecurityConfig.INTERVIEWER_READS와 같아야 한다. 새 API는 여기에 넣지 않으면 면접관에게 막힌다. */
+    /** SecurityConfig의 면접관 경로와 같아야 한다. 새 API는 여기에 넣지 않으면 면접관에게 막힌다. */
     static final Set<String> INTERVIEWER_READS = Set.of(
             "GET /api/stages/{stageId}/candidates/{applicationId}",
             "GET /api/stages/{stageId}/candidates/{applicationId}/history",
             "GET /api/stages/{stageId}/candidates/{applicationId}/analysis",
             "GET /api/stages/{stageId}/candidates/{applicationId}/profile",
-            "GET /api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}");
+            "GET /api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}",
+            "GET /api/stages/{stageId}/tabs",
+            "POST /api/stages/{stageId}/tabs",
+            "PATCH /api/stages/{stageId}/tabs/{tabId}",
+            "DELETE /api/stages/{stageId}/tabs/{tabId}",
+            "GET /api/stages/{stageId}/tabs/{tabId}/chat",
+            "POST /api/stages/{stageId}/tabs/{tabId}/chat");
 
     @Autowired
     @Qualifier("requestMappingHandlerMapping")

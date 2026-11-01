@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 
 import com.hiremate.ai.application.ChatService;
 import com.hiremate.global.AuthenticatedMember;
+import com.hiremate.screening.StageTabService;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -16,7 +17,8 @@ class ChatControllerTests {
     @Test
     @DisplayName("Chat 스트림은 시간 제한 없이 Root 답과 반영을 기다린다")
     void chatStreamHasNoTimeout() {
-        ChatController controller = new ChatController(mock(ChatService.class), command -> { });
+        ChatController controller = new ChatController(mock(ChatService.class), command -> { },
+                mock(StageTabService.class));
         AuthenticatedMember member = new AuthenticatedMember() {
             @Override
             public UUID memberId() {

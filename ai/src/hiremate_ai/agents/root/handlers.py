@@ -47,6 +47,9 @@ from hiremate_ai.llm.client import LlmClient
 
 DECISION_REPLY = "합격과 불합격 결정, 결과 확정, 공고 게시와 안내 발송은 담당자가 화면에서 직접 실행해 주세요."
 NOT_INTERVIEW = "면접 질문은 면접 전형에서 만들 수 있어요."
+# 면접관 모드의 Chat: 배정된 지원자만 보고, 선택 지원자는 채용 담당자가 바꾼다
+# (backend ChatService.INTERVIEWER_LOCKED와 같은 문구)
+INTERVIEWER_LOCKED = "면접관 모드에서는 선택 지원자를 바꿀 수 없어요. 지원자 분석과 질문 만들기는 할 수 있어요."
 TOO_MANY = f"면접 질문은 한 번에 {BULK_LIMIT}명까지 만들 수 있어요."
 NOTHING_TO_ADD = "선택 지원자에 넣을 수 있는 미선택 지원자가 없어요."
 NOTHING_TO_REMOVE = "선택 지원자 가운데 조건에 맞는 사람이 없어요. 선택 지원자는 그대로예요."
@@ -62,6 +65,8 @@ class Handled:
 def precheck(context: ChatContext, plan: RootPlan, rows: Sequence[CandidateRow]) -> ChatPlan | None:
     """처리 전에 화면과 전형 상태만으로 정해지는 안내. 실행할 수 있으면 None."""
     form = plan.form
+    if context.interviewer and isinstance(form, EditPlan | FindPlan):
+        return ChatPlan.answer(Intent.CLARIFY, INTERVIEWER_LOCKED)
     if isinstance(form, EditPlan) and not context.selectable:
         return ChatPlan.answer(Intent.CLARIFY, LOCKED)
     if isinstance(form, FindPlan) and form.remove and not context.selectable:

@@ -1,10 +1,13 @@
 package com.hiremate.ai.application;
 
+import com.hiremate.apply.ApplicantDocument;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.assessment.AssessmentService;
 import com.hiremate.company.CompanyService;
 import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewService;
+import com.hiremate.interview.InterviewSessions;
+import com.hiremate.interview.InterviewerRole;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.interview.KeptQuestions;
 import com.hiremate.posting.PostingService;
@@ -54,6 +57,9 @@ public class ChatService {
     private static final Pattern QUESTION_COUNT = Pattern.compile("(?<!\\d)(\\d+)\\s*(?:개|문항)");
     private static final int CANDIDATE_PAGE_SIZE = 200;
     private static final String KEPT_QUESTIONS = "직접 넣은 질문 %d개와 답변을 기록한 질문 %d개는 남겼어요.";
+    public static final String INTERVIEWER_LOCKED =
+            "면접관 모드에서는 선택 지원자를 바꿀 수 없어요. 지원자 분석과 질문 만들기는 할 수 있어요.";
+    static final String INTERVIEWER_REPLACE = "면접관 모드에서는 기존 질문을 지우지 않고 새 질문만 더해요.";
 
     private final ScreeningService screening;
     private final RecruitService recruits;
@@ -66,10 +72,13 @@ public class ChatService {
     private final AssessmentService assessments;
     private final StageTabService tabs;
     private final ReportComposer composer;
+    private final InterviewSessions sessions;
 
     public ChatService(ScreeningService screening, RecruitService recruits, ApplicationService applications,
             CompanyService companies, PostingService postings, RootAgent root, InterviewAiService interviews,
-            AiSettings settings, AssessmentService assessments, StageTabService tabs, ReportComposer composer) {
+            AiSettings settings, AssessmentService assessments, StageTabService tabs, ReportComposer composer,
+            InterviewSessions sessions) {
+        this.sessions = sessions;
         this.screening = screening;
         this.recruits = recruits;
         this.applications = applications;
@@ -89,9 +98,27 @@ public class ChatService {
      */
     public ChatInput prepare(UUID companyId, UUID stageId, UUID tabId, ChatAsker asker, String message,
             List<UUID> mentions, List<UUID> checked) {
+        return prepare(companyId, stageId, tabId, asker, message, mentions, checked, null);
+    }
+
+    /**
+     * interviewerId가 있으면 면접관 모드의 Chat이다. Root에는 그 면접관이 배정된 지원자만 넘기고, 이번 전형의 결정은
+     * 숨기며, 선택 지원자는 바꿀 수 없다고 알린다. 면접관 의견은 어느 Chat에도 넘기지 않는다.
+     */
+    public ChatInput prepare(UUID companyId, UUID stageId, UUID tabId, ChatAsker asker, String message,
+            List<UUID> mentions, List<UUID> checked, UUID interviewerId) {
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         StageInfo stage = recruitment.stage(stageId).orElseThrow();
-        List<CandidateRow> candidates = allCandidates(companyId, stageId, tabId);
+        Map<UUID, InterviewerRole> interviewerRoles = interviewerId == null ? Map.of()
+                : sessions.roles(companyId, interviewerId, stageId);
+        List<CandidateRow> candidates = interviewerId == null ? allCandidates(companyId, stageId, tabId)
+                : allCandidates(companyId, stageId, null).stream()
+                        .filter(row -> interviewerRoles.containsKey(row.applicationId()))
+                        .map(CandidateRow::hideDecision).toList();
+        if (interviewerId != null) {
+            mentions = mentions.stream().filter(interviewerRoles::containsKey).toList();
+            checked = checked.stream().filter(interviewerRoles::containsKey).toList();
+        }
         List<ChatContext.Stage> stages = recruitment.stages().stream()
                 .map(other -> new ChatContext.Stage(other.id(), other.name(), other.type(), other.status()))
                 .toList();
@@ -114,15 +141,21 @@ public class ChatService {
                             new ChatContext.Assessment(AssessmentAnalysisListener.areas(result), result.grade()))));
         }
         // 대화방은 탭마다 하나이고 같은 기업 담당자가 함께 쓴다. 전형이 끝나도 남는다
+        Map<UUID, List<ApplicantDocument>> documents = applications.documents(companyId, recruitment.id());
+        if (interviewerId != null) {
+            documents = documents.entrySet().stream().filter(entry -> interviewerRoles.containsKey(entry.getKey()))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            documentScores.keySet().retainAll(interviewerRoles.keySet());
+        }
         ChatContext context = new ChatContext(stageId, recruitment.id(), threadId(companyId, stageId, tabId),
                 stage.name(),
-                stage.status() == StageStatus.ACTIVE, stage.type(), stages,
-                candidates, applications.documents(companyId, recruitment.id()), documentScores, interviewViews,
+                interviewerId == null && stage.status() == StageStatus.ACTIVE, stage.type(), stages,
+                candidates, documents, documentScores, interviewViews,
                 mentions, checked, companies.profile(companyId),
                 postings.draftContext(companyId, recruitment.id()).content(), message, interviewerMemos,
-                assessmentScores, asker);
+                assessmentScores, asker, interviewerId != null);
         return new ChatInput(companyId, stageId, tabId, asker == null ? null : asker.memberId(), stage.status(),
-                candidates, context);
+                candidates, context, interviewerRoles);
     }
 
     private List<CandidateRow> allCandidates(UUID companyId, UUID stageId, UUID tabId) {
@@ -151,13 +184,18 @@ public class ChatService {
         ChatProgress after = ChatProgress.quiet(progress);
 
         boolean changesSelection = plan.intent() == ChatPlan.Intent.FIND || plan.intent() == ChatPlan.Intent.EDIT;
+        if (changesSelection && input.interviewer()) {
+            return completed(input.context(), previous, ChatPlan.answer(ChatPlan.Intent.CLARIFY, INTERVIEWER_LOCKED,
+                    List.of(), List.of(), List.of()), false, 0, candidates.size());
+        }
         if (changesSelection && input.status() != StageStatus.ACTIVE) {
             return completed(input.context(), previous, ChatPlan.answer(ChatPlan.Intent.CLARIFY,
                     "결과를 확정한 전형이라 선택 지원자를 바꿀 수 없어요. 분석이나 요약은 계속 물어볼 수 있어요.",
                     List.of(), List.of(), List.of()), false, 0, candidates.size());
         }
         if (!plan.questionTargets().isEmpty()) {
-            plan = withQuestions(companyId, stageId, plan, candidates, input.context().message(), after);
+            plan = withQuestions(companyId, stageId, plan, candidates, input.context().message(), after,
+                    input.interviewer() ? input.interviewerRoles() : null);
         }
         if (plan.intent() == ChatPlan.Intent.REPORT && plan.report() != null) {
             return completed(input.context(), previous, report(input, plan), false, 0, candidates.size());
@@ -347,8 +385,9 @@ public class ChatService {
      * 지원자마다 맞춤 질문을 만들어 카드에 넣는다. Root가 정리한 확인할 점(questionFocus)이 있으면 그것을, 없으면 HR 문장을
      * Interview Agent에 넘긴다. Root가 생성 이유 항목을 주면 답에 그대로 두고, 없을 때만 새로 넣은 첫 질문을 보여 준다.
      */
+    /** @param interviewerRoles 면접관 모드면 지원자별 그 면접관의 담당. 만든 질문을 그 담당으로 넣고 기존 질문은 지우지 않는다 */
     private ChatPlan withQuestions(UUID companyId, UUID stageId, ChatPlan plan, List<CandidateRow> candidates,
-            String message, ChatProgress progress) {
+            String message, ChatProgress progress, Map<UUID, InterviewerRole> interviewerRoles) {
         List<ChatItem> summaries = new ArrayList<>();
         List<String> shortfalls = new ArrayList<>();
         List<String> kept = new ArrayList<>();
@@ -357,7 +396,13 @@ public class ChatService {
             String name = candidates.stream().filter(row -> row.applicationId().equals(applicationId))
                     .map(CandidateRow::name).findFirst().orElse("지원자");
             progress.status(name + " 면접 질문을 만들고 있어요");
-            if (plan.questionReplace()) {
+            InterviewerRole role = interviewerRoles == null ? null : interviewerRoles.get(applicationId);
+            if (interviewerRoles != null && role == null) {
+                continue;
+            }
+            if (plan.questionReplace() && interviewerRoles != null) {
+                kept.add(plan.questionTargets().size() > 1 ? name + ": " + INTERVIEWER_REPLACE : INTERVIEWER_REPLACE);
+            } else if (plan.questionReplace()) {
                 KeptQuestions left = interviews.clearAiQuestions(companyId, stageId, applicationId);
                 if (left.any()) {
                     String note = KEPT_QUESTIONS.formatted(left.manual(), left.answered());
@@ -368,8 +413,8 @@ public class ChatService {
             String focus = plan.questionFocus().getOrDefault(applicationId, message);
             InterviewerMemo memo = plan.questionMemos().get(applicationId);
             InterviewView view = memo == null
-                    ? interviews.generate(companyId, stageId, applicationId, focus, limit)
-                    : interviews.generateFromMemo(companyId, stageId, applicationId, focus, memo);
+                    ? interviews.generate(companyId, stageId, applicationId, focus, limit, role)
+                    : interviews.generateFromMemo(companyId, stageId, applicationId, focus, memo, role);
             List<InterviewView.Question> added = view.questions().stream()
                     .filter(question -> !before.contains(question.questionId()))
                     .filter(question -> !question.text().equals(InterviewService.INTRO)).toList();

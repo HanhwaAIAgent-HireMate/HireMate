@@ -38,29 +38,32 @@ public class TabController {
 
     @GetMapping
     public List<StageTabView> tabs(AuthenticatedMember member, @PathVariable UUID stageId) {
-        return tabs.tabs(member.companyId(), stageId);
+        return tabs.tabs(member.companyId(), stageId, member);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public StageTabView createTab(AuthenticatedMember member, @PathVariable UUID stageId) {
-        return tabs.create(member.companyId(), stageId);
+        return tabs.create(member.companyId(), stageId, member);
     }
 
     @PatchMapping("/{tabId}")
     public StageTabView renameTab(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId,
             @Valid @RequestBody RenameRequest request) {
+        tabs.requireAccess(member, stageId, tabId);
         return tabs.rename(member.companyId(), stageId, tabId, request.name());
     }
 
     @DeleteMapping("/{tabId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteTab(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId) {
+        tabs.requireAccess(member, stageId, tabId);
         tabs.delete(member.companyId(), stageId, tabId);
     }
 
     @GetMapping("/{tabId}/selection")
     public CandidatePage selection(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId) {
+        tabs.requireAccess(member, stageId, tabId);
         return screening.selection(member.companyId(), stageId, tabId);
     }
 
@@ -68,6 +71,7 @@ public class TabController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void add(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId,
             @Valid @RequestBody Targets request) {
+        tabs.requireAccess(member, stageId, tabId);
         screening.add(member.companyId(), stageId, tabId, request.applicationIds());
     }
 
@@ -75,18 +79,21 @@ public class TabController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void remove(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId,
             @Valid @RequestBody Targets request) {
+        tabs.requireAccess(member, stageId, tabId);
         screening.remove(member.companyId(), stageId, tabId, request.applicationIds());
     }
 
     @PostMapping("/{tabId}/selection/clear")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void clear(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId) {
+        tabs.requireAccess(member, stageId, tabId);
         screening.clear(member.companyId(), stageId, tabId);
     }
 
     @PostMapping("/{tabId}/selection/restore")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void restore(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId) {
+        tabs.requireAccess(member, stageId, tabId);
         screening.restore(member.companyId(), stageId, tabId);
     }
 

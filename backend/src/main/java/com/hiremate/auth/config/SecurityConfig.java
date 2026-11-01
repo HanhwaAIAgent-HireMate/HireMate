@@ -46,6 +46,14 @@ public class SecurityConfig {
         "/api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}",
     };
 
+    /** 면접관의 자기 AI Chat 탭. 탭이 자기 것인지는 StageTabService가 확인한다 (HR 공유 탭은 열 수 없다). */
+    static final String INTERVIEWER_TABS = "/api/stages/{stageId}/tabs";
+
+    static final String[] INTERVIEWER_TAB = {
+        "/api/stages/{stageId}/tabs/{tabId}",
+        "/api/stages/{stageId}/tabs/{tabId}/chat",
+    };
+
     @Bean
     PasswordEncoder passwordEncoder() {
         Pbkdf2PasswordEncoder pbkdf2 = new Pbkdf2PasswordEncoder("", 16, 600_000,
@@ -107,6 +115,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/public/**").permitAll()
                         .requestMatchers("/api/interviewer/**").hasAnyRole("HR", "INTERVIEWER")
                         .requestMatchers(HttpMethod.GET, INTERVIEWER_READS).access(interviewerAccess)
+                        .requestMatchers(HttpMethod.GET, INTERVIEWER_TABS).access(interviewerAccess)
+                        .requestMatchers(HttpMethod.POST, INTERVIEWER_TABS).access(interviewerAccess)
+                        .requestMatchers(HttpMethod.PATCH, INTERVIEWER_TAB[0]).access(interviewerAccess)
+                        .requestMatchers(HttpMethod.DELETE, INTERVIEWER_TAB[0]).access(interviewerAccess)
+                        .requestMatchers(HttpMethod.GET, INTERVIEWER_TAB[1]).access(interviewerAccess)
+                        .requestMatchers(HttpMethod.POST, INTERVIEWER_TAB[1]).access(interviewerAccess)
                         .requestMatchers("/api/companies", "/api/companies/**", "/api/recruitments",
                                 "/api/recruitments/**", "/api/stages", "/api/stages/**").hasRole("HR")
                         .requestMatchers(HttpMethod.GET, "/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html",

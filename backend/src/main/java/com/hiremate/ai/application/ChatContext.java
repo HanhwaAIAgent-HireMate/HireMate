@@ -24,6 +24,7 @@ import java.util.UUID;
  * @param interviews 면접 전형이면 지원자별 현재 · 이전 면접 질문과 답변, 아니면 비어 있다
  * @param assessments 평가 전형이면 지원자별 영역 점수 · 등급, 아니면 비어 있다. 총점은 candidates의 score다
  * @param asker 질문한 담당자. ai 서버가 대화방 턴에 남긴다
+ * @param interviewer 면접관 모드의 Chat인가. 면접관이 배정된 지원자만 들어 있고, 선택 지원자를 바꿀 수 없다
  */
 public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
         StageType stageType,
@@ -32,7 +33,18 @@ public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, Str
         Map<UUID, BigDecimal> documentScores, Map<UUID, InterviewView> interviews, List<UUID> mentions,
         List<UUID> checked, CompanyProfile company, PostingContent posting, String message,
         Map<UUID, List<InterviewerMemo>> interviewerMemos, Map<UUID, Assessment> assessments,
-        @Schema(nullable = true) ChatAsker asker) {
+        @Schema(nullable = true) ChatAsker asker, boolean interviewer) {
+
+    public ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
+            StageType stageType, List<Stage> stages, List<CandidateRow> candidates,
+            Map<UUID, List<ApplicantDocument>> documents, Map<UUID, BigDecimal> documentScores,
+            Map<UUID, InterviewView> interviews, List<UUID> mentions, List<UUID> checked,
+            CompanyProfile company, PostingContent posting, String message,
+            Map<UUID, List<InterviewerMemo>> interviewerMemos, Map<UUID, Assessment> assessments, ChatAsker asker) {
+        this(stageId, recruitmentId, threadId, stageName, selectable, stageType, stages, candidates, documents,
+                documentScores, interviews, mentions, checked, company, posting, message, interviewerMemos,
+                assessments, asker, false);
+    }
 
     public ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
             StageType stageType, List<Stage> stages, List<CandidateRow> candidates,

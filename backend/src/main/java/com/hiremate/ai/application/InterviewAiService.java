@@ -8,6 +8,7 @@ import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
+import com.hiremate.interview.InterviewerRole;
 import com.hiremate.interview.KeptQuestions;
 import com.hiremate.job.JobQueue;
 import com.hiremate.posting.PostingContent;
@@ -75,6 +76,12 @@ public class InterviewAiService {
     /** Root가 원문과 대조한 메모도 실행 전에 다시 검증한다. 삭제·수정된 메모는 사용하지 않는다. */
     public InterviewView generateFromMemo(UUID companyId, UUID stageId, UUID applicationId,
             String focus, InterviewerMemo memo) {
+        return generateFromMemo(companyId, stageId, applicationId, focus, memo, null);
+    }
+
+    /** role이 있으면(면접관 모드 Chat) 만든 질문을 그 담당으로 넣는다. */
+    public InterviewView generateFromMemo(UUID companyId, UUID stageId, UUID applicationId,
+            String focus, InterviewerMemo memo, InterviewerRole role) {
         if (memo == null || memo.text() == null || memo.text().isBlank()
                 || memos(companyId, stageId, applicationId).stream().noneMatch(actual ->
                         actual.stageId().equals(memo.stageId()) && actual.stageName().equals(memo.stageName())
@@ -83,9 +90,9 @@ public class InterviewAiService {
         }
         Inputs in = inputs(companyId, stageId, applicationId, interviews.view(companyId, stageId, applicationId));
         return interviews.addGeneratedQuestions(companyId, stageId, applicationId,
-                agent.memoQuestions(in.applicant(), in.posting(), in.analysis(), in.current(), in.company(),
+                withRole(agent.memoQuestions(in.applicant(), in.posting(), in.analysis(), in.current(), in.company(),
                         focus, memo).stream()
-                        .filter(question -> !question.text().equals(InterviewService.INTRO)).limit(1).toList());
+                        .filter(question -> !question.text().equals(InterviewService.INTRO)).limit(1).toList(), role));
     }
 
     /** 지금 카드에 있는 질문의 id. */
@@ -123,11 +130,22 @@ public class InterviewAiService {
 
     /** Chat에서 요청한 문항 수까지만 추가한다. 기존 질문과 답변은 그대로 둔다. */
     public InterviewView generate(UUID companyId, UUID stageId, UUID applicationId, String focus, int limit) {
+        return generate(companyId, stageId, applicationId, focus, limit, null);
+    }
+
+    /** role이 있으면(면접관 모드 Chat) 만든 질문을 그 담당으로 넣는다. */
+    public InterviewView generate(UUID companyId, UUID stageId, UUID applicationId, String focus, int limit,
+            InterviewerRole role) {
         Inputs in = inputs(companyId, stageId, applicationId, interviews.view(companyId, stageId, applicationId));
         return interviews.addGeneratedQuestions(companyId, stageId, applicationId,
-                agent.questions(in.applicant(), in.posting(), in.analysis(), in.current(), in.company(), focus, limit)
-                        .stream().filter(question -> !question.text().equals(InterviewService.INTRO))
-                        .limit(limit).toList());
+                withRole(agent.questions(in.applicant(), in.posting(), in.analysis(), in.current(), in.company(),
+                        focus, limit).stream().filter(question -> !question.text().equals(InterviewService.INTRO))
+                        .limit(limit).toList(), role));
+    }
+
+    private static List<InterviewQuestionDraft> withRole(List<InterviewQuestionDraft> drafts, InterviewerRole role) {
+        return role == null ? drafts : drafts.stream()
+                .map(draft -> new InterviewQuestionDraft(draft.text(), draft.reason(), role)).toList();
     }
 
     /**
