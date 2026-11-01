@@ -182,7 +182,7 @@ export function InterviewAssign({ stageId, editable }: { stageId: string; editab
                     )
                   }
                 >
-                  {hr && hr === practical ? '서로 다른 계정을 골라 주세요' : '전형 전체에 적용'}
+                  {hr && hr === practical ? '서로 다른 계정을 골라 주세요' : '적용'}
                 </Button>
               </>
             ) : (

@@ -85,7 +85,7 @@ describe('전형 공통 면접관 배정', () => {
     fireEvent.change(screen.getByRole('combobox', { name: '인사 면접관' }), {
       target: { value: 'choi' },
     })
-    fireEvent.click(screen.getByRole('button', { name: '전형 전체에 적용' }))
+    fireEvent.click(screen.getByRole('button', { name: '적용' }))
     await vi.waitFor(() =>
       expect(puts).toEqual([
         {
@@ -111,7 +111,7 @@ describe('전형 공통 면접관 배정', () => {
     expect(await screen.findByText('최인사')).toBeInTheDocument()
     expect(screen.getByText('김지민')).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '전형 전체에 적용' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '적용' })).not.toBeInTheDocument()
   })
   it('서버가 잠근 공통 배정은 진행 현황을 받기 전에도 수정할 수 없다', async () => {
     mockServer({ assigned: true, locked: true })
@@ -151,7 +151,7 @@ describe('전형 공통 면접관 배정', () => {
     fireEvent.change(screen.getByRole('combobox', { name: '실무 면접관' }), {
       target: { value: 'kim' },
     })
-    fireEvent.click(screen.getByRole('button', { name: '전형 전체에 적용' }))
+    fireEvent.click(screen.getByRole('button', { name: '적용' }))
     await vi.waitFor(() =>
       expect(puts).toEqual([
         {
@@ -173,13 +173,13 @@ describe('전형 공통 면접관 배정', () => {
     )
     fireEvent.click(await screen.findByRole('button', { name: '면접관 보기' }))
     expect(screen.getByRole('alert')).toHaveTextContent('기존 지원자별 면접관 배정이 서로 달라요.')
-    expect(screen.queryByRole('button', { name: '전형 전체에 적용' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '적용' })).not.toBeInTheDocument()
   })
   it('일반 조회 오류에서는 공통 배정을 임의로 새로 저장할 수 없다', async () => {
     mockServer({ assignmentError: 'FORBIDDEN' })
     renderAssign()
     expect(await screen.findByRole('alert')).toHaveTextContent('면접관 배정을 불러오지 못했어요.')
     expect(screen.queryByRole('button', { name: '면접관 배정' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '전형 전체에 적용' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '적용' })).not.toBeInTheDocument()
   })
 })
