@@ -3,6 +3,7 @@ package com.hiremate.auth.api;
 import com.hiremate.auth.AuthAccess;
 import com.hiremate.auth.MemberPrincipal;
 import com.hiremate.auth.application.InterviewMemberDirectory;
+import com.hiremate.interview.InterviewAssignments;
 import com.hiremate.interview.InterviewAttendances;
 import com.hiremate.interview.InterviewLive;
 import com.hiremate.interview.InterviewSessions;
@@ -28,14 +29,17 @@ public class InterviewAssignmentController {
     private final AuthAccess access;
     private final InterviewMemberDirectory directory;
     private final InterviewSessions sessions;
+    private final InterviewAssignments assignments;
     private final InterviewAttendances attendances;
     private final InterviewLive live;
 
     public InterviewAssignmentController(AuthAccess access, InterviewMemberDirectory directory,
-            InterviewSessions sessions, InterviewAttendances attendances, InterviewLive live) {
+            InterviewSessions sessions, InterviewAttendances attendances, InterviewLive live,
+            InterviewAssignments assignments) {
         this.access = access;
         this.directory = directory;
         this.sessions = sessions;
+        this.assignments = assignments;
         this.attendances = attendances;
         this.live = live;
     }
@@ -77,15 +81,20 @@ public class InterviewAssignmentController {
         return sessions.assignment(access.currentMember().companyId(), stageId, applicationId);
     }
 
-    @PutMapping("/api/stages/{stageId}/candidates/{applicationId}/interview/session")
-    public InterviewSessions.InterviewAssignment assignInterviewers(@PathVariable UUID stageId,
-            @PathVariable UUID applicationId,
+    @GetMapping("/api/stages/{stageId}/interview/assignment")
+    public InterviewAssignments.StageInterviewAssignment stageAssignment(@PathVariable UUID stageId) {
+        access.requireHr();
+        return assignments.view(access.currentMember().companyId(), stageId);
+    }
+
+    @PutMapping("/api/stages/{stageId}/interview/assignment")
+    public InterviewAssignments.StageInterviewAssignment assignInterviewers(@PathVariable UUID stageId,
             @Valid @RequestBody InterviewAssignmentRequest request) {
         access.requireHr();
         MemberPrincipal member = access.currentMember();
         directory.requireMember(member.companyId(), request.hrMemberId());
         directory.requireMember(member.companyId(), request.practicalMemberId());
-        return sessions.assign(member.companyId(), stageId, applicationId, request.hrMemberId(),
+        return assignments.assign(member.companyId(), stageId, request.hrMemberId(),
                 request.practicalMemberId(), request.expectedVersion());
     }
 

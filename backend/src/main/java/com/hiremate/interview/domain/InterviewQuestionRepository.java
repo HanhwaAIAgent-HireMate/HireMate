@@ -13,6 +13,8 @@ public interface InterviewQuestionRepository extends JpaRepository<InterviewQues
     List<InterviewQuestion> findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(UUID stageId, UUID applicationId,
             UUID companyId);
 
+    List<InterviewQuestion> findByStageIdAndCompanyId(UUID stageId, UUID companyId);
+
     List<InterviewQuestion> findByApplicationIdAndCompanyIdOrderBySeq(UUID applicationId, UUID companyId);
 
     Optional<InterviewQuestion> findByIdAndStageIdAndCompanyId(UUID id, UUID stageId, UUID companyId);
