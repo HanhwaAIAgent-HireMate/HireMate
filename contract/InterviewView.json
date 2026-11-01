@@ -5,6 +5,7 @@
   "questions": [
     {
       "questionId": "0b7e1f0a-2c4d-4e5f-8a9b-1c2d3e4f5a01",
+      "version": 0,
       "text": "1차에서 정산 배치 개선을 말씀하셨는데, 재처리 범위를 어떻게 정했는지 말해 주세요.",
       "source": "AI",
       "answer": "",
@@ -21,6 +22,7 @@
       "questions": [
         {
           "questionId": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e01",
+          "version": 0,
           "text": "정산 배치 개선에서 직접 설계·구현한 부분은 무엇이었나요?",
           "source": "AI",
           "answer": "배치 병렬화 설계를 본인이 주도. 처리 시간 40% 단축.",
@@ -30,6 +32,7 @@
         },
         {
           "questionId": "2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f01",
+          "version": 0,
           "text": "협업하며 의견이 달랐던 경험을 말해 주세요.",
           "source": "MANUAL",
           "answer": "열심히 맞췄습니다.",

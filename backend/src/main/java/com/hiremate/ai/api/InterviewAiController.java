@@ -3,6 +3,7 @@ package com.hiremate.ai.api;
 import com.hiremate.ai.application.InterviewAiService;
 import com.hiremate.ai.application.InterviewFollowUps;
 import com.hiremate.global.AuthenticatedMember;
+import com.hiremate.interview.InterviewSessions;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -21,9 +22,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class InterviewAiController {
 
     private final InterviewAiService service;
+    private final InterviewSessions sessions;
 
-    public InterviewAiController(InterviewAiService service) {
+    public InterviewAiController(InterviewAiService service, InterviewSessions sessions) {
         this.service = service;
+        this.sessions = sessions;
     }
 
     /** 카드는 만드는 중이면 '질문 생성 중'을 보여 주고, 끝날 때까지 몇 초마다 다시 묻는다. */
@@ -43,7 +46,10 @@ public class InterviewAiController {
     @PostMapping("/api/stages/{stageId}/interview/questions/{questionId}/follow-ups/suggestions")
     public InterviewFollowUps followUps(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID questionId, @Valid @RequestBody FollowUpsRequest request) {
-        return service.followUps(member.companyId(), stageId, questionId, request.avoid());
+        sessions.requireQuestionWrite(member.companyId(), stageId, questionId, member.memberId(), false);
+        var result = service.followUps(member.companyId(), stageId, questionId, request.avoid());
+        sessions.requireQuestionWrite(member.companyId(), stageId, questionId, member.memberId(), false);
+        return result;
     }
 
     /**

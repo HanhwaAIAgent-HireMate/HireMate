@@ -2,6 +2,7 @@ package com.hiremate.interview.api;
 
 import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.interview.InterviewService;
+import com.hiremate.interview.InterviewSessions;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.interview.InterviewerRole;
 import com.hiremate.interview.QuestionSource;
@@ -9,6 +10,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.UUID;
@@ -27,9 +29,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class InterviewController {
 
     private final InterviewService interviews;
+    private final InterviewSessions sessions;
 
-    public InterviewController(InterviewService interviews) {
+    public InterviewController(InterviewService interviews, InterviewSessions sessions) {
         this.interviews = interviews;
+        this.sessions = sessions;
     }
 
     @GetMapping("/candidates/{applicationId}/interview")
@@ -42,8 +46,8 @@ public class InterviewController {
     @PostMapping("/candidates/{applicationId}/interview/questions")
     public InterviewView addQuestion(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID applicationId, @Valid @RequestBody QuestionRequest request) {
-        return interviews.addManualQuestion(member.companyId(), stageId, applicationId, request.text(),
-                request.interviewerRole());
+        return sessions.addQuestion(member.companyId(), stageId, applicationId, member.memberId(), request.text(),
+                request.interviewerRole(), false);
     }
 
     @PutMapping("/candidates/{applicationId}/interview/schedule")
@@ -57,16 +61,16 @@ public class InterviewController {
     @PutMapping("/interview/questions/{questionId}/answer")
     public InterviewView answer(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID questionId, @Valid @RequestBody AnswerRequest request) {
-        return interviews.answer(member.companyId(), stageId, questionId, request.answer(),
-                request.analyze() == null || request.analyze());
+        return sessions.answer(member.companyId(), stageId, questionId, member.memberId(), request.answer(),
+                request.analyze() == null || request.analyze(), request.expectedVersion(), false);
     }
 
     /** 🎤 면접관이 고른(또는 직접 쓴) 꼬리질문을 원래 질문 아래에 넣는다. 최대 2단계, 질문마다 하나. */
     @PostMapping("/interview/questions/{questionId}/follow-ups")
     public InterviewView addFollowUp(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID questionId, @Valid @RequestBody FollowUpRequest request) {
-        return interviews.addFollowUp(member.companyId(), stageId, questionId, request.text(), request.source(),
-                request.check());
+        return sessions.followUp(member.companyId(), stageId, questionId, member.memberId(), request.text(),
+                request.source(), request.check(), false);
     }
 
     @PutMapping("/interview/questions/{questionId}/role")
@@ -81,7 +85,7 @@ public class InterviewController {
     @DeleteMapping("/interview/questions/{questionId}")
     public InterviewView delete(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID questionId) {
-        return interviews.deleteQuestion(member.companyId(), stageId, questionId);
+        return sessions.delete(member.companyId(), stageId, questionId, member.memberId(), false);
     }
 
     public record QuestionRequest(@NotBlank @Size(max = 500) String text,
@@ -93,7 +97,8 @@ public class InterviewController {
      *                없으면 true (예전 화면과 같다)
      */
     public record AnswerRequest(@NotNull @Size(max = 5000) String answer,
-            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true) Boolean analyze) {
+            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true) Boolean analyze,
+            @Schema(nullable = true) @PositiveOrZero Long expectedVersion) {
     }
 
     /**

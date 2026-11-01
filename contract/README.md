@@ -78,3 +78,7 @@ backend가 기업·지원자·전형과 최신 메모를 다시 검증한 뒤 �
 `InterviewView.singleInterview`는 backend가 전체 전형의 면접 개수를 세어 전달한다.
 면접이 한 번이면 최초 생성은 자기소개 + 직무·경험 3개 + 협업·가치관 1개 + 지원 동기 1개다.
 Chat 추가 요청은 기존 추가 문항 수를 따른다.
+
+`InterviewView.Question.version`은 답변 자동 저장 버전이다. 화면은 expectedVersion으로 보내고,
+응답의 최신 버전으로 다음 저장을 보낸다. AI는 버전을 변경하지 않는다.
+면접관 배정·개인 메모는 별도 API에만 두며 AI 계약이나 대화 context에 넣지 않는다.

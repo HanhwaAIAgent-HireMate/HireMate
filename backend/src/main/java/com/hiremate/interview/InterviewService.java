@@ -8,6 +8,7 @@ import com.hiremate.interview.domain.InterviewQuestion;
 import com.hiremate.interview.domain.InterviewQuestionRepository;
 import com.hiremate.interview.domain.InterviewSchedule;
 import com.hiremate.interview.domain.InterviewScheduleRepository;
+import com.hiremate.interview.domain.InterviewSessionRepository;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageInfo;
@@ -45,6 +46,7 @@ public class InterviewService {
     private final InterviewQuestionRepository questions;
     private final InterviewScheduleRepository schedules;
     private final InterviewPreparationRepository preparations;
+    private final InterviewSessionRepository sessions;
     private final RecruitService recruits;
     private final ScreeningService screening;
     private final ApplicationEventPublisher events;
@@ -52,7 +54,8 @@ public class InterviewService {
 
     public InterviewService(InterviewQuestionRepository questions, InterviewScheduleRepository schedules,
             RecruitService recruits, ScreeningService screening, ApplicationEventPublisher events,
-            ApplicationService applications, InterviewPreparationRepository preparations) {
+            ApplicationService applications, InterviewPreparationRepository preparations,
+            InterviewSessionRepository sessions) {
         this.questions = questions;
         this.schedules = schedules;
         this.recruits = recruits;
@@ -60,6 +63,7 @@ public class InterviewService {
         this.events = events;
         this.applications = applications;
         this.preparations = preparations;
+        this.sessions = sessions;
     }
 
     @Transactional(readOnly = true)
@@ -161,6 +165,16 @@ public class InterviewService {
 
     private void saveDrafts(UUID companyId, UUID stageId, UUID applicationId, List<InterviewQuestionDraft> drafts,
             QuestionSource source) {
+        sessions.lock(companyId, stageId, applicationId).ifPresent(session -> {
+            if (session.getStatus() == InterviewSessionStatus.ENDED) {
+                throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_ENDED", "The interview has ended.");
+            }
+            if (session.getStatus() == InterviewSessionStatus.IN_PROGRESS && drafts.stream()
+                    .anyMatch(draft -> draft.interviewerRole() == null && !INTRO.equals(draft.text().strip()))) {
+                throw new ApiException(HttpStatus.CONFLICT, "QUESTION_OWNER_REQUIRED",
+                        "New questions must have an owner during the interview.");
+            }
+        });
         List<InterviewQuestion> existing = questions.findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(stageId,
                 applicationId, companyId);
         Set<String> seen = existing.stream().map(InterviewQuestion::getText).collect(Collectors.toSet());
@@ -188,6 +202,19 @@ public class InterviewService {
     @Transactional
     public InterviewView assignRole(UUID companyId, UUID stageId, UUID questionId, InterviewerRole role) {
         InterviewQuestion question = question(companyId, stageId, questionId);
+        requirePlanning(companyId, stageId, question.getApplicationId());
+        if (!question.getAnswer().isBlank() && question.getInterviewerRole() != null) {
+            throw new ApiException(HttpStatus.CONFLICT, "QUESTION_ANSWERED", "An answered question keeps its owner.");
+        }
+        if (INTRO.equals(question.getText()) && role != InterviewerRole.HR) {
+            throw new ApiException(HttpStatus.CONFLICT, "INTRO_OWNER", "HR records the common introduction.");
+        }
+        if (question.getParentQuestionId() != null) {
+            InterviewQuestion parent = question(companyId, stageId, question.getParentQuestionId());
+            if (parent.getInterviewerRole() != role) {
+                throw new ApiException(HttpStatus.CONFLICT, "FOLLOW_UP_OWNER", "A follow-up keeps its parent's owner.");
+            }
+        }
         StageInfo stage = preparationStage(companyId, stageId, question.getApplicationId());
         if (stage.status() != StageStatus.PENDING && stage.status() != StageStatus.ACTIVE) {
             throw new ApiException(HttpStatus.CONFLICT, "STAGE_CLOSED",
@@ -211,7 +238,22 @@ public class InterviewService {
      */
     @Transactional
     public InterviewView answer(UUID companyId, UUID stageId, UUID questionId, String answer, boolean analyze) {
-        InterviewQuestion question = question(companyId, stageId, questionId);
+        return answer(companyId, stageId, questionId, answer, analyze, null);
+    }
+
+    @Transactional
+    public InterviewView answer(UUID companyId, UUID stageId, UUID questionId, String answer, boolean analyze,
+            Long expectedVersion) {
+        InterviewQuestion question = questions.lock(companyId, stageId, questionId).orElseThrow(
+                () -> new ApiException(HttpStatus.NOT_FOUND, "QUESTION_NOT_FOUND", "Question not found."));
+        StageInfo stage = interviewStage(companyId, stageId, question.getApplicationId());
+        if (stage.status() != StageStatus.ACTIVE) {
+            throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "The interview stage is not active.");
+        }
+        if (expectedVersion != null && question.getVersion() != expectedVersion) {
+            throw new ApiException(HttpStatus.CONFLICT, "ANSWER_CONFLICT",
+                    "This answer changed. Reload the latest answer before saving.");
+        }
         boolean changed = !question.getAnswer().equals(answer);
         if (!analyze) {
             if (changed) {
@@ -222,6 +264,7 @@ public class InterviewService {
             question.markAnalyzed();
             events.publishEvent(new InterviewAnswersChanged(companyId, stageId, question.getApplicationId()));
         }
+        questions.flush();
         return view(companyId, stageId, question.getApplicationId());
     }
 
@@ -341,6 +384,7 @@ public class InterviewService {
     /** Chat의 질문 교체. 답변이 없는 AI 질문만 지우고, 직접 넣은 질문과 답변을 기록한 질문은 남긴다. */
     @Transactional
     public KeptQuestions clearAiQuestions(UUID companyId, UUID stageId, UUID applicationId) {
+        requirePlanning(companyId, stageId, applicationId);
         StageInfo stage = interviewStage(companyId, stageId, applicationId);
         if (stage.status() != StageStatus.ACTIVE) {
             throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "Only active interviews can regenerate.");
@@ -364,6 +408,7 @@ public class InterviewService {
     /** 담당자가 요청한 현재 면접 질문만 백업 없이 제거한다. 이전 면접 기록은 유지한다. */
     @Transactional
     public void clearQuestions(UUID companyId, UUID stageId, UUID applicationId) {
+        requirePlanning(companyId, stageId, applicationId);
         StageInfo stage = interviewStage(companyId, stageId, applicationId);
         if (stage.status() != StageStatus.ACTIVE) {
             throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "Only active interviews can regenerate.");
@@ -384,6 +429,27 @@ public class InterviewService {
                 .orElseGet(() -> schedules.save(new InterviewSchedule(stageId, applicationId, companyId)));
         schedule.change(scheduledAt, interviewers == null ? "" : interviewers.strip());
         return view(companyId, stageId, applicationId);
+    }
+
+    /** 종료할 때 자동 저장만 된 답변도 한 번의 분석 이벤트로 넘긴다. */
+    @Transactional
+    public void submitPendingAnswers(UUID companyId, UUID stageId, UUID applicationId) {
+        List<InterviewQuestion> card = questions.findByStageIdAndApplicationIdAndCompanyIdOrderBySeq(stageId,
+                applicationId, companyId);
+        boolean pending = card.stream().anyMatch(InterviewQuestion::isAnswerPendingAnalysis);
+        if (pending) {
+            card.forEach(InterviewQuestion::markAnalyzed);
+            events.publishEvent(new InterviewAnswersChanged(companyId, stageId, applicationId));
+        }
+    }
+
+    private void requirePlanning(UUID companyId, UUID stageId, UUID applicationId) {
+        sessions.lock(companyId, stageId, applicationId).ifPresent(session -> {
+            if (session.getStatus() != InterviewSessionStatus.SCHEDULED) {
+                throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_STARTED",
+                        "Interview assignments and question replacements are locked after the interview starts.");
+            }
+        });
     }
 
     private InterviewQuestion question(UUID companyId, UUID stageId, UUID questionId) {
@@ -443,7 +509,7 @@ public class InterviewService {
                         question.getText().replaceFirst("^([\"“]?)" + Pattern.quote(name) + "\\s*[|｜]\\s*", "$1"),
                         question.getSource(),
                         question.getAnswer(), question.getReason(), question.getInterviewerRole(),
-                        question.getParentQuestionId()))
+                        question.getParentQuestionId(), question.getVersion()))
                 .toList();
     }
 

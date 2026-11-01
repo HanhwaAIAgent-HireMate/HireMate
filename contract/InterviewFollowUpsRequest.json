@@ -46,6 +46,7 @@
   "chain": [
     {
       "questionId": "0b7e1f0a-2c4d-4e5f-8a9b-1c2d3e4f5a01",
+      "version": 0,
       "text": "정산 배치 개선에서 직접 설계·구현한 부분은 무엇이었나요?",
       "source": "AI",
       "answer": "배치를 병렬로 바꿔서 빨라졌습니다.",
@@ -55,6 +56,7 @@
     },
     {
       "questionId": "0b7e1f0a-2c4d-4e5f-8a9b-1c2d3e4f5a02",
+      "version": 0,
       "text": "병렬로 나눌 때 작업 단위는 어떤 기준으로 정하셨나요?",
       "source": "AI",
       "answer": "가맹점별로 나눴습니다.",

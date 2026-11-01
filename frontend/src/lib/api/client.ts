@@ -66,6 +66,18 @@ export async function unwrap<T>(request: Promise<FetchResult<T>>): Promise<T> {
 }
 
 const MESSAGES: Record<string, string> = {
+  ANSWER_CONFLICT:
+    '다른 곳에서 답변이 변경됐어요. 작성한 내용을 보관하고 최신 답변을 다시 확인해 주세요.',
+  UPDATE_CONFLICT: '기록이 변경됐어요. 최신 내용을 확인해 주세요.',
+  ANSWER_VERSION_REQUIRED: '최신 질문을 다시 불러온 뒤 저장해 주세요.',
+  INTERVIEW_ACCESS_DENIED: '배정된 면접관만 본인 담당 질문을 수정할 수 있어요.',
+  INTERVIEW_NOT_RUNNING: '면접 진행 중에만 기록할 수 있어요.',
+  INTERVIEW_STARTED: '면접이 시작되어 배정이나 질문 구성을 바꿀 수 없어요.',
+  INTERVIEW_IN_PROGRESS: '진행 중인 면접을 모두 종료한 뒤 전형 결과를 확정해 주세요.',
+  QUESTION_ANSWERED: '답변이 기록된 질문의 담당 변경이나 삭제는 할 수 없어요.',
+  SESSION_CONFLICT: '면접 정보가 변경됐어요. 최신 내용을 확인해 주세요.',
+  QUESTION_OWNER_REQUIRED: '질문의 인사·실무 담당을 먼저 지정해 주세요.',
+
   INVALID_CREDENTIALS: '이메일이나 비밀번호가 맞지 않아요.',
   EMAIL_ALREADY_EXISTS: '이미 가입한 이메일이에요.',
   INVALID_INPUT: '입력한 내용을 다시 확인해 주세요.',

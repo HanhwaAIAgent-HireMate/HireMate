@@ -98,6 +98,7 @@
       "questions": [
         {
           "questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c41",
+          "version": 0,
           "text": "정산 배치 시간을 줄일 때 가장 어려웠던 결정은?",
           "source": "AI",
           "answer": "파티셔닝 기준을 월 단위로 정한 것",
@@ -107,6 +108,7 @@
         },
         {
           "questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c42",
+          "version": 0,
           "text": "장애 회고는 어떻게 진행했나요?",
           "source": "MANUAL",
           "answer": "",
@@ -123,6 +125,7 @@
           "questions": [
             {
               "questionId": "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c43",
+              "version": 0,
               "text": "결제 승인 서버의 응답 시간을 어떻게 줄였나요?",
               "source": "AI",
               "answer": "짧음",

@@ -41,6 +41,12 @@ public final class TestApi {
         csrf = null;
     }
 
+    /** 기존 기업에 속한 면접관 등 테스트 계정으로 로그인하고 새 CSRF 토큰을 사용한다. */
+    public void login(String email, String password) throws Exception {
+        member = json(expect(post("/api/auth/login", Map.of("email", email, "password", password)), 200));
+        csrf = null;
+    }
+
     public UUID memberId() {
         return UUID.fromString(member.path("memberId").asString());
     }

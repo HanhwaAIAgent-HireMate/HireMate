@@ -114,5 +114,49 @@ CSRF 오류는 403 `INVALID_CSRF`, 이메일 중복은 409 `EMAIL_ALREADY_EXISTS
 HR로 제한한다. 업무 API 구현 시 인증된 `companyId`와 실제 데이터 소유 기업을 함께 검증해야 한다. 지원자 공고와
 지원 API, AI 서비스 계정 경로는 구현 전까지 공개하지 않는다.
 
-면접관 초대 및 배정, 기존 기업 가입, 계정 정지 및 역할 변경, 이메일 확인, 비밀번호 재설정은 아직 구현하지 않았다.
+면접관 초대, 기존 기업 가입, 계정 정지 및 역할 변경, 이메일 확인, 비밀번호 재설정은 아직 구현하지 않았다.
 같은 기업 HR는 동일한 권한을 가지며 채용별 배정 정책은 후속 결정이 필요하다.
+
+
+## 면접관 페이지 연결 API
+
+계정 권한(HR/INTERVIEWER)과 면접 역할(HR/PRACTICAL)은 별개다. 면접 역할을 배정해도 계정 권한은
+바뀌지 않는다. 같은 기업의 기존 계정 두 개를 사용하며, 새 계정 초대·발급과 면접관 화면은 별도 작업이다.
+
+HR 관리 API:
+
+- GET /api/companies/current/interview-members: 배정 가능한 현재 기업 계정 목록.
+- GET /api/stages/{stageId}/candidates/{applicationId}/interview/session: 배정·진행 상태.
+- PUT 같은 주소: hrMemberId, practicalMemberId. 서로 다른 같은 기업의 계정만 허용한다.
+  기존 배정을 바꿀 때는 조회한 expectedVersion도 보낸다. 시작 또는 답변 기록 후에는 배정을 바꿀 수 없다.
+
+면접관 API의 기준 주소는 /api/interviewer/sessions다. 기업·사용자는 로그인 세션에서 확인한다.
+
+| 메서드 | 기준 주소 뒤 경로 | 내용 |
+|---|---|---|
+| GET | 없음 | 본인 배정 목록. page=0, size=30(최대 50) |
+| GET | /{stageId}/{applicationId} | myRole, personalMemo, session, questions |
+| POST | /{stageId}/{applicationId}/start 또는 /end | 예정 → 진행 중 → 종료 |
+| PUT | /{stageId}/questions/{questionId}/answer | answer, analyze, expectedVersion |
+| POST | /{stageId}/{applicationId}/questions | text, interviewerRole. 본인 역할만 지정 |
+| POST | /{stageId}/questions/{questionId}/follow-ups | text, source, check. 원래 담당 유지 |
+| POST | /{stageId}/questions/{questionId}/follow-ups/suggestions | avoid 목록. 자기 담당만 AI 제안 요청 |
+| DELETE | /{stageId}/questions/{questionId} | 자기 담당의 미응답 질문만 삭제 |
+| PUT | /{stageId}/{applicationId}/memo | text, expectedVersion(session.version). 개인 메모 |
+
+questions는 자기 담당이 먼저이며 각 항목에 question, canAnswer, canRequestFollowUp, canDelete,
+readOnlyReason이 있다. personalMemo는 현재 면접관의 것만 반환한다. 기존 HR 공용 메모는 그대로다.
+면접 시작 전 모든 질문의 담당을 지정한다. 시작·종료는 합격·불합격 결정과 별개이며, 미입력으로 자동 종료하지
+않는다. 종료할 때 자동 저장만 된 답변도 분석에 넘긴다.
+진행 중인 면접이 하나라도 있으면 전형 결과 확정은 409 INTERVIEW_IN_PROGRESS로 거절한다.
+면접 시작과 전형 확정, 최초 배정의 동시 요청은 전형 잠금으로 순서를 보장한다.
+
+면접관 기록은 진행 중인 전형·면접에서만 허용한다. 기존 HR 답변·질문·꼬리질문 API도 배정이 있으면
+동일한 역할·상태 검사를 적용한다. HR은 시작 전 담당을 조정할 수 있지만, 답변이 있는 질문의 기존 담당과
+자기소개(HR 기록)의 담당은 바꾸지 못한다. 담당이 없던 기존 질문은 답변을 보존하며 첫 담당을 지정할 수 있다.
+배정된 면접에서는 답변이 있는 질문을 삭제할 수 없다. 직접 추가하는 질문은 화면에서 인사·실무를 선택해 보낸다.
+
+자동 저장은 현재 question.version을 expectedVersion으로 보내고 응답의 새 버전으로 다음 저장을 보낸다.
+analyze=false는 DB 저장, true는 답변 분석 요청이다. 오래된 버전은 409 ANSWER_CONFLICT다.
+충돌 시 초안을 보존하고 최신 답변을 확인해야 한다. 새 버전을 임의로 붙여 낡은 초안을 재전송하지 않는다.
+종료 버튼은 진행 중인 자동 저장을 기다린 뒤 호출한다. 종료 후 늦게 도착한 저장은 서버가 거절한다.

@@ -93,6 +93,7 @@ public class SecurityConfig {
                         // 지원자용 채용 페이지와 지원서 제출. 로그인 없이 쓰며 POST는 CSRF 토큰이 필요하다
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/public/**").permitAll()
+                        .requestMatchers("/api/interviewer/**").hasAnyRole("HR", "INTERVIEWER")
                         .requestMatchers("/api/companies", "/api/companies/**", "/api/recruitments",
                                 "/api/recruitments/**", "/api/stages", "/api/stages/**").hasRole("HR")
                         .requestMatchers(HttpMethod.GET, "/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html",
