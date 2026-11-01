@@ -59,6 +59,8 @@ function mockServer() {
       disconnect() {}
     },
   )
+  // Chat이 새 말풍선으로 내리는 브라우저 API. jsdom에는 없다
+  Element.prototype.scrollIntoView = vi.fn()
   const posts: string[] = []
   let status = 'SCHEDULED'
   vi.stubGlobal(
@@ -94,6 +96,8 @@ function mockServer() {
           size: 50,
         },
         '/api/interviewer/sessions/s1/a1': workspace(status),
+        '/api/stages/s1/tabs': [{ id: 't1', name: '새 탭', selectedCount: 0, canRestore: false }],
+        '/api/stages/s1/tabs/t1/chat': [],
       }
       return Promise.resolve(
         url in routes
@@ -124,6 +128,8 @@ describe('InterviewRoomPage', () => {
     )
 
     expect(await screen.findByText('일정 미정 · 1명')).toBeInTheDocument()
+    // 오른쪽은 기본으로 면접관 전용 AI Chat이다. 찾기 대신 분석 · 질문 예시를 보여 준다
+    expect(await screen.findByText('본인 역할을 확인할 질문 하나 더 만들어줘')).toBeInTheDocument()
     expect(await screen.findByLabelText('원장 재설계에서 직접 정한 부분은? 답변')).toBeDisabled()
     expect(screen.getByText('면접 시작 전이라 기록할 수 없어요.')).toBeInTheDocument()
     expect(screen.getByText('일정을 두고 조율했다')).toBeInTheDocument()

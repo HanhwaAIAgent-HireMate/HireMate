@@ -77,6 +77,16 @@ const workspacePath = (stageId: string, applicationId: string) => ({
   params: { path: { stageId, applicationId } },
 })
 
+/** 면접관 모드의 AI Chat 탭: 자기만 보는 탭. 처음 열면 서버가 하나 만든다 */
+export function useInterviewerTab(stageId: string) {
+  return useQuery({
+    queryKey: ['interviewer', 'tab', stageId],
+    queryFn: async () =>
+      (await unwrap(api.GET('/api/stages/{stageId}/tabs', { params: { path: { stageId } } })))[0] ??
+      null,
+  })
+}
+
 /** 면접관 화면의 지원자 한 명: 내 담당, 질문별 권한, 개인 메모. 진행 중이면 몇 초마다 다시 받아 온다 */
 export function useWorkspace(stageId: string, applicationId: string) {
   return useQuery({

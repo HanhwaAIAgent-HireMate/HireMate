@@ -7,11 +7,13 @@ import { Button } from '@/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { ChatPanel } from '@/features/chat/ChatPanel'
 import { InterviewerScript } from '@/features/interview/InterviewerScript'
 import { OpinionCard } from '@/features/interview/OpinionCard'
 import { Results } from '@/features/interview/InterviewViewer'
 import { RoleTag } from '@/features/interview/RoleTag'
 import {
+  useInterviewerTab,
   useMyInterviews,
   useWorkspace,
   useWorkspaceActions,
@@ -56,7 +58,7 @@ export function InterviewRoomPage() {
         <ResizableHandle withHandle />
         <ResizablePanel id="room-main" minSize={480} className="flex flex-col">
           {selected ? (
-            <Room key={selected.applicationId} interview={selected} />
+            <Room key={selected.applicationId} interview={selected} assigned={rows} />
           ) : (
             <p className="p-6 text-sm text-muted-foreground">
               {interviews.isPending ? '면접을 불러오고 있어요.' : '이 전형에 배정된 면접이 없어요.'}
@@ -144,15 +146,28 @@ function CandidateColumn({
   )
 }
 
-type SideTab = 'documents' | 'results'
+type SideTab = 'chat' | 'documents' | 'results'
+
+/** 면접관 Chat의 예시 질문. 선택 지원자는 바꿀 수 없어 찾기 대신 분석 · 질문 예시를 둔다 */
+const CHAT_EXAMPLES = [
+  '이 지원자가 프로젝트에서 본인이 한 일을 정리해줘',
+  '본인 역할을 확인할 질문 하나 더 만들어줘',
+]
 
 /** 가운데 · 오른쪽: 지원자 한 명의 면접. 위쪽에 진행 상태와 [면접 시작] · [면접 종료] */
-function Room({ interview }: { interview: AssignedInterview }) {
+function Room({
+  interview,
+  assigned,
+}: {
+  interview: AssignedInterview
+  assigned: AssignedInterview[]
+}) {
   const { stageId, applicationId } = interview
+  const tab = useInterviewerTab(stageId)
   const workspace = useWorkspace(stageId, applicationId)
   const actions = useWorkspaceActions(stageId, applicationId)
   const [filter, setFilter] = useState<'all' | 'mine'>('all')
-  const [side, setSide] = useState<SideTab>('documents')
+  const [side, setSide] = useState<SideTab>('chat')
   const fail = (error: unknown) => toast.error(errorMessage(error))
   const data = workspace.data
   const mine = (data?.questions ?? []).filter(
@@ -280,6 +295,7 @@ function Room({ interview }: { interview: AssignedInterview }) {
         <div role="tablist" className="flex gap-5 border-b px-4 pt-3 text-sm">
           {(
             [
+              ['chat', 'AI Chat'],
               ['documents', '지원 자료'],
               ['results', '전형 결과'],
             ] as const
@@ -300,17 +316,42 @@ function Room({ interview }: { interview: AssignedInterview }) {
             </button>
           ))}
         </div>
-        <div className="min-h-0 flex-1 overflow-auto p-4">
-          {side === 'results' ? (
-            <Results stageId={stageId} applicationId={applicationId} />
-          ) : (
-            <Documents
-              stageId={stageId}
-              applicationId={applicationId}
-              recruitmentId={interview.recruitmentId}
+        {side === 'chat' ? (
+          tab.data ? (
+            <ChatPanel
+              overview={{
+                stageId,
+                name: interview.stageName,
+                type: 'INTERVIEW',
+                counts: { total: assigned.length },
+              }}
+              tabId={tab.data.id}
+              people={assigned.map((row) => ({
+                applicationId: row.applicationId,
+                name: row.applicantName,
+              }))}
+              examples={CHAT_EXAMPLES}
             />
-          )}
-        </div>
+          ) : (
+            <p className="p-4 text-sm text-muted-foreground">
+              {tab.isPending
+                ? 'AI Chat을 여는 중이에요.'
+                : '진행 중인 전형에서 AI Chat을 쓸 수 있어요.'}
+            </p>
+          )
+        ) : (
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            {side === 'results' ? (
+              <Results stageId={stageId} applicationId={applicationId} />
+            ) : (
+              <Documents
+                stageId={stageId}
+                applicationId={applicationId}
+                recruitmentId={interview.recruitmentId}
+              />
+            )}
+          </div>
+        )}
       </ResizablePanel>
     </ResizablePanelGroup>
   )
