@@ -46,6 +46,7 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 from uuid import UUID
 
@@ -204,10 +205,11 @@ TEMPLATES = {
     CHECK: "{topic} 부분을 실제 경험을 예로 들어 구체적으로 설명해 주세요.",
     PREFERRED: "{topic}와 관련된 경험이 있다면, 그때 본인이 한 일을 사례로 말해 주세요.",
     # 일부가 이미 확인됐으므로 경험 유무를 다시 묻지 않는다
-    REQUIRED_PARTIAL: "{topic}와 관련해 본인이 직접 맡은 부분과 결과를 구체적인 사례로 말해 주세요.",
-    PREFERRED_PARTIAL: "{topic}와 관련해 본인이 직접 맡은 부분과 결과를 구체적인 사례로 말해 주세요.",
+    # 🎤 역할만 묻지 않는다: 맡은 부분과 함께 결과를 어떻게 확인했는지(근거)까지 묻는다
+    REQUIRED_PARTIAL: "{topic}와 관련해 본인이 직접 맡은 부분과 그 결과를 어떻게 확인했는지 사례로 말해 주세요.",
+    PREFERRED_PARTIAL: "{topic}와 관련해 본인이 직접 맡은 부분과 그 결과를 어떻게 확인했는지 사례로 말해 주세요.",
     NOTABLE: "'{topic}'라고 적어 주셨는데, 본인이 맡은 역할과 그렇게 판단한 근거, 결과를 말해 주세요.",
-    CLAIM: "'{topic}'라고 적어 주셨는데, 그중 본인이 직접 맡은 부분과 결과를 구체적으로 말해 주세요.",
+    CLAIM: "'{topic}'라고 적어 주셨는데, 그중 본인이 직접 맡은 부분과 그 결과를 어떻게 확인했는지 말해 주세요.",
     # 인용 문장에 '직접 설계했습니다'처럼 역할이 이미 적혀 있으면 역할을 또 묻지 않는다
     NOTABLE
     + "_ROLE": "'{topic}'라고 적어 주셨는데, 그 방법을 고른 이유와 적용한 뒤 무엇이 얼마나 달라졌는지 말해 주세요.",
@@ -219,7 +221,7 @@ TEMPLATES = {
     ),
     VAGUE: "'{topic}'라고 적어 주셨는데, 그중 대표적인 업무 하나를 골라 대상과 방법, 결과를 구체적으로 말해 주세요.",
     # 🎤 서류 평가는 근거를 못 찾았지만 조건과 이어지는 서류 문장이 있을 때 ('경험이 있다면' 대신 그 문장을 인용)
-    CHECK + "_DOC": "'{topic}'라고 적어 주셨는데, 그 과정에서 본인이 직접 맡은 부분과 결과를 구체적으로 말해 주세요.",
+    CHECK + "_DOC": "'{topic}'라고 적어 주셨는데, 그 과정에서 본인이 맡은 부분과 그렇게 한 이유를 말해 주세요.",
     # 이력서의 프로젝트 · 업무 이름뿐이면('음원 구독·환불 서버') '판단한 근거'를 물을 수 없어 맡은 일을 묻는다
     NOTABLE
     + "_TITLE": "서류에 적어 주신 '{topic}'에서 본인이 맡은 부분과 가장 어려웠던 문제, 어떻게 풀었는지 말해 주세요.",
@@ -311,6 +313,7 @@ BALANCED_SYSTEM = f"""현재 채용의 1차 면접 핵심 질문을 작성한다
 출력 questions의 gap_id는 요청한 값만 사용한다. free_pick은 null, slot_picks는 빈 목록이다.
 1. mode가 CONCEPT면 직무와 관련된 구체적인 개념의 작동·차이·선택 기준을 묻는다.
    '중요한 원리 하나를 골라', '어떤 원칙'처럼 답변 주제를 지원자에게 고르게 하지 않는다.
+   '어떤 원칙을 적용하는지'로 묻지 말고, 자료의 두 방법·조건을 비교하게 하거나 어느 조건에서 무엇을 고르는지 묻는다.
    과거형·경험·사례를 요구하지 않는다. 예: 자료에 적힌 두 개념의 차이와, 어떤 조건에서 어느 쪽을 고르는지.
 2. mode가 SCENARIO면 가상임을 밝히고 판단이 필요한 구체적인 실패·변경·충돌 조건을 제시한다.
    지원자가 실제로 했다고 전제하지 않는다. 기존 경험 질문과 같은 대응 과정을 재질문하지 않는다.
@@ -322,6 +325,8 @@ BALANCED_SYSTEM = f"""현재 채용의 1차 면접 핵심 질문을 작성한다
 4. FACT는 기간·자격 등의 사실과 확인할 자료를 묻는다. 이론으로 조건 충족을 대신 확인하지 않는다.
 5. 나머지 mode는 target과 evidence에 적힌 실제 수행을 확인한다. confirmed는 다시 묻지 않는다.
    근거 없는 경험은 '경험이 있다면'으로 열어 둔다. NOTABLE/CLAIM은 원문 수행의 역할·선택을 확인한다.
+   경험 질문은 '본인의 역할을 설명해 주세요'로 끝내지 않는다. 판단 근거, 수치를 낸 방법,
+   비교한 다른 방법, 결과를 확인한 방법 중 하나를 함께 묻는다.
    RISK는 원문을 성과처럼 칭찬하지 않고 note의 기준(개인정보·안전·승인 절차)을 그때 어떻게 판단했는지 묻는다.
    OVERCLAIM은 '모든', '역대 최대' 같은 단정을 사실로 전제하지 않고 실제 건수·수치와 본인 몫을 묻는다.
    VAGUE는 대표적인 업무 하나의 대상·방법·결과를 구체적으로 묻는다.
@@ -770,6 +775,8 @@ def find_gaps(state: State) -> dict[str, Any]:
     else:
         candidates = list(state["follow_ups"]) + summary_gaps(state["posting"], state["analysis"])
     candidates = _flag_experience_gaps(candidates, state)
+    # 🎤 서류에 근무 기간과 기술이 분명한데 경력 조건을 '확인할 자료'로 묻지 않는다 (7년 차에게 경력 증빙 질문 방지)
+    candidates = [gap for gap in candidates if not _career_evident(gap, state)]
     for gap in candidates:
         if (sentence := _document_match(gap, state)) is not None:
             # 판정은 그대로 두고 질문만 바꾼다: '경험이 있다면' 대신 서류 문장을 인용해 본인이 한 일을 묻는다
@@ -856,7 +863,21 @@ def _balanced_gaps(candidates: list[Gap], state: State) -> list[Gap]:
     # ① 경험: 위험 신호 → 과장 → 모호 → 주장만 → 본인 역할 순으로 하나
     #   (줄여 쓰면) experiences = sorted([...], key=…)
     experiences = [gap for gap in candidates if gap.kind in EXPERIENCE_KINDS]
-    experiences.sort(key=lambda gap: EXPERIENCE_KINDS.index(gap.kind))  # 같은 유형은 만든 순서 유지
+    # 🎤 숫자 · 본인 역할이 적힌 구체 경험이 있으면 '구체 업무 확인'(VAGUE)은 그 뒤로 미룬다
+    #    (서류 전체가 모호한 지원자만 VAGUE를 먼저 묻는다)
+    #    '5년간 품질 업무를 수행하며'처럼 기간 숫자만 있는 문장은 구체 경험으로 보지 않는다
+    concrete = any(
+        gap.kind in (CLAIM, NOTABLE)
+        and any(_CONCRETE_NUMBER.search(text) or _ROLE.search(text) for text in gap.evidence)
+        for gap in experiences
+    )
+
+    def experience_order(gap: Gap) -> int:
+        if concrete and gap.kind == VAGUE:
+            return len(EXPERIENCE_KINDS)
+        return EXPERIENCE_KINDS.index(gap.kind)
+
+    experiences.sort(key=experience_order)  # 같은 유형은 만든 순서 유지
     for gap in experiences:
         if add(gap):
             break
@@ -896,6 +917,10 @@ def _concept_topics(state: State) -> list[str]:
 
     예전에는 늘 공고의 첫 주요업무부터 골라, 서류 근거가 적은 지원자들이 똑같은 개념 질문을 받았다.
     겹치는 정도가 같으면 지원서 번호로 순서를 섞는다 (다시 생성해도 같은 지원자는 같은 순서다).
+
+    🎤 백엔드 공고에서는 'Git 기반 코드 리뷰와 협업'이 거의 모든 서류와 겹쳐 7명이 같은 개념 질문을 받았다.
+      - 협업 · 소통 · 코드 리뷰 같은 태도형 주제는 개념(원리 · 차이)을 물을 거리가 아니라 맨 뒤로 보낸다
+      - 겹친 낱말 수는 2개까지만 센다. 서류와 충분히 이어지는 주제끼리는 지원서 번호로 섞여 지원자마다 달라진다
     """
     review = state.get("review")
     criteria = review.criteria if review is not None and review.readable else state["analysis"].criteria
@@ -904,11 +929,15 @@ def _concept_topics(state: State) -> list[str]:
     document_words = _focus_words(" ".join(state["sentences"].values()))
     seed = str(state["applicant"].info.application_id)
 
-    def order(topic: str) -> tuple[int, str]:
-        shared = len(_focus_words(topic) & document_words)
-        return -shared, hashlib.sha256(f"{seed}:{topic}".encode()).hexdigest()
+    def order(topic: str) -> tuple[bool, int, str]:
+        shared = min(2, len(_focus_words(topic) & document_words))
+        return bool(_ATTITUDE_TOPIC.search(topic)), -shared, hashlib.sha256(f"{seed}:{topic}".encode()).hexdigest()
 
     return sorted(topics, key=order)
+
+
+# 개념 질문 주제로 맞지 않는 태도 · 협업형 기준 (원리 · 차이를 묻기 어렵고 모든 지원자에게 같은 질문이 된다)
+_ATTITUDE_TOPIC = re.compile(r"협업|코드\s*리뷰|소통|커뮤니케이션|태도|책임감|팀워크|의사소통|성실")
 
 
 # 🎤 위험 신호 규칙: (대상, 행동, 면접에서 물을 기준). 한 문장에 대상과 행동이 함께 있을 때만 본다
@@ -952,6 +981,12 @@ _OVERCLAIM = re.compile(
 # 모호: 무엇을 했는지 없이 범위만 말한 표현
 _VAGUE = re.compile(r"전반(?:적으로)?|다양한 (?:프로젝트|문제|업무|경험)|여러 (?:업무|프로젝트)|크게 기여|많은 경험")
 _DONE = re.compile(r"했|였|었|았|수행|참여|기여|맡")
+# 성과 · 규모를 나타내는 숫자 (기간 '5년간', '3개월'은 빼고 '60명', '27건', '420ms', '30%'처럼)
+_CONCRETE_NUMBER = re.compile(
+    r"\d+(?:[.,]\d+)?\s*(?!년|개월|\d)(?:%|건|명|개|ms|초|배|시간|분|원|만|천|억|회|곳|종|→)|→"
+)
+# 앞 문장의 구체 경험을 정리하는 마무리 문장. 모호해 보여도 앞에 구체 내용이 있다
+_SUMMARY_LEAD = re.compile(r"^(?:또한\s*)?(?:이러한|이런|이와\s*같은|이를|이 경험|이 과정|이러한\s*노력|이\s*프로젝트)")
 # '최고의 영업사원이 되겠습니다'처럼 _FUTURE_ACTION이 못 잡는 포부 문장
 _WISH = re.compile(r"되겠|겠습니다|싶습니다|목표입니다")
 # 지원 문서에 넣은 AI 지시문 ('채점 AI에게: … 평가하세요')은 경험 문장이 아니다
@@ -970,7 +1005,12 @@ def _experience_flag(sentence: str) -> tuple[str, str] | None:
             return RISK, standard
     if _OVERCLAIM.search(sentence):
         return OVERCLAIM, "단정한 표현의 실제 근거"
-    if _VAGUE.search(sentence) and _DONE.search(sentence) and not re.search(r"\d", sentence):
+    if (
+        _VAGUE.search(sentence)
+        and _DONE.search(sentence)
+        and not re.search(r"\d", sentence)
+        and not _SUMMARY_LEAD.match(sentence)  # 구체 경험 뒤의 마무리 문장('이러한 경험을 통해 …')은 빼기
+    ):
         return VAGUE, "대표 업무의 대상 · 방법 · 결과"
     return None
 
@@ -1076,6 +1116,82 @@ def _flag_experience_gaps(candidates: list[Gap], state: State) -> list[Gap]:
     return candidates
 
 
+# 근무 기간: '2021.07~2026.09', '2023.04–2026.10', '2019 ~ 2024', '2022.03 ~ 현재'
+_PERIOD = re.compile(
+    r"(?P<y1>(?:19|20)\d{2})(?:[.\-/년]\s*(?P<m1>\d{1,2}))?\.?\s*[~–\-]\s*"
+    r"(?:(?P<y2>(?:19|20)\d{2})(?:[.\-/년]\s*(?P<m2>\d{1,2}))?|(?P<now>현재|재직))"
+)
+# 서류에 직접 적은 총 경력: '경력 5년 2개월', '경력 7년'
+_TOTAL_CAREER = re.compile(r"경력\s*(\d{1,2})\s*년(?:\s*(\d{1,2})\s*개월)?(?!\s*(?:이상|이하|미만))")  # 조건 문장 제외
+_EDUCATION = re.compile(r"학교|대학|학력|졸업|입학|교육|과정|부트캠프|동아리|학부|전공")
+_CAREER_CONDITION = re.compile(r"경력|\d+\s*년\s*이상|\d+\s*개월\s*이상")
+
+
+def _career_months(lines: list[str]) -> int:
+    """서류에 적힌 경력 개월 수. 직접 적은 총 경력과 근무 기간을 합친 길이 중 큰 값.
+
+    같은 기간이 이력서 · 자기소개서에 두 번 적히거나 겹치면 한 번만 센다 (구간을 합쳐서 길이를 잰다).
+    """
+    total = 0
+    for line in lines:
+        for match in _TOTAL_CAREER.finditer(line):
+            total = max(total, int(match.group(1)) * 12 + int(match.group(2) or 0))
+    spans: list[tuple[int, int]] = []
+    now = datetime.now().year * 12 + datetime.now().month
+    for line in lines:
+        if _FUTURE_ACTION.search(line):
+            continue
+        for match in _PERIOD.finditer(line):
+            # 학력 · 교육 기간은 경력이 아니다. PDF 표는 학력 칸과 경력 칸이 한 덩어리로 이어지기도 해서
+            # 줄 전체가 아니라 기간 앞뒤 25자만 본다 ('… 2017.02 졸업 경력 사항 … 2020.03~2026.09 드림증권')
+            around = line[max(0, match.start() - 25) : match.end() + 25]
+            if _EDUCATION.search(around):
+                continue
+            start = int(match.group("y1")) * 12 + int(match.group("m1") or 1)
+            end = now if match.group("now") else int(match.group("y2")) * 12 + int(match.group("m2") or 12)
+            if 0 < end - start < 40 * 12:
+                spans.append((start, end))
+    # (줄여 쓰지 않고) 시작 순으로 정렬해 겹치는 구간을 하나로 합친다
+    merged: list[list[int]] = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    summed = sum(end - start for start, end in merged)
+    return max(total, summed)
+
+
+def _career_evident(gap: Gap, state: State) -> bool:
+    """🎤 경력 사실 확인(FACT) 빈틈인데 서류에 근무 기간과 조건의 기술이 분명히 적혀 있는가.
+
+    예) 조건 'Java 또는 Kotlin 기반 서버 개발 경력 3년 이상', 이력서 '2021.07~2026.09 누리페이테크 … Java, Spring Boot'
+        → 서류 평가가 '확인 필요'로 남겼어도 면접에서 '경력을 확인할 자료'를 묻지 않는다 (판정 · 점수는 그대로)
+    필요한 햇수는 조건 문장에서 읽고, 조건에 영문 기술 이름이 있으면 그중 하나는 서류에 있어야 한다.
+    """
+    condition = gap.title or gap.topic
+    if gap.mode != FACT or not _CAREER_CONDITION.search(condition):
+        return False
+    # 🎤 문장 단위(_document_lines)만 보면 안 된다: 마침표 없는 표 형식 이력서는 페이지 전체가 한 덩어리로 이어지고,
+    #    그 덩어리가 'SYNTHETIC SAMPLE …'로 시작해 머리말로 빠지면 근무 기간이 통째로 사라진다 (실제 최민재).
+    #    그래서 원문 줄도 함께 본다. 같은 기간이 두 번 들어가도 _career_months가 구간을 합쳐 한 번만 센다
+    lines = _document_lines(state) + [
+        line.strip()
+        for document in state["applicant"].documents
+        if document.type in PICK_DOCUMENTS
+        for line in document.text.splitlines()
+        if line.strip()
+    ]
+    years = re.search(r"(\d+)\s*년\s*이상", condition)
+    months = re.search(r"(\d+)\s*개월\s*이상", condition)
+    need = int(years.group(1)) * 12 if years else int(months.group(1)) if months else 12
+    if _career_months(lines) < need:
+        return False
+    techs = {word.lower() for word in re.findall(r"[A-Za-z][A-Za-z0-9+#.]{1,}", condition)}
+    text = " ".join(lines).lower()
+    return not techs or any(tech in text for tech in techs)
+
+
 def _document_match(gap: Gap, state: State) -> str | None:
     """🎤 서류 평가가 '근거 없음'으로 본 조건과 이어지는 서류 문장. 없으면 None.
 
@@ -1167,8 +1283,8 @@ def summary_gaps(posting: PostingContent, analysis: CandidateAnalysis) -> list[G
             continue  # 충족 못 한 조건을 다시 말하는 확인 필요는 건너뛴다
         candidates.append(Gap("", CHECK, _short(finding.text), f"확인 필요 ({finding.source})", [finding.text]))
     for finding in analysis.notable:
-        if _FUTURE_ACTION.search(finding.text):
-            continue  # 포부는 완료한 경험을 확인하는 질문의 근거로 쓰지 않는다.
+        if not _experience_material(finding.text):
+            continue  # 포부 · 비유 · 제목뿐인 문장은 완료한 경험을 확인하는 질문의 근거로 쓰지 않는다.
         candidates.append(
             Gap(
                 "",
@@ -1230,9 +1346,32 @@ def _criterion_gap(item: CriterionResult | CriterionLine) -> Gap | None:
     )
 
 
+# 실제로 한 일을 나타내는 낱말. 이런 말이 없는 문장은 비유('세 번의 여름을 보냈다')이거나
+#   대상이 없는 제목('주요 프로젝트')이라 '본인이 기여한 부분'을 물을 거리가 없다
+_WORK_ACTION = re.compile(
+    r"개발|구현|설계|분석|개선|운영|작성|처리|구축|도입|자동화|줄였|줄이|늘렸|늘리|만들|만든|고쳤|고치|수정|"
+    r"정리|검증|테스트|배포|연동|튜닝|측정|기록|관리|담당|맡|주도|제안|해결|발견|추가|전환|이관|모니터|조율|기획|"
+    r"집행|유치|협상|상담|검사|대조|결산|안내|응대|교육|진행|참여|작업|실행|판매|제작|홍보|분류|접수|발송|정산|입력|"
+    r"점검|보고|계산|조사|발표|번역|지원했|맡아|이끌|리드|만들었"
+)
+
+
+# 과거에 한 행동을 나타내는 끝 ('제시했습니다', '바꿔 … 유지했고', '정했다')
+_PAST_ACTION = re.compile(
+    r"(?:했|였|었|았|웠|렸|켰|냈|갔|왔|봤|줬|뒀|췄|겼)"  # 과거형 받침
+    r"(?:고|으며|으나|는데|지만|습니다|다|음|어요)"  # 문장 끝 또는 이어지는 말
+)
+# 한 일이 아니라 시간 · 느낌 · 상태만 말하는 표현 (이런 문장에서는 '본인이 기여한 부분'을 물을 수 없다)
+_STATE_ONLY = re.compile(r"보냈|지냈|깨달|느꼈|배웠|관심을\s*갖|관심이\s*많|되었습니다|생겼|자랐|싶었|것이었|것입니다")
+
+
 def _experience_material(text: str) -> bool:
     if _FUTURE_ACTION.search(text):
         return False
+    if not (_WORK_ACTION.search(text) or _CONCRETE_NUMBER.search(text)) and (
+        not _PAST_ACTION.search(text) or _STATE_ONLY.search(text)
+    ):
+        return False  # 🎤 제목뿐인 문장('주요 프로젝트') · 비유나 느낌만 있는 문장('세 번의 여름을 보냈습니다')
     return not (
         re.search(r"중요하다고|생각합니다|지원하고자", text) and not re.search(r"했|담당|구현함|개발함|설계함", text)
     )
@@ -1280,10 +1419,13 @@ def review_gaps(review: ApplicationReview) -> list[Gap]:
             Gap("", CLAIM, _quote_part(sentence), f"주장만 있음 ({quotes[0].document.label}): {reason}", [sentence])
         )
         claims += 1
-    experienced = [
-        fact.model_copy(update={"quotes": [quote for quote in fact.quotes if _experience_material(quote.sentence)]})
-        for fact in review.facts
-    ]
+    # 🎤 경험 재료가 되는 인용 문장만 남긴다. 남은 문장이 하나도 없는 사실은 통째로 뺀다
+    #    (빈 인용으로 넘기면 아래 fact.quotes[0]에서 IndexError가 나서 그 지원자의 질문 생성 전체가 실패했다)
+    experienced = []
+    for fact in review.facts:
+        usable = [quote for quote in fact.quotes if _experience_material(quote.sentence)]
+        if usable:
+            experienced.append(fact.model_copy(update={"quotes": usable}))
     for fact in notable_facts(experienced):
         quote = fact.quotes[0]
         candidates.append(
@@ -1742,7 +1884,9 @@ _JUDGMENT = re.compile(
     r"\d+\s*년(?:으로|입니다|이라|밖에)|낮게 나왔|낮은 편|상대적으로 낮|평가가 낮|"
     r"명시(?:되어|돼)\s*있지\s*않|(?:나와|적혀|기재되어|드러나)\s*있지\s*않|확인되지\s*않|근거가\s*없|"
     r"언급(?:해\s*주시지|하시지|하지|되지)\s*않|언급(?:이|은)?\s*없으|적어\s*주시지\s*않|적지\s*않으셨|"
-    r"(?:경험|이력)(?:은|이)\s*(?:없지만|없으시지만|없으신데|없는데|없으시다면)"
+    r"(?:경험|이력)(?:은|이)\s*(?:없지만|없으시지만|없으신데|없는데|없으시다면)|"
+    # 🎤 '…경험이 없다고 가정할 때'처럼 판정(근거 없음)을 지원자에게 전제로 말하는 표현
+    r"없다고\s*(?:가정|보고|볼\s*때|하면)|(?:경험|이력|역량)(?:이|은)?\s*부족(?:하므로|하니|하다면)"
 )
 # 실제로 하지 않은 일을 상상하게 하는 질문. 경험을 묻는 말('…한 경험을 바탕으로')이 있어도 막는다.
 # 예) "…습관을 어떻게 조직 문화에 맞게 발전시킬 수 있을지", "…어떻게 기여할 수 있다고 생각하시나요?"
@@ -2055,7 +2199,33 @@ def _style_problem(text: str, kind: str) -> str | None:
         return "개념 질문에서 과거 경험·사례를 요구함"
     if kind in (*EXPERIENCE_KINDS, "PICK") and _FUTURE_ACTION.search(text):
         return "미래 계획을 완료한 경험처럼 물음 (실제로 수행한 내용을 확인하도록)"
+    role_only = _ROLE_ONLY.search(unquoted) and not _DEPTH_ASK.search(unquoted)
+    # 🎤 '… 문제를 해결한 본인의 역할을 설명해 주세요'처럼 앞 설명에 '문제' · '측정'이 있어도
+    #    실제로 묻는 끝부분이 역할뿐이면 같은 문제다 (실제 5차 결과에서 9개)
+    role_ending = _ROLE_ENDING.search(unquoted) and not _ASK_WORD.search(unquoted)
+    if kind in (*DEPTH_KINDS, REQUIRED, PREFERRED) and (role_ending or (kind in DEPTH_KINDS and role_only)):
+        return "역할만 물음 (판단 근거 · 수치를 낸 방법 · 비교한 방법 · 결과 확인 방법 중 하나를 함께)"
+    # 🎤 '장부와 실제 자료의 차이를 확인할 때, 어떤 원칙을…'처럼 설명 속 '차이' · '조건'은 비교 질문이 아니다.
+    #    'A와 B 중 어느 쪽'처럼 고를 대상을 실제로 묻는 경우만 인정한다
+    if kind == CONCEPT and _PRINCIPLE_ONLY.search(unquoted) and not _COMPARE_ASK.search(unquoted):
+        return "개념 질문이 '어떤 원칙을 적용하는지'만 물음 (비교할 두 방법이나 고르는 조건을 넣어서)"
     return _experience_kind_problem(unquoted, kind)
+
+
+# 🎤 경험 질문 깊이 검사 (지원자가 업무 소개만 해도 답이 되는 질문을 거른다)
+DEPTH_KINDS = (CLAIM, NOTABLE, CHECK, REQUIRED_PARTIAL, PREFERRED_PARTIAL)
+_ROLE_ONLY = re.compile(r"역할|기여|맡은\s*(?:부분|일)|수행한\s*(?:일|행동|내용)|담당한\s*(?:일|부분)")
+_DEPTH_ASK = re.compile(r"어떻게|근거|이유|판단|기준|측정|수치|비교|대안|왜|확인했|검증|선택|고른|어려웠|문제")
+# 개념 질문의 '어떤 원칙을 적용하는지' 형태와, 그 질문을 구체적으로 만드는 비교 · 조건 표현
+_PRINCIPLE_ONLY = re.compile(r"어떤\s*(?:원칙|원리|개념|접근|방식)(?:을|를|에)?\s*(?:따라|적용|사용|활용|취하)")
+_COMPARE_ASK = re.compile(r"\S\s*중\s*(?:어느|무엇|어떤)|어느\s*(?:쪽|것|방법)|대신|반면|장단점|한계(?:와|를|는)")
+# 질문 끝이 '(본인의) 역할 · 기여한 부분 · 맡은 부분을 설명해 주세요'로 끝나는 형태
+_ROLE_ENDING = re.compile(
+    r"(?:역할|기여(?:한\s*부분)?|맡은\s*(?:부분|일))(?:을|를|은|는|이|가)?\s*(?:구체적으로\s*)?"
+    r"(?:설명|말|말씀)(?:해|하여)?\s*주(?:세요|시겠어요|십시오)[.?]?$"
+)
+# 역할과 함께 묻는 깊이 표현 (설명 속에 흔히 나오는 '문제' · '측정' · '기준'은 넣지 않는다)
+_ASK_WORD = re.compile(r"어떻게|왜|이유|근거|판단|확인했는지|비교|대안")
 
 
 _STANDARD = re.compile(r"기준|보호|안전|절차|규정|승인|위험|원칙|규칙")
