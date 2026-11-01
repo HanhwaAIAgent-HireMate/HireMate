@@ -133,6 +133,6 @@ async def test_enrich_adds_interview_strengths_checks_and_evidence_per_stage() -
         "e-A-0017-interview-2",
         "e-A-0017-interview2-1",
     ]
-    first = enriched.evidence[0]
-    assert first.quote == "제가 설계를 맡았습니다" and "원문" not in first.text
-    assert first.label in ("강점", "확인할 점")
+    first_evidence = enriched.evidence[0]
+    assert first_evidence.quote == "제가 설계를 맡았습니다" and "원문" not in first_evidence.text
+    assert first_evidence.label in ("강점", "확인할 점")
