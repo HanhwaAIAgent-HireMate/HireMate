@@ -24,7 +24,6 @@ import {
   GUIDE_BOXES,
   HEADERS,
   isTooLight,
-  MAIL_COLORS,
   normalizeColor,
 } from '@/features/company/mailColor'
 import { SettingsRow, SettingsSection } from '@/features/company/SettingsSection'
@@ -148,7 +147,6 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
             <ColorField
               name="대표 색"
               input={main}
-              presets={MAIL_COLORS}
               lightWarning="밝은 색이라 흰 바탕에서 회사 이름이 잘 안 보일 수 있어요."
             />
           </SettingsRow>
@@ -298,12 +296,13 @@ function LogoColors({
 function ColorField({
   name,
   input,
-  presets,
+  presets = [],
   lightWarning,
 }: {
   name: string
   input: ReturnType<typeof useColorInput>
-  presets: readonly { label: string; value: string }[]
+  /** 눌러 고르는 추천 색 동그라미. 대표 색은 로고에서 고르거나 직접 골라 없다 */
+  presets?: readonly { label: string; value: string }[]
   lightWarning: string
 }) {
   return (
@@ -324,7 +323,12 @@ function ColorField({
             )}
           />
         ))}
-        <label className="ml-1 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-sm">
+        <label
+          className={cn(
+            'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-sm',
+            presets.length > 0 && 'ml-1',
+          )}
+        >
           <input
             type="color"
             aria-label={`${name} 다른 색 고르기`}

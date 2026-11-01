@@ -1,14 +1,4 @@
-/** 메일 색 추천. 흰 바탕에서 글자가 잘 보이는 진한 색이다 */
-export const MAIL_COLORS = [
-  { label: '남색', value: '#1e3a5f' },
-  { label: '파랑', value: '#1d4ed8' },
-  { label: '초록', value: '#047857' },
-  { label: '보라', value: '#6d28d9' },
-  { label: '자주', value: '#9d174d' },
-  { label: '회색', value: '#374151' },
-]
-
-/** 보조 색 추천. 대표 색 추천과 잘 구분되면서 흰 바탕에서 글자가 보이는 색이다 */
+/** 보조 색 추천. 흰 바탕에서 글자가 보이는 색이다 */
 export const ACCENT_COLORS = [
   { label: '주황', value: '#c2410c' },
   { label: '호박', value: '#b45309' },
