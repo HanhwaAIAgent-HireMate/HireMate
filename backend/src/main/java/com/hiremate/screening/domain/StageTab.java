@@ -41,7 +41,15 @@ public class StageTab {
     @Column(nullable = false)
     private Instant createdAt;
 
+    /** 면접관이 자기만 보는 탭이면 그 계정. 비어 있으면 같은 기업 HR이 함께 쓰는 탭이다 */
+    private UUID ownerMemberId;
+
     public StageTab(UUID companyId, UUID stageId, int number) {
+        this(companyId, stageId, number, null);
+    }
+
+    public StageTab(UUID companyId, UUID stageId, int number, UUID ownerMemberId) {
+        this.ownerMemberId = ownerMemberId;
         this.id = UUID.randomUUID();
         this.companyId = companyId;
         this.stageId = stageId;

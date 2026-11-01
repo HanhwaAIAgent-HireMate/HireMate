@@ -13,7 +13,9 @@ import com.hiremate.recruit.StageStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.PageRequest;
@@ -97,6 +99,25 @@ public class InterviewSessions {
     @Transactional(readOnly = true)
     public boolean assigned(UUID companyId, UUID memberId, UUID stageId, UUID applicationId) {
         return sessions.assignedTo(companyId, memberId, stageId, applicationId);
+    }
+
+    /** 면접관 Chat 탭 경로의 권한: 이 전형에서 한 명이라도 배정됐나. */
+    @Transactional(readOnly = true)
+    public boolean assignedInStage(UUID companyId, UUID memberId, UUID stageId) {
+        return !roles(companyId, memberId, stageId).isEmpty();
+    }
+
+    /** 이 전형에서 계정이 배정된 지원자와 그 지원자에서 맡은 담당. 면접관 Chat은 이 지원자만 본다. */
+    @Transactional(readOnly = true)
+    public Map<UUID, InterviewerRole> roles(UUID companyId, UUID memberId, UUID stageId) {
+        Map<UUID, InterviewerRole> roles = new LinkedHashMap<>();
+        sessions.findByStageIdAndCompanyId(stageId, companyId).forEach(session -> {
+            InterviewerRole role = session.roleOf(memberId);
+            if (role != null) {
+                roles.put(session.getApplicationId(), role);
+            }
+        });
+        return roles;
     }
 
     /** 지원 문서처럼 채용 단위 경로의 읽기 권한: 이 지원자의 면접 하나에라도 배정됐나. */

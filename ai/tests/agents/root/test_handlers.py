@@ -8,6 +8,7 @@ from hiremate_ai.agents.guardrails import BLOCKED_REPLY
 from hiremate_ai.agents.root.find import LOCKED, RecheckItem, RecheckResult, SearchQuery
 from hiremate_ai.agents.root.handlers import (
     DECISION_REPLY,
+    INTERVIEWER_LOCKED,
     NOT_INTERVIEW,
     NOTHING_TO_ADD,
     NOTHING_TO_REMOVE,
@@ -211,3 +212,19 @@ def test_precheck_cases(
     memo = InterviewerMemo(stage_id=interview.stage_id, stage_name="1차 면접", text="본인 역할 확인")
     with_memo = interview.model_copy(update={"interviewer_memos": {interview.candidates[0].application_id: [memo]}})
     assert precheck(with_memo, memos, with_memo.candidates[:1]) is None
+
+
+def test_precheck_tells_interviewers_they_cannot_change_selection(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    interview = context_of(sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW)
+    interviewer = interview.model_copy(update={"interviewer": True, "selectable": False})
+    edit = RootPlan(kind="edit", form=EditPlan(action=EditAction.ADD, scope=Scope(sources=["mentions"])))
+    find = RootPlan(kind="find", form=kafka())
+    questions = RootPlan(kind="questions", form=QuestionsPlan(scope=Scope(sources=["all"]), checks="none"))
+
+    for plan in (edit, find):
+        answer = precheck(interviewer, plan, interviewer.candidates[:1])
+        assert answer is not None and answer.message == INTERVIEWER_LOCKED
+    # 면접관도 질문 만들기는 된다
+    assert precheck(interviewer, questions, interviewer.candidates[:1]) is None

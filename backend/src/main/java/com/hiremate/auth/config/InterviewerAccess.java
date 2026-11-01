@@ -15,8 +15,9 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
 import org.springframework.stereotype.Component;
 
 /**
- * 면접관 모드의 지원 자료 읽기 권한. HR은 지금처럼 통과하고, 면접관은 경로의 지원자(applicationId) 면접에 배정됐을 때만
+ * 면접관 모드의 경로 권한. HR은 지금처럼 통과하고, 면접관은 경로의 지원자(applicationId) 면접에 배정됐을 때만
  * 통과한다. 전형 경로는 그 전형의 면접에, 채용 경로(지원 문서)는 그 지원자의 면접 하나에라도 배정돼야 한다.
+ * 지원자가 없는 Chat 탭 경로는 그 전형에서 한 명이라도 배정돼야 한다.
  */
 @Component
 class InterviewerAccess implements AuthorizationManager<RequestAuthorizationContext> {
@@ -40,14 +41,20 @@ class InterviewerAccess implements AuthorizationManager<RequestAuthorizationCont
         }
         Map<String, String> variables = context.getVariables();
         try {
-            UUID applicationId = UUID.fromString(variables.get("applicationId"));
-            if (variables.containsKey("stageId")) {
+            String stageId = variables.get("stageId");
+            String applicationId = variables.get("applicationId");
+            if (stageId != null && applicationId != null) {
                 return new AuthorizationDecision(sessions.assigned(member.companyId(), member.memberId(),
-                        UUID.fromString(variables.get("stageId")), applicationId));
+                        UUID.fromString(stageId), UUID.fromString(applicationId)));
             }
-            return new AuthorizationDecision(sessions.assignedToApplication(member.companyId(), member.memberId(),
-                    applicationId));
-        } catch (IllegalArgumentException | NullPointerException invalidId) {
+            if (stageId != null) {
+                // Chat 탭: 이 전형에서 배정된 면접관만. 탭이 자기 것인지는 탭 서비스가 확인한다
+                return new AuthorizationDecision(sessions.assignedInStage(member.companyId(), member.memberId(),
+                        UUID.fromString(stageId)));
+            }
+            return new AuthorizationDecision(applicationId != null && sessions.assignedToApplication(
+                    member.companyId(), member.memberId(), UUID.fromString(applicationId)));
+        } catch (IllegalArgumentException invalidId) {
             return new AuthorizationDecision(false);
         }
     }
