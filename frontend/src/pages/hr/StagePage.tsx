@@ -1,6 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
-import { type LayoutStorage, useDefaultLayout } from 'react-resizable-panels'
+import { useEffect, useRef } from 'react'
+import {
+  type LayoutStorage,
+  type PanelImperativeHandle,
+  useDefaultLayout,
+} from 'react-resizable-panels'
 import { useParams } from 'react-router'
 
 import { useHeaderCrumb } from '@/app/header-store'
@@ -22,6 +26,7 @@ import { StageBar } from '@/features/screening/StageBar'
 import { StageStepper } from '@/features/screening/StageHeader'
 import { useStageUi } from '@/features/screening/store'
 import { TabBar } from '@/features/screening/TabBar'
+import { TablePanel } from '@/features/screening/TablePanel'
 import { useCurrentTab, type StageTab } from '@/features/screening/tabs'
 import { ApiError } from '@/lib/api/client'
 
@@ -50,12 +55,23 @@ export function StagePage() {
   const { stageId = '' } = useParams()
   const overview = useStageOverview(stageId)
   const { tabs, tab, tabId, setTab } = useCurrentTab(stageId)
-  const { reset } = useStageUi()
-  const columns = useDefaultLayout({ id: 'stage-columns', storage: layoutStorage })
+  const { reset, tableOpen, tableChat, openId } = useStageUi()
+  const chat = useRef<PanelImperativeHandle | null>(null)
+  // 전체 지원자가 카드 3장 줄로 바뀌어 기본 너비를 맞췄다. 예전에 저장한 너비 대신 새 기본값을 쓰도록 id를 바꿨다
+  const columns = useDefaultLayout({ id: 'stage-columns-grid', storage: layoutStorage })
   const work = useDefaultLayout({ id: 'stage-work', storage: layoutStorage })
 
   // 전형이나 탭을 바꾸면 체크, 열린 카드, Chat 입력창 칩을 비운다
   useEffect(() => reset(`${stageId}:${tabId ?? ''}`), [reset, stageId, tabId])
+  // 표를 보는 동안 Chat을 접어 가로를 넓게 쓴다. 표에서 지원자 카드를 열거나, 표를 닫거나, 표의 [AI Chat]을 누르면 다시 편다
+  const wide = tableOpen && !openId && !tableChat
+  // Chat 칸은 탭을 받은 뒤에 생기므로 그때도 맞춘다. 표를 보다 떠나 접힌 채 저장된 칸도 여기서 다시 편다
+  const chatReady = Boolean(tab && overview.data)
+  useEffect(() => {
+    if (!chatReady) return
+    if (wide) chat.current?.collapse()
+    else chat.current?.expand()
+  }, [wide, chatReady])
   useHeaderCrumb(
     overview.data && {
       title: overview.data.recruitmentTitle,
@@ -87,7 +103,7 @@ export function StagePage() {
       {/* 칸 사이 경계선으로 너비를 바꾼다. 최소 너비가 있어 칸이 겹치거나 사라지지 않고,
           창 크기가 바뀌면 양옆은 너비를 유지하고 가운데가 늘고 준다 */}
       <ResizablePanelGroup
-        id="stage-columns"
+        id="stage-columns-grid"
         className="min-h-0 flex-1"
         defaultLayout={columns.defaultLayout}
         onLayoutChanged={columns.onLayoutChanged}
@@ -95,8 +111,8 @@ export function StagePage() {
         <ResizablePanel
           id="stage-candidates"
           className="flex flex-col"
-          defaultSize={300}
-          minSize={240}
+          defaultSize={330}
+          minSize={300}
           groupResizeBehavior="preserve-pixel-size"
         >
           <CandidateList overview={data} tabId={tabId} editable={editable} />
@@ -124,9 +140,12 @@ export function StagePage() {
                 <ResizableHandle withHandle />
                 <ResizablePanel
                   id="stage-chat"
+                  panelRef={chat}
                   className="flex flex-col"
                   defaultSize={340}
                   minSize={280}
+                  collapsible
+                  collapsedSize={0}
                   groupResizeBehavior="preserve-pixel-size"
                 >
                   <ChatPanel overview={data} tabId={tab.id} />
@@ -146,7 +165,7 @@ export function StagePage() {
   )
 }
 
-/** 가운데 칸: 지금 탭의 선택 지원자나 열린 지원자 카드, 그리고 결정 바 */
+/** 가운데 칸: 지금 탭의 선택 지원자, 표 보기나 열린 지원자 카드, 그리고 결정 바 */
 function Workspace({
   overview,
   tab,
@@ -158,7 +177,7 @@ function Workspace({
 }) {
   const queryClient = useQueryClient()
   const selection = useSelection(overview.stageId, tab.id)
-  const { openId, syncSelection } = useStageUi()
+  const { openId, tableOpen, syncSelection } = useStageUi()
   const selectedRows = selection.data?.items
 
   // 지원자 카드를 열어 둔 동안 Chat으로 빼도 체크가 풀리도록 선택 지원자 칸이 아니라 여기서 맞춘다
@@ -182,6 +201,8 @@ function Workspace({
           editable={editable}
           selectedCount={tab.selectedCount}
         />
+      ) : tableOpen ? (
+        <TablePanel overview={overview} tab={tab} />
       ) : (
         <SelectionPanel overview={overview} tab={tab} editable={editable} />
       )}

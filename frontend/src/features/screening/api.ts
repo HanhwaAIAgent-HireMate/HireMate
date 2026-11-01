@@ -11,8 +11,8 @@ export type ProfileItemView = Schemas['ProfileItemView']
 export type CriterionLine = Schemas['CriterionLine']
 export type SummarySection = Schemas['SummarySection']
 export type Decision = CandidateRow['decision']
-/** 서류 전형 전체 지원자 정렬: 자격요건 순(처음) · 총점 순 */
-export type CandidateSort = 'QUALIFICATION' | 'TOTAL'
+/** 서류 전형 전체 지원자 정렬: 기본(자격요건 + 우대사항 충족 개수, 처음) · 인재상 포함(상인 인재상 개수를 더함) */
+export type CandidateSort = 'BASIC' | 'TALENT'
 
 const PAGE_SIZE = 30
 /** 분석 중인 지원자가 있으면 이 간격으로 다시 불러온다. 분석은 AI 워커가 대기열에서 하나씩 처리해 몇 분 걸린다 */
@@ -30,6 +30,7 @@ export const stageKeys = {
   candidates: (stageId: string, tabId: string | null, query: string, sort: CandidateSort) =>
     ['stage', stageId, 'candidates', tabId, query, sort] as const,
   selection: (stageId: string, tabId: string) => ['stage', stageId, 'selection', tabId] as const,
+  requirements: (stageId: string) => ['stage', stageId, 'requirements'] as const,
   detail: (stageId: string, applicationId: string) =>
     ['stage', stageId, 'detail', applicationId] as const,
   analysis: (stageId: string, applicationId: string) =>
@@ -84,6 +85,27 @@ export function useCandidates(
         ? ANALYSIS_POLL_MS
         : false,
   })
+}
+
+/** 서류 전형의 필수 조건. 모두 충족한 지원자만 선 위(AI 단계)에 오른다 */
+export function useRequirements(stageId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: stageKeys.requirements(stageId),
+    enabled,
+    queryFn: () =>
+      unwrap(api.GET('/api/stages/{stageId}/requirements', path(stageId))).then(
+        (data) => data.criterionIds,
+      ),
+  })
+}
+
+/** 필수 조건 바꾸기. 끝나면 리스트(선 위 · 순서)를 다시 불러온다 */
+export function useUpdateRequirements(stageId: string) {
+  return useStageMutation(stageId, (criterionIds: string[]) =>
+    unwrap(
+      api.PUT('/api/stages/{stageId}/requirements', { ...path(stageId), body: { criterionIds } }),
+    ),
+  )
 }
 
 /** 탭의 선택 지원자 */
@@ -288,6 +310,15 @@ export function careerLabel(
   }
   if (row.careerYears === 0) return '신입'
   return [`경력 ${row.careerYears}년`, row.lastCompany].filter(Boolean).join(' · ')
+}
+
+/** 카드의 경력 한 줄: "경력 5년", 신입은 "신입". 분석 전이면 "분석 중" */
+export function careerYearsLabel(row: Pick<CandidateRow, 'careerYears' | 'analysisStatus'>) {
+  if (row.careerYears === null) {
+    if (row.analysisStatus === 'DONE') return '경력 확인 필요'
+    return row.analysisStatus === 'FAILED' ? '분석 실패' : '분석 중'
+  }
+  return row.careerYears === 0 ? '신입' : `경력 ${row.careerYears}년`
 }
 
 /** 전형 지원자 전체 (결과 등록 창처럼 한 번에 다 보여 줄 때) */

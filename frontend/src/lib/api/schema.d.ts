@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/stages/{stageId}/requirements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["requirements"];
+        put: operations["updateRequirements"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/notices/{group}": {
         parameters: {
             query?: never;
@@ -1140,6 +1156,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/table": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["table"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/reports": {
         parameters: {
             query?: never;
@@ -1276,6 +1308,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/candidates/{applicationId}/talents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["talents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1785,6 +1833,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        RequirementsRequest: {
+            criterionIds: string[];
+        };
+        StageRequirements: {
+            criterionIds: string[];
+        };
         NoticeEditRequest: {
             subject: string;
             greeting: string;
@@ -2608,6 +2662,15 @@ export interface components {
             preferenceScore: number | null;
             /** Format: int32 */
             preferenceMax: number;
+            /** Format: int32 */
+            metCount: number;
+            /** Format: int32 */
+            criterionTotal: number;
+            /** Format: int32 */
+            talentCount: number;
+            /** Format: int32 */
+            talentTotal: number;
+            missingRequired: string[];
         };
         ChatAsker: {
             /** Format: uuid */
@@ -2628,6 +2691,18 @@ export interface components {
             seconds: number | null;
             asker: components["schemas"]["ChatAsker"] | null;
         };
+        CandidateTable: {
+            features: components["schemas"]["Feature"][];
+        };
+        Feature: {
+            id: string;
+            /** @enum {string} */
+            group: "QUALIFICATION" | "PREFERENCE" | "TALENT";
+            /** @enum {string} */
+            kind: "CONDITION" | "EXPERIENCE";
+            label: string;
+            text: string;
+        };
         ComposedReport: {
             spec: components["schemas"]["JsonNode"];
             skills: string[];
@@ -2635,31 +2710,31 @@ export interface components {
             fallback: boolean;
         };
         JsonNode: {
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            string: boolean;
-            integralNumber: boolean;
-            pojo: boolean;
-            floatingPointNumber: boolean;
-            short: boolean;
-            int: boolean;
-            long: boolean;
-            double: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
-            /** @deprecated */
-            textual: boolean;
-            boolean: boolean;
-            binary: boolean;
-            missingNode: boolean;
-            valueNode: boolean;
-            container: boolean;
-            number: boolean;
             empty: boolean;
             array: boolean;
             null: boolean;
             object: boolean;
             float: boolean;
+            number: boolean;
+            integralNumber: boolean;
+            missingNode: boolean;
+            valueNode: boolean;
+            floatingPointNumber: boolean;
+            bigInteger: boolean;
+            container: boolean;
+            bigDecimal: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            int: boolean;
+            /** @deprecated */
+            textual: boolean;
+            short: boolean;
+            binary: boolean;
+            boolean: boolean;
+            double: boolean;
+            pojo: boolean;
+            long: boolean;
+            string: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -2726,6 +2801,19 @@ export interface components {
             certificates: string | null;
             documents: components["schemas"]["ApplicantDocument"][];
             memo: string;
+        };
+        Match: {
+            title: string;
+            /** @enum {string} */
+            level: "HIGH" | "MID" | "LOW" | "UNKNOWN";
+            evidence: string;
+            reason: string;
+            quote: string | null;
+        };
+        TalentFit: {
+            items: components["schemas"]["Match"][];
+            agent: string;
+            stub: boolean;
         };
         CandidateProfileView: {
             /** Format: uuid */
@@ -2955,9 +3043,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            headerName: string;
             parameterName: string;
             token: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -2973,6 +3061,54 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    requirements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageRequirements"];
+                };
+            };
+        };
+    };
+    updateRequirements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequirementsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageRequirements"];
+                };
+            };
+        };
+    };
     edit: {
         parameters: {
             query?: never;
@@ -5158,6 +5294,28 @@ export interface operations {
             };
         };
     };
+    table: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CandidateTable"];
+                };
+            };
+        };
+    };
     reports: {
         parameters: {
             query?: {
@@ -5321,7 +5479,7 @@ export interface operations {
             query?: {
                 tabId?: string;
                 query?: string;
-                sort?: "QUALIFICATION" | "TOTAL";
+                sort?: "BASIC" | "TALENT";
                 page?: number;
                 size?: number;
             };
@@ -5363,6 +5521,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CandidateDetail"];
+                };
+            };
+        };
+    };
+    talents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TalentFit"];
                 };
             };
         };

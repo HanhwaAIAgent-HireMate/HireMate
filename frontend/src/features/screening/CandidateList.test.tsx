@@ -44,11 +44,19 @@ vi.mock('@/features/screening/api', () => ({
     fetchNextPage: vi.fn(),
   }),
   useSelectionActions: () => ({}),
+  useRequirements: () => ({ data: [], isPending: false }),
+  useUpdateRequirements: () => ({ mutate: vi.fn(), isPending: false }),
 }))
-vi.mock('@/features/screening/CandidateItem', () => ({
-  CandidateItem: ({ row, note }: { row: { applicationId: string }; note: ReactNode }) => (
+vi.mock('@/features/screening/table', () => ({
+  GROUP_LABELS: {},
+  useCandidateTable: () => ({ data: { features: [] }, isPending: false }),
+}))
+vi.mock('@/features/screening/CandidateTile', () => ({
+  CandidateTile: ({ row, note }: { row: { applicationId: string }; note: ReactNode }) => (
     <div data-testid={row.applicationId}>{note}</div>
   ),
+}))
+vi.mock('@/features/screening/CandidateItem', () => ({
   RowButton: () => null,
 }))
 
