@@ -63,6 +63,10 @@ class InterviewerSessionTests extends IntegrationTest {
         JsonNode scheduled = json(expect(f.people().api().get(f.workspace()), 200));
         assertThat(scheduled.path("session").path("status").asString()).isEqualTo("SCHEDULED");
         assertThat(scheduled.path("questions").get(0).path("canAnswer").asBoolean()).isFalse();
+        expect(f.people().api().put(f.workspace() + "/memo",
+                Map.of("text", "시작 전 메모", "expectedVersion", 0)), 409);
+        expect(f.unassigned().api().put(f.workspace() + "/memo",
+                Map.of("text", "미배정 메모", "expectedVersion", 0)), 403);
         enter(f);
         JsonNode started = json(expect(f.people().api().post(f.workspace() + "/start", null), 200));
         assertThat(started.path("session").path("status").asString()).isEqualTo("IN_PROGRESS");
@@ -99,12 +103,14 @@ class InterviewerSessionTests extends IntegrationTest {
         JsonNode current = json(expect(f.people().api().get(f.workspace()), 200));
         JsonNode noted = json(expect(f.people().api().put(f.workspace() + "/memo",
                 Map.of("text", "PRIVATE-HR-NOTE", "expectedVersion",
-                        current.path("session").path("version").asLong())), 200));
+                        current.path("personalMemoVersion").asLong())), 200));
         assertThat(noted.path("personalMemo").asString()).isEqualTo("PRIVATE-HR-NOTE");
         String other = expect(f.practical().api().get(f.workspace()), 200).body();
         assertThat(other).doesNotContain("PRIVATE-HR-NOTE", "hrMemo", "practicalMemo");
         JsonNode ended = json(expect(f.practical().api().post(f.workspace() + "/end", null), 200));
         assertThat(ended.path("session").path("status").asString()).isEqualTo("ENDED");
+        expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "종료 후 메모",
+                "expectedVersion", noted.path("personalMemoVersion").asLong())), 409);
         assertThat(ended.path("questions").valueStream().allMatch(row -> !row.path("canAnswer").asBoolean()))
                 .isTrue();
         expect(f.practical().api().put(answerPath(f, jobId),
@@ -279,6 +285,62 @@ class InterviewerSessionTests extends IntegrationTest {
         JsonNode listed = json(expect(f.people().api().get("/api/interviewer/sessions"), 200));
         assertThat(listed.path("items")).hasSize(2);
         expect(f.practical().api().get(f.workspace()), 200);
+    }
+
+    @Test
+    @DisplayName("인사와 실무 개인 메모는 같은 초기 버전으로 동시에 저장해도 모두 성공한다")
+    void personalMemoVersionsAreIndependent() throws Exception {
+        Fixture f = fixture();
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        enter(f);
+        JsonNode started = json(expect(f.people().api().post(f.workspace() + "/start", null), 200));
+        long version = started.path("personalMemoVersion").asLong();
+        assertThat(version).isZero();
+        assertThat(started.path("session").path("version").asLong()).isGreaterThan(version);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<Integer> hr = executor.submit(() -> f.people().api().put(f.workspace() + "/memo",
+                    Map.of("text", "PRIVATE-HR-MEMO", "expectedVersion", version)).statusCode());
+            Future<Integer> practical = executor.submit(() -> f.practical().api().put(f.workspace() + "/memo",
+                    Map.of("text", "PRIVATE-PRACTICAL-MEMO", "expectedVersion", version)).statusCode());
+            assertThat(List.of(hr.get(), practical.get())).containsExactly(200, 200);
+        }
+        JsonNode hr = json(expect(f.people().api().get(f.workspace()), 200));
+        JsonNode practical = json(expect(f.practical().api().get(f.workspace()), 200));
+        assertThat(hr.path("personalMemo").asString()).isEqualTo("PRIVATE-HR-MEMO");
+        assertThat(practical.path("personalMemo").asString()).isEqualTo("PRIVATE-PRACTICAL-MEMO");
+        assertThat(hr.path("personalMemoVersion").asLong()).isEqualTo(version + 1);
+        assertThat(practical.path("personalMemoVersion").asLong()).isEqualTo(version + 1);
+        assertThat(hr.toString()).doesNotContain("PRIVATE-PRACTICAL-MEMO", "practicalMemoVersion");
+        assertThat(practical.toString()).doesNotContain("PRIVATE-HR-MEMO", "hrMemoVersion");
+        expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "인사 수정",
+                "expectedVersion", hr.path("personalMemoVersion").asLong())), 200);
+        expect(f.practical().api().put(f.workspace() + "/memo", Map.of("text", "실무 수정",
+                "expectedVersion", practical.path("personalMemoVersion").asLong())), 200);
+    }
+
+    @Test
+    @DisplayName("같은 개인 메모를 동일 버전으로 동시에 저장하면 하나만 성공하고 나머지는 충돌이다")
+    void concurrentPersonalMemoWritesCannotOverwriteEachOther() throws Exception {
+        Fixture f = fixture();
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        enter(f);
+        JsonNode started = json(expect(f.people().api().post(f.workspace() + "/start", null), 200));
+        long version = started.path("personalMemoVersion").asLong();
+        JsonNode wrongVersion = json(expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "세션 버전 오용",
+                "expectedVersion", started.path("session").path("version").asLong())), 409));
+        assertThat(wrongVersion.path("code").asString()).isEqualTo("MEMO_CONFLICT");
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<Integer> one = executor.submit(() -> f.people().api().put(f.workspace() + "/memo",
+                    Map.of("text", "첫 번째 인사 메모", "expectedVersion", version)).statusCode());
+            Future<Integer> two = executor.submit(() -> f.people().api().put(f.workspace() + "/memo",
+                    Map.of("text", "두 번째 인사 메모", "expectedVersion", version)).statusCode());
+            assertThat(List.of(one.get(), two.get())).containsExactlyInAnyOrder(200, 409);
+        }
+        JsonNode current = json(expect(f.people().api().get(f.workspace()), 200));
+        assertThat(current.path("personalMemo").asString()).isIn("첫 번째 인사 메모", "두 번째 인사 메모");
+        assertThat(current.path("personalMemoVersion").asLong()).isEqualTo(version + 1);
+        expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "최신 인사 메모",
+                "expectedVersion", current.path("personalMemoVersion").asLong())), 200);
     }
 
     private Fixture fixture() throws Exception {

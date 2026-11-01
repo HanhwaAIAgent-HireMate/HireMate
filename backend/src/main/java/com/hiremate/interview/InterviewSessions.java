@@ -185,8 +185,8 @@ public class InterviewSessions {
         InterviewerRole role = requireAssigned(session, memberId);
         requireRunning(session);
         requireActive(companyId, stageId);
-        if (session.getVersion() != expectedVersion) {
-            throw conflict("SESSION_CONFLICT", "Reload the latest personal memo before saving.");
+        if (session.memoVersion(role) != expectedVersion) {
+            throw conflict("MEMO_CONFLICT", "Reload the latest personal memo before saving.");
         }
         session.memo(role, memo);
         sessions.flush();
@@ -306,8 +306,8 @@ public class InterviewSessions {
                     return new InterviewerQuestionAccess(question, reason == null, canFollowUp,
                             reason == null && !answeredView(question, view.questions()), reason);
                 }).toList();
-        return new InterviewerWorkspace(toAssignment(session), role, session.memo(role), questions,
-                view.previous(), view.schedule());
+        return new InterviewerWorkspace(toAssignment(session), role, session.memo(role), session.memoVersion(role),
+                questions, view.previous(), view.schedule());
     }
 
     private static boolean answeredView(InterviewView.Question question, List<InterviewView.Question> card) {
@@ -407,6 +407,7 @@ public class InterviewSessions {
     }
 
     public record InterviewerWorkspace(InterviewAssignment session, InterviewerRole myRole, String personalMemo,
+            long personalMemoVersion,
             List<InterviewerQuestionAccess> questions,
             List<InterviewView.PreviousInterview> previous,
             @Schema(nullable = true) InterviewView.Schedule schedule) {
