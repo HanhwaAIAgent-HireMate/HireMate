@@ -162,6 +162,18 @@ public class ApplicationService {
         applications.findById(applicationId).ifPresent(application -> application.recordAnalysis(analysis));
     }
 
+    /** 지원서의 기업 ID. 이벤트로 받은 지원서라 기업 범위 확인 없이 읽는다. */
+    @Transactional(readOnly = true)
+    public UUID companyOf(UUID applicationId) {
+        return applications.findById(applicationId).orElseThrow(ApplicationService::notFound).getCompanyId();
+    }
+
+    /** 상으로 판정한 인재상을 남긴다. 전체 지원자의 인재상 포함 정렬에 쓴다. */
+    @Transactional
+    public void recordTalents(UUID applicationId, List<String> titles) {
+        applications.findById(applicationId).ifPresent(application -> application.recordTalents(titles));
+    }
+
     @Transactional
     public void markAnalysisFailed(UUID applicationId) {
         applications.findById(applicationId).ifPresent(JobApplication::markAnalysisFailed);
@@ -233,6 +245,6 @@ public class ApplicationService {
                 application.shortfalls(), application.getQualificationStatus(), application.getQualificationScore(),
                 application.getQualificationScoreLow(), application.getQualificationMax(),
                 application.getPreferenceScore(), application.getPreferenceMax(), application.getAnalysisStatus(),
-                application.getSubmittedAt());
+                application.getSubmittedAt(), application.criterionMarks(), application.highTalents());
     }
 }

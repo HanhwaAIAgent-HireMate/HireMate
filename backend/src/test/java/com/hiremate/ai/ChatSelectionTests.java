@@ -20,6 +20,8 @@ import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.RootAgent;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
+import com.hiremate.apply.CriterionMark;
+import com.hiremate.apply.QualificationStatus;
 import com.hiremate.global.ApiException;
 import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
@@ -512,9 +514,12 @@ class ChatSelectionTests extends IntegrationTest {
         }
         List<UUID> ids = applications.applicants(hr.companyId(), recruitmentId).stream()
                 .map(applicant -> applicant.applicationId()).toList();
+        // 필수 조건(중요 표시한 자격요건 Q-01 · Q-02)을 채워 두 지원자 모두 선 위에 둔다
+        BigDecimal score = BigDecimal.valueOf(90);
         for (UUID id : ids) {
-            applications.recordAnalysis(id,
-                    ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
+            applications.recordAnalysis(id, new ApplicationAnalysis(3, "OO카드", null, QualificationStatus.PASSED,
+                    null, null, 50, null, 50, score, score, null, true, false, List.of(),
+                    Map.of("Q-01", CriterionMark.MET, "Q-02", CriterionMark.MET)));
         }
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         UUID stageId = UUID.fromString(closed.path("stages").get(0).path("id").asString());

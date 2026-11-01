@@ -2,6 +2,7 @@ package com.hiremate.apply.domain;
 
 import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicationAnalysis;
+import com.hiremate.apply.CriterionMark;
 import com.hiremate.apply.QualificationStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -11,7 +12,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
@@ -116,6 +120,14 @@ public class JobApplication {
 
     private Instant analyzedAt;
 
+    /** 평가 항목별 판정. 한 줄에 "Q-01=MET"처럼 하나씩 둔다. */
+    @Column(nullable = false)
+    private String criterionMarks = "";
+
+    /** 상으로 판정한 인재상 제목. 줄바꿈으로 나눈다. */
+    @Column(nullable = false)
+    private String highTalents = "";
+
     public JobApplication(UUID recruitmentId, UUID companyId, UUID postingId, int applicationNo, String name,
             String email, String phone, String certificates) {
         this.id = UUID.randomUUID();
@@ -150,12 +162,32 @@ public class JobApplication {
         this.criteriaVersion = analysis.criteriaVersion();
         this.qualificationShortfalls = analysis.shortfalls().stream().map(String::strip)
                 .filter(text -> !text.isEmpty()).collect(Collectors.joining("\n"));
+        this.criterionMarks = analysis.criterionMarks().entrySet().stream()
+                .map(entry -> entry.getKey().strip() + "=" + entry.getValue().name())
+                .collect(Collectors.joining("\n"));
         this.analysisStatus = AnalysisStatus.DONE;
         this.analyzedAt = Instant.now();
     }
 
     public List<String> shortfalls() {
         return qualificationShortfalls.isEmpty() ? List.of() : List.of(qualificationShortfalls.split("\n"));
+    }
+
+    public Map<String, CriterionMark> criterionMarks() {
+        Map<String, CriterionMark> marks = new LinkedHashMap<>();
+        Arrays.stream(criterionMarks.split("\n")).map(line -> line.split("=", 2)).filter(pair -> pair.length == 2)
+                .forEach(pair -> marks.put(pair[0], CriterionMark.valueOf(pair[1])));
+        return marks;
+    }
+
+    public List<String> highTalents() {
+        return highTalents.isEmpty() ? List.of() : List.of(highTalents.split("\n"));
+    }
+
+    /** 인재상 판정 결과. 판정할 때마다 통째로 바꾼다. */
+    public void recordTalents(List<String> titles) {
+        this.highTalents = titles.stream().map(String::strip).filter(text -> !text.isEmpty())
+                .collect(Collectors.joining("\n"));
     }
 
     public void markAnalysisFailed() {

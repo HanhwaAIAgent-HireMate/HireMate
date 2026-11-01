@@ -8,6 +8,7 @@ import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.StageCandidateView;
 import com.hiremate.screening.StageOverview;
+import com.hiremate.screening.StageRequirements;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -45,9 +46,21 @@ public class StageController {
     @GetMapping("/candidates")
     public CandidatePage candidates(AuthenticatedMember member, @PathVariable UUID stageId,
             @RequestParam(required = false) UUID tabId, @RequestParam(required = false) String query,
-            @RequestParam(defaultValue = "QUALIFICATION") CandidateSort sort,
+            @RequestParam(defaultValue = "BASIC") CandidateSort sort,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "30") int size) {
         return screening.candidates(member.companyId(), stageId, tabId, query, sort, page, size);
+    }
+
+    /** 서류 전형의 필수 조건. 모두 충족한 지원자만 선 위(AI 단계)에 오른다. */
+    @GetMapping("/requirements")
+    public StageRequirements requirements(AuthenticatedMember member, @PathVariable UUID stageId) {
+        return screening.requirements(member.companyId(), stageId);
+    }
+
+    @PutMapping("/requirements")
+    public StageRequirements updateRequirements(AuthenticatedMember member, @PathVariable UUID stageId,
+            @Valid @RequestBody RequirementsRequest request) {
+        return screening.updateRequirements(member.companyId(), stageId, request.criterionIds());
     }
 
     @PostMapping("/candidates/{applicationId}/promote")
@@ -112,5 +125,9 @@ public class StageController {
     }
 
     public record MemoRequest(@NotNull @Size(max = 5000) String memo) {
+    }
+
+    /** 필수로 체크한 평가 항목 ID. 비우면 필수 조건이 없다. */
+    public record RequirementsRequest(@NotNull @Size(max = 100) List<@NotNull String> criterionIds) {
     }
 }

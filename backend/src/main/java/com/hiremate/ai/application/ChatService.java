@@ -163,7 +163,7 @@ public class ChatService {
         CandidatePage page;
         int pageNumber = 0;
         do {
-            page = screening.candidates(companyId, stageId, tabId, null, CandidateSort.QUALIFICATION,
+            page = screening.candidates(companyId, stageId, tabId, null, CandidateSort.BASIC,
                     pageNumber++, CANDIDATE_PAGE_SIZE);
             all.addAll(page.items());
         } while (!page.items().isEmpty() && all.size() < page.total());
