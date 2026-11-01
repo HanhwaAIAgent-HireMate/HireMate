@@ -87,7 +87,7 @@ public class ScreeningService {
         this.activity = activity;
     }
 
-    /** 전형을 시작하며 대상 지원자를 넣고 탭 1을 만든다. 첫 전형은 지원자 전원, 이후 전형은 앞 전형 합격자다. */
+    /** 전형을 시작하며 대상 지원자를 넣고 첫 탭을 만든다. 첫 전형은 지원자 전원, 이후 전형은 앞 전형 합격자다. */
     @Transactional
     public void startStage(UUID companyId, UUID stageId, Collection<UUID> applicationIds) {
         if (candidates.existsByStageId(stageId)) {

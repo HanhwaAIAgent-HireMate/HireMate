@@ -61,7 +61,7 @@ public class StageTabService {
         return found.stream().map(tab -> view(tab, counts.getOrDefault(tab.getId(), 0L))).toList();
     }
 
-    /** 빈 탭을 만든다. 이름은 "탭 {가장 큰 번호 + 1}"이다. */
+    /** 빈 탭을 만든다. 이름은 "새 탭"이고, 번호는 남은 탭의 가장 큰 번호 다음이다. */
     @Transactional
     public StageTabView create(UUID companyId, UUID stageId) {
         requireActive(companyId, stageId);
@@ -93,7 +93,7 @@ public class StageTabService {
         events.publishEvent(new TabDeleted(companyId, stageId, tabId));
     }
 
-    /** 첫 대화 뒤의 자동 제목. 아직 번호 이름인 탭만 바꾸고, 바꾸지 않았으면 빈 값이다. */
+    /** 첫 대화 뒤의 자동 제목. 아직 자동 제목을 기다리는 탭만 바꾸고, 바꾸지 않았으면 빈 값이다. */
     @Transactional
     public Optional<StageTabView> autoName(UUID companyId, UUID stageId, UUID tabId, String name) {
         String title = name.strip();

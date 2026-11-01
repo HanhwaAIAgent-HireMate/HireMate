@@ -166,16 +166,22 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("전형을 시작하면 탭 1이 있고, 탭은 만들고 이름을 바꾸고 지울 수 있지만 마지막 탭은 지울 수 없다")
+    @DisplayName("탭은 모두 새 탭으로 시작하고, 만들고 이름을 바꾸고 지울 수 있지만 마지막 탭은 지울 수 없다")
     void tabsCanBeCreatedRenamedAndDeleted() throws Exception {
         Stage stage = startDocumentStage(1);
         JsonNode tabs = json(expect(stage.hr().get(stage.path() + "/tabs"), 200));
         assertThat(tabs.size()).isEqualTo(1);
-        assertThat(tabs.get(0).path("name").asString()).isEqualTo("탭 1");
+        assertThat(tabs.get(0).path("name").asString()).isEqualTo("새 탭");
         assertThat(tabs.get(0).path("selectedCount").asLong()).isZero();
         assertThat(tabs.get(0).path("canRestore").asBoolean()).isFalse();
 
         String second = newTab(stage);
+        JsonNode created = json(expect(stage.hr().get(stage.path() + "/tabs"), 200));
+        assertThat(created.size()).isEqualTo(2);
+        assertThat(created.get(0).path("id").asString()).isEqualTo(stage.tabId());
+        assertThat(created.get(1).path("id").asString()).isEqualTo(second);
+        assertThat(created.get(0).path("name").asString()).isEqualTo("새 탭");
+        assertThat(created.get(1).path("name").asString()).isEqualTo("새 탭");
         JsonNode renamed = json(expect(stage.hr().patch(stage.tabPath(second), Map.of("name", "금융 경험")), 200));
         assertThat(renamed.path("name").asString()).isEqualTo("금융 경험");
         expect(stage.hr().patch(stage.tabPath(second), Map.of("name", " ")), 400);
@@ -186,9 +192,12 @@ class ScreeningTests extends IntegrationTest {
         assertThat(left.size()).isEqualTo(1);
         assertThat(left.get(0).path("name").asString()).isEqualTo("금융 경험");
         assertCode(expect(stage.hr().delete(stage.tabPath(second)), 409), "LAST_TAB");
-        // 새 탭 번호는 남은 탭의 가장 큰 번호 다음이다
-        assertThat(json(expect(stage.hr().post(stage.path() + "/tabs", null), 201)).path("name").asString())
-                .isEqualTo("탭 3");
+        JsonNode third = json(expect(stage.hr().post(stage.path() + "/tabs", null), 201));
+        assertThat(third.path("name").asString()).isEqualTo("새 탭");
+        JsonNode ordered = json(expect(stage.hr().get(stage.path() + "/tabs"), 200));
+        assertThat(ordered.size()).isEqualTo(2);
+        assertThat(ordered.get(0).path("id").asString()).isEqualTo(second);
+        assertThat(ordered.get(1).path("id").asString()).isEqualTo(third.path("id").asString());
     }
 
     @Test

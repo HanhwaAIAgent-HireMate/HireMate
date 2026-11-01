@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * 전형 화면의 탭. 선택 지원자와 AI Chat 대화방의 묶음이고 같은 기업 담당자가 함께 쓴다.
- * 이름은 "탭 {번호}"로 시작하고, 첫 대화 뒤 자동 제목이 붙거나 담당자가 바꾸면 더 이상 자동으로 바뀌지 않는다.
+ * 이름은 "새 탭"으로 시작하고, 첫 대화 뒤 자동 제목이 붙거나 담당자가 바꾸면 더 이상 자동으로 바뀌지 않는다.
  */
 @Entity
 @Table(name = "stage_tabs")
@@ -46,7 +46,7 @@ public class StageTab {
         this.companyId = companyId;
         this.stageId = stageId;
         this.number = number;
-        this.name = "탭 " + number;
+        this.name = "새 탭";
         this.autoNamed = true;
         this.createdAt = Instant.now();
     }
@@ -56,7 +56,7 @@ public class StageTab {
         this.autoNamed = false;
     }
 
-    /** 자동 제목. 아직 번호 이름일 때만 바꾸고, 바꿨으면 true다. */
+    /** 자동 제목. 아직 자동 제목을 기다릴 때만 바꾸고, 바꿨으면 true다. */
     public boolean autoName(String name) {
         if (!autoNamed) {
             return false;

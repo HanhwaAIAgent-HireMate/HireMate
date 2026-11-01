@@ -438,7 +438,7 @@ public class ChatService {
     }
 
     /**
-     * 첫 대화 뒤의 자동 제목. 탭이 아직 번호 이름이고 답이 차단이 아니면 Root에 제목을 받아 탭 이름을 바꾼다.
+     * 첫 대화 뒤의 자동 제목. 탭이 아직 자동 제목을 기다리고 답이 차단이 아니면 Root에 제목을 받아 탭 이름을 바꾼다.
      * 그 사이 담당자가 이름을 바꿨거나 제목을 받지 못하면 빈 값이고, 다음 질문에서 다시 한다.
      */
     public Optional<StageTabView> title(ChatInput input, ChatAnswer answer) {
