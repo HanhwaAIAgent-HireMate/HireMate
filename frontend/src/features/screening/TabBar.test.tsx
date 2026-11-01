@@ -18,7 +18,7 @@ function mockServer() {
     if (path === '/api/auth/csrf')
       return Promise.resolve(Response.json({ token: 't', headerName: 'X-CSRF-TOKEN' }))
     if (method === 'POST' && path === '/api/stages/s1/tabs')
-      return Promise.resolve(Response.json(tab('t9', '탭 9'), { status: 201 }))
+      return Promise.resolve(Response.json(tab('t9', '새 탭'), { status: 201 }))
     if (method === 'PATCH') return Promise.resolve(Response.json(tab('t2', '바꾼 이름')))
     if (method === 'DELETE') return Promise.resolve(new Response(null, { status: 204 }))
     return Promise.resolve(Response.json([]))
