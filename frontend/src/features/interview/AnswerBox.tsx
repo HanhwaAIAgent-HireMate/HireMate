@@ -10,6 +10,7 @@ import {
   type FollowUps,
   type InterviewQuestion,
 } from '@/features/interview/api'
+import type { RegisterAnswerSave } from '@/features/interview/pending-saves'
 import { ApiError, errorMessage } from '@/lib/api/client'
 
 /** 💾 타이핑을 멈추고 이만큼 지나면 DB에만 자동 저장한다 (분석은 하지 않는다) */
@@ -71,6 +72,7 @@ export function AnswerBox({
   editable,
   canFollowUp,
   answerActions,
+  registerSave,
 }: {
   stageId: string
   applicationId: string
@@ -79,6 +81,7 @@ export function AnswerBox({
   canFollowUp: boolean
   /** 없으면 HR 지원자 카드의 전형 API를 쓴다 */
   answerActions?: AnswerActions
+  registerSave?: RegisterAnswerSave
 }) {
   const stageActions = useStageAnswerActions(stageId, applicationId)
   const actions = answerActions ?? stageActions
@@ -147,6 +150,15 @@ export function AnswerBox({
     },
     [question.questionId],
   )
+
+  const flushSave = useCallback(async () => {
+    do {
+      await save(true)
+      if (saveError.current) throw saveError.current
+      if (conflicted.current) throw new ApiError(409, 'ANSWER_CONFLICT', '')
+    } while (latest.current !== sent.current)
+  }, [save])
+  useEffect(() => registerSave?.(flushSave), [registerSave, flushSave])
 
   // 담당 태그만 바뀌고 답변은 같다면 최신 버전을 쓴다. 다른 답변이 들어오면 기존 초안으로 덮어쓰지 않는다.
   useEffect(() => {

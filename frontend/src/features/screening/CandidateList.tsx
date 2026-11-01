@@ -10,6 +10,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  useInterviewStageLive,
+  useStageInterviewProgress,
+  type SessionProgress,
+} from '@/features/interview/live'
+import { INTERVIEW_STATUS_LABELS } from '@/features/interview/sessions'
 import { OpinionBadges } from '@/features/interview/OpinionBadges'
 import { useStageOpinions } from '@/features/interview/opinions'
 import {
@@ -61,7 +67,13 @@ export function CandidateList({
   const sentinel = useRef<HTMLDivElement>(null)
   const documentStage = overview.type === 'DOCUMENT'
   // 면접 전형은 지원자마다 면접관 의견을 배지로 보인다 (결정은 HR이 결정 바에서 한다)
-  const opinions = useStageOpinions(stageId, overview.type === 'INTERVIEW')
+  const interviewStage = overview.type === 'INTERVIEW'
+  const opinions = useStageOpinions(stageId, interviewStage)
+  const progress = useStageInterviewProgress(stageId, interviewStage)
+  useInterviewStageLive(stageId, interviewStage)
+  const progressByApplication = new Map(
+    (progress.data ?? []).map((row) => [row.applicationId, row.status]),
+  )
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 250)
@@ -198,9 +210,12 @@ export function CandidateList({
             action={action(row)}
             note={
               overview.type === 'INTERVIEW' ? (
-                <OpinionBadges
-                  row={opinions.data?.find((item) => item.applicationId === row.applicationId)}
-                />
+                <div className="space-y-0.5">
+                  <InterviewProgressBadge status={progressByApplication.get(row.applicationId)} />
+                  <OpinionBadges
+                    row={opinions.data?.find((item) => item.applicationId === row.applicationId)}
+                  />
+                </div>
               ) : undefined
             }
             onOpen={() => open({ applicationId: row.applicationId, name: row.name })}
@@ -209,5 +224,20 @@ export function CandidateList({
         <div ref={sentinel} className="h-4" />
       </div>
     </section>
+  )
+}
+
+function InterviewProgressBadge({ status }: { status: SessionProgress['status'] | undefined }) {
+  if (!status) return null
+  return (
+    <span
+      aria-label={`면접 상태: ${INTERVIEW_STATUS_LABELS[status]}`}
+      className={cn(
+        'inline-flex rounded px-1 text-[11px] font-semibold',
+        status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800' : 'bg-muted text-muted-foreground',
+      )}
+    >
+      면접 {INTERVIEW_STATUS_LABELS[status]}
+    </span>
   )
 }

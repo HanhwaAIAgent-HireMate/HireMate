@@ -1,12 +1,12 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '@/app/query-client'
 import { InterviewAssign } from '@/features/interview/InterviewAssign'
 
-function mockServer(assigned: boolean) {
+function mockServer(assigned: boolean, practicalEntered = true) {
   const puts: unknown[] = []
   vi.stubGlobal(
     'fetch',
@@ -18,6 +18,33 @@ function mockServer(assigned: boolean) {
         return Response.json([
           { memberId: 'choi', name: '최인사', email: 'choi@x', accountRole: 'INTERVIEWER' },
           { memberId: 'kim', name: '김지민', email: 'kim@x', accountRole: 'INTERVIEWER' },
+        ])
+      if (url.endsWith('/interview/sessions'))
+        return Response.json([
+          {
+            applicationId: 'a1',
+            status: 'IN_PROGRESS',
+            startedAt: '2026-11-01T08:00:00Z',
+            endedAt: null,
+            attendees: [
+              {
+                role: 'HR',
+                memberId: 'choi',
+                name: '최인사',
+                entered: true,
+                online: true,
+                me: false,
+              },
+              {
+                role: 'PRACTICAL',
+                memberId: 'kim',
+                name: '김지민',
+                entered: practicalEntered,
+                online: false,
+                me: false,
+              },
+            ],
+          },
         ])
       if (url.endsWith('/interview/session')) {
         if (input.method === 'PUT') {
@@ -54,7 +81,7 @@ afterEach(() => {
 })
 
 describe('InterviewAssign', () => {
-  it('인사 · 실무 면접관을 서로 다른 계정으로 골라 배정한다', async () => {
+  it('인사와 실무 면접관을 서로 다른 계정으로 골라 배정한다', async () => {
     const puts = mockServer(false)
     renderAssign()
 
@@ -84,8 +111,31 @@ describe('InterviewAssign', () => {
     renderAssign()
 
     expect(await screen.findByText('면접 진행 중')).toBeInTheDocument()
-    fireEvent.click(await screen.findByRole('button', { name: /인사 최인사 · 실무 김지민/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /인사 최인사, 실무 김지민/ }))
     expect(screen.getByText('면접이 시작돼 배정을 바꿀 수 없어요.')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: '인사 면접관' })).toBeDisabled()
   })
+})
+
+it('HR 지원자 카드에서 배정된 면접관의 이름과 입장 및 접속 상태를 확인한다', async () => {
+  mockServer(true)
+  renderAssign()
+
+  const attendance = await screen.findByRole('list', { name: '면접관 입장 상태' })
+  const rows = within(attendance).getAllByRole('listitem')
+  expect(rows[0]).toHaveTextContent('인사 최인사')
+  expect(rows[0]).toHaveTextContent('접속 중')
+  expect(rows[1]).toHaveTextContent('실무 김지민')
+  expect(rows[1]).toHaveTextContent('접속 끊김')
+})
+
+it('면접 입장을 누르지 않은 면접관은 대기로 보인다', async () => {
+  mockServer(true, false)
+  renderAssign()
+
+  const attendance = await screen.findByRole('list', { name: '면접관 입장 상태' })
+  const practical = within(attendance).getAllByRole('listitem')[1]
+  expect(practical).toHaveTextContent('실무 김지민')
+  expect(practical).toHaveTextContent('입장 대기')
+  expect(practical).not.toHaveTextContent('접속 끊김')
 })

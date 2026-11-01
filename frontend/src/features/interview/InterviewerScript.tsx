@@ -13,6 +13,7 @@ import {
   type InterviewerQuestion,
   type InterviewerWorkspace,
 } from '@/features/interview/sessions'
+import type { RegisterAnswerSave } from '@/features/interview/pending-saves'
 import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 
@@ -44,6 +45,8 @@ export function InterviewerScript({
   workspace,
   filter,
   ownerNames,
+  registerSave,
+  savingBeforeEnd = false,
 }: {
   stageId: string
   applicationId: string
@@ -51,6 +54,8 @@ export function InterviewerScript({
   filter: 'all' | 'mine'
   /** 담당별 면접관 이름 ("인사 담당 · 최은영") */
   ownerNames: Partial<Record<InterviewerRole, string>>
+  registerSave?: RegisterAnswerSave
+  savingBeforeEnd?: boolean
 }) {
   const actions = useWorkspaceActions(stageId, applicationId)
   const answerActions = workspaceAnswerActions(actions)
@@ -111,10 +116,10 @@ export function InterviewerScript({
                 {mine(item)
                   ? '내 질문'
                   : role
-                    ? `${ROLE_LABELS[role]} 담당${ownerNames[role] ? ` · ${ownerNames[role]}` : ''}`
+                    ? `${ROLE_LABELS[role]} 담당${ownerNames[role] ? `: ${ownerNames[role]}` : ''}`
                     : '담당 없음'}
               </span>
-              {item.canDelete && (
+              {item.canDelete && !savingBeforeEnd && (
                 <button
                   aria-label="질문 삭제"
                   onClick={() => actions.remove.mutate(question.questionId, { onError: fail })}
@@ -130,7 +135,8 @@ export function InterviewerScript({
                   stageId={stageId}
                   applicationId={applicationId}
                   question={question}
-                  editable={item.canAnswer}
+                  editable={item.canAnswer && !savingBeforeEnd}
+                  registerSave={registerSave}
                   canFollowUp={item.canRequestFollowUp}
                   answerActions={answerActions}
                 />
@@ -148,7 +154,8 @@ export function InterviewerScript({
           </div>
         )
       })}
-      {workspace.session.status !== 'ENDED' &&
+      {workspace.session.status === 'IN_PROGRESS' &&
+        !savingBeforeEnd &&
         (draft === null ? (
           <Button size="sm" variant="outline" onClick={() => setDraft('')}>
             <Plus />내 질문 추가
