@@ -59,6 +59,9 @@ function mockServer(
     holdAnswer?: boolean
     failAnswer?: boolean
     stageActive?: boolean
+    /** 내 면접 목록에서 a1보다 먼저 오는 지원자 */
+    listedBefore?: Record<string, unknown>[]
+    scheduledAt?: string
   } = {},
 ) {
   // 칸 너비 조절(react-resizable-panels)이 쓰는 브라우저 API. jsdom에는 없다
@@ -143,6 +146,7 @@ function mockServer(
       const routes: Record<string, unknown> = {
         '/api/interviewer/sessions': {
           items: [
+            ...(options.listedBefore ?? []),
             {
               stageId: 's1',
               applicationId: 'a1',
@@ -150,12 +154,14 @@ function mockServer(
               recruitmentTitle: '결제 플랫폼 백엔드 개발자',
               stageName: '1차 기술 면접',
               applicantName: '김하늘',
-              schedule: null,
+              schedule: options.scheduledAt
+                ? { scheduledAt: options.scheduledAt, interviewers: '' }
+                : null,
               myRole: 'PRACTICAL',
               status,
             },
           ],
-          total: 1,
+          total: 1 + (options.listedBefore?.length ?? 0),
           page: 0,
           size: 50,
         },
@@ -208,6 +214,33 @@ function renderRoom() {
 }
 
 describe('InterviewRoomPage', () => {
+  it('지원자를 고르지 않고 전형으로 들어오면 왼쪽 목록 맨 위 지원자를 연다', async () => {
+    const { requests } = mockServer({
+      scheduledAt: '2026-11-03T02:00:00Z',
+      listedBefore: [
+        {
+          stageId: 's1',
+          applicationId: 'a0',
+          recruitmentId: 'r1',
+          recruitmentTitle: '결제 플랫폼 백엔드 개발자',
+          stageName: '1차 기술 면접',
+          applicantName: '박서준',
+          schedule: null,
+          myRole: 'PRACTICAL',
+          status: 'SCHEDULED',
+        },
+      ],
+    })
+    renderRoom()
+    const list = await screen.findByRole('navigation', { name: '면접 지원자' })
+    const buttons = await within(list).findAllByRole('button')
+    expect(buttons[0]).toHaveTextContent('김하늘')
+    expect(buttons[0]).toHaveAttribute('aria-current', 'true')
+    expect(buttons[1]).toHaveTextContent('박서준')
+    await vi.waitFor(() => expect(requests).toContain('GET /api/interviewer/sessions/s1/a1'))
+    expect(requests).not.toContain('GET /api/interviewer/sessions/s1/a0')
+  })
+
   it('내 입장과 전원 접속을 확인한 뒤 확인 창에서 시작한다', async () => {
     const { posts } = mockServer()
     renderRoom()
