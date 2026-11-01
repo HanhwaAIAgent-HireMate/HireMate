@@ -9,7 +9,13 @@ export type AssignedInterview = Schemas['AssignedInterview']
 export type InterviewerWorkspace = Schemas['InterviewerWorkspace']
 export type InterviewerQuestion = Schemas['InterviewerQuestionAccess']
 
-/** 면접 중에는 다른 면접관의 답과 새 질문을 이 간격으로 다시 받아 온다 */
+export const INTERVIEW_STATUS_LABELS = {
+  SCHEDULED: '예정',
+  IN_PROGRESS: '진행 중',
+  ENDED: '끝남',
+} as const satisfies Record<InterviewAssignment['status'], string>
+
+/** 내 면접 목록은 별도 실시간 연결 없이 이 간격으로 상태를 다시 받아 온다 */
 export const LIVE_POLL_MS = 5_000
 
 export const sessionKeys = {
@@ -17,11 +23,14 @@ export const sessionKeys = {
   assignment: (stageId: string, applicationId: string) =>
     ['interview', 'session', stageId, applicationId] as const,
   mine: ['interviewer', 'sessions'] as const,
+  attendance: (stageId: string, applicationId: string) =>
+    ['interviewer', 'attendance', stageId, applicationId] as const,
+  progress: (stageId: string) => ['interview', 'progress', stageId] as const,
   workspace: (stageId: string, applicationId: string) =>
     ['interviewer', 'workspace', stageId, applicationId] as const,
 }
 
-/** 면접관으로 배정할 수 있는 같은 기업 계정 (HR · 면접관 계정) */
+/** 면접관으로 배정할 수 있는 같은 기업 계정 (HR, 면접관 계정) */
 export function useInterviewMembers() {
   return useQuery({
     queryKey: sessionKeys.members,
@@ -48,7 +57,7 @@ export function useInterviewAssignment(stageId: string, applicationId: string) {
   })
 }
 
-/** 인사 · 실무 면접관을 배정한다. 바꿀 때는 조회한 version을 보내고, 시작 뒤에는 서버가 거절한다 */
+/** 인사, 실무 면접관을 배정한다. 바꿀 때는 조회한 version을 보내고, 시작 뒤에는 서버가 거절한다 */
 export function useAssignInterview(stageId: string, applicationId: string) {
   const queryClient = useQueryClient()
   return useMutation({
@@ -59,8 +68,11 @@ export function useAssignInterview(stageId: string, applicationId: string) {
           body,
         }),
       ),
-    onSuccess: (saved) =>
-      queryClient.setQueryData(sessionKeys.assignment(stageId, applicationId), saved),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(sessionKeys.assignment(stageId, applicationId), saved)
+      void queryClient.invalidateQueries({ queryKey: sessionKeys.progress(stageId) })
+      void queryClient.invalidateQueries({ queryKey: sessionKeys.mine })
+    },
   })
 }
 
@@ -70,6 +82,7 @@ export function useMyInterviews() {
     queryKey: sessionKeys.mine,
     queryFn: () =>
       unwrap(api.GET('/api/interviewer/sessions', { params: { query: { page: 0, size: 50 } } })),
+    refetchInterval: LIVE_POLL_MS,
   })
 }
 
@@ -87,7 +100,7 @@ export function useInterviewerTab(stageId: string) {
   })
 }
 
-/** 면접관 화면의 지원자 한 명: 내 담당, 질문별 권한, 개인 메모. 진행 중이면 몇 초마다 다시 받아 온다 */
+/** 면접관 화면의 지원자 한 명: 내 담당, 질문별 권한, 개인 메모. 실시간 알림으로 다시 받아 온다 */
 export function useWorkspace(stageId: string, applicationId: string) {
   return useQuery({
     queryKey: sessionKeys.workspace(stageId, applicationId),
@@ -98,13 +111,11 @@ export function useWorkspace(stageId: string, applicationId: string) {
           workspacePath(stageId, applicationId),
         ),
       ),
-    refetchInterval: (query) =>
-      query.state.data?.session.status === 'IN_PROGRESS' ? LIVE_POLL_MS : false,
   })
 }
 
 /**
- * 면접관 API의 동작. 시작 · 종료 · 메모는 바뀐 작업 공간으로 캐시를 바꾸고, 질문 · 답변 변경은 면접 기록을 돌려주므로
+ * 면접관 API의 동작. 시작, 종료, 메모는 바뀐 작업 공간으로 캐시를 바꾸고, 질문, 답변 변경은 면접 기록을 돌려주므로
  * 작업 공간(질문별 권한 포함)을 다시 받는다.
  */
 export function useWorkspaceActions(stageId: string, applicationId: string) {
@@ -208,7 +219,7 @@ export function useWorkspaceActions(stageId: string, applicationId: string) {
   }
 }
 
-/** 면접관 화면의 답변 칸 동작 (면접관 API로 저장 · 꼬리질문) */
+/** 면접관 화면의 답변 칸 동작 (면접관 API로 저장, 꼬리질문) */
 export function workspaceAnswerActions(
   actions: ReturnType<typeof useWorkspaceActions>,
 ): AnswerActions {
