@@ -74,7 +74,7 @@ class AgentReportTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("전형 결과를 확정하면 전형 결과 리포트가 만들어지고, 안내를 모두 보내면 열린다")
+    @DisplayName("전형 결과를 확정하면 전형 결과 리포트가 만들어지고, 안내를 모두 보내면 열린다. 서류 점수 대신 필수 조건 지표를 넣는다")
     void confirmingStageComposesStageReport() throws Exception {
         Stage stage = startDocumentStage(3);
         expect(stage.hr().post(stage.path() + "/decisions",
@@ -96,8 +96,14 @@ class AgentReportTests extends IntegrationTest {
         expect(stage.hr().post(stage.path() + "/notices/FAIL/send", null), 200);
         JsonNode report = json(expect(stage.hr().get(path), 200));
         JsonNode metrics = report.path("bundle").path("metrics");
-        assertThat(metrics.findValuesAsString("id")).contains("m-target", "m-pass", "m-pass-rate");
-        assertThat(report.path("bundle").path("areas")).isNotEmpty();
+        assertThat(metrics.findValuesAsString("id"))
+                .contains("m-target", "m-pass", "m-pass-rate", "m-req-met", "m-req-unmet", "m-req-unknown");
+        JsonNode bundle = report.path("bundle");
+        assertThat(bundle.path("areas")).isNotEmpty();
+        assertThat(bundle.hasNonNull("totalKey")).isFalse();
+        assertThat(bundle.path("areas")).allMatch(area -> !area.hasNonNull("scoreKey"));
+        assertThat(bundle.path("facts").findValuesAsString("key"))
+                .doesNotContain("document.total", "document.qualification", "document.preference");
     }
 
     @Test

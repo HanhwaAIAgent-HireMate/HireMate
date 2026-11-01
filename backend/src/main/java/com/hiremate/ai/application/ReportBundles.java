@@ -1,7 +1,9 @@
 package com.hiremate.ai.application;
 
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationService;
+import com.hiremate.apply.CriterionMark;
 import com.hiremate.assessment.AssessmentService;
 import com.hiremate.posting.PostingService;
 import com.hiremate.posting.ScreeningRubric;
@@ -21,7 +23,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -32,7 +33,9 @@ import org.springframework.stereotype.Component;
  * Report Agent에 넘길 묶음을 만든다. 업무 데이터(지원자번호, 결정, 점수, AI 추천, 지표)만 넣고 이름은 넣지 않는다.
  * 분석 판정 · 근거는 ai가 자기 저장소에서 applicationId로 찾아 붙인다 (아키텍처 규칙 3).
  *
- * <p>값 key는 '{전형 종류}.{항목}'이다 (예: document.total, assessment.area.문제해결능력). 범위에 같은 종류의 전형이
+ * <p>서류 전형은 점수 대신 항목 판정으로 본다. 서류 점수(총점, 자격요건 · 우대사항 점수)는 아직 저장되지만 넣지 않는다.
+ *
+ * <p>값 key는 '{전형 종류}.{항목}'이다 (예: document.ai_pick, assessment.area.문제해결능력). 범위에 같은 종류의 전형이
  * 또 있으면 interview2처럼 번호를 붙인다. ai의 enrich.stage_prefix와 같은 규칙이다.
  */
 @Component
@@ -85,27 +88,24 @@ public class ReportBundles {
 
         Facts facts = new Facts();
         String prefix = prefix(scope, current);
-        UUID documentStage = scope.stream().filter(stage -> stage.type() == StageType.DOCUMENT).map(StageInfo::id)
-                .findFirst().orElse(null);
         for (CandidateRow row : rows) {
             String number = numbers.get(row.applicationId());
-            ApplicantInfo info = infos.get(row.applicationId());
             facts.verdict(number, stageId, prefix + ".decision", current.name() + " 결정", row.decision().name());
-            if (documentStage != null) {
-                document(facts, number, documentStage, row, info, current.type() == StageType.DOCUMENT);
-            }
-            if (current.type() == StageType.ASSESSMENT) {
+            if (current.type() == StageType.DOCUMENT) {
+                facts.verdict(number, stageId, "document.ai_pick", "AI 추천",
+                        row.aboveLine() ? "RECOMMENDED" : "NOT_RECOMMENDED");
+            } else if (current.type() == StageType.ASSESSMENT) {
                 assessment(facts, number, companyId, stageId, prefix, row);
             } else if (current.type() == StageType.INTERVIEW && row.score() != null) {
                 facts.number(number, stageId, prefix + ".score", current.name() + " 점수", row.score(), null);
             }
         }
         String totalKey = switch (current.type()) {
-            case DOCUMENT -> "document.total";
+            case DOCUMENT -> null;
             case ASSESSMENT -> prefix + ".total";
             case INTERVIEW -> facts.has(prefix + ".score") ? prefix + ".score" : null;
         };
-        // 서류는 자격요건 · 우대사항을 영역으로 나누고, 평가 · 면접은 점수가 있으면 전형 하나를 영역으로 둔다
+        // 서류는 자격요건 · 우대사항 판정을 영역으로 나누고, 평가 · 면접은 점수가 있으면 전형 하나를 영역으로 둔다
         List<ReportBundle.Area> areas = current.type() == StageType.DOCUMENT
                 ? documentAreas(postings.screeningRubric(companyId, recruitment.id()))
                 : stageArea(current, prefix, facts, companyId, recruitment.id()).stream().toList();
@@ -124,7 +124,7 @@ public class ReportBundles {
     /**
      * 채용 최종 리포트 묶음. 범위는 모든 전형이고, 지원자는 첫 전형의 지원자 전원이다.
      *
-     * <p>전형마다 결정({전형}.decision)과 점수를 넣고, 점수가 있는 전형은 영역 하나로 둔다. 최종 합격자는 마지막 전형의
+     * <p>전형마다 결정({전형}.decision)과 점수를 넣고, 점수가 있는 전형과 서류 전형은 영역 하나로 둔다. 최종 합격자는 마지막 전형의
      * 합격자다. 현재 전형(stageId)은 마지막 전형이다.
      */
     public ReportBundle buildFinal(UUID companyId, UUID recruitmentId) {
@@ -151,10 +151,7 @@ public class ReportBundles {
             for (CandidateRow row : rows) {
                 String number = numbers.get(row.applicationId());
                 facts.verdict(number, stage.id(), prefix + ".decision", stage.name() + " 결정", row.decision().name());
-                // 서류 점수는 지원서에 하나라 첫 서류 전형에만 넣는다
-                if (stage.type() == StageType.DOCUMENT && prefix.equals("document")) {
-                    document(facts, number, stage.id(), row, infos.get(row.applicationId()), false);
-                } else if (stage.type() == StageType.ASSESSMENT) {
+                if (stage.type() == StageType.ASSESSMENT) {
                     assessment(facts, number, companyId, stage.id(), prefix, row);
                 } else if (stage.type() == StageType.INTERVIEW && row.score() != null) {
                     facts.number(number, stage.id(), prefix + ".score", stage.name() + " 점수", row.score(), null);
@@ -185,12 +182,12 @@ public class ReportBundles {
                 null, areas, metrics, facts.list, List.of());
     }
 
-    /** 전형 하나의 영역. 점수가 있는 전형만 둔다. 서류는 심사 항목 판정을 함께 묶는다 (최종 리포트용). */
+    /** 전형 하나의 영역. 평가 · 면접은 점수가 있는 전형만 둔다. 서류는 심사 항목 판정만 묶는다 (최종 리포트용). */
     private Optional<ReportBundle.Area> stageArea(StageInfo stage, String prefix, Facts facts, UUID companyId,
             UUID recruitmentId) {
         return switch (stage.type()) {
             case DOCUMENT -> prefix.equals("document")
-                    ? Optional.of(new ReportBundle.Area(prefix, stage.name(), "document.total",
+                    ? Optional.of(new ReportBundle.Area(prefix, stage.name(), null,
                             postings.screeningRubric(companyId, recruitmentId).criteria().stream()
                                     .map(criterion -> "document.criterion." + criterion.criterionId()).toList()))
                     : Optional.empty();
@@ -216,24 +213,6 @@ public class ReportBundles {
         }
     }
 
-    private static void document(Facts facts, String number, UUID stageId, CandidateRow row, ApplicantInfo info,
-            boolean current) {
-        BigDecimal total = info.documentScore() != null ? info.documentScore() : info.documentScoreLow();
-        facts.number(number, stageId, "document.total", "서류 총점", total, 100.0);
-        if (!current) {
-            return;
-        }
-        facts.number(number, stageId, "document.qualification", "자격요건",
-                info.qualificationScore() != null ? info.qualificationScore() : info.qualificationScoreLow(),
-                (double) info.qualificationMax());
-        if (info.preferenceMax() > 0) {
-            facts.number(number, stageId, "document.preference", "우대사항", info.preferenceScore(),
-                    (double) info.preferenceMax());
-        }
-        facts.verdict(number, stageId, "document.ai_pick", "AI 추천",
-                row.aboveLine() ? "RECOMMENDED" : "NOT_RECOMMENDED");
-    }
-
     private void assessment(Facts facts, String number, UUID companyId, UUID stageId, String prefix, CandidateRow row) {
         assessments.find(companyId, stageId, row.applicationId()).ifPresent(result -> {
             facts.number(number, stageId, prefix + ".total", "평가 총점", result.total(), null);
@@ -252,7 +231,7 @@ public class ReportBundles {
             }
             boolean qualification = category == ScreeningRubric.Category.QUALIFICATION;
             areas.add(new ReportBundle.Area(category.name().toLowerCase(Locale.ROOT), qualification ? "자격요건" : "우대사항",
-                    qualification ? "document.qualification" : "document.preference", keys));
+                    null, keys));
         }
         return areas;
     }
@@ -274,29 +253,42 @@ public class ReportBundles {
         if (!rows.isEmpty()) {
             metrics.add(metric("m-pass-rate", stageId, "합격률", round(100.0 * pass / rows.size()), "%", null, null));
         }
-        for (String key : List.of(Objects.requireNonNullElse(totalKey, ""), "document.qualification",
-                "document.preference")) {
-            facts.average(key).ifPresent(avg -> metrics.add(metric("m-avg-" + key, stageId, facts.label(key) + " 평균",
-                    avg, "점", key, null)));
-        }
         if (totalKey != null) {
+            facts.average(totalKey).ifPresent(avg -> metrics.add(metric("m-avg-" + totalKey, stageId,
+                    facts.label(totalKey) + " 평균", avg, "점", totalKey, null)));
             facts.average(totalKey, passed)
                     .ifPresent(avg -> metrics.add(metric("m-pass-avg", stageId, "합격자 " + facts.label(totalKey) + " 평균",
                             avg, "점", totalKey, null)));
         }
         if (prefix.equals("document")) {
-            Map<String, Long> judged = rows.stream().collect(Collectors.groupingBy(
-                    row -> infos.get(row.applicationId()).qualificationStatus().name(), Collectors.counting()));
-            metrics.add(metric("m-qj-met", stageId, "자격요건 충족", judged.getOrDefault("PASSED", 0L), "명", null,
-                    "qualification-judgement"));
-            metrics.add(metric("m-qj-unmet", stageId, "자격요건 미달", judged.getOrDefault("FAILED", 0L), "명", null,
-                    "qualification-judgement"));
-            metrics.add(metric("m-qj-unknown", stageId, "자격요건 판단 보류", judged.getOrDefault("UNDETERMINED", 0L), "명",
-                    null, "qualification-judgement"));
+            Map<CriterionMark, Long> judged = rows.stream().collect(Collectors.groupingBy(
+                    row -> required(row, infos.get(row.applicationId())), Collectors.counting()));
+            metrics.add(metric("m-req-met", stageId, "필수 조건 충족", judged.getOrDefault(CriterionMark.MET, 0L), "명",
+                    null, "required-judgement"));
+            metrics.add(metric("m-req-unmet", stageId, "필수 조건 미충족", judged.getOrDefault(CriterionMark.NOT_MET, 0L),
+                    "명", null, "required-judgement"));
+            metrics.add(metric("m-req-unknown", stageId, "필수 조건 확인 필요",
+                    judged.getOrDefault(CriterionMark.UNKNOWN, 0L), "명", null, "required-judgement"));
         }
         careers(metrics, stageId, "all", "전체", rows);
         careers(metrics, stageId, "pass", "합격자", rows.stream().filter(row -> row.decision() == Decision.PASS).toList());
         return metrics;
+    }
+
+    /**
+     * 필수 조건 판정 하나로 줄인다. 모두 충족이면 MET, 하나라도 미충족 · 부분 충족이면 NOT_MET,
+     * 나머지(확인 필요만 남음, 분석 전)는 UNKNOWN이다. 부분 충족은 선 위에 오르지 못하므로 미충족에 센다.
+     */
+    private static CriterionMark required(CandidateRow row, ApplicantInfo info) {
+        if (info.analysisStatus() != AnalysisStatus.DONE) {
+            return CriterionMark.UNKNOWN;
+        }
+        if (row.missingRequired().isEmpty()) {
+            return CriterionMark.MET;
+        }
+        boolean unmet = row.missingRequired().stream().map(id -> info.criterionMarks().get(id))
+                .anyMatch(mark -> mark == CriterionMark.NOT_MET || mark == CriterionMark.PARTIAL);
+        return unmet ? CriterionMark.NOT_MET : CriterionMark.UNKNOWN;
     }
 
     private static void careers(List<ReportBundle.Metric> metrics, UUID stageId, String group, String label,
