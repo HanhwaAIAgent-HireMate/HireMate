@@ -219,6 +219,21 @@ describe('🎤 꼬리질문', () => {
     )
   })
 
+  it('저장이 실패하면 제안을 요청하지 않고 초안을 유지하며 재시도할 수 있다', async () => {
+    actions.answer.mockRejectedValueOnce(new Error('저장 실패')).mockResolvedValue({})
+    actions.suggest.mockResolvedValue({ needed: false, suggestions: [] })
+    renderBox('처음 답')
+    fireEvent.change(box(), { target: { value: '저장할 답' } })
+    fireEvent.click(screen.getByRole('button', { name: '꼬리질문 받기' }))
+    await screen.findByText('저장하지 못했어요')
+    expect(actions.suggest).not.toHaveBeenCalled()
+    expect(box()).toHaveValue('저장할 답')
+    fireEvent.click(screen.getByRole('button', { name: '꼬리질문 받기' }))
+    await screen.findByText('추가로 확인할 점이 없어요.')
+    expect(actions.answer).toHaveBeenCalledTimes(2)
+    expect(actions.suggest).toHaveBeenCalledTimes(1)
+  })
+
   it('받기 전에 화면의 답을 분석 없이 먼저 저장한다', async () => {
     actions.suggest.mockResolvedValue({ needed: false, suggestions: [] })
     renderBox('처음 답')
