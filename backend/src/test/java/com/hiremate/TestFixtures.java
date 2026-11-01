@@ -47,7 +47,7 @@ public final class TestFixtures {
         return new Posting(id, draft.path("postingId").asString());
     }
 
-    /** 전형의 첫 탭. 전형을 시작하면 탭 1이 생긴다. */
+    /** 전형의 첫 탭. 전형을 시작하면 "새 탭"이 생긴다. */
     public static UUID firstTab(TestApi hr, Object stageId) throws Exception {
         return UUID.fromString(json(expect(hr.get("/api/stages/" + stageId + "/tabs"), 200)).get(0).path("id")
                 .asString());
