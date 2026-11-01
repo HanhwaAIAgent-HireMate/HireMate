@@ -141,7 +141,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
               kind="banner"
               has={saved.hasBanner}
               version={version}
-              hint="PNG · JPG, 5MB까지. 가로로 넓은 그림이 좋아요. 메일 폭에 맞게 줄여 저장하고, 머리 모양이 '배너 그림'일 때 들어가요."
+              hint="PNG · JPG, 5MB까지"
             />
           </SettingsRow>
           <SettingsRow label="대표 색">
