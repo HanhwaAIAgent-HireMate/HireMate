@@ -41,6 +41,12 @@ public final class TestApi {
         csrf = null;
     }
 
+    /** 이미 있는 계정으로 로그인한다. 면접관 계정처럼 HR이 만든 계정에 쓴다. */
+    public void login(String email, String password) throws Exception {
+        member = json(expect(post("/api/auth/login", Map.of("email", email, "password", password)), 200));
+        csrf = null;
+    }
+
     public UUID memberId() {
         return UUID.fromString(member.path("memberId").asString());
     }
