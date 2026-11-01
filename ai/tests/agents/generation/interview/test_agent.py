@@ -149,7 +149,8 @@ def draft(call: LlmCall, *, bad: bool = False, sid: str = "S1") -> QuestionDraft
             extra = {"source_id": source_id, "anchor": anchor, "purpose": f"{anchor} {event} 복구 판단"}
         elif "type: 본인 역할 확인" in line or "type: 주장만 있음" in line:
             extra = {"purpose": "프로젝트 본인 기여와 기술적 선택 확인"}
-            text = f"'{topic}'에서 본인이 맡은 부분과 결과를 말해 주세요."
+            # 🎤 역할만 묻지 않고 결과를 어떻게 확인했는지까지 묻는다 (역할만 물으면 다시 쓰게 함)
+            text = f"'{topic}'에서 본인이 맡은 부분과 그 결과를 어떻게 확인했는지 말해 주세요."
         questions.append({"gap_id": gap_id, "question": bad_text if bad else text, **extra})
     # 최종면접이면 프롬프트에 적힌 자리(- VALUES (…)…)마다 그 주제의 열린 질문을 하나씩 쓴다
     slot_texts = {
@@ -989,6 +990,24 @@ def test_review_gaps_skip_known_shortfall_and_duplicate_note(sample_applicants: 
     assert all("금융" not in gap.topic for gap in gaps)  # 평가 기준(UNRATED)이 없는 우대사항은 빈틈이 아니다
     assert gaps[1].evidence == [SDK] and "불분명" in gaps[1].note
     assert gaps[2].evidence == [API]
+
+
+def test_review_gaps_skip_fact_without_experience_sentence(sample_applicants: dict[str, ApplicantDetail]) -> None:
+    """🎤 인용 문장이 모두 경험 재료가 아니면(비유 · 느낀 점) 그 사실은 빼고, 질문 생성이 멈추지 않는다.
+
+    실제 송주원: 이 경우 빈 인용으로 넘어가 IndexError가 나서 질문이 한 번도 생기지 않았다.
+    """
+    review = newcomer_review(sample_applicants["이도윤"])
+    only_feeling = Fact(
+        kind="EXPERIENCE",
+        statement="스타트업 근무",
+        actor=Actor.SELF,
+        quotes=[Quote(document=DocumentType.COVER_LETTER, sentence="구독 회사에서 세 번의 여름을 보냈습니다.")],
+    )
+    review = review.model_copy(update={"facts": [only_feeling, *review.facts]})
+    gaps = review_gaps(review)  # 예전에는 여기서 IndexError
+    assert all("세 번의 여름" not in line for gap in gaps for line in gap.evidence)
+    assert any(gap.evidence == [API] for gap in gaps)  # 경험 문장이 있는 사실은 그대로 남는다
 
 
 @pytest.mark.parametrize("use_review", [True, False])
@@ -1933,7 +1952,8 @@ async def test_pdf_context_stays_in_its_document_and_omits_personal_or_future_li
 
 
 def test_partition_key_is_technical_but_personal_height_is_still_blocked() -> None:
-    good = "파티션 키가 거래 순서를 보장하도록 설계할 때 어떤 원칙을 적용하나요?"
+    # ('어떤 원칙을 적용하나요'만 묻는 개념 질문은 이제 다시 쓰게 하므로 비교 · 한계를 묻는 문장으로 둔다)
+    good = "파티션 키가 거래 순서를 보장하도록 설계할 때, 키를 고르는 기준과 그 한계를 설명해 주세요."
     assert _checked(good, CONCEPT, [])[0] is not None
     mixed = "파티션 키가 거래 순서를 보장하는 원리를 설명하고 지원자의 키가 180 이상인지 알려 주세요."
     assert _checked(mixed, CONCEPT, [])[0] is None
@@ -3518,3 +3538,170 @@ async def test_single_interview_chat_remains_additional_questions(
     )
     assert len([text for text in questions if text != INTRO]) <= 1
     assert all("slot_picks: 요청함" not in call.user for call in llm.calls)
+
+
+# ------------------------------------------ 🎤 경력 · 개념 주제 · 구체 업무 · 내부 판단 (백엔드 점검 뒤)
+def _with_resume(applicant: ApplicantDetail, line: str) -> ApplicantDetail:
+    documents = [
+        document.model_copy(update={"text": document.text + "\n" + line})
+        if document.type == DocumentType.RESUME
+        else document
+        for document in applicant.documents
+    ]
+    return applicant.model_copy(update={"documents": documents})
+
+
+def test_career_fact_question_is_skipped_when_documents_show_period_and_tech(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _career_evident, _career_months
+
+    condition = "Java 또는 Kotlin 기반 서버 개발 경력 3년 이상"
+    gap = Gap("", REQUIRED, condition, "", criterion_id="Q-01", mode=FACT, title=condition)
+    senior = _with_resume(
+        sample_applicants["이도윤"],
+        "- 누리페이테크 선임 개발자 (2021.07~2026.09): Java · Spring Boot 결제 API\n"
+        "- 파란시스템즈 개발자 (2019.07~2021.06)\n- 자기소개서에 다시 적은 기간 2021.07~2026.09",
+    )
+    state = selection_state(senior, sample_posting, newcomer_analysis)
+    assert _career_months(["2021.07~2026.09", "2021.07~2026.09 (같은 기간)"]) == 62  # 같은 기간은 한 번만
+    # PDF 표처럼 학력 칸과 경력 칸이 한 덩어리로 이어져도 경력 기간은 센다 (학력 기간은 빼고)
+    table = (
+        "대학교 가온대학교 전산학과 2013.03~2017.02 졸업 경력 사항 근무 기간 회사명 직위 담당 업무 "
+        "2020.03~2026.09 드림증권시스템 책임 개발자 2018.09~2020.02 오름솔루션 개발자"
+    )
+    assert _career_months([table]) == 78 + 17
+    assert _career_evident(gap, state)
+    # 🎤 실제 최민재: 마침표 없는 표 이력서는 페이지 전체가 'SYNTHETIC SAMPLE …' 한 덩어리가 되어
+    #    머리말로 빠졌다 → 원문 줄로도 기간을 읽어 경력 확인 질문을 뺀다
+    pdf_table = _with_resume(
+        sample_applicants["이도윤"],
+        "SYNTHETIC SAMPLE · 채용 AI 시스템 테스트용 가상 데이터 1\n이 력 서\n"
+        "대학교 가온대학교 전산학과 2017.02 졸업\n경력 사항\n근무 기간 회사명 직위 담당 업무\n"
+        "2020.03~2026.09 드림증권시스템 책임 개발자 주식 주문 처리, 실시간 시세 연계\n"
+        "2018.09~2020.02 오름솔루션 개발자 대량 배치 및 정산 서비스 구축\n"
+        "기술 스택 Java, Spring, Oracle, Kafka",
+    )
+    assert _career_evident(gap, selection_state(pdf_table, sample_posting, newcomer_analysis))
+    # 기간이 모자라거나 조건의 기술이 서류에 없으면 그대로 묻는다
+    junior = _with_resume(sample_applicants["이도윤"], "- 테스트 회사 개발자 (2025.01~2025.12): Python")
+    assert not _career_evident(gap, selection_state(junior, sample_posting, newcomer_analysis))
+    python_only = _with_resume(sample_applicants["이도윤"], "- 데이터 회사 분석가 (2018.01~2025.12): Python · SQL")
+    assert not _career_evident(gap, selection_state(python_only, sample_posting, newcomer_analysis))
+    assert not _career_evident(Gap("", REQUIRED, "API 설계 경험", "", mode=""), state)
+
+
+def test_attitude_topics_go_last_for_concept_questions(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    posting = sample_posting.model_copy(
+        update={"duties": ["Git 기반 코드 리뷰와 협업", "외부 결제 API 연동 설계", "배치 장애 대응"]}
+    )
+    applicant = _with_resume(sample_applicants["이도윤"], "- Git 코드 리뷰와 협업을 했습니다")
+    for number in range(5):
+        info = applicant.info.model_copy(update={"application_id": UUID(int=number + 7)})
+        state = selection_state(applicant.model_copy(update={"info": info}), posting, newcomer_analysis)
+        assert _concept_topics(state)[-1] == "Git 기반 코드 리뷰와 협업"
+
+
+def test_summary_sentence_is_not_vague_and_vague_waits_for_concrete_experience() -> None:
+    assert _experience_flag("이러한 경험을 통해 서버 개발 전반에 대한 이해를 갖추게 되었고 크게 기여했습니다.") is None
+    assert _experience_flag(VAGUE_LINE) is not None
+
+
+def test_vague_goes_after_concrete_experience_in_the_first_slot(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _balanced_gaps
+
+    state = selection_state(sample_applicants["이도윤"], sample_posting, newcomer_analysis)
+    vague = Gap("", VAGUE, "품질 관련 업무 전반", "", [VAGUE_LINE], detail="대표 업무")
+    concrete = Gap("", NOTABLE, "p95 420ms→190ms 개선", "", ["결제 승인 API p95 420ms→190ms 개선"])
+    assert _balanced_gaps([vague, concrete], state)[0] is concrete
+    assert _balanced_gaps([vague], state)[0] is vague  # 구체 경험이 없으면 모호한 문장을 먼저 묻는다
+    period_only = Gap("", NOTABLE, "5년간 품질 업무", "", ["5년간 품질 업무를 수행하며 품질의 중요성을 깨달았습니다."])
+    assert _balanced_gaps([vague, period_only], state)[0] is vague  # 기간 숫자만으로는 구체 경험이 아니다
+
+
+def test_question_cannot_assume_the_applicant_lacks_the_experience() -> None:
+    text = "Spring Boot로 REST API를 개발 · 운영한 경험이 없다고 가정할 때, 해당 업무를 어떻게 하실지 설명해 주세요."
+    assert _checked(text, SCENARIO, [])[0] is None
+
+
+# ------------------------------------------ 🎤 역할만 묻는 질문 · '어떤 원칙' 개념 질문 · 비유 문장
+@pytest.mark.parametrize(
+    "text,ok",
+    [
+        ("'결제 승인 API p95를 190ms로 줄였습니다'라고 적어 주셨는데, 본인의 역할을 설명해 주세요.", False),
+        ("결제 승인 API 지연을 줄인 과정에서 본인이 기여한 부분을 구체적으로 설명해 주세요.", False),
+        (
+            "'결제 승인 API p95를 190ms로 줄였습니다'라고 적어 주셨는데, 원인을 N+1 조회로 좁힌 근거를 설명해 주세요.",
+            True,
+        ),
+        ("결제 승인 API 지연을 줄일 때 본인이 맡은 부분과 그 결과를 어떻게 확인했는지 말해 주세요.", True),
+    ],
+)
+def test_experience_question_must_ask_more_than_the_role(text: str, ok: bool) -> None:
+    assert (_checked(text, NOTABLE, [])[0] is not None) is ok
+
+
+def test_concept_question_cannot_only_ask_which_principle() -> None:
+    vague = "PostgreSQL 스키마를 설계하고 SQL을 튜닝할 때, 어떤 원칙을 적용하는지 설명해 주세요."
+    compared = "PostgreSQL 인덱스를 추가할 때와 쿼리를 바꿀 때 중 어느 쪽을 먼저 고르는지 조건을 설명해 주세요."
+    assert _checked(vague, CONCEPT, [])[0] is None
+    assert _checked(compared, CONCEPT, [])[0] is not None
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        # 🎤 실제 5차 결과: 앞 설명에 '문제' · '측정'이 있어도 끝이 역할만 묻는 질문
+        "메시징 연동에서 발송 실패 문제에 재처리 로직을 도입해 해결한 본인의 역할을 설명해 주세요.",
+        "p95 지연이 늘자 쿼리 호출 횟수와 외부 승인 대기 시간을 따로 측정한 본인의 역할을 설명해 주세요.",
+    ],
+)
+def test_role_ending_is_caught_even_with_problem_words(question: str) -> None:
+    from hiremate_ai.agents.generation.interview.agent import NOTABLE, _style_problem
+
+    assert _style_problem(question, NOTABLE)
+    deeper = question.replace("본인의 역할을 설명해 주세요.", "본인이 맡은 부분과 그 방법을 고른 이유를 설명해 주세요.")
+    assert _style_problem(deeper, NOTABLE) is None
+
+
+@pytest.mark.parametrize(
+    "question,ok",
+    [
+        ("장부와 실제 자료의 차이를 확인할 때, 어떤 원칙을 적용하여 차이를 확인하는지 설명해 주세요.", False),
+        ("JUnit 테스트를 작성할 때 어떤 원칙을 적용하고 어떤 조건에서 테스트를 수행하는지 설명해 주세요.", False),
+        ("장부와 실제 자료의 차이를 확인할 때, 발생주의와 현금주의 중 어떤 원칙을 적용하는지 설명해 주세요.", True),
+    ],
+)
+def test_principle_question_needs_real_comparison(question: str, ok: bool) -> None:
+    """🎤 설명 속 '차이' · '조건' 낱말만으로는 비교 질문으로 보지 않는다."""
+    from hiremate_ai.agents.generation.interview.agent import CONCEPT, _style_problem
+
+    assert (_style_problem(question, CONCEPT) is None) is ok
+
+
+@pytest.mark.parametrize(
+    "sentence,usable",
+    [
+        ("구독 서비스를 만드는 회사에서 세 번의 여름을 보냈습니다.", False),  # 회사 소개 + 비유: 한 일이 없음
+        ("주요 프로젝트", False),
+        ("세 번의 여름을 보냈습니다.", False),
+        ("결제 SDK 문서의 예제 코드를 고쳤습니다", True),
+        ("재고 문의가 한 달에 27건 왔습니다.", True),
+        # 🎤 '개발 · 구현' 같은 단어가 없어도, 직접 한 행동이면 경험 재료다
+        ("홀 배치를 바꾸는 대안 두 가지를 고객에게 제시했습니다.", True),
+        ("면접 일정은 제가 직접 조정했습니다.", True),
+        ("학기별 수입과 지출을 엑셀로 집계해 회원들에게 공개했습니다.", True),
+        ("이후 공급사를 두 곳으로 나눠 계약했습니다.", True),
+        # 🎤 느낀 점 · 관심만 말하는 문장은 경험 재료가 아니다
+        ("5년간 품질 업무를 하며 품질의 중요성을 깨달았습니다.", False),
+        ("교사인 부모님 밑에서 자라 사람을 돕는 일에 관심이 많았습니다.", False),
+    ],
+)
+def test_metaphor_or_title_only_sentence_is_not_experience_material(sentence: str, usable: bool) -> None:
+    from hiremate_ai.agents.generation.interview.agent import _experience_material
+
+    assert _experience_material(sentence) is usable
