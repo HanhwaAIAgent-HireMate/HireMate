@@ -60,7 +60,6 @@ describe('routes', () => {
     ['/hr/recruitments/1/report', '채용 리포트'],
     ['/careers/1', '채용 공고'],
     ['/careers/1/apply', '지원서'],
-    ['/interviewer', '내 면접'],
   ])('%s 경로는 "%s" 화면을 연다', async (path, title) => {
     mockServer(true)
     renderAt(path)
@@ -74,6 +73,13 @@ describe('routes', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: '내 면접' })).toBeInTheDocument()
     expect(screen.getByText('면접관 모드')).toBeInTheDocument()
+  })
+
+  it('HR 계정은 면접관으로 배정하지 않으므로 면접관 모드 대신 HR 콘솔로 보낸다', async () => {
+    mockServer(true)
+    renderAt('/interviewer')
+
+    expect(await screen.findByRole('heading', { level: 1, name: '채용' })).toBeInTheDocument()
   })
 
   it('로그인하지 않으면 HR 화면 대신 로그인 화면으로 보낸다', async () => {

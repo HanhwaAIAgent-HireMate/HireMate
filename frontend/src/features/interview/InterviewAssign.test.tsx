@@ -16,7 +16,7 @@ function mockServer(assigned: boolean) {
       const url = new URL(input.url).pathname
       if (url === '/api/companies/current/interview-members')
         return Response.json([
-          { memberId: 'hr1', name: '최은영', email: 'hr@x', accountRole: 'HR' },
+          { memberId: 'choi', name: '최인사', email: 'choi@x', accountRole: 'INTERVIEWER' },
           { memberId: 'kim', name: '김지민', email: 'kim@x', accountRole: 'INTERVIEWER' },
         ])
       if (url.endsWith('/interview/session')) {
@@ -27,7 +27,7 @@ function mockServer(assigned: boolean) {
         }
         return assigned
           ? Response.json({
-              hrMemberId: 'hr1',
+              hrMemberId: 'choi',
               practicalMemberId: 'kim',
               status: 'IN_PROGRESS',
               version: 3,
@@ -59,7 +59,7 @@ describe('InterviewAssign', () => {
     renderAssign()
 
     fireEvent.click(await screen.findByRole('button', { name: /면접관 배정/ }))
-    await screen.findAllByRole('option', { name: '김지민 (면접관)' })
+    await screen.findAllByRole('option', { name: '김지민 (kim@x)' })
     fireEvent.change(screen.getByRole('combobox', { name: '인사 면접관' }), {
       target: { value: 'kim' },
     })
@@ -68,13 +68,13 @@ describe('InterviewAssign', () => {
     })
     expect(screen.getByRole('button', { name: '서로 다른 계정을 골라 주세요' })).toBeDisabled()
     fireEvent.change(screen.getByRole('combobox', { name: '인사 면접관' }), {
-      target: { value: 'hr1' },
+      target: { value: 'choi' },
     })
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await vi.waitFor(() =>
       expect(puts).toEqual([
-        { hrMemberId: 'hr1', practicalMemberId: 'kim', expectedVersion: null },
+        { hrMemberId: 'choi', practicalMemberId: 'kim', expectedVersion: null },
       ]),
     )
   })
@@ -84,7 +84,7 @@ describe('InterviewAssign', () => {
     renderAssign()
 
     expect(await screen.findByText('면접 진행 중')).toBeInTheDocument()
-    fireEvent.click(await screen.findByRole('button', { name: /인사 최은영 · 실무 김지민/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /인사 최인사 · 실무 김지민/ }))
     expect(screen.getByText('면접이 시작돼 배정을 바꿀 수 없어요.')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: '인사 면접관' })).toBeDisabled()
   })

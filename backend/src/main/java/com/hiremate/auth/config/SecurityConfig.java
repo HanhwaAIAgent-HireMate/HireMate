@@ -113,7 +113,8 @@ public class SecurityConfig {
                         // 지원자용 채용 페이지와 지원서 제출. 로그인 없이 쓰며 POST는 CSRF 토큰이 필요하다
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/public/**").permitAll()
-                        .requestMatchers("/api/interviewer/**").hasAnyRole("HR", "INTERVIEWER")
+                        // 면접관 모드는 면접관 계정만 쓴다. HR 계정은 면접관으로 배정하지 않는다
+                        .requestMatchers("/api/interviewer/**").hasRole("INTERVIEWER")
                         .requestMatchers(HttpMethod.GET, INTERVIEWER_READS).access(interviewerAccess)
                         .requestMatchers(HttpMethod.GET, INTERVIEWER_TABS).access(interviewerAccess)
                         .requestMatchers(HttpMethod.POST, INTERVIEWER_TABS).access(interviewerAccess)

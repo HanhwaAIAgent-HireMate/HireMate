@@ -96,14 +96,17 @@ export function InterviewAssign({
                 <option value="">고르기</option>
                 {(members.data ?? []).map((member) => (
                   <option key={member.memberId} value={member.memberId}>
-                    {member.name} ({member.accountRole === 'HR' ? 'HR' : '면접관'})
+                    {member.name} ({member.email})
                   </option>
                 ))}
               </select>
             </label>
           ))}
+          {members.data?.length === 0 && (
+            <p className="text-xs text-destructive">아직 면접관 계정이 없어요.</p>
+          )}
           <p className="text-xs text-muted-foreground">
-            면접관 계정은{' '}
+            면접관 계정만 배정할 수 있어요. 계정은{' '}
             <Link to="/hr/settings/interviewers" className="underline underline-offset-4">
               설정 › 면접관
             </Link>

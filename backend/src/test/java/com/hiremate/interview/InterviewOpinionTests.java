@@ -32,7 +32,7 @@ class InterviewOpinionTests extends IntegrationTest {
         assertThat(before).hasSize(2);
         assertThat(entry(before, "HR").path("submitted").asBoolean()).isFalse();
 
-        expect(room.hr().put(room.opinions() + "/me", Map.of("recommendation", "RECOMMEND",
+        expect(room.people().put(room.opinions() + "/me", Map.of("recommendation", "RECOMMEND",
                 "comment", "협업 경험을 구체적으로 설명함")), 200);
         JsonNode hidden = entry(json(expect(room.kim().get(room.opinions()), 200)), "HR");
         assertThat(hidden.path("submitted").asBoolean()).isTrue();
@@ -75,7 +75,8 @@ class InterviewOpinionTests extends IntegrationTest {
                 .path("code").asString()).isEqualTo("STAGE_NOT_ACTIVE");
     }
 
-    private record Room(Interview interview, TestApi kim) {
+    /** kim은 실무 면접관, people은 인사 면접관이다. */
+    private record Room(Interview interview, TestApi kim, TestApi people) {
 
         TestApi hr() {
             return interview.hr();
@@ -87,16 +88,17 @@ class InterviewOpinionTests extends IntegrationTest {
         }
     }
 
-    /** 인사는 HR 본인, 실무는 면접관 김지민으로 배정한 면접. */
+    /** 인사는 면접관 최인사, 실무는 면접관 김지민으로 배정한 면접. */
     private Room room() throws Exception {
         Interview interview = interviewStage();
         TestApi kim = newInterviewer(interview.hr(), "김지민");
+        TestApi people = newInterviewer(interview.hr(), "최인사");
         Map<String, Object> body = new HashMap<>();
-        body.put("hrMemberId", interview.hr().memberId().toString());
+        body.put("hrMemberId", people.memberId().toString());
         body.put("practicalMemberId", kim.memberId().toString());
         body.put("expectedVersion", null);
         expect(interview.hr().put(interview.candidate() + "/interview/session", body), 200);
-        return new Room(interview, kim);
+        return new Room(interview, kim, people);
     }
 
     private static JsonNode entry(JsonNode opinions, String role) {
