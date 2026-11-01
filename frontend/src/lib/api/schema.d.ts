@@ -996,6 +996,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/companies/me/interviewers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["interviewers"];
+        put?: never;
+        post: operations["create_1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/me/files": {
         parameters: {
             query?: never;
@@ -2293,6 +2309,20 @@ export interface components {
             template: string;
             color: string;
         };
+        InterviewerAccountRequest: {
+            name: string;
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        InterviewerAccount: {
+            /** Format: uuid */
+            memberId: string;
+            name: string;
+            email: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
         CompanyFileInfo: {
             /** Format: uuid */
             fileId: string;
@@ -2426,31 +2456,31 @@ export interface components {
             fallback: boolean;
         };
         JsonNode: {
+            number: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            string: boolean;
+            integralNumber: boolean;
+            missingNode: boolean;
+            valueNode: boolean;
+            container: boolean;
+            pojo: boolean;
+            floatingPointNumber: boolean;
+            short: boolean;
+            int: boolean;
+            long: boolean;
+            double: boolean;
+            bigDecimal: boolean;
+            bigInteger: boolean;
+            /** @deprecated */
+            textual: boolean;
+            boolean: boolean;
+            binary: boolean;
             empty: boolean;
             array: boolean;
             null: boolean;
             object: boolean;
             float: boolean;
-            number: boolean;
-            /** @deprecated */
-            textual: boolean;
-            double: boolean;
-            int: boolean;
-            binary: boolean;
-            short: boolean;
-            long: boolean;
-            boolean: boolean;
-            string: boolean;
-            pojo: boolean;
-            integralNumber: boolean;
-            valueNode: boolean;
-            bigDecimal: boolean;
-            container: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            missingNode: boolean;
-            floatingPointNumber: boolean;
-            bigInteger: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -2705,6 +2735,8 @@ export interface components {
             myRole: "HR" | "PRACTICAL";
             /** @enum {string} */
             status: "SCHEDULED" | "IN_PROGRESS" | "ENDED";
+            /** Format: uuid */
+            recruitmentId: string;
         };
         AssignedInterviews: {
             items: components["schemas"]["AssignedInterview"][];
@@ -2724,8 +2756,8 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            parameterName: string;
             token: string;
+            parameterName: string;
             headerName: string;
         };
         CsrfResponse: {
@@ -4638,6 +4670,50 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    interviewers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerAccount"][];
+                };
+            };
+        };
+    };
+    create_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterviewerAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerAccount"];
+                };
             };
         };
     };

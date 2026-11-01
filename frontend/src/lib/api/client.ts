@@ -77,6 +77,11 @@ const MESSAGES: Record<string, string> = {
   QUESTION_ANSWERED: '답변이 기록된 질문의 담당 변경이나 삭제는 할 수 없어요.',
   SESSION_CONFLICT: '면접 정보가 변경됐어요. 최신 내용을 확인해 주세요.',
   QUESTION_OWNER_REQUIRED: '질문의 인사·실무 담당을 먼저 지정해 주세요.',
+  INVALID_INTERVIEWER: '같은 기업의 계정만 면접관으로 배정할 수 있어요.',
+  DISTINCT_INTERVIEWERS: '인사 면접관과 실무 면접관은 서로 다른 계정으로 배정해 주세요.',
+  STAGE_CLOSED: '결과를 확정한 전형이라 바꿀 수 없어요.',
+  INTERVIEW_NOT_STARTED: '먼저 [면접 시작]을 눌러 주세요.',
+  INTERVIEW_ENDED: '종료한 면접이에요.',
 
   INVALID_CREDENTIALS: '이메일이나 비밀번호가 맞지 않아요.',
   EMAIL_ALREADY_EXISTS: '이미 가입한 이메일이에요.',
