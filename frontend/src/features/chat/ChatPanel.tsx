@@ -48,7 +48,24 @@ const EXAMPLES: Record<StageOverview['type'], string[]> = {
  * 대화는 지금 탭(tabId)의 것이고 같은 기업 담당자가 함께 본다. 답을 기다리는 동안 다른 탭으로 옮겨도 답은 물은 탭에
  * 쌓이고, 그동안에는 어느 탭에서도 새로 묻지 않는다.
  */
-export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId: string }) {
+/** Chat이 쓰는 전형 정보. HR 전형 화면은 전형 개요를, 면접관 모드는 배정된 면접으로 채운다 */
+export type ChatStage = Pick<StageOverview, 'stageId' | 'name' | 'type'> & {
+  counts: Pick<StageOverview['counts'], 'total'>
+}
+
+export function ChatPanel({
+  overview,
+  tabId,
+  people,
+  examples,
+}: {
+  overview: ChatStage
+  tabId: string
+  /** @로 고를 지원자. 없으면 전형의 지원자를 서버에서 찾는다 (면접관 모드는 배정된 지원자만 준다) */
+  people?: { applicationId: string; name: string }[]
+  /** 빈 대화의 예시 질문. 없으면 전형 종류별 기본 예시다 */
+  examples?: string[]
+}) {
   const stageId = overview.stageId
   const messages = useChatStore((state) => state.threads[tabId] ?? EMPTY)
   const { append, load } = useChatStore()
@@ -82,7 +99,21 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
   const bottom = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const mentionQuery = /@([^\s@]*)$/.exec(text)?.[1]
-  const suggestions = useMentionCandidates(stageId, mentionQuery ?? '', mentionQuery !== undefined)
+  const remote = useMentionCandidates(
+    stageId,
+    mentionQuery ?? '',
+    mentionQuery !== undefined && !people,
+  )
+  const suggestions = people
+    ? people
+        .filter((person) => person.name.includes(mentionQuery ?? ''))
+        .slice(0, 8)
+        .map((person) => ({ ...person, detail: '' }))
+    : (remote.data?.items ?? []).map((row) => ({
+        applicationId: row.applicationId,
+        name: row.name,
+        detail: careerLabel(row),
+      }))
 
   // 기록을 받는 동안에는 보내지 않는다. 받은 기록이 화면의 대화를 바꾸므로 그 사이에 보낸 질문이 사라진다
   const loading = history.isFetching
@@ -158,7 +189,7 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
               {overview.name} 지원자 {overview.counts.total}명을 대상으로 물어볼 수 있어요. @로
               지원자를 고를 수도 있어요.
             </p>
-            {EXAMPLES[overview.type].map((example) => (
+            {(examples ?? EXAMPLES[overview.type]).map((example) => (
               <button
                 key={example}
                 onClick={() => send(example)}
@@ -184,13 +215,13 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
         <div ref={bottom} />
       </div>
       <div className="relative m-3">
-        {mentionQuery !== undefined && (suggestions.data?.items.length ?? 0) > 0 && (
+        {mentionQuery !== undefined && suggestions.length > 0 && (
           <ul
             role="listbox"
             aria-label="지원자 고르기"
             className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border bg-popover p-1 shadow-lg"
           >
-            {suggestions.data?.items.map((row) => (
+            {suggestions.map((row) => (
               <li key={row.applicationId}>
                 <button
                   role="option"
@@ -200,7 +231,7 @@ export function ChatPanel({ overview, tabId }: { overview: StageOverview; tabId:
                   className="w-full rounded-lg px-3 py-1.5 text-left hover:bg-muted"
                 >
                   <div className="text-sm font-semibold">{row.name}</div>
-                  <div className="text-xs text-muted-foreground">{careerLabel(row)}</div>
+                  {row.detail && <div className="text-xs text-muted-foreground">{row.detail}</div>}
                 </button>
               </li>
             ))}
