@@ -2,21 +2,12 @@ import { ArrowUp, Minus, Plus } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  careerLabel,
-  formatScore,
-  heldScore,
-  scoreBreakdown,
-  type CandidateRow,
-} from '@/features/screening/api'
+import { careerLabel, type CandidateRow } from '@/features/screening/api'
 import { cn } from '@/lib/utils'
 
 /**
- * 지원자 한 줄 (COM-02 표시 규칙). AI 선택은 보라 테두리, HR 결정은 배경색, 서류 기준은 굵기와 회색이다.
- * 서류 전형에서는 AI 추천(자격요건 · 총점 상위, 선발 인원 10배수)이 굵게 보이고, 오른쪽 끝에 총점을, 경력 아래에
- * 영역 점수(자격요건 · 우대사항)를 소수 첫째 자리까지 붙인다. 점수가 높아도 미충족 표시는 숨기지 않는다.
- * 점수를 보류한 지원자는 연한 회색 배경에 확인 필요를 0점으로 계산한 점수를 회색으로 보여 주고 '보류'를 붙인다.
- * 못 채운 자격요건은 이름 옆에 작게 ✕로 붙인다.
+ * 선택 지원자 한 줄 (COM-02 표시 규칙). AI 선택은 보라 테두리, HR 결정은 배경색, 서류 기준은 굵기와 회색이다.
+ * 서류 전형에서는 선 위(필수 조건 충족) 지원자가 굵게 보이고, 점수는 보여 주지 않는다.
  * 행을 누르면 지원자 카드가 열리므로 넣기 · 빼기는 오른쪽 버튼으로 한다.
  */
 export function CandidateItem({
@@ -44,9 +35,6 @@ export function CandidateItem({
   onOpen: () => void
 }) {
   const gray = documentStage && !row.aboveLine
-  const held = documentStage && row.held
-  const shortfalls = documentStage ? row.shortfalls : []
-  const breakdown = documentStage ? scoreBreakdown(row) : null
   return (
     // 행 어디를 눌러도 카드가 열린다. 키보드는 이름 버튼으로 연다
     <div
@@ -54,7 +42,6 @@ export function CandidateItem({
       className={cn(
         'flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-all has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-ring/50',
         bordered ? 'border-border' : 'border-transparent hover:bg-muted/60',
-        held && 'bg-muted hover:bg-muted',
         row.decision === 'PASS' && 'bg-pass hover:bg-pass',
         row.decision === 'FAIL' && 'bg-fail hover:bg-fail',
         row.aiSelected &&
@@ -78,45 +65,12 @@ export function CandidateItem({
           )}
         >
           {row.name}
-          {shortfalls.length > 0 && (
-            <span
-              title={`채우지 못했거나 확인이 필요한 자격요건 (불합격 표시가 아니에요): ${shortfalls.join(', ')}`}
-              className="ml-1.5 text-[11px] font-normal text-muted-foreground"
-            >
-              ✕ {shortfalls.join(', ')}
-            </span>
-          )}
         </div>
         <div className={cn('truncate text-xs text-muted-foreground', gray && 'opacity-80')}>
           {careerLabel(row)}
         </div>
         {note}
-        {breakdown && (
-          <div className={cn('truncate text-[11px] text-muted-foreground', gray && 'opacity-80')}>
-            {breakdown}
-          </div>
-        )}
       </div>
-      {documentStage && row.documentScore !== null && (
-        <span
-          title="서류 평가 점수 (자격요건 + 우대사항, 100점)"
-          className={cn(
-            'rounded-md bg-muted px-1.5 py-0.5 text-xs tabular-nums',
-            gray ? 'text-muted-foreground' : 'font-bold',
-          )}
-        >
-          {formatScore(row.documentScore)}
-        </span>
-      )}
-      {held && (
-        <span
-          title="점수 보류: 확인 필요 항목을 0점으로 계산한 점수예요"
-          className="flex items-baseline gap-1 rounded-md bg-background px-1.5 py-0.5 text-xs text-muted-foreground tabular-nums"
-        >
-          <span className="text-[10px]">보류</span>
-          {heldScore(row.documentScoreLow)}
-        </span>
-      )}
       {scoreStage &&
         (row.score !== null ? (
           <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs font-bold tabular-nums">

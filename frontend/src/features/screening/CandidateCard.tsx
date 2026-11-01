@@ -35,7 +35,7 @@ export function CandidateCard({
   selectedCount: number
 }) {
   const detail = useCandidateDetail(overview.stageId, applicationId)
-  const { checked, toggleChecked, open } = useStageUi()
+  const { checked, toggleChecked, open, tableOpen } = useStageUi()
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -45,7 +45,7 @@ export function CandidateCard({
           className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
-          선택 지원자 {selectedCount}
+          {tableOpen ? '표 보기' : `선택 지원자 ${selectedCount}`}
         </button>
         {detail.data && (
           <MemoButton

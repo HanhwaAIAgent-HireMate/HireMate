@@ -1,11 +1,9 @@
-import { Check, ExternalLink, Sparkles, X } from 'lucide-react'
+import { ExternalLink, Sparkles } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import {
-  formatScore,
-  heldScore,
   useCandidateAnalysis,
   type CandidateAnalysis,
   type CandidateDetail,
@@ -13,6 +11,15 @@ import {
   type SummarySection,
 } from '@/features/screening/api'
 import { ProfilePanel } from '@/features/screening/ProfilePanel'
+import {
+  markTone,
+  TALENT_MARKS,
+  TONE_CLASSES,
+  useTalentFit,
+  verdictMark,
+  type TalentFit,
+  type TalentMatch,
+} from '@/features/screening/table'
 import { cn } from '@/lib/utils'
 
 type Tab = 'RESUME' | 'COVER_LETTER' | 'PORTFOLIO' | 'CERTIFICATE' | 'PROFILE'
@@ -85,6 +92,8 @@ export function DocumentViewer({
         // 프로필 탭: 1) AI 분석 요약 → 2) 프로필 항목
         <>
           <AnalysisBox
+            stageId={stageId}
+            applicationId={detail.row.applicationId}
             status={detail.row.analysisStatus}
             loading={analysis.isPending}
             analysis={analysis.data}
@@ -138,6 +147,8 @@ export function DocumentViewer({
             )}
           </div>
           <AnalysisBox
+            stageId={stageId}
+            applicationId={detail.row.applicationId}
             status={detail.row.analysisStatus}
             loading={analysis.isPending}
             analysis={analysis.data}
@@ -179,26 +190,31 @@ function SectionSummaries({ sections }: { sections: SummarySection[] }) {
   )
 }
 
-type AnalysisView = 'SUMMARY' | 'DETAIL'
+type AnalysisView = 'DETAIL' | 'SUMMARY'
 
-const ANALYSIS_VIEWS: Record<AnalysisView, string> = { SUMMARY: '요약', DETAIL: '자세히' }
+const ANALYSIS_VIEWS: Record<AnalysisView, string> = { DETAIL: '자세히', SUMMARY: '요약' }
 /** 요약에서 눈여겨볼 점 · 확인 필요를 이만큼까지 보여 준다. 나머지는 자세히에서 본다 */
 const SUMMARY_FINDINGS = 2
 
 /**
- * AI 분석. 요약은 점수 · 항목별 판정 칩 · 눈여겨볼 점 · 확인 필요를 한눈에, 자세히는 항목마다 판정 이유 · 근거 출처까지
- * 보여 준다. 처음에는 요약이다.
+ * AI 분석. 점수 없이 자격요건 · 우대사항 · 인재상(회사가 원하는 요소)마다 판정과 이유를 보여 준다.
+ * 자세히는 항목마다 판정 이유 · 근거 출처까지, 요약은 판정 칩 · 눈여겨볼 점 · 확인 필요를 한눈에 보여 준다. 처음에는 자세히다.
  */
 function AnalysisBox({
+  stageId,
+  applicationId,
   status,
   loading,
   analysis,
 }: {
+  stageId: string
+  applicationId: string
   status: CandidateDetail['row']['analysisStatus']
   loading: boolean
   analysis?: ReturnType<typeof useCandidateAnalysis>['data']
 }) {
-  const [view, setView] = useState<AnalysisView>('SUMMARY')
+  const [view, setView] = useState<AnalysisView>('DETAIL')
+  const talents = useTalentFit(stageId, applicationId, status)
   const ready = status === 'DONE' && !loading && analysis
   return (
     <div className="space-y-3 rounded-xl border border-ai/30 bg-ai-soft/50 p-4 text-sm">
@@ -241,49 +257,22 @@ function AnalysisBox({
       ) : loading || !analysis ? (
         <Skeleton className="h-16 w-full" />
       ) : view === 'SUMMARY' ? (
-        <AnalysisSummary analysis={analysis} />
+        <AnalysisSummary analysis={analysis} talents={talents.data} />
       ) : (
         <dl className="space-y-2.5">
-          {analysis.holds.length > 0 && (
-            <Row label="점수 보류">
-              <div className="rounded-lg bg-muted px-3 py-2">
-                <Findings items={analysis.holds} empty="" />
-              </div>
-            </Row>
-          )}
           {analysis.criteria.length > 0 && (
-            <Row label="서류 평가">
-              <CriteriaScore analysis={analysis} />
+            <Row label="평가 항목">
+              <CriteriaList analysis={analysis} />
             </Row>
           )}
-          <Row label="공고 조건">
-            {analysis.conditions.length === 0 ? (
-              <span className="text-muted-foreground">공고에 자격 요건이 없어요.</span>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {analysis.conditions.map((condition) => (
-                  <span
-                    key={condition.requirement}
-                    title={condition.requirement}
-                    className={cn(
-                      'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium',
-                      condition.met
-                        ? 'bg-pass text-pass-foreground'
-                        : 'bg-muted text-muted-foreground',
-                    )}
-                  >
-                    {condition.met ? <Check className="size-3" /> : <X className="size-3" />}
-                    {condition.label}
-                  </span>
-                ))}
-              </div>
-            )}
+          <Row label="인재상">
+            <TalentList talents={talents.data} loading={talents.isPending} />
           </Row>
           <Row label="눈여겨볼 점">
             <Findings items={analysis.notable} empty="찾은 내용이 없어요." />
           </Row>
           <Row label="확인 필요">
-            <Findings items={analysis.checks} empty="없어요." />
+            <Findings items={[...analysis.holds, ...analysis.checks]} empty="없어요." />
           </Row>
         </dl>
       )}
@@ -291,30 +280,51 @@ function AnalysisBox({
   )
 }
 
-/** 요약: 총점(보류면 확인 필요를 0점으로 계산한 점수) · 영역 점수, 항목별 판정 칩, 눈여겨볼 점 · 확인 필요 몇 개 */
-function AnalysisSummary({ analysis }: { analysis: CandidateAnalysis }) {
+/** 요약: 항목별 판정 칩(자격요건 · 우대사항 · 인재상), 눈여겨볼 점 · 확인 필요 몇 개 */
+function AnalysisSummary({
+  analysis,
+  talents,
+}: {
+  analysis: CandidateAnalysis
+  talents: TalentFit | undefined
+}) {
   const checks = [...analysis.holds, ...analysis.checks]
   return (
     <dl className="space-y-2.5">
       {analysis.criteria.length > 0 && (
-        <Row label="서류 평가">
-          <div className="space-y-1.5">
-            <ScoreHeadline analysis={analysis} />
-            <ul className="flex flex-wrap gap-1">
-              {analysis.criteria.map((line) => (
-                <li
-                  key={line.criterionId}
-                  title={`${line.text} · ${VERDICTS[line.verdict].label}`}
-                  className={cn(
-                    'max-w-[11rem] truncate rounded px-1.5 py-0.5 text-[11px] font-medium',
-                    VERDICTS[line.verdict].className,
-                  )}
-                >
-                  {line.criterionId} {shortText(line.text)}
-                </li>
-              ))}
-            </ul>
-          </div>
+        <Row label="평가 항목">
+          <ul className="flex flex-wrap gap-1">
+            {analysis.criteria.map((line) => (
+              <li
+                key={line.criterionId}
+                title={`${line.text} · ${lineMark(line).label}`}
+                className={cn(
+                  'max-w-[11rem] truncate rounded px-1.5 py-0.5 text-[11px] font-medium',
+                  lineMark(line).className,
+                )}
+              >
+                {shortText(line.text)}
+              </li>
+            ))}
+          </ul>
+        </Row>
+      )}
+      {talents && talents.items.length > 0 && (
+        <Row label="인재상">
+          <ul className="flex flex-wrap gap-1">
+            {talents.items.map((item) => (
+              <li
+                key={item.title}
+                title={`${item.title} · ${talentMark(item.level).label}`}
+                className={cn(
+                  'max-w-[11rem] truncate rounded px-1.5 py-0.5 text-[11px] font-medium',
+                  talentMark(item.level).className,
+                )}
+              >
+                {item.title} {talentMark(item.level).label}
+              </li>
+            ))}
+          </ul>
         </Row>
       )}
       <Row label="눈여겨볼 점">
@@ -335,55 +345,6 @@ function AnalysisSummary({ analysis }: { analysis: CandidateAnalysis }) {
   )
 }
 
-/** "45.8 / 100점 · 자격 37.5 · 우대 8.3". 보류면 "보류 45.8 / 100점" (확인 필요는 0점) */
-function ScoreHeadline({ analysis }: { analysis: CandidateAnalysis }) {
-  const areas = [
-    ['자격', analysis.qualificationScore, analysis.qualificationMax],
-    ['우대', analysis.preferenceScore, analysis.preferenceMax],
-  ] as const
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-2">
-      {analysis.documentScore !== null ? (
-        <span className="font-semibold">
-          {formatScore(analysis.documentScore)}
-          <span className="text-xs font-normal text-muted-foreground"> / 100점</span>
-        </span>
-      ) : (
-        <HeldScore score={analysis.documentScoreLow} />
-      )}
-      <span className="text-xs text-muted-foreground">
-        {areas
-          .filter(([, , max]) => max > 0)
-          .map(([label, score, max]) =>
-            score === null
-              ? `${label} 확인 필요`
-              : `${label} ${formatScore(score)}${max === 50 ? '' : `/${max}`}`,
-          )
-          .join(' · ')}
-      </span>
-      {analysis.qualificationStatus !== 'PASSED' && (
-        <span className="text-xs text-muted-foreground">
-          자격요건 75% {analysis.qualificationStatus === 'FAILED' ? '미달' : '판단 보류'}
-        </span>
-      )}
-    </div>
-  )
-}
-
-/** 보류 점수: 확인 필요를 0점으로 계산한 점수를 회색으로, '보류'를 붙여 보여 준다 */
-function HeldScore({ score }: { score: number | null }) {
-  return (
-    <span
-      title="점수 보류: 확인 필요 항목을 0점으로 계산한 점수예요"
-      className="font-semibold text-muted-foreground"
-    >
-      <span className="mr-1 rounded bg-muted px-1 text-[11px] font-medium">보류</span>
-      {heldScore(score)}
-      <span className="text-xs font-normal"> / 100점</span>
-    </span>
-  )
-}
-
 /** 판정 칩에 넣을 짧은 항목 이름. 앞쪽 낱말 몇 개만 쓴다 */
 function shortText(text: string) {
   const words = text.split(/\s+/)
@@ -399,11 +360,16 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-const VERDICTS: Record<CriterionLine['verdict'], { label: string; className: string }> = {
-  MET: { label: '충족', className: 'bg-pass text-pass-foreground' },
-  PARTIAL: { label: '부분 충족', className: 'bg-ai-soft text-ai' },
-  NOT_MET: { label: '미충족', className: 'bg-muted text-muted-foreground' },
-  UNKNOWN: { label: '확인 필요', className: 'border border-dashed text-muted-foreground' },
+/** 평가 항목 판정의 표기와 색. 표 보기와 같이 조건형은 O · X, 경험형은 상 · 중 · 하다 */
+function lineMark(line: CriterionLine) {
+  const mark = verdictMark(line.criterionType === 'CONDITION', line.verdict)
+  return { label: mark, className: TONE_CLASSES[markTone(mark)] }
+}
+
+/** 인재상 판정의 표기와 색 (상 · 중 · 하 · 확인 필요) */
+function talentMark(level: TalentMatch['level']) {
+  const mark = TALENT_MARKS[level]
+  return { label: mark, className: TONE_CLASSES[markTone(mark)] }
 }
 
 const CERTIFICATE_STATUS: Record<NonNullable<CriterionLine['certificateStatus']>, string> = {
@@ -413,69 +379,32 @@ const CERTIFICATE_STATUS: Record<NonNullable<CriterionLine['certificateStatus']>
 }
 
 /**
- * 서류 평가 점수(자격요건 + 우대사항)와 항목별 판정. 영역 안의 항목은 모두 같은 비중이라 배점은 영역 만점 ÷ 항목 수다.
- * 점수를 보류했으면 확인 필요를 0점으로 계산한 점수를 회색으로 보여 준다.
- * 공고 조건에 대한 서류 평가일 뿐 합격 여부나 전체 역량을 뜻하지 않는다.
+ * 자격요건 · 우대사항 항목별 판정. 점수는 매기지 않고 무엇을 충족했고 무엇이 빠졌는지만 보여 준다.
+ * 공고 조건에 대한 서류 판정일 뿐 합격 여부나 전체 역량을 뜻하지 않는다.
  */
-function CriteriaScore({ analysis }: { analysis: CandidateAnalysis }) {
+function CriteriaList({ analysis }: { analysis: CandidateAnalysis }) {
   const areas = [
-    [
-      'QUALIFICATION',
-      '자격요건',
-      analysis.qualificationScore,
-      analysis.qualificationMax,
-      analysis.qualificationScoreLow,
-    ],
-    [
-      'PREFERENCE',
-      '우대사항',
-      analysis.preferenceScore,
-      analysis.preferenceMax,
-      analysis.preferenceScoreLow,
-    ],
+    ['QUALIFICATION', '자격요건'],
+    ['PREFERENCE', '우대사항'],
   ] as const
   return (
     <div className="space-y-2">
-      <div className="font-semibold">
-        {analysis.documentScore === null ? (
-          <HeldScore score={analysis.documentScoreLow} />
-        ) : (
-          <>
-            {formatScore(analysis.documentScore)}
-            <span className="text-xs font-normal text-muted-foreground"> / 100점</span>
-          </>
-        )}
-        {analysis.qualificationStatus !== 'PASSED' && (
-          <span className="ml-2 text-xs font-normal text-muted-foreground">
-            자격요건 75% {analysis.qualificationStatus === 'FAILED' ? '미달' : '판단 보류'}
-          </span>
-        )}
-      </div>
-      {areas
-        .filter(([, , , max]) => max > 0)
-        .map(([category, label, score, max, zeroed]) => (
+      {areas.map(([category, label]) => {
+        const lines = analysis.criteria.filter((line) => line.category === category)
+        if (lines.length === 0) return null
+        return (
           <div key={category} className="space-y-1">
-            <div className="text-xs font-medium">
-              {label}{' '}
-              {score !== null ? (
-                `${formatScore(score)}/${max}`
-              ) : (
-                <span className="text-muted-foreground">
-                  보류 {heldScore(zeroed)}/{max}
-                </span>
-              )}
-            </div>
+            <div className="text-xs font-medium">{label}</div>
             <ul className="space-y-1.5">
-              {analysis.criteria
-                .filter((line) => line.category === category)
-                .map((line) => (
-                  <CriterionItem key={line.criterionId} line={line} />
-                ))}
+              {lines.map((line) => (
+                <CriterionItem key={line.criterionId} line={line} />
+              ))}
             </ul>
           </div>
-        ))}
+        )
+      })}
       <p className="text-[11px] text-muted-foreground">
-        공고 조건에 대한 서류 평가예요. 합격 여부를 뜻하지 않아요.
+        공고 조건에 대한 서류 판정이에요. 합격 여부를 뜻하지 않아요.
         {analysis.criteriaVersion && ` · 평가 기준 ${analysis.criteriaVersion}`}
       </p>
     </div>
@@ -493,27 +422,54 @@ function CriterionItem({ line }: { line: CriterionLine }) {
   ].filter(Boolean)
   const sources = [...new Set(line.evidence.map((item) => DOCUMENT_LABELS[item.document]))]
   return (
-    <li className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5">
+    <li className="space-y-0.5">
       <span className="text-xs">
         <span
           className={cn(
             'mr-1.5 inline-block rounded px-1.5 text-[11px] font-medium',
-            VERDICTS[line.verdict].className,
+            lineMark(line).className,
           )}
         >
-          {VERDICTS[line.verdict].label}
+          {lineMark(line).label}
         </span>
         {line.text}
       </span>
-      <span className="text-xs font-medium tabular-nums">
-        {line.earned === null ? '–' : formatScore(line.earned)}/{formatScore(line.allotted)}
-      </span>
-      <span className="col-span-2 text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {line.reason}
         {details.length > 0 && ` · ${details.join(' · ')}`}
         {sources.length > 0 && ` · 출처 ${sources.join(' · ')}`}
-      </span>
+      </p>
     </li>
+  )
+}
+
+/** 인재상(설정의 인재상 + 회사 글에서 뽑은 요소)마다 판정과 지원자가 한 일, 판정 이유 */
+function TalentList({ talents, loading }: { talents: TalentFit | undefined; loading: boolean }) {
+  if (loading) return <Skeleton className="h-10 w-full" />
+  if (!talents || talents.items.length === 0) {
+    return <span className="text-muted-foreground">설정에 인재상이 없어요.</span>
+  }
+  return (
+    <ul className="space-y-1.5">
+      {talents.items.map((item) => (
+        <li key={item.title} className="space-y-0.5">
+          <span className="text-xs">
+            <span
+              className={cn(
+                'mr-1.5 inline-block rounded px-1.5 text-[11px] font-medium',
+                talentMark(item.level).className,
+              )}
+            >
+              {talentMark(item.level).label}
+            </span>
+            {item.title}
+          </span>
+          <p className="text-xs text-muted-foreground">
+            {[item.evidence, item.reason].filter(Boolean).join(' · ')}
+          </p>
+        </li>
+      ))}
+    </ul>
   )
 }
 
