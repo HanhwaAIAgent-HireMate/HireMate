@@ -2,6 +2,7 @@ package com.hiremate.interview.domain;
 
 import com.hiremate.interview.InterviewSessionStatus;
 import jakarta.persistence.LockModeType;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -33,4 +34,6 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     @Query("select count(s) > 0 from InterviewSession s where s.companyId = :companyId "
             + "and s.applicationId = :applicationId and (s.hrMemberId = :memberId or s.practicalMemberId = :memberId)")
     boolean assignedToApplication(UUID companyId, UUID memberId, UUID applicationId);
+
+    List<InterviewSession> findByStageIdAndCompanyId(UUID stageId, UUID companyId);
 }
