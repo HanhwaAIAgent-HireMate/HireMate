@@ -203,6 +203,8 @@ public class InterviewSessions {
                 InterviewSessionStatus.IN_PROGRESS)) {
             throw conflict("INTERVIEW_IN_PROGRESS", "End all interviews before confirming the stage results.");
         }
+        sessions.findByStageIdAndCompanyId(event.stageId(), event.companyId())
+                .forEach(session -> changed(event.companyId(), event.stageId(), session.getApplicationId()));
     }
 
     /** 개인 메모만 반환한다. 상대 면접관의 메모는 API에 포함하지 않는다. */
@@ -257,7 +259,6 @@ public class InterviewSessions {
         if (InterviewService.INTRO.equals(text.strip()) && role != InterviewerRole.HR) {
             throw conflict("INTRO_OWNER", "HR records the common introduction.");
         }
-        changed(companyId, stageId, applicationId);
         return interviews.addManualQuestion(companyId, stageId, applicationId, text, role);
     }
 

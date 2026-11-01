@@ -55,14 +55,20 @@ public class InterviewLive {
         SessionKey key = new SessionKey(stageId, applicationId);
         SseEmitter emitter = new SseEmitter(0L);
         Subscriber subscriber = new Subscriber(memberId, emitter);
-        rooms.computeIfAbsent(key, ignored -> new CopyOnWriteArraySet<>()).add(subscriber);
+        rooms.compute(key, (ignored, found) -> {
+            Set<Subscriber> subscribers = found == null ? new CopyOnWriteArraySet<>() : found;
+            subscribers.add(subscriber);
+            return subscribers;
+        });
         InterviewSessionChanged changed = new InterviewSessionChanged(companyId, stageId, applicationId);
         Runnable gone = () -> {
-            Set<Subscriber> found = rooms.get(key);
-            if (found != null && found.remove(subscriber)) {
-                // 끊긴 뒤 유예 시간이 지나면 접속 끊김으로 보이도록 다시 알린다
-                later.schedule(() -> events.publishEvent(changed), Instant.now().plus(OFFLINE_NOTICE));
-            }
+            rooms.computeIfPresent(key, (ignored, subscribers) -> {
+                if (subscribers.remove(subscriber)) {
+                    // 끊긴 뒤 유예 시간이 지나면 접속 끊김으로 보이도록 다시 알린다
+                    later.schedule(() -> events.publishEvent(changed), Instant.now().plus(OFFLINE_NOTICE));
+                }
+                return subscribers.isEmpty() ? null : subscribers;
+            });
         };
         emitter.onCompletion(gone);
         emitter.onTimeout(gone);
@@ -76,8 +82,15 @@ public class InterviewLive {
     /** HR 화면의 구독: 전형의 모든 면접. */
     public SseEmitter subscribeStage(UUID stageId) {
         SseEmitter emitter = new SseEmitter(0L);
-        stages.computeIfAbsent(stageId, ignored -> new CopyOnWriteArraySet<>()).add(emitter);
-        Runnable gone = () -> stages.getOrDefault(stageId, Set.of()).remove(emitter);
+        stages.compute(stageId, (ignored, found) -> {
+            Set<SseEmitter> emitters = found == null ? new CopyOnWriteArraySet<>() : found;
+            emitters.add(emitter);
+            return emitters;
+        });
+        Runnable gone = () -> stages.computeIfPresent(stageId, (ignored, emitters) -> {
+            emitters.remove(emitter);
+            return emitters.isEmpty() ? null : emitters;
+        });
         emitter.onCompletion(gone);
         emitter.onTimeout(gone);
         emitter.onError(error -> gone.run());

@@ -10,12 +10,14 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -23,6 +25,9 @@ import tools.jackson.databind.JsonNode;
  * 입장 · 시작 같은 변화는 SSE로 다른 면접관 화면과 HR 화면에 바로 알린다.
  */
 class InterviewAttendanceTests extends IntegrationTest {
+
+    @Autowired
+    private InterviewService interviews;
 
     @Test
     @DisplayName("배정된 면접관이 모두 입장해야 시작할 수 있고, 입장 현황은 면접관과 HR에게 보인다")
@@ -75,6 +80,76 @@ class InterviewAttendanceTests extends IntegrationTest {
         assertThat(nextEvent(hrEvents)).isEqualTo("changed");
         kimStream.body().close();
         hrStream.body().close();
+    }
+
+    @Test
+    @DisplayName("HR이 질문 담당을 채우면 대기 중인 면접관 화면에 바로 알린다")
+    void questionOwnerChangesReachWaitingRoom() throws Exception {
+        Room room = room();
+        try (Stream<String> stream = room.kim().stream(room.session() + "/events")
+                .get(10, TimeUnit.SECONDS).body()) {
+            Iterator<String> events = stream.iterator();
+            assertThat(nextEvent(events)).isEqualTo("changed");
+            JsonNode workspace = json(expect(room.kim().get(room.session()), 200));
+            String questionId = workspace.path("questions").get(0).path("question").path("questionId").asString();
+
+            expect(room.interview().hr().put(room.interview().stage() + "/interview/questions/" + questionId
+                    + "/role", Map.of("interviewerRole", "HR")), 200);
+
+            assertThat(nextEvent(events)).isEqualTo("changed");
+        }
+    }
+
+    @Test
+    @DisplayName("새 AI 질문을 열린 면접관 화면에 바로 알린다")
+    void generatedQuestionsReachRoom() throws Exception {
+        Room room = room();
+        try (Stream<String> stream = room.kim().stream(room.session() + "/events")
+                .get(10, TimeUnit.SECONDS).body()) {
+            Iterator<String> events = stream.iterator();
+            assertThat(nextEvent(events)).isEqualTo("changed");
+
+            interviews.addGeneratedQuestions(room.interview().hr().companyId(), room.interview().stageId(),
+                    room.interview().applicationId(),
+                    List.of(new InterviewQuestionDraft("장애를 복구할 때 본인이 맡은 일을 설명해 주세요.", null,
+                            InterviewerRole.PRACTICAL)));
+            assertThat(nextEvent(events)).isEqualTo("changed");
+        }
+    }
+
+    @Test
+    @DisplayName("질문 생성 대기가 끝나면 열린 면접관 화면에 바로 알린다")
+    void preparationCompletionReachesRoom() throws Exception {
+        Room room = room();
+        interviews.startPreparing(room.interview().hr().companyId(), room.interview().stageId(),
+                room.interview().applicationId());
+        try (Stream<String> stream = room.kim().stream(room.session() + "/events")
+                .get(10, TimeUnit.SECONDS).body()) {
+            Iterator<String> events = stream.iterator();
+            assertThat(nextEvent(events)).isEqualTo("changed");
+
+            interviews.finishPreparing(room.interview().hr().companyId(), room.interview().stageId(),
+                    room.interview().applicationId());
+
+            assertThat(nextEvent(events)).isEqualTo("changed");
+        }
+    }
+
+    @Test
+    @DisplayName("HR이 결과를 확정하면 면접관 화면에 알리고 의견을 읽기 전용으로 바꾼다")
+    void stageConfirmationReachesRoom() throws Exception {
+        Room room = room();
+        try (Stream<String> stream = room.kim().stream(room.session() + "/events")
+                .get(10, TimeUnit.SECONDS).body()) {
+            Iterator<String> events = stream.iterator();
+            assertThat(nextEvent(events)).isEqualTo("changed");
+
+            expect(room.interview().hr().post(room.interview().stage() + "/confirm", null), 200);
+
+            assertThat(nextEvent(events)).isEqualTo("changed");
+            JsonNode attendance = json(expect(room.kim().get(room.session() + "/attendance"), 200));
+            assertThat(attendance.path("stageActive").asBoolean()).isFalse();
+        }
     }
 
     private static String nextEvent(Iterator<String> lines) throws Exception {

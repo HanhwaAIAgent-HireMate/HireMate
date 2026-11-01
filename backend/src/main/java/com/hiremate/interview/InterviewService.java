@@ -113,6 +113,7 @@ public class InterviewService {
     @Transactional
     public void finishPreparing(UUID companyId, UUID stageId, UUID applicationId) {
         preparations.deleteByStageIdAndApplicationIdAndCompanyId(stageId, applicationId, companyId);
+        events.publishEvent(new InterviewSessionChanged(companyId, stageId, applicationId));
     }
 
     /** 맞춤 질문을 카드에 넣는다. 이미 있는 질문은 다시 넣지 않는다. */
@@ -190,6 +191,7 @@ public class InterviewService {
                         draft.reason(), draft.interviewerRole()));
             }
         }
+        events.publishEvent(new InterviewSessionChanged(companyId, stageId, applicationId));
     }
 
     /**
@@ -221,6 +223,7 @@ public class InterviewService {
                     "Roles can only be assigned before or during the interview.");
         }
         question.assignRole(role);
+        events.publishEvent(new InterviewSessionChanged(companyId, stageId, question.getApplicationId()));
         return view(companyId, stage, question.getApplicationId());
     }
 
