@@ -76,11 +76,19 @@ public class MailStyleService {
         return toView(style);
     }
 
+    /**
+     * 로고를 저장하고 대표 색을 로고에서 고른 색으로 바꾼다 ({@link MailColorPicker}). 흑백 로고처럼 쓸 만한 색이
+     * 없으면 대표 색을 그대로 둔다. HR은 메일 꾸밈에서 색을 다시 고를 수 있다.
+     */
     @Transactional
     public MailStyle changeLogo(UUID companyId, String name, byte[] content) {
         UUID fileId = store(companyId, name, "logo", content, LOGO, "LOGO_TOO_LARGE");
         CompanyMailStyle style = style(companyId);
         style.changeLogo(fileId);
+        String color = MailColorPicker.pick(read(content)).color();
+        if (color != null) {
+            style.changeLook(color, style.getHeader(), style.getGuideBox());
+        }
         return toView(style);
     }
 
@@ -113,18 +121,6 @@ public class MailStyleService {
         CompanyMailStyle style = style(companyId);
         style.changeBanner(null);
         return toView(style);
-    }
-
-    /**
-     * 참고 그림(로고, 배너, 예전 메일)에서 대표 색과 보조 색을 고른다. 저장하지 않는다.
-     * 모델을 부르지 않고 코드 규칙으로만 고른다 ({@link MailColorPicker}).
-     */
-    public MailColorSuggestion suggestColors(byte[] content) {
-        if (content.length > UPLOAD_MAX_BYTES) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "IMAGE_TOO_LARGE", "The image must be 5MB or smaller.");
-        }
-        imageType(content);
-        return MailColorPicker.pick(read(content));
     }
 
     /** 설정 화면에 보여 줄 배너 그림. */

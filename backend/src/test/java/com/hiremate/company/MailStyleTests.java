@@ -8,8 +8,6 @@ import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
 import com.hiremate.TestMailConfiguration;
-import java.awt.Color;
-import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -59,32 +57,6 @@ class MailStyleTests extends IntegrationTest {
 
         byte[] fake = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3};
         expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("fake.png", "image/png", fake))),
-                400);
-    }
-
-    @Test
-    @DisplayName("로고에서 대표 색을 골라 주고, 저장한 꾸밈은 바꾸지 않는다")
-    void suggestsColorsWithoutSaving() throws Exception {
-        TestApi hr = newHr();
-        BufferedImage banner = new BufferedImage(300, 100, BufferedImage.TYPE_INT_RGB);
-        Graphics2D graphics = banner.createGraphics();
-        graphics.setColor(new Color(0x1b2a4a));
-        graphics.fillRect(0, 0, 300, 100);
-        graphics.setColor(new Color(0xc2410c));
-        graphics.fillRect(200, 20, 80, 60);
-        graphics.dispose();
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        ImageIO.write(banner, "png", out);
-
-        JsonNode suggestion = json(expect(hr.multipart(BASE + "/suggest",
-                Map.of("file", new TestApi.FilePart("banner.png", "image/png", out.toByteArray()))), 200));
-
-        assertThat(suggestion.path("color").asString()).isEqualTo("#1b2a4a");
-        assertThat(suggestion.has("accent")).isFalse();
-        assertThat(suggestion.path("candidates")).hasSize(2);
-        assertThat(json(expect(hr.get(BASE), 200)).path("color").asString()).isEqualTo("#1e3a5f");
-        byte[] fake = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3};
-        expect(hr.multipart(BASE + "/suggest", Map.of("file", new TestApi.FilePart("fake.png", "image/png", fake))),
                 400);
     }
 
@@ -223,9 +195,10 @@ class MailStyleTests extends IntegrationTest {
     @DisplayName("접수 확인 메일은 기업이 고른 색으로 꾸미고 로고를 메일 안에 함께 넣어 보낸다")
     void receiptMailCarriesBrand() throws Exception {
         TestApi hr = newHr();
-        expect(hr.put(BASE, Map.of("color", "#0055a4")), 200);
+        // 로고를 올리면 대표 색이 로고 색으로 바뀌고, 그 뒤에 HR이 고른 색이 메일에 들어간다
         expect(hr.multipart(BASE + "/logo", Map.of("file", new TestApi.FilePart("logo.png", "image/png", PNG))),
                 200);
+        expect(hr.put(BASE, Map.of("color", "#0055a4")), 200);
         JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
         String posting = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
         expect(hr.put(posting, Map.of("title", "결제 백엔드 개발자", "jobCategory", "", "employmentType", "",

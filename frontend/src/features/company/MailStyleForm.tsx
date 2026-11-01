@@ -1,4 +1,4 @@
-import { ImageUp, Pipette, Trash2 } from 'lucide-react'
+import { ImageUp, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
@@ -19,9 +19,7 @@ import {
   useMailStylePreview,
   useReceiptTemplatePreview,
   useSaveMailLook,
-  useSuggestMailColors,
   useUploadMailImage,
-  type MailColorSuggestion,
   type MailImage,
   type MailLook,
   type MailStyle,
@@ -74,10 +72,6 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
   const main = useColorInput(saved.color)
   const [header, setHeader] = useState(saved.header)
   const [box, setBox] = useState(saved.box)
-  const logoColors = useLogoColors((suggestion) => {
-    if (!suggestion.color) return
-    main.pick(suggestion.color)
-  })
   const look: MailLook = { color: main.color, header, box }
   // 색판을 끄는 동안 요청이 몰리지 않게 잠깐 멈췄을 때의 모양으로 미리보기를 받는다
   const [previewLook, setPreviewLook] = useState(look)
@@ -112,7 +106,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
           설정과 미리보기를 1 : 2로 나눠 메일을 실제 폭으로 크게 본다 */}
       <div className="grid gap-x-8 gap-y-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         <div className="min-w-0 space-y-5">
-          {/* 로고는 설정 › 회사 소개에서 올려 포스터와 같이 쓴다. 여기서는 보여 주고 로고에서 메일 색을 고른다 */}
+          {/* 로고는 설정 › 회사 소개에서 올려 포스터와 같이 쓴다. 로고를 올리면 서버가 메일 대표 색도 로고 색으로 바꾼다 */}
           <SettingsRow label="로고">
             <div className="space-y-2">
               {saved.hasLogo && (
@@ -130,12 +124,9 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
                   설정 › 회사 소개
                 </Link>
                 에서 올리고 바꿔요.
+                {saved.hasLogo &&
+                  ' 올리면 대표 색도 로고 색으로 바뀌고, 아래에서 다시 고를 수 있어요.'}
               </p>
-              <LogoColors
-                colors={logoColors}
-                hasLogo={saved.hasLogo}
-                onPick={(color) => main.pick(color)}
-              />
             </div>
           </SettingsRow>
           <SettingsRow label="배너">
@@ -191,80 +182,6 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
         </div>
       </div>
     </SettingsSection>
-  )
-}
-
-/**
- * 올려 둔 회사 로고에서 색을 골라 대표 색 칸을 채운다.
- * 찾은 색은 칩으로 남겨 두어 다른 색을 대표 색으로 고를 수 있다. 저장은 HR이 미리보기를 보고 한다
- */
-function useLogoColors(apply: (suggestion: MailColorSuggestion) => void) {
-  const suggest = useSuggestMailColors()
-  const [found, setFound] = useState<MailColorSuggestion['candidates']>([])
-  const run = (logo: Blob) =>
-    suggest.mutate(logo, {
-      onSuccess: (suggestion) => {
-        setFound(suggestion.candidates)
-        if (!suggestion.color) {
-          toast.info('로고에서 메일 색으로 쓸 만한 색을 찾지 못했어요. 색을 직접 골라 주세요.')
-          return
-        }
-        apply(suggestion)
-        toast.success('로고에서 대표 색을 골랐어요. 미리보기를 보고 저장해 주세요.')
-      },
-      onError: (error) => toast.error(errorMessage(error)),
-    })
-  return { run, found, pending: suggest.isPending }
-}
-
-function LogoColors({
-  colors,
-  hasLogo,
-  onPick,
-}: {
-  colors: ReturnType<typeof useLogoColors>
-  hasLogo: boolean
-  onPick: (color: string) => void
-}) {
-  const { run, found, pending } = colors
-  // 예전에 올린 로고는 저장된 그림을 받아 다시 고른다
-  const again = async () => {
-    const response = await fetch(IMAGES.logo.url)
-    if (!response.ok) {
-      toast.error('올린 로고를 불러오지 못했어요. 잠시 뒤 다시 해 주세요.')
-      return
-    }
-    run(await response.blob())
-  }
-
-  if (!hasLogo && found.length === 0) return null
-  return (
-    <div className="space-y-2">
-      {hasLogo && (
-        <Button variant="outline" size="sm" disabled={pending} onClick={() => void again()}>
-          <Pipette />
-          {pending ? '색 찾는 중…' : '로고에서 색 고르기'}
-        </Button>
-      )}
-      {found.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted-foreground">로고에서 찾은 색</span>
-          {found.map((candidate) => (
-            <button
-              key={candidate.color}
-              type="button"
-              title={`${candidate.color} · ${Math.round(candidate.share * 100)}%`}
-              aria-label={`찾은 색 ${candidate.color}를 대표 색으로`}
-              onClick={() => onPick(candidate.color)}
-              className="inline-flex items-center gap-1 rounded-md border px-1.5 py-1 text-xs"
-            >
-              <span className="size-4 rounded-sm" style={{ background: candidate.color }} />
-              {Math.round(candidate.share * 100)}%
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   )
 }
 

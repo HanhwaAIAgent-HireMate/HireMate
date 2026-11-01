@@ -11,7 +11,7 @@ const IMAGE_TYPES = ['image/png', 'image/jpeg']
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024
 
 // 회사 로고 (설정 › 회사 소개). 한 번 올리면 안내 메일 머리와 새 공고 포스터에 같이 들어간다.
-// 포스터 색은 로고에 맞춰 바뀌고, 메일 색은 메일 꾸밈에서 [로고에서 색 고르기]로 고른다
+// 메일과 포스터의 대표 색도 로고 색으로 바뀌고, 각 설정에서 다시 고를 수 있다
 export function CompanyLogoField() {
   const style = useMailStyle()
   const logo = useCompanyLogo()
@@ -31,9 +31,7 @@ export function CompanyLogoField() {
     }
     logo.mutate(file, {
       onSuccess: () =>
-        toast.success(
-          '로고를 올렸어요. 포스터 색은 로고에 맞췄고, 메일 색은 메일 꾸밈에서 로고 색으로 고를 수 있어요.',
-        ),
+        toast.success('로고를 올렸어요. 안내 메일과 포스터의 대표 색도 로고 색으로 맞췄어요.'),
       onError: (error) => toast.error(errorMessage(error)),
     })
   }
