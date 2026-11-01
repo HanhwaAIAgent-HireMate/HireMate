@@ -4,6 +4,13 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   useDeleteMailImage,
@@ -98,8 +105,9 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
       <p className="text-sm text-muted-foreground">
         모든 안내 메일과 접수 확인 메일에 같은 색과 모양이 들어가요.
       </p>
-      {/* 넓은 화면에서는 미리보기를 오른쪽에 붙여 두어, 아래 칸을 고치는 동안에도 바로 보이게 한다 */}
-      <div className="grid gap-x-8 gap-y-5 xl:grid-cols-[minmax(0,1fr)_460px]">
+      {/* 넓은 화면에서는 미리보기를 오른쪽에 붙여 두어, 왼쪽 칸을 고치는 동안에도 바로 보이게 한다.
+          설정과 미리보기를 1 : 2로 나눠 메일을 실제 폭으로 크게 본다 */}
+      <div className="grid gap-x-8 gap-y-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         <div className="min-w-0 space-y-5">
           {/* 그림을 먼저 올리면 로고에서 고른 색이 아래 색 칸에 채워진다 */}
           <SettingsRow label="로고">
@@ -135,7 +143,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
           </SettingsRow>
           <SettingsRow label="머리 모양">
             <div className="space-y-1.5">
-              <Choices name="머리 모양" options={HEADERS} value={header} onChange={setHeader} />
+              <Dropdown name="머리 모양" options={HEADERS} value={header} onChange={setHeader} />
               {header === 'BANNER' && !saved.hasBanner && (
                 <p className="text-xs text-amber-700">
                   아직 배너가 없어요. 배너를 올리기 전에는 색 띠로 보내요.
@@ -144,7 +152,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
             </div>
           </SettingsRow>
           <SettingsRow label="안내 상자">
-            <Choices name="안내 상자 모양" options={GUIDE_BOXES} value={box} onChange={setBox} />
+            <Dropdown name="안내 상자 모양" options={GUIDE_BOXES} value={box} onChange={setBox} />
           </SettingsRow>
         </div>
         <div className="min-w-0 space-y-1.5 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start xl:overflow-auto">
@@ -167,7 +175,6 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
           <MailFrame
             preview={preview.data}
             title={sample === 'notice' ? '안내 메일 예시 미리보기' : '접수 확인 메일 미리보기'}
-            scale={0.7}
           />
         </div>
       </div>
@@ -287,7 +294,8 @@ function ColorField({
   )
 }
 
-function Choices<T extends string>({
+/** 머리 · 안내 상자 모양 고르기. 설정 칸을 좁게 쓰려고 드롭다운으로 두고, 고른 모양의 설명을 아래에 보인다 */
+function Dropdown<T extends string>({
   name,
   options,
   value,
@@ -298,24 +306,22 @@ function Choices<T extends string>({
   value: T
   onChange: (value: T) => void
 }) {
+  const selected = options.find((option) => option.value === value)
   return (
-    <div role="radiogroup" aria-label={name} className="grid grid-cols-2 gap-2">
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          onClick={() => onChange(option.value)}
-          className={cn(
-            'rounded-md border px-3 py-2 text-left',
-            value === option.value ? 'border-foreground bg-muted' : 'hover:bg-muted/50',
-          )}
-        >
-          <span className="block text-sm font-medium">{option.label}</span>
-          <span className="block text-xs text-muted-foreground">{option.hint}</span>
-        </button>
-      ))}
+    <div className="space-y-1">
+      <Select value={value} onValueChange={(next) => onChange(next as T)}>
+        <SelectTrigger aria-label={name} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {selected && <p className="text-xs text-muted-foreground">{selected.hint}</p>}
     </div>
   )
 }
