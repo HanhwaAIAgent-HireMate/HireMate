@@ -62,6 +62,7 @@ def to_analysis(review: ApplicationReview) -> ApplicationAnalysis:
         passed=review.passed,
         held=review.held,
         shortfalls=shortfalls(review),
+        criterion_marks={result.criterion_id: result.verdict for result in review.criteria},
     )
 
 

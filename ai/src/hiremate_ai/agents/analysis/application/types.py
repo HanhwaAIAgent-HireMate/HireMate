@@ -93,6 +93,8 @@ class ApplicationAnalysis(ContractModel):
     passed: bool  # qualification_status가 PASSED인가
     held: bool  # 총점을 확정하지 못했다 (서류를 읽지 못함 · 확인 필요 남음)
     shortfalls: list[str]  # 채우지 못했거나 확인이 필요한 자격요건의 짧은 표시 (예: 신입, 경력 확인 필요)
+    # 평가 항목 ID별 판정. backend가 전체 지원자를 충족 개수로 줄 세우고 필수 조건을 확인하는 데 쓴다
+    criterion_marks: dict[str, Verdict] = {}
 
 
 class _Record(BaseModel):

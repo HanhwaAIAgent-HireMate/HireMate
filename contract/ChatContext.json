@@ -44,7 +44,12 @@
       "qualificationScore": null,
       "qualificationMax": 0,
       "preferenceScore": null,
-      "preferenceMax": 0
+      "preferenceMax": 0,
+      "metCount": 7,
+      "criterionTotal": 10,
+      "talentCount": 1,
+      "talentTotal": 3,
+      "missingRequired": []
     },
     {
       "applicationId": "4a7c2d3f-9b5e-4a2f-8c8b-2e3d4f5a6b71",
@@ -64,7 +69,12 @@
       "qualificationScore": null,
       "qualificationMax": 0,
       "preferenceScore": null,
-      "preferenceMax": 0
+      "preferenceMax": 0,
+      "metCount": 7,
+      "criterionTotal": 10,
+      "talentCount": 1,
+      "talentTotal": 3,
+      "missingRequired": []
     }
   ],
   "documents": {
@@ -83,7 +93,13 @@
   },
   "assessments": {
     "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": {
-      "areas": {"의사소통능력": 94, "수리능력": 91, "문제해결능력": null, "정보능력": 93, "기술능력": 95},
+      "areas": {
+        "의사소통능력": 94,
+        "수리능력": 91,
+        "문제해결능력": null,
+        "정보능력": 93,
+        "기술능력": 95
+      },
       "grade": "A"
     }
   },

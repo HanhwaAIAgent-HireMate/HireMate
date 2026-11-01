@@ -17,12 +17,16 @@ from hiremate_ai.api.profile import CandidateProfileView
 from hiremate_ai.contract import (
     ApplicantDetail,
     CandidateAnalysis,
+    CompanyFactors,
     CompanyProfile,
+    FeatureLabels,
     InterviewerMemo,
     InterviewView,
     Job,
     JobResult,
     PostingContent,
+    TalentFit,
+    TalentFitRequest,
 )
 
 CONTRACT_DIR = Path(__file__).resolve().parents[2] / "contract"
@@ -40,6 +44,8 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "ChatStatus": ChatStatus,
     "CompanyProfile": CompanyProfile,
     "ComposedReport": ComposedReport,
+    "FeatureLabels": FeatureLabels,
+    "CompanyFactors": CompanyFactors,
     "InterviewAnalysis": InterviewAnalysis,
     "InterviewView": InterviewView,
     "InterviewFollowUps": InterviewFollowUps,
@@ -59,6 +65,8 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "PostingSuggestion": PostingSuggestion,
     "ReportBundle": ReportBundle,
     "ScreeningRubric": ScreeningRubric,
+    "TalentFit": TalentFit,
+    "TalentFitRequest": TalentFitRequest,
 }
 
 

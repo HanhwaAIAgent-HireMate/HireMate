@@ -181,6 +181,15 @@ YUMIN_SUMMARY = {
     "passed": True,
     "held": False,
     "shortfalls": [],
+    "criterionMarks": {
+        "Q-01": "MET",
+        "Q-02": "MET",
+        "Q-03": "MET",
+        "Q-04": "MET",
+        "P-01": "MET",
+        "P-02": "NOT_MET",
+        "P-03": "NOT_MET",
+    },
 }
 
 
