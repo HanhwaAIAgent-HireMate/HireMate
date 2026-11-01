@@ -1,5 +1,7 @@
 package com.hiremate;
 
+import java.util.Map;
+import java.util.UUID;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
@@ -15,6 +17,8 @@ import org.springframework.test.context.TestPropertySource;
         properties = "hiremate.files.local-dir=${java.io.tmpdir}/hiremate-test-files")
 public abstract class IntegrationTest {
 
+    protected static final String INTERVIEWER_PASSWORD = "interviewer-password-2026";
+
     @LocalServerPort
     private int port;
 
@@ -23,6 +27,16 @@ public abstract class IntegrationTest {
         TestApi api = anonymous();
         api.signupAndLogin();
         return api;
+    }
+
+    /** HR이 설정 › 면접관에서 면접관 계정을 만들고 그 계정으로 로그인한 클라이언트. */
+    protected TestApi newInterviewer(TestApi hr, String name) throws Exception {
+        String email = "interviewer-" + UUID.randomUUID() + "@example.com";
+        TestApi.expect(hr.post("/api/companies/me/interviewers",
+                Map.of("name", name, "email", email, "password", INTERVIEWER_PASSWORD)), 201);
+        TestApi interviewer = anonymous();
+        interviewer.login(email, INTERVIEWER_PASSWORD);
+        return interviewer;
     }
 
     protected TestApi anonymous() {
