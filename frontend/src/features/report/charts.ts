@@ -98,6 +98,51 @@ function lookup(bundle: ReportBundle) {
   }
 }
 
+/** 분포 기준선 이름표가 겹칠 때 한 층씩 올리는 간격(px) */
+const LABEL_STEP = 14
+/** 두 기준선이 이보다 가까우면(가로축 최댓값 대비) 이름표가 겹친다고 본다 */
+const LABEL_GAP = 0.12
+
+interface MarkInput {
+  x: number
+  text: string
+  color: string | undefined
+  line?: Record<string, unknown>
+}
+
+/** 같은 값의 지원자는 기준선 하나로 묶고 이름을 이어 쓴다. 색이 다르면 기본 글자색으로 그린다 */
+function sameValueTogether(marks: MarkInput[]): MarkInput[] {
+  const byValue = new Map<number, MarkInput[]>()
+  for (const mark of marks) byValue.set(mark.x, [...(byValue.get(mark.x) ?? []), mark])
+  return [...byValue.values()].map((group) =>
+    group.length === 1
+      ? group[0]
+      : { x: group[0].x, text: group.map((mark) => mark.text).join(' · '), color: INK },
+  )
+}
+
+/** 가까이 붙은 기준선의 이름표를 층을 나눠 위로 올려 서로 겹치지 않게 한다 */
+function spreadLabels(marks: MarkInput[], top: number) {
+  const sorted = [...marks].sort((a, b) => a.x - b.x)
+  let layer = 0
+  return sorted.map((mark, index) => {
+    const previous = sorted[index - 1]
+    layer = previous && mark.x - previous.x < top * LABEL_GAP ? layer + 1 : 0
+    return {
+      layer,
+      xAxis: mark.x,
+      label: {
+        formatter: mark.text,
+        position: 'end',
+        distance: 5 + layer * LABEL_STEP,
+        color: mark.color ?? INK,
+        fontSize: 10.5,
+      },
+      lineStyle: mark.line ?? { color: mark.color ?? INK, type: 'solid', width: 2 },
+    }
+  })
+}
+
 /** 부품 하나의 ECharts 옵션과 높이(px) */
 export function chartFor(block: Block, ctx: ChartContext): Chart {
   const { bundle, who, color } = ctx
@@ -138,23 +183,24 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
           },
         })),
       }))
-      const marks = [
-        ...data.metrics(block.reference).map((r) => ({
-          xAxis: r.value,
-          label: {
-            formatter: `${r.label} ${r.value}`,
-            position: 'end',
+      const marks = spreadLabels(
+        [
+          ...data.metrics(block.reference).map((r) => ({
+            x: r.value,
+            text: `${r.label} ${r.value}`,
             color: INK,
-            fontSize: 10.5,
-          },
-          lineStyle: { color: '#4A4F57', type: 'dashed', width: 1.3 },
-        })),
-        ...(block.highlight ?? []).map((number) => ({
-          xAxis: data.value(number, block.key),
-          label: { formatter: who(number), position: 'end', color: color(number), fontSize: 10.5 },
-          lineStyle: { color: color(number) ?? INK, type: 'solid', width: 2 },
-        })),
-      ]
+            line: { color: '#4A4F57', type: 'dashed', width: 1.3 },
+          })),
+          ...sameValueTogether(
+            (block.highlight ?? []).map((number) => ({
+              x: data.value(number, block.key),
+              text: who(number),
+              color: color(number),
+            })),
+          ),
+        ],
+        top,
+      )
       series.push({
         type: 'line',
         xAxisIndex: 1,
@@ -162,11 +208,12 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
         silent: true,
         markLine: { symbol: 'none', silent: true, data: marks },
       })
+      const layers = Math.max(0, ...marks.map((mark) => mark.layer))
       return {
-        height: 250,
+        height: 250 + layers * LABEL_STEP,
         option: base({
           legend: { ...legend, show: groups.length > 1 },
-          grid: { left: 30, right: 16, top: 44, bottom: 26 },
+          grid: { left: 30, right: 16, top: 44 + layers * LABEL_STEP, bottom: 26 },
           xAxis: [
             {
               type: 'category',
