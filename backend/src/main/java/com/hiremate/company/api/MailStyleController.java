@@ -48,23 +48,6 @@ public class MailStyleController {
         return styles.changeLook(member.companyId(), request.look());
     }
 
-    @PostMapping(path = "/logo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public MailStyle uploadLogo(AuthenticatedMember member, @RequestPart("file") MultipartFile file)
-            throws IOException {
-        return styles.changeLogo(member.companyId(), file.getOriginalFilename(), file.getBytes());
-    }
-
-    @DeleteMapping("/logo")
-    public MailStyle deleteLogo(AuthenticatedMember member) {
-        return styles.deleteLogo(member.companyId());
-    }
-
-    /** 설정 화면에 보여 줄 로고 그림. 새로 올리면 바뀌어 저장해 두지 않게 한다. */
-    @GetMapping("/logo")
-    public ResponseEntity<byte[]> logo(AuthenticatedMember member) {
-        return image(styles.logo(member.companyId()));
-    }
-
     @PostMapping(path = "/banner", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public MailStyle uploadBanner(AuthenticatedMember member, @RequestPart("file") MultipartFile file)
             throws IOException {
