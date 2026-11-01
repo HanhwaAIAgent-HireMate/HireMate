@@ -363,6 +363,69 @@ class CandidateAnalysis(ContractModel):
     stub: bool
 
 
+class FeatureLabelsRequest(ContractModel):
+    """표 보기의 열 이름을 만들 평가 기준 · 인재상 문장들 (CandidateAnalyst.labels의 매개변수)."""
+
+    texts: list[str]
+
+
+class FeatureLabels(ContractModel):
+    """texts와 같은 순서의 짧은 키워드. 예: '인성을 중요시한다' → '인성' (ai.application.FeatureLabels)."""
+
+    labels: list[str]
+
+
+class CompanyFactorsRequest(ContractModel):
+    """회사 소개 · 조직 문화 글 (CandidateAnalyst.factors의 매개변수)."""
+
+    text: str
+
+
+class CompanyFactors(ContractModel):
+    """회사 소개 · 조직 문화 글에서 뽑은, 회사가 사람을 볼 때 중요하게 여기는 요소 (ai.application.CompanyFactors).
+
+    title은 짧은 낱말(예: '인성'), description은 그 요소가 나온 원문 문장이다.
+    """
+
+    items: list[Talent]
+
+
+class TalentLevel(StrEnum):
+    """인재상 하나에 맞는 정도. 서류에 근거가 없으면 UNKNOWN이다 (LOW로 바꾸지 않는다)."""
+
+    HIGH = "HIGH"  # 상: 본인이 직접 한 구체 경험이 있다
+    MID = "MID"  # 중: 관련 경험은 있지만 팀 성과이거나 본인 역할 · 결과가 분명하지 않다
+    LOW = "LOW"  # 하: 관련 언급은 있지만 구체 경험이 없다
+    UNKNOWN = "UNKNOWN"  # 확인 필요
+
+
+class TalentFitRequest(ContractModel):
+    """지원자 한 명의 인재상 판정 요청 (CandidateAnalyst.talents의 매개변수). 지원 접수 때 저장한 분석을 읽는다."""
+
+    company_id: UUID
+    recruitment_id: UUID
+    application_id: UUID
+    talents: list[Talent]
+
+
+class TalentFitItem(ContractModel):
+    """인재상 하나의 판정 (TalentFit.Item). evidence는 무엇을 했는지 짧게, quote는 원문 문장이다."""
+
+    title: str
+    level: TalentLevel
+    evidence: str
+    reason: str
+    quote: str | None
+
+
+class TalentFit(ContractModel):
+    """지원자 한 명의 인재상 판정. items는 요청한 인재상과 같은 순서다 (ai.application.TalentFit)."""
+
+    items: list[TalentFitItem]
+    agent: str
+    stub: bool
+
+
 class Job(ContractModel):
     """AI 워커가 처리할 분석 작업 (job.Job). backend가 Redis 작업 스트림에 넣는다.
 

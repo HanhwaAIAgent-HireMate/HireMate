@@ -79,6 +79,11 @@ class CandidateRow(ContractModel):
     qualification_max: int = 0
     preference_score: float | None = None  # 서류 전형의 우대사항 점수
     preference_max: int = 0
+    met_count: int = 0  # 서류 전형에서 자격요건 + 우대사항 가운데 충족한 개수
+    criterion_total: int = 0
+    talent_count: int = 0  # 상으로 판정한 인재상 개수
+    talent_total: int = 0
+    missing_required: list[str] = []  # 충족하지 못했거나 확인이 필요한 필수 조건의 평가 항목 ID
 
 
 class StageStatus(StrEnum):

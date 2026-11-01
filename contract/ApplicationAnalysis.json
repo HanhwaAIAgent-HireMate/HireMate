@@ -15,5 +15,10 @@
   "held": false,
   "shortfalls": [
     "신입"
-  ]
+  ],
+  "criterionMarks": {
+    "Q-01": "MET",
+    "Q-02": "PARTIAL",
+    "P-01": "UNKNOWN"
+  }
 }
