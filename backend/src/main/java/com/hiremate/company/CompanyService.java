@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,13 +32,15 @@ public class CompanyService {
     private final NoticeTemplateRepository noticeTemplates;
     private final CompanyFileRepository companyFiles;
     private final FileService files;
+    private final ApplicationEventPublisher events;
 
     public CompanyService(CompanyRepository companies, NoticeTemplateRepository noticeTemplates,
-            CompanyFileRepository companyFiles, FileService files) {
+            CompanyFileRepository companyFiles, FileService files, ApplicationEventPublisher events) {
         this.companies = companies;
         this.noticeTemplates = noticeTemplates;
         this.companyFiles = companyFiles;
         this.files = files;
+        this.events = events;
     }
 
     @Transactional
@@ -55,8 +58,42 @@ public class CompanyService {
     public CompanyProfile updateProfile(UUID companyId, String intro, String culture, List<Talent> talents,
             List<String> benefits) {
         Company company = company(companyId);
+        String before = company.cultureText();
         company.updateProfile(intro, culture, talents, benefits);
+        String text = company.cultureText();
+        if (!text.equals(before) || !text.equals(company.getCultureFactorsSource())) {
+            events.publishEvent(new CompanyProfileChanged(companyId, text));
+        }
         return toProfile(company);
+    }
+
+    /**
+     * 지원자 분석에 쓰는 인재상: 설정에 적은 인재상, 그다음 회사 소개 · 조직 문화 글에서 AI가 뽑은 요소.
+     * 글에서 뽑은 요소가 설정의 인재상과 이름이 같으면 한 번만 둔다. 글이 바뀐 뒤 아직 다시 뽑지 않았으면 글의 요소는 빠진다.
+     */
+    @Transactional(readOnly = true)
+    public List<Talent> factors(UUID companyId) {
+        Company company = company(companyId);
+        List<Talent> factors = new ArrayList<>(company.getTalents());
+        if (company.cultureText().equals(company.getCultureFactorsSource())) {
+            company.getCultureFactors().stream()
+                    .filter(factor -> factors.stream().noneMatch(talent -> same(talent.title(), factor.title())))
+                    .forEach(factors::add);
+        }
+        return List.copyOf(factors);
+    }
+
+    /** AI가 회사 글에서 뽑은 인재상 요소를 남긴다. 그 사이 글이 바뀌었으면 남기지 않는다. */
+    @Transactional
+    public boolean recordCultureFactors(UUID companyId, String source, List<Talent> factors) {
+        return company(companyId).recordCultureFactors(source, factors);
+    }
+
+    /** '협업을 중요시한다'와 '협업'처럼 한쪽 이름이 다른 쪽을 품으면 같은 요소로 본다. */
+    private static boolean same(String left, String right) {
+        String a = left.replace(" ", "");
+        String b = right.replace(" ", "");
+        return !a.isEmpty() && !b.isEmpty() && (a.contains(b) || b.contains(a));
     }
 
     @Transactional(readOnly = true)

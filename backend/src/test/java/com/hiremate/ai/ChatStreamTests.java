@@ -134,7 +134,7 @@ class ChatStreamTests extends IntegrationTest {
         assertThatThrownBy(() -> chat.run(input, gone)).isInstanceOf(UncheckedIOException.class);
 
         assertThat(screening.candidates(hr.companyId(), setup.stageId(), setup.tabId(), null,
-                CandidateSort.QUALIFICATION, 0, 10).items())
+                CandidateSort.BASIC, 0, 10).items())
                 .noneMatch(CandidateRow::selected);
     }
 

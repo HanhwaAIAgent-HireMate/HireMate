@@ -9,7 +9,9 @@ import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.ChatStatus;
+import com.hiremate.ai.application.CompanyFactors;
 import com.hiremate.ai.application.ComposedReport;
+import com.hiremate.ai.application.FeatureLabels;
 import com.hiremate.ai.application.InterviewAnalysis;
 import com.hiremate.ai.application.InterviewAnalysisInput;
 import com.hiremate.ai.application.InterviewFollowUps;
@@ -17,6 +19,8 @@ import com.hiremate.ai.application.InterviewFollowUpsRequest;
 import com.hiremate.ai.application.InterviewQuestionsRequest;
 import com.hiremate.ai.application.InterviewerMemo;
 import com.hiremate.ai.application.ReportBundle;
+import com.hiremate.ai.application.TalentFit;
+import com.hiremate.ai.application.TalentFitRequest;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.company.CompanyProfile;
@@ -69,6 +73,8 @@ class ContractSampleTests {
             Map.entry("ChatStatus", ChatStatus.class),
             Map.entry("CompanyProfile", CompanyProfile.class),
             Map.entry("ComposedReport", ComposedReport.class),
+            Map.entry("FeatureLabels", FeatureLabels.class),
+            Map.entry("CompanyFactors", CompanyFactors.class),
             Map.entry("InterviewAnalysis", InterviewAnalysis.class),
             Map.entry("InterviewView", InterviewView.class),
             Map.entry("InterviewFollowUps", InterviewFollowUps.class),
@@ -87,7 +93,9 @@ class ContractSampleTests {
             Map.entry("PostingFocus", PostingFocus.class),
             Map.entry("PostingSuggestion", PostingSuggestion.class),
             Map.entry("ReportBundle", ReportBundle.class),
-            Map.entry("ScreeningRubric", ScreeningRubric.class));
+            Map.entry("ScreeningRubric", ScreeningRubric.class),
+            Map.entry("TalentFit", TalentFit.class),
+            Map.entry("TalentFitRequest", TalentFitRequest.class));
 
     @Autowired
     private JsonMapper mapper;

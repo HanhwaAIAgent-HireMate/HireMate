@@ -208,7 +208,7 @@ public class ReportBundles {
         List<CandidateRow> rows = new ArrayList<>();
         for (int page = 0;; page++) {
             // 리포트는 탭의 선택 표시와 무관하다
-            var result = screening.candidates(companyId, stageId, null, null, CandidateSort.TOTAL, page, PAGE);
+            var result = screening.candidates(companyId, stageId, null, null, CandidateSort.BASIC, page, PAGE);
             rows.addAll(result.items());
             if (rows.size() >= result.total() || result.items().isEmpty()) {
                 return rows;

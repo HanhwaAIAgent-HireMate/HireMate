@@ -173,7 +173,7 @@ public class AssessmentService {
 
     private Map<String, UUID> keys(UUID companyId, Stage stage, IdentifierType type) {
         Set<UUID> inStage = screening
-                .candidates(companyId, stage.stageId(), null, null, CandidateSort.QUALIFICATION, 0, 10_000).items()
+                .candidates(companyId, stage.stageId(), null, null, CandidateSort.BASIC, 0, 10_000).items()
                 .stream()
                 .map(CandidateRow::applicationId)
                 .collect(Collectors.toSet());

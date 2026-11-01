@@ -3,6 +3,7 @@ package com.hiremate.apply;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Application Agent가 정리한 지원자 요약. 서류 평가 점수는 자격요건 50점 + 우대사항 50점이다 (한 영역만 있으면 그 영역이
@@ -21,6 +22,7 @@ import java.util.List;
  * @param passed qualificationStatus가 PASSED인가
  * @param held 총점을 보류했는가 (서류를 읽지 못함 · 확인 필요가 남음). 보류한 지원자는 AI 추천 순위에서 빠진다
  * @param shortfalls 채우지 못했거나 확인이 필요한 자격요건의 짧은 표시 (예: 신입, 경력 확인 필요). 이름 옆에 붙는다
+ * @param criterionMarks 평가 항목 ID별 판정. 전체 지원자의 충족 개수 정렬과 필수 조건 확인에 쓴다
  */
 public record ApplicationAnalysis(@Schema(nullable = true) Integer careerYears,
         @Schema(nullable = true) String lastCompany, @Schema(nullable = true) String criteriaVersion,
@@ -29,10 +31,22 @@ public record ApplicationAnalysis(@Schema(nullable = true) Integer careerYears,
         @Schema(nullable = true) BigDecimal preferenceScore, int preferenceMax,
         @Schema(nullable = true) BigDecimal documentScore, @Schema(nullable = true) BigDecimal documentScoreLow,
         @Schema(nullable = true) BigDecimal qualificationScoreLow, boolean passed, boolean held,
-        List<String> shortfalls) {
+        List<String> shortfalls, Map<String, CriterionMark> criterionMarks) {
 
     public ApplicationAnalysis {
         shortfalls = shortfalls == null ? List.of() : List.copyOf(shortfalls);
+        criterionMarks = criterionMarks == null ? Map.of() : Map.copyOf(criterionMarks);
+    }
+
+    /** 항목별 판정 없이 점수만 있는 요약. */
+    public ApplicationAnalysis(Integer careerYears, String lastCompany, String criteriaVersion,
+            QualificationStatus qualificationStatus, BigDecimal qualificationRate, BigDecimal qualificationScore,
+            int qualificationMax, BigDecimal preferenceScore, int preferenceMax, BigDecimal documentScore,
+            BigDecimal documentScoreLow, BigDecimal qualificationScoreLow, boolean passed, boolean held,
+            List<String> shortfalls) {
+        this(careerYears, lastCompany, criteriaVersion, qualificationStatus, qualificationRate, qualificationScore,
+                qualificationMax, preferenceScore, preferenceMax, documentScore, documentScoreLow,
+                qualificationScoreLow, passed, held, shortfalls, Map.of());
     }
 
     /** 영역 점수 없이 총점만 있는 요약 (stub · 테스트). 자격요건 50 · 우대사항 50으로 둔다. */
