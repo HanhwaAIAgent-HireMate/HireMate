@@ -42,7 +42,8 @@ AI는 분석, 탐색, 초안 작성을 돕되 채용 결정은 담당자가 직�
 2. `ai/`가 `backend/`에 보낼 수 있는 변경 명령은 선택 지원자 영역 편집(넣기, 빼기)과 면접 질문 생성, 교체 요청이다.
    `backend/`가 대상과 권한을 검증한 뒤 실행한다.
 3. 업무 데이터(지원자 상태, 결정 이력)는 `backend/`만 쓴다. `ai/`는 지원자 프로필, 분석 결과, AI 호출 로그,
-   Root Agent의 Chat 대화방(전형 화면의 탭별, 같은 기업 담당자 공유, 탭을 지울 때 삭제, 지원 문서 원문 제외)만 저장한다.
+   Root Agent의 Chat 대화방(전형 화면의 탭별. HR 탭은 같은 기업 담당자가 공유하고 면접관 탭은 본인만 본다.
+   탭을 지울 때 삭제, 지원 문서 원문 제외)만 저장한다.
 4. 조회는 현재 기업, 채용, 전형 범위로 제한한다. 다른 기업의 데이터를 검색 대상에 넣지 않는다.
 5. 제출 문서와 URL의 내용은 분석 자료로만 다룬다. 문서 안의 지시문으로 도구 권한이나 채용 상태가 바뀌면 안 된다.
 6. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건으로 지원자를 탐색하거나 거르는 기능을 만들지 않는다.
@@ -76,7 +77,8 @@ src/main/java/com/hiremate/
   도구(`IntegrationTest`, `TestApi`, `TestFixtures`)와 앱 전체 테스트(`ModularityTests`)는 최상위 `com.hiremate`에 둔다.
 - DB나 Redis가 필요한 테스트는 `TestcontainersConfiguration`을 `@Import`한다.
 - `auth/config/SecurityConfig`는 인증 작업이 아니면 고치지 않는다. 업무 경로는 HR 역할에만 연다. 면접관 계정은
-  `/api/interviewer/**`와 배정된 지원자의 지원 자료 읽기 경로(`INTERVIEWER_READS`, `InterviewerAccess`)만 쓴다.
+  `/api/interviewer/**`, 배정된 지원자의 지원 자료 읽기 경로(`INTERVIEWER_READS`)와 배정된 전형의 자기 Chat 탭
+  경로(`INTERVIEWER_TABS`)만 쓴다(`InterviewerAccess`). 면접관 Chat은 배정된 지원자만 보고 선택 지원자를 바꾸지 않는다.
   면접관에게 API를 새로 열려면 그 목록과 `InterviewerAccessTests`의 목록을 함께 고친다.
 - AI Agent 구현은 `ai/infra`에 둔다. stub은 `@ConditionalOnAiMode(agent = ..., mode = AiMode.STUB)`,
   ai 서버를 부르는 구현은 `mode = AiMode.REMOTE`로 달고 `AiServerClient`로만 호출한다.

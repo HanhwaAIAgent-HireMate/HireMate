@@ -14,9 +14,12 @@ import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.ChatService;
 import com.hiremate.ai.application.RootAgent;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -84,17 +87,23 @@ class InterviewerChatTests extends IntegrationTest {
                 "1명의 면접 질문 생성을 요청했어요.", List.of(), List.of(), List.of("Interview Agent"), List.of(id),
                 Map.of(), Map.of(), false));
 
-        done(expect(room.kim().post(room.chat(), Map.of("message", "@지원자 질문 하나 더 만들어줘",
+        Set<String> before = new HashSet<>();
+        json(expect(room.hr().get(room.interview().candidate() + "/interview"), 200)).path("questions")
+                .forEach(question -> before.add(question.path("questionId").asString()));
+
+        // stub Interview Agent는 협업 질문을 인사 담당으로 만든다. 실무 면접관이 요청했으니 실무로 들어가야 한다
+        done(expect(room.kim().post(room.chat(), Map.of("message", "@지원자 협업 경험을 확인할 질문 만들어줘",
                 "mentionIds", List.of(id), "checkedIds", List.of())), 200));
 
-        JsonNode view = json(expect(room.hr().get(room.interview().candidate() + "/interview"), 200));
-        boolean practical = false;
-        for (JsonNode question : view.path("questions")) {
-            if (question.path("reason").asString().contains("Chat") || question.path("source").asString().equals("AI")) {
-                practical |= question.path("interviewerRole").asString().equals("PRACTICAL");
-            }
-        }
-        assertThat(practical).isTrue();
+        List<String> added = new ArrayList<>();
+        json(expect(room.hr().get(room.interview().candidate() + "/interview"), 200)).path("questions")
+                .forEach(question -> {
+                    if (!before.contains(question.path("questionId").asString())) {
+                        added.add(question.path("interviewerRole").asString());
+                    }
+                });
+        // Chat으로 새로 들어온 질문은 모두 김지민이 맡은 실무 담당이다
+        assertThat(added).isNotEmpty().containsOnly("PRACTICAL");
     }
 
     private record Room(Interview interview, TestApi kim, String tab) {
