@@ -12,10 +12,11 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { RegisterDialog } from '@/features/assessment/RegisterDialog'
+import { InterviewAssign } from '@/features/interview/InterviewAssign'
 import { useConfirmStage, type StageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
 
-/** Stage 바 (COM-01): 결정 현황 · [전형 결과 확정]. 전형 단계 줄 오른쪽에 들어간다 */
+/** Stage 바 (COM-01): [면접관 배정](면접 전형) · 결정 현황 · [전형 결과 확정]. 전형 단계 줄 오른쪽에 들어간다 */
 export function StageBar({ overview }: { overview: StageOverview }) {
   const [confirming, setConfirming] = useState(false)
   const [registering, setRegistering] = useState(false)
@@ -26,6 +27,14 @@ export function StageBar({ overview }: { overview: StageOverview }) {
 
   return (
     <>
+      {/* 전형을 옮기면 열려 있던 설정 창과 고르던 값을 비우도록 전형마다 새로 만든다 */}
+      {overview.type === 'INTERVIEW' && (
+        <InterviewAssign
+          key={overview.stageId}
+          stageId={overview.stageId}
+          editable={overview.status === 'PENDING' || overview.status === 'ACTIVE'}
+        />
+      )}
       <Count color="bg-muted-foreground/40" label="미결정" value={counts.pending} />
       <Count color="bg-pass-foreground" label="합격" value={counts.pass} />
       <Count color="bg-fail-foreground" label="불합격" value={counts.fail} />

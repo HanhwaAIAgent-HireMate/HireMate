@@ -42,7 +42,11 @@ export function InterviewRoomPage() {
   const [params, setParams] = useSearchParams()
   const interviews = useMyInterviews()
   const rows = (interviews.data?.items ?? []).filter((item) => item.stageId === stageId)
-  const selected = rows.find((row) => row.applicationId === params.get('candidate')) ?? rows[0]
+  const groups = candidateGroups(rows)
+  // 전형으로 들어오면 지원자를 고르지 않았으니 왼쪽 목록 맨 위 지원자를 연다
+  const selected =
+    rows.find((row) => row.applicationId === params.get('candidate')) ??
+    groups.flatMap(([, items]) => items)[0]
   useHeaderCrumb(selected && { title: `${selected.recruitmentTitle} › ${selected.stageName}` })
 
   return (
@@ -57,7 +61,7 @@ export function InterviewRoomPage() {
           className="flex flex-col"
         >
           <CandidateColumn
-            rows={rows}
+            groups={groups}
             selected={selected?.applicationId ?? null}
             onSelect={(applicationId) => setParams({ candidate: applicationId })}
           />
@@ -77,72 +81,74 @@ export function InterviewRoomPage() {
   )
 }
 
+const scheduledAt = (row: AssignedInterview) => row.schedule?.scheduledAt ?? null
+
+/** 왼쪽 칸의 묶음: 오늘 면접, 다른 날, 일정 미정. 묶음 안은 면접 시간순이고 빈 묶음은 뺀다 */
+function candidateGroups(rows: AssignedInterview[]): [string, AssignedInterview[]][] {
+  const today = new Date().toDateString()
+  const sorted = [...rows].sort((a, b) =>
+    (scheduledAt(a) ?? '9999').localeCompare(scheduledAt(b) ?? '9999'),
+  )
+  const day = (row: AssignedInterview) => new Date(scheduledAt(row) ?? '').toDateString()
+  const groups: [string, AssignedInterview[]][] = [
+    ['오늘 면접', sorted.filter((row) => scheduledAt(row) && day(row) === today)],
+    ['다른 날', sorted.filter((row) => scheduledAt(row) && day(row) !== today)],
+    ['일정 미정', sorted.filter((row) => !scheduledAt(row))],
+  ]
+  return groups.filter(([, items]) => items.length > 0)
+}
+
 /** 왼쪽 칸: 오늘 면접(시간순), 다른 날, 일정 미정 */
 function CandidateColumn({
-  rows,
+  groups,
   selected,
   onSelect,
 }: {
-  rows: AssignedInterview[]
+  groups: [string, AssignedInterview[]][]
   selected: string | null
   onSelect: (applicationId: string) => void
 }) {
-  const today = new Date().toDateString()
-  const at = (row: AssignedInterview) => row.schedule?.scheduledAt ?? null
-  const sorted = [...rows].sort((a, b) => (at(a) ?? '9999').localeCompare(at(b) ?? '9999'))
-  const groups: [string, AssignedInterview[]][] = [
-    [
-      '오늘 면접',
-      sorted.filter((row) => at(row) && new Date(at(row) ?? '').toDateString() === today),
-    ],
-    [
-      '다른 날',
-      sorted.filter((row) => at(row) && new Date(at(row) ?? '').toDateString() !== today),
-    ],
-    ['일정 미정', sorted.filter((row) => !at(row))],
-  ]
+  const at = scheduledAt
   return (
     <nav aria-label="면접 지원자" className="min-h-0 flex-1 overflow-auto bg-surface px-2.5 py-3">
-      {groups
-        .filter(([, items]) => items.length > 0)
-        .map(([label, items]) => (
-          <section key={label} className="mb-4">
-            <h2 className="mb-1.5 px-1.5 text-xs font-semibold text-muted-foreground">
-              {label} · {items.length}명
-            </h2>
-            {items.map((row) => (
-              <button
-                key={row.applicationId}
-                type="button"
-                aria-current={row.applicationId === selected ? 'true' : undefined}
-                onClick={() => onSelect(row.applicationId)}
-                className={cn(
-                  'mb-1 block w-full rounded-lg px-2.5 py-2 text-left text-sm',
-                  row.applicationId === selected
-                    ? 'bg-background shadow-sm'
-                    : 'hover:bg-background/60',
-                )}
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <b>{row.applicantName}</b>
-                  <span
-                    className={cn(
-                      'rounded-full px-1.5 py-0.5 text-[11px] font-semibold',
-                      row.status === 'IN_PROGRESS'
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'bg-muted text-muted-foreground',
-                    )}
-                  >
-                    {INTERVIEW_STATUS_LABELS[row.status]}
-                  </span>
+      {groups.map(([label, items]) => (
+        <section key={label} className="mb-4">
+          <h2 className="mb-1.5 px-1.5 text-xs font-semibold text-muted-foreground">
+            {label} · {items.length}명
+          </h2>
+          {items.map((row) => (
+            <button
+              key={row.applicationId}
+              type="button"
+              aria-current={row.applicationId === selected ? 'true' : undefined}
+              onClick={() => onSelect(row.applicationId)}
+              className={cn(
+                'mb-1 block w-full rounded-lg px-2.5 py-2 text-left text-sm',
+                row.applicationId === selected
+                  ? 'bg-background shadow-sm'
+                  : 'hover:bg-background/60',
+              )}
+            >
+              <span className="flex items-center justify-between gap-2">
+                <b>{row.applicantName}</b>
+                <span
+                  className={cn(
+                    'rounded-full px-1.5 py-0.5 text-[11px] font-semibold',
+                    row.status === 'IN_PROGRESS'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-muted text-muted-foreground',
+                  )}
+                >
+                  {INTERVIEW_STATUS_LABELS[row.status]}
                 </span>
-                <span className="text-xs text-muted-foreground">
-                  {at(row) ? formatDateTime(at(row) ?? '') : '일정 미정'}
-                </span>
-              </button>
-            ))}
-          </section>
-        ))}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {at(row) ? formatDateTime(at(row) ?? '') : '일정 미정'}
+              </span>
+            </button>
+          ))}
+        </section>
+      ))}
     </nav>
   )
 }

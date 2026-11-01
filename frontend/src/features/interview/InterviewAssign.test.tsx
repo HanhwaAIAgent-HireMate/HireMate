@@ -67,13 +67,13 @@ const renderAssign = (editable = true) =>
 afterEach(() => vi.unstubAllGlobals())
 
 describe('전형 공통 면접관 배정', () => {
-  it('지원자 없이 전형에서 한 번 배정하고 모든 지원자에 공통 적용한다고 안내한다', async () => {
+  it('버튼 하나로 전형에 한 번 배정하고 모든 지원자에 공통 적용한다', async () => {
     const puts = mockServer()
     renderAssign()
-    expect(
-      await screen.findByText('이 전형의 모든 지원자에게 공통으로 적용해요.'),
-    ).toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: '면접관 배정' }))
+    expect(
+      screen.getByText('이 전형의 모든 지원자에게 공통으로 적용해요.', { exact: false }),
+    ).toBeInTheDocument()
     await screen.findAllByRole('option', { name: '김지민 (kim@x)' })
     fireEvent.change(screen.getByRole('combobox', { name: '인사 면접관' }), {
       target: { value: 'kim' },
@@ -94,41 +94,54 @@ describe('전형 공통 면접관 배정', () => {
         },
       ]),
     )
-    expect(await screen.findByText('최인사')).toBeInTheDocument()
-    expect(screen.getByText('김지민')).toBeInTheDocument()
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    const change = screen.getByRole('button', { name: '면접관 변경' })
+    expect(change).toHaveAttribute('title', '인사 최인사 · 실무 김지민')
+    fireEvent.click(change)
+    expect(screen.getByRole('combobox', { name: '인사 면접관' })).toHaveValue('choi')
+    expect(screen.getByRole('combobox', { name: '실무 면접관' })).toHaveValue('kim')
   })
-  it('다른 지원자의 면접이 시작되면 전형 전체 배정을 잠근다', async () => {
+  it('다른 지원자의 면접이 시작되면 전형 전체 배정을 잠그고 보기만 한다', async () => {
     mockServer({ assigned: true, started: true })
     renderAssign()
+    fireEvent.click(await screen.findByRole('button', { name: '면접관 보기' }))
     expect(
-      await screen.findByText('면접이 시작된 지원자가 있어 전형의 면접관을 바꿀 수 없어요.'),
+      screen.getByText('면접이 시작된 지원자가 있어 면접관을 바꿀 수 없어요.'),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '면접관 변경' })).not.toBeInTheDocument()
+    expect(await screen.findByText('최인사')).toBeInTheDocument()
+    expect(screen.getByText('김지민')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '전형 전체에 적용' })).not.toBeInTheDocument()
   })
   it('서버가 잠근 공통 배정은 진행 현황을 받기 전에도 수정할 수 없다', async () => {
     mockServer({ assigned: true, locked: true })
     renderAssign()
-    expect(
-      await screen.findByText('면접이 시작된 지원자가 있어 전형의 면접관을 바꿀 수 없어요.'),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '면접관 보기' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '면접관 변경' })).not.toBeInTheDocument()
   })
   it('확정된 전형에서는 공통 면접관을 읽기만 한다', async () => {
     mockServer({ assigned: true })
     renderAssign(false)
+    fireEvent.click(await screen.findByRole('button', { name: '면접관 보기' }))
     expect(await screen.findByText('최인사')).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: /면접관 변경|면접관 배정/ }),
+      screen.queryByText('면접이 시작된 지원자가 있어 면접관을 바꿀 수 없어요.'),
     ).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+  it('확정된 전형에 배정한 면접관이 없으면 버튼을 두지 않는다', async () => {
+    mockServer()
+    renderAssign(false)
+    await vi.waitFor(() =>
+      expect(vi.mocked(fetch).mock.calls.some(([input]) => typeof input !== 'string')).toBe(true),
+    )
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
   it('기존 지원자별 배정이 다르면 공통 면접관을 직접 골라 충돌을 해결한다', async () => {
     const puts = mockServer({ assignmentError: 'INTERVIEW_ASSIGNMENT_CONFLICT' })
     renderAssign()
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '기존 지원자별 면접관 배정이 서로 달라요.',
-    )
-    fireEvent.click(screen.getByRole('button', { name: '면접관 배정' }))
+    fireEvent.click(await screen.findByRole('button', { name: '면접관 배정' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('기존 지원자별 면접관 배정이 서로 달라요.')
     expect(screen.getByRole('combobox', { name: '인사 면접관' })).toHaveValue('')
     expect(screen.getByRole('combobox', { name: '실무 면접관' })).toHaveValue('')
     await screen.findAllByRole('option', { name: '김지민 (kim@x)' })
@@ -147,16 +160,18 @@ describe('전형 공통 면접관 배정', () => {
         },
       ]),
     )
-    expect(await screen.findByText('최인사')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '면접관 변경' })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
   it('충돌 상태여도 시작된 면접이 있으면 공통 배정을 새로 정할 수 없다', async () => {
     mockServer({ assignmentError: 'INTERVIEW_ASSIGNMENT_CONFLICT', started: true })
     renderAssign()
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '기존 지원자별 면접관 배정이 서로 달라요.',
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('button', { name: '면접관 배정' })).not.toBeInTheDocument(),
     )
-    expect(screen.queryByRole('button', { name: '면접관 배정' })).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: '면접관 보기' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('기존 지원자별 면접관 배정이 서로 달라요.')
+    expect(screen.queryByRole('button', { name: '전형 전체에 적용' })).not.toBeInTheDocument()
   })
   it('일반 조회 오류에서는 공통 배정을 임의로 새로 저장할 수 없다', async () => {
     mockServer({ assignmentError: 'FORBIDDEN' })
