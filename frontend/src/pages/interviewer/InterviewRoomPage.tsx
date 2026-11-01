@@ -11,8 +11,15 @@ import { ChatPanel } from '@/features/chat/ChatPanel'
 import { InterviewerScript } from '@/features/interview/InterviewerScript'
 import { OpinionCard } from '@/features/interview/OpinionCard'
 import { Results } from '@/features/interview/InterviewViewer'
-import { RoleTag } from '@/features/interview/RoleTag'
+import { InterviewSessionBar } from '@/features/interview/InterviewSessionBar'
 import {
+  useEnterInterview,
+  useInterviewAttendance,
+  useInterviewRoomLive,
+} from '@/features/interview/live'
+import { usePendingAnswerSaves } from '@/features/interview/pending-saves'
+import {
+  INTERVIEW_STATUS_LABELS,
   useInterviewerTab,
   useMyInterviews,
   useWorkspace,
@@ -68,12 +75,6 @@ export function InterviewRoomPage() {
       </ResizablePanelGroup>
     </div>
   )
-}
-
-const STATUS_LABELS: Record<AssignedInterview['status'], string> = {
-  SCHEDULED: '예정',
-  IN_PROGRESS: '진행 중',
-  ENDED: '끝남',
 }
 
 /** 왼쪽 칸: 오늘 면접(시간순), 다른 날, 일정 미정 */
@@ -132,7 +133,7 @@ function CandidateColumn({
                         : 'bg-muted text-muted-foreground',
                     )}
                   >
-                    {STATUS_LABELS[row.status]}
+                    {INTERVIEW_STATUS_LABELS[row.status]}
                   </span>
                 </span>
                 <span className="text-xs text-muted-foreground">
@@ -168,66 +169,40 @@ function Room({
   const actions = useWorkspaceActions(stageId, applicationId)
   const [filter, setFilter] = useState<'all' | 'mine'>('all')
   const [side, setSide] = useState<SideTab>('chat')
-  const fail = (error: unknown) => toast.error(errorMessage(error))
+  const attendance = useInterviewAttendance(stageId, applicationId)
+  const enter = useEnterInterview(stageId, applicationId)
+  const live = useInterviewRoomLive(stageId, applicationId)
+  const saves = usePendingAnswerSaves()
+  const [ending, setEnding] = useState(false)
   const data = workspace.data
-  const mine = (data?.questions ?? []).filter(
-    (item) => item.question.interviewerRole === data?.myRole,
-  )
-  const recorded = mine.filter((item) => item.question.answer.trim()).length
   const status = data?.session.status
+  const ownerNames = Object.fromEntries(
+    (attendance.data?.attendees ?? []).map((attendee) => [attendee.role, attendee.name]),
+  )
+  async function endInterview() {
+    setEnding(true)
+    try {
+      await saves.flush()
+      await actions.end.mutateAsync()
+    } finally {
+      setEnding(false)
+    }
+  }
 
   return (
     <ResizablePanelGroup id="interview-room-work" className="min-h-0 flex-1">
       <ResizablePanel id="room-script" minSize={420} className="flex flex-col">
-        <div className="flex items-center gap-3 border-b px-5 py-3">
-          <div className="min-w-0">
-            <h2 className="flex items-center gap-2 truncate text-lg font-bold">
-              {interview.applicantName}
-              <RoleTag
-                role={interview.myRole}
-                questionText={`${interview.applicantName} 내 담당`}
-              />
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              {data?.schedule?.scheduledAt
-                ? formatDateTime(data.schedule.scheduledAt)
-                : '일정 미정'}
-            </p>
-          </div>
-          <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
-            <span>
-              내 질문 {recorded}/{mine.length} 기록
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                document.getElementById('opinion')?.scrollIntoView({ behavior: 'smooth' })
-              }
-            >
-              의견 남기기
-            </Button>
-            {status && status !== 'IN_PROGRESS' && (
-              <Button
-                size="sm"
-                disabled={actions.start.isPending || status === 'ENDED'}
-                onClick={() => actions.start.mutate(undefined, { onError: fail })}
-              >
-                {status === 'ENDED' ? '면접 끝남' : '면접 시작'}
-              </Button>
-            )}
-            {status === 'IN_PROGRESS' && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={actions.end.isPending}
-                onClick={() => actions.end.mutate(undefined, { onError: fail })}
-              >
-                면접 종료
-              </Button>
-            )}
-          </div>
-        </div>
+        <InterviewSessionBar
+          interview={interview}
+          workspace={data}
+          attendance={attendance.data}
+          connected={live.connected}
+          entering={enter.isPending}
+          busy={ending || actions.start.isPending}
+          onEnter={() => enter.mutateAsync()}
+          onStart={() => actions.start.mutateAsync()}
+          onEnd={endInterview}
+        />
         <div className="min-h-0 flex-1 space-y-4 overflow-auto px-5 py-4">
           <div className="flex justify-end">
             <div
@@ -260,25 +235,44 @@ function Room({
             <Skeleton className="h-40 w-full" />
           ) : (
             <>
-              {status === 'SCHEDULED' && (
-                <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-                  [면접 시작]을 누르면 답변을 기록할 수 있어요. 시작 전에는 질문만 미리 볼 수
-                  있어요.
-                </p>
-              )}
+              {data.previous.map((previous) => (
+                <section
+                  key={previous.stageId}
+                  className="space-y-2 rounded-xl bg-muted/60 p-3 text-sm"
+                >
+                  <h3 className="font-semibold">{previous.stageName} 기록</h3>
+                  {previous.questions.map((question) => (
+                    <div key={question.questionId}>
+                      <p className="font-medium">{question.text}</p>
+                      <p className="whitespace-pre-wrap text-muted-foreground">
+                        {question.answer || '기록 없음'}
+                      </p>
+                    </div>
+                  ))}
+                </section>
+              ))}
               <InterviewerScript
                 stageId={stageId}
                 applicationId={applicationId}
                 workspace={data}
                 filter={filter}
-                ownerNames={{}}
+                ownerNames={ownerNames}
+                registerSave={saves.register}
+                savingBeforeEnd={ending}
               />
-              <OpinionCard stageId={stageId} applicationId={applicationId} editable />
+              <OpinionCard
+                stageId={stageId}
+                applicationId={applicationId}
+                editable={attendance.data?.stageActive === true}
+              />
               <PersonalMemo
                 key={data.session.version}
                 stageId={stageId}
                 applicationId={applicationId}
                 workspace={data}
+                editable={
+                  status === 'IN_PROGRESS' && attendance.data?.stageActive === true && !ending
+                }
               />
             </>
           )}
@@ -378,10 +372,12 @@ function PersonalMemo({
   stageId,
   applicationId,
   workspace,
+  editable,
 }: {
   stageId: string
   applicationId: string
   workspace: InterviewerWorkspace
+  editable: boolean
 }) {
   const actions = useWorkspaceActions(stageId, applicationId)
   const [text, setText] = useState(workspace.personalMemo)
@@ -391,6 +387,7 @@ function PersonalMemo({
       <h3 className="text-sm font-semibold">내 메모</h3>
       <Textarea
         aria-label="내 메모"
+        disabled={!editable}
         value={text}
         rows={3}
         placeholder="나만 보는 메모예요. 다른 면접관과 채용 담당자에게는 보이지 않아요."
@@ -400,7 +397,7 @@ function PersonalMemo({
         <Button
           size="sm"
           variant="outline"
-          disabled={!changed || actions.memo.isPending}
+          disabled={!editable || !changed || actions.memo.isPending}
           onClick={() =>
             actions.memo.mutate(
               { text, expectedVersion: workspace.session.version },
