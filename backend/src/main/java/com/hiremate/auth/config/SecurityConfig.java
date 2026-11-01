@@ -34,6 +34,23 @@ import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 @Configuration
 public class SecurityConfig {
 
+    /** 면접관에게 여는 읽기 경로. 그 밖의 업무 경로는 HR만 쓴다 (InterviewerAccessTests가 목록을 검사한다). */
+    static final String[] INTERVIEWER_READS = {
+        "/api/companies/me/profile",
+        "/api/stages/{stageId}",
+        "/api/stages/{stageId}/candidates",
+        "/api/stages/{stageId}/candidates/{applicationId}",
+        "/api/stages/{stageId}/candidates/{applicationId}/history",
+        "/api/stages/{stageId}/candidates/{applicationId}/analysis",
+        "/api/stages/{stageId}/candidates/{applicationId}/profile",
+        "/api/stages/{stageId}/assessment/results/{applicationId}",
+        "/api/stages/{stageId}/assessment/results/{applicationId}/file",
+        "/api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}",
+        "/api/stages/{stageId}/candidates/{applicationId}/interview",
+        "/api/stages/{stageId}/candidates/{applicationId}/interview/preparing",
+        "/api/stages/{stageId}/interviewers",
+    };
+
     @Bean
     PasswordEncoder passwordEncoder() {
         Pbkdf2PasswordEncoder pbkdf2 = new Pbkdf2PasswordEncoder("", 16, 600_000,
@@ -68,7 +85,7 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityContextRepository contexts,
             HttpSessionCsrfTokenRepository csrfTokens, SessionAuthenticationStrategy sessionStrategy,
-            ProblemResponses problems) throws Exception {
+            ProblemResponses problems, InterviewerAccess interviewerAccess) throws Exception {
         return http
                 .csrf(csrf -> csrf.csrfTokenRepository(csrfTokens)
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
@@ -95,6 +112,8 @@ public class SecurityConfig {
                         // 지원자용 채용 페이지와 지원서 제출. 로그인 없이 쓰며 POST는 CSRF 토큰이 필요하다
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/public/**").permitAll()
+                        // 면접관 모드: 지정된 면접 전형(과 그 채용)의 자료 읽기. HR은 그대로 통과한다
+                        .requestMatchers(HttpMethod.GET, INTERVIEWER_READS).access(interviewerAccess)
                         .requestMatchers("/api/companies", "/api/companies/**", "/api/recruitments",
                                 "/api/recruitments/**", "/api/stages", "/api/stages/**").hasRole("HR")
                         .requestMatchers(HttpMethod.GET, "/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html",
