@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { posterBrandKey } from '@/features/posting/poster-api'
 import { api, unwrap, type Schemas } from '@/lib/api/client'
 
 export type CompanyProfile = Schemas['CompanyProfile']
@@ -125,6 +126,32 @@ export function useSaveMailLook() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle })
       void queryClient.invalidateQueries({ queryKey: companyKeys.receiptTemplate })
+    },
+  })
+}
+
+/** 회사 로고 그림 주소. 설정 › 회사 소개에서 올리고, 안내 메일과 공고 포스터에 같이 쓴다 */
+export const COMPANY_LOGO_URL = '/api/companies/me/logo'
+
+/** 회사 로고를 올리거나(file) 지운다(null). 메일 꾸밈과 포스터 기본값이 같이 바뀌어 둘 다 다시 받는다 */
+export function useCompanyLogo() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (file: File | null) => {
+      if (!file) return unwrap(api.DELETE('/api/companies/me/logo'))
+      const form = new FormData()
+      form.append('file', file)
+      return unwrap(
+        api.POST('/api/companies/me/logo', {
+          // openapi-fetch는 FormData를 그대로 보낸다
+          body: form as unknown as { file: string },
+        }),
+      )
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: companyKeys.mailStyle })
+      void queryClient.invalidateQueries({ queryKey: companyKeys.receiptTemplate })
+      void queryClient.invalidateQueries({ queryKey: posterBrandKey })
     },
   })
 }

@@ -36,7 +36,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 메일 꾸밈(대표 색, 보조 색, 머리와 안내 상자 모양, 로고, 배너). 기업 설정에서 고르고,
+ * 메일 꾸밈(대표 색, 머리와 안내 상자 모양, 로고, 배너). 기업 설정에서 고르고,
  * 모든 안내 메일과 접수 확인 메일이 같이 쓴다.
  * 로고와 배너는 5MB까지 PNG, JPEG만 받는다. 파일 내용으로 형식을 확인한다.
  * 그림은 메일마다 함께 넣어 보내서, 메일에 보이는 크기에 맞춰 줄여 저장한다.
@@ -289,7 +289,7 @@ public class MailStyleService {
         }
     }
 
-    private static String imageType(byte[] content) {
+    static String imageType(byte[] content) {
         if (startsWith(content, PNG)) {
             return "image/png";
         }

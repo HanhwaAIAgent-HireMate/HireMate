@@ -1,5 +1,6 @@
 import { ImageUp, Pipette, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -34,6 +35,8 @@ import { cn } from '@/lib/utils'
 const IMAGE_TYPES = ['image/png', 'image/jpeg']
 // 서버가 메일에 맞는 크기로 줄여 저장해서 큰 그림도 받는다
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024
+/** 회사 로고를 올리는 곳 */
+const COMPANY_SETTINGS_PATH = '/hr/settings'
 const IMAGES = {
   logo: { url: '/api/companies/me/mail-style/logo', name: '로고' },
   banner: { url: '/api/companies/me/mail-style/banner', name: '배너' },
@@ -109,16 +112,25 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
           설정과 미리보기를 1 : 2로 나눠 메일을 실제 폭으로 크게 본다 */}
       <div className="grid gap-x-8 gap-y-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         <div className="min-w-0 space-y-5">
-          {/* 그림을 먼저 올리면 로고에서 고른 색이 아래 색 칸에 채워진다 */}
+          {/* 로고는 설정 › 회사 소개에서 올려 포스터와 같이 쓴다. 여기서는 보여 주고 로고에서 메일 색을 고른다 */}
           <SettingsRow label="로고">
             <div className="space-y-2">
-              <ImageField
-                kind="logo"
-                has={saved.hasLogo}
-                version={version}
-                onUploaded={logoColors.run}
-                hint="PNG · JPG, 5MB까지. 메일 머리에 맞게 줄여서 저장하고, 로고에서 메일 색을 골라 채워요. 올리지 않으면 회사 이름을 글자로 써요."
-              />
+              {saved.hasLogo && (
+                <img
+                  src={`${IMAGES.logo.url}?v=${version}`}
+                  alt="회사 로고"
+                  className="h-10 w-auto max-w-[220px] rounded border bg-white p-1"
+                />
+              )}
+              <p className="text-xs text-muted-foreground">
+                {saved.hasLogo
+                  ? '로고는 '
+                  : '로고가 없어 메일 머리에 회사 이름을 글자로 써요. 로고는 '}
+                <Link to={COMPANY_SETTINGS_PATH} className="underline">
+                  설정 › 회사 소개
+                </Link>
+                에서 올리고 바꿔요.
+              </p>
               <LogoColors
                 colors={logoColors}
                 hasLogo={saved.hasLogo}
@@ -183,7 +195,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
 }
 
 /**
- * 로고에서 색을 골라 대표 색과 보조 색 칸을 채운다. 로고를 올리면 바로 부르고, 올려 둔 로고로 다시 부를 수도 있다.
+ * 올려 둔 회사 로고에서 색을 골라 대표 색 칸을 채운다.
  * 찾은 색은 칩으로 남겨 두어 다른 색을 대표 색으로 고를 수 있다. 저장은 HR이 미리보기를 보고 한다
  */
 function useLogoColors(apply: (suggestion: MailColorSuggestion) => void) {
@@ -331,14 +343,11 @@ function ImageField({
   has,
   version,
   hint,
-  onUploaded,
 }: {
   kind: MailImage
   has: boolean
   version: number
   hint: string
-  /** 올리기에 성공한 그림 파일을 받는다. 로고는 이 파일로 색을 고른다 */
-  onUploaded?: (file: File) => void
 }) {
   const image = IMAGES[kind]
   const upload = useUploadMailImage(kind)
@@ -357,10 +366,7 @@ function ImageField({
       return
     }
     upload.mutate(file, {
-      onSuccess: () => {
-        if (onUploaded) onUploaded(file)
-        else toast.success(`${image.name}를 올렸어요.`)
-      },
+      onSuccess: () => toast.success(`${image.name}를 올렸어요.`),
       onError: (error) => toast.error(errorMessage(error)),
     })
   }

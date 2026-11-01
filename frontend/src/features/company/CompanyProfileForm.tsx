@@ -7,6 +7,7 @@ import { z } from 'zod'
 
 import { Textarea } from '@/components/ui/textarea'
 import { useCompanyProfile, useSaveCompanyProfile } from '@/features/company/api'
+import { CompanyLogoField } from '@/features/company/CompanyLogoField'
 import { ReferenceFiles } from '@/features/company/ReferenceFiles'
 import { SettingsRow, SettingsSection } from '@/features/company/SettingsSection'
 import { errorMessage } from '@/lib/api/client'
@@ -64,6 +65,10 @@ export function CompanyProfileForm() {
 
   return (
     <SettingsSection title="회사 소개" saving={save.isPending} onSave={() => void onSave()}>
+      {/* 로고는 올리는 즉시 저장한다. 아래 [저장]은 글 칸만 저장한다 */}
+      <SettingsRow label="회사 로고">
+        <CompanyLogoField />
+      </SettingsRow>
       <SettingsRow label="회사 소개">
         <Textarea
           rows={2}
