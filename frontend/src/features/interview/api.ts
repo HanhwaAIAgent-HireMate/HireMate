@@ -111,11 +111,17 @@ export function useInterviewActions(stageId: string, applicationId: string) {
       },
     }),
     add: useMutation({
-      mutationFn: (text: string) =>
+      mutationFn: ({
+        text,
+        interviewerRole,
+      }: {
+        text: string
+        interviewerRole: 'HR' | 'PRACTICAL'
+      }) =>
         unwrap(
           api.POST('/api/stages/{stageId}/candidates/{applicationId}/interview/questions', {
             ...path(stageId, applicationId),
-            body: { text, interviewerRole: null },
+            body: { text, interviewerRole },
           }),
         ),
       onSuccess,
@@ -129,15 +135,17 @@ export function useInterviewActions(stageId: string, applicationId: string) {
         questionId,
         answer,
         analyze = true,
+        expectedVersion,
       }: {
         questionId: string
         answer: string
         analyze?: boolean
+        expectedVersion: number
       }) =>
         unwrap(
           api.PUT('/api/stages/{stageId}/interview/questions/{questionId}/answer', {
             params: { path: { stageId, questionId } },
-            body: { answer, analyze },
+            body: { answer, analyze, expectedVersion },
           }),
         ),
       onSuccess,

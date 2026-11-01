@@ -1,0 +1,61 @@
+package com.hiremate.auth.api;
+
+import com.hiremate.auth.AuthAccess;
+import com.hiremate.auth.MemberPrincipal;
+import com.hiremate.auth.application.InterviewMemberDirectory;
+import com.hiremate.interview.InterviewSessions;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+/** HR의 면접관 배정. 인증 진입 계층에서 계정 소속을 검증하고 업무 모듈에 ID만 전달한다. */
+@RestController
+public class InterviewAssignmentController {
+
+    private final AuthAccess access;
+    private final InterviewMemberDirectory directory;
+    private final InterviewSessions sessions;
+
+    public InterviewAssignmentController(AuthAccess access, InterviewMemberDirectory directory,
+            InterviewSessions sessions) {
+        this.access = access;
+        this.directory = directory;
+        this.sessions = sessions;
+    }
+
+    @GetMapping("/api/companies/current/interview-members")
+    public List<InterviewMemberDirectory.InterviewMemberChoice> interviewMembers() {
+        access.requireHr();
+        return directory.list(access.currentMember().companyId());
+    }
+
+    @GetMapping("/api/stages/{stageId}/candidates/{applicationId}/interview/session")
+    public InterviewSessions.InterviewAssignment interviewAssignment(@PathVariable UUID stageId,
+            @PathVariable UUID applicationId) {
+        access.requireHr();
+        return sessions.assignment(access.currentMember().companyId(), stageId, applicationId);
+    }
+
+    @PutMapping("/api/stages/{stageId}/candidates/{applicationId}/interview/session")
+    public InterviewSessions.InterviewAssignment assignInterviewers(@PathVariable UUID stageId,
+            @PathVariable UUID applicationId,
+            @Valid @RequestBody InterviewAssignmentRequest request) {
+        access.requireHr();
+        MemberPrincipal member = access.currentMember();
+        directory.requireMember(member.companyId(), request.hrMemberId());
+        directory.requireMember(member.companyId(), request.practicalMemberId());
+        return sessions.assign(member.companyId(), stageId, applicationId, request.hrMemberId(),
+                request.practicalMemberId(), request.expectedVersion());
+    }
+
+    public record InterviewAssignmentRequest(@NotNull UUID hrMemberId, @NotNull UUID practicalMemberId,
+            @Schema(nullable = true) Long expectedVersion) {
+    }
+}

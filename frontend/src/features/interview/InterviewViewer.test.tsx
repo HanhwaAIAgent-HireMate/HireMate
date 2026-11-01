@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
     parentQuestionId?: string | null
   }[],
   assign: vi.fn(),
+  add: vi.fn(),
   previous: [] as unknown[],
 }))
 
@@ -26,6 +27,7 @@ vi.mock('@/features/interview/api', () => ({
   useInterviewActions: () => ({
     regenerate: { isPending: false },
     assignRole: { isPending: false, mutate: state.assign },
+    add: { isPending: false, mutate: state.add },
     answer: { mutateAsync: vi.fn() },
     suggestFollowUps: { mutateAsync: vi.fn() },
     addFollowUp: { isPending: false, mutate: vi.fn() },
@@ -69,6 +71,20 @@ function renderWith(interviewerRole: 'HR' | 'PRACTICAL' | null, editable = true)
     />,
   )
 }
+
+it('직접 추가할 질문의 담당을 선택해 함께 저장한다', () => {
+  state.add.mockClear()
+  const { unmount } = renderWith('HR')
+  fireEvent.click(screen.getByRole('button', { name: '질문 추가' }))
+  fireEvent.change(screen.getByLabelText('추가할 질문'), { target: { value: '직접 물어볼 질문' } })
+  fireEvent.click(screen.getByRole('button', { name: /추가할 질문 담당: 인사/ }))
+  fireEvent.click(screen.getByRole('button', { name: '추가' }))
+  expect(state.add).toHaveBeenCalledWith(
+    { text: '직접 물어볼 질문', interviewerRole: 'PRACTICAL' },
+    expect.any(Object),
+  )
+  unmount()
+})
 
 it('인사 태그를 누르면 실무로 바꾼다', () => {
   const { unmount } = renderWith('HR')

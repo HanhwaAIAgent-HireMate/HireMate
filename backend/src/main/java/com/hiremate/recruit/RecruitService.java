@@ -124,6 +124,7 @@ public class RecruitService {
     /** 진행 중인 전형의 결과를 확정한다. */
     @Transactional
     public StageInfo confirmStage(UUID companyId, UUID stageId, UUID memberId, String memberName) {
+        lockStage(companyId, stageId);
         Stage stage = stage(companyId, stageId);
         if (stage.getStatus() != StageStatus.ACTIVE) {
             throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "The stage is not in progress.");
@@ -131,6 +132,13 @@ public class RecruitService {
         stage.confirm(memberId, memberName);
         events.publishEvent(new StageConfirmed(stageId, companyId));
         return toInfo(stage);
+    }
+
+    /** 면접 시작·최초 배정과 결과 확정이 같은 전형에서 엇갈리지 않게 직렬화한다. */
+    @Transactional
+    public void lockStage(UUID companyId, UUID stageId) {
+        Stage stage = stages.lock(stageId).orElseThrow(RecruitService::stageNotFound);
+        recruitment(companyId, stage.getRecruitmentId());
     }
 
     /**

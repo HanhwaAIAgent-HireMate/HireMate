@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AnswerBox, AUTOSAVE_MS } from './AnswerBox'
+import { ApiError } from '@/lib/api/client'
 
 const actions = vi.hoisted(() => ({
   answer: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('@/features/interview/api', () => ({
 
 const question = {
   questionId: 'q1',
+  version: 0,
   text: '정산 배치 개선에서 맡은 일',
   source: 'AI' as const,
   answer: '',
@@ -68,6 +70,7 @@ describe('💾 자동 저장', () => {
       questionId: 'q1',
       answer: '병렬로 바꿨습니다',
       analyze: false,
+      expectedVersion: 0,
     })
     expect(screen.getByText('저장됨')).toBeInTheDocument()
   })
@@ -83,6 +86,7 @@ describe('💾 자동 저장', () => {
       questionId: 'q1',
       answer: '병렬로 바꿨습니다',
       analyze: true,
+      expectedVersion: 0,
     })
     // 같은 답으로 다시 드나들면 보내지 않는다
     fireEvent.blur(box())
@@ -100,6 +104,42 @@ describe('💾 자동 저장', () => {
   it('저장 안 된 글이 있으면 페이지를 떠날 때 경고한다', () => {
     renderBox()
     fireEvent.change(box(), { target: { value: '아직 저장 전' } })
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('다음 자동 저장에는 앞선 응답의 최신 버전을 보낸다', async () => {
+    actions.answer
+      .mockResolvedValueOnce({ questions: [{ questionId: 'q1', version: 1 }] })
+      .mockResolvedValueOnce({ questions: [{ questionId: 'q1', version: 2 }] })
+    renderBox()
+    fireEvent.change(box(), { target: { value: '첫 초안' } })
+    await act(() => vi.advanceTimersByTimeAsync(AUTOSAVE_MS))
+    await flush()
+    fireEvent.change(box(), { target: { value: '다음 초안' } })
+    await act(() => vi.advanceTimersByTimeAsync(AUTOSAVE_MS))
+    await flush()
+    expect(actions.answer).toHaveBeenLastCalledWith({
+      questionId: 'q1',
+      answer: '다음 초안',
+      analyze: false,
+      expectedVersion: 1,
+    })
+  })
+
+  it('충돌하면 초안을 보존하고 오래된 버전으로 자동 재시도하지 않는다', async () => {
+    actions.answer.mockRejectedValueOnce(new ApiError(409, 'ANSWER_CONFLICT', ''))
+    renderBox()
+    fireEvent.change(box(), { target: { value: '보존할 초안' } })
+    await act(() => vi.advanceTimersByTimeAsync(AUTOSAVE_MS))
+    await flush()
+    expect(screen.getByText('저장하지 못했어요')).toBeInTheDocument()
+    fireEvent.change(box(), { target: { value: '추가로 작성한 초안' } })
+    await act(() => vi.advanceTimersByTimeAsync(AUTOSAVE_MS))
+    await flush()
+    expect(actions.answer).toHaveBeenCalledTimes(1)
+    expect(box()).toHaveValue('추가로 작성한 초안')
     const event = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
@@ -189,6 +229,7 @@ describe('🎤 꼬리질문', () => {
       questionId: 'q1',
       answer: '고친 답',
       analyze: false,
+      expectedVersion: 0,
     })
     expect(actions.answer.mock.invocationCallOrder[0]).toBeLessThan(
       actions.suggest.mock.invocationCallOrder[0],

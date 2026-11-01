@@ -1,10 +1,15 @@
 package com.hiremate.auth.domain;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface MemberRepository extends JpaRepository<Member, UUID> {
+
+    Optional<Member> findByIdAndCompanyId(UUID id, UUID companyId);
+
+    List<Member> findByCompanyIdOrderByName(UUID companyId);
 
     Optional<Member> findByEmail(String normalizedEmail);
 }

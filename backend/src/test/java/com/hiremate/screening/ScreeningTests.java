@@ -611,12 +611,15 @@ class ScreeningTests extends IntegrationTest {
         assertThat(prepared.questions().getFirst().text()).isEqualTo("1분 자기소개 부탁드립니다.");
         JsonNode pending = json(expect(hr.get("/api/stages/" + nextId), 200));
         assertThat(pending.path("status").asString()).isEqualTo("PENDING");
-        // 🎤 자기소개는 인사 담당으로 만들어지고, 면접 전(PENDING)에도 HR이 담당을 바꿀 수 있다
+        // 자기소개는 인사 기록으로 고정하고, 다른 미응답 질문은 면접 전에 담당을 바꿀 수 있다
         assertThat(prepared.questions().getFirst().interviewerRole()).isEqualTo(InterviewerRole.HR);
         String rolePath = "/api/stages/" + nextId + "/interview/questions/"
                 + prepared.questions().getFirst().questionId() + "/role";
-        JsonNode reassigned = json(expect(hr.put(rolePath, Map.of("interviewerRole", "PRACTICAL")), 200));
-        assertThat(reassigned.path("questions").get(0).path("interviewerRole").asString()).isEqualTo("PRACTICAL");
+        expect(hr.put(rolePath, Map.of("interviewerRole", "PRACTICAL")), 409);
+        String jobRolePath = "/api/stages/" + nextId + "/interview/questions/"
+                + prepared.questions().get(1).questionId() + "/role";
+        JsonNode reassigned = json(expect(hr.put(jobRolePath, Map.of("interviewerRole", "HR")), 200));
+        assertThat(reassigned.path("questions").get(1).path("interviewerRole").asString()).isEqualTo("HR");
         assertThat(pending.path("counts").path("total").asLong()).isZero();
         for (String rejected : stage.ids().subList(1, 3)) {
             assertThatThrownBy(() -> interviews.addPreparedQuestions(companyId, nextId,

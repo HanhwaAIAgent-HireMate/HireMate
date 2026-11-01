@@ -26,7 +26,12 @@ public record InterviewView(UUID applicationId, @Schema(nullable = true) Schedul
     public record Question(UUID questionId, String text, QuestionSource source, String answer,
             @Schema(nullable = true) String reason,
             @Schema(nullable = true) InterviewerRole interviewerRole,
-            @Schema(nullable = true) UUID parentQuestionId) {
+            @Schema(nullable = true) UUID parentQuestionId, long version) {
+
+        public Question(UUID questionId, String text, QuestionSource source, String answer, String reason,
+                InterviewerRole interviewerRole, UUID parentQuestionId) {
+            this(questionId, text, source, answer, reason, interviewerRole, parentQuestionId, 0);
+        }
 
         public Question(UUID questionId, String text, QuestionSource source, String answer, String reason,
                 InterviewerRole interviewerRole) {

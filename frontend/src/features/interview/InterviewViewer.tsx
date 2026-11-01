@@ -125,6 +125,7 @@ function Questions({
     status.data?.preparing === true ||
     actions.regenerate.isPending
   const [draft, setDraft] = useState<string | null>(null)
+  const [draftRole, setDraftRole] = useState<'HR' | 'PRACTICAL'>('HR')
   const [regenerating, setRegenerating] = useState(false)
   const fail = (error: unknown) => toast.error(errorMessage(error))
   // 카드를 연 뒤에 새로 들어온 질문(AI Chat · 자동 생성 · 직접 추가)을 잠깐 강조하고 그 위치로 내린다
@@ -325,9 +326,18 @@ function Questions({
             onSubmit={(event) => {
               event.preventDefault()
               if (!draft.trim()) return
-              actions.add.mutate(draft.trim(), { onSuccess: () => setDraft(null), onError: fail })
+              actions.add.mutate(
+                { text: draft.trim(), interviewerRole: draftRole },
+                { onSuccess: () => setDraft(null), onError: fail },
+              )
             }}
           >
+            <RoleTag
+              role={draftRole}
+              questionText="추가할 질문"
+              onChange={setDraftRole}
+              disabled={actions.add.isPending}
+            />
             <Input
               autoFocus
               aria-label="추가할 질문"
@@ -335,7 +345,7 @@ function Questions({
               onChange={(event) => setDraft(event.target.value)}
               placeholder="면접관이 직접 묻고 싶은 질문"
             />
-            <Button type="submit" size="sm" disabled={!draft.trim()}>
+            <Button type="submit" size="sm" disabled={!draft.trim() || actions.add.isPending}>
               추가
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setDraft(null)}>

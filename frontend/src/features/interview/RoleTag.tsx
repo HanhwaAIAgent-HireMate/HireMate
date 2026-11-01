@@ -28,6 +28,7 @@ export function RoleTag({
   onChange?: (role: InterviewerRole) => void
   disabled?: boolean
 }) {
+  const common = questionText === '1분 자기소개 부탁드립니다.'
   const style = role ? ROLE_STYLES[role] : null
   const label = style?.label ?? '담당 선택'
   const tagClass = cn(
@@ -37,7 +38,7 @@ export function RoleTag({
   const dot = <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
 
   // 바꿀 수 없는 곳: 같은 모양의 글자 태그만 보여 준다 (커서 · 반응 없음)
-  if (!onChange) {
+  if (!onChange || common) {
     return (
       <span className={tagClass} aria-label={`${questionText} 담당: ${label}`}>
         {dot}

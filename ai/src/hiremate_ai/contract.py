@@ -65,6 +65,7 @@ class InterviewQuestion(ContractModel):
     interviewer_role: InterviewerRole | None = None
     # 🎤 꼬리질문이면 원래 질문의 id, 처음 만든 질문은 None. 목록은 원래 질문 바로 뒤에 꼬리질문을 둔다 (최대 2단계)
     parent_question_id: UUID | None = None
+    version: int = 0
 
 
 class PreviousInterview(ContractModel):

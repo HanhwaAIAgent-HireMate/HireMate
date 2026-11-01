@@ -10,7 +10,7 @@ import {
   type FollowUps,
   type InterviewQuestion,
 } from '@/features/interview/api'
-import { errorMessage } from '@/lib/api/client'
+import { ApiError, errorMessage } from '@/lib/api/client'
 
 /** 💾 타이핑을 멈추고 이만큼 지나면 DB에만 자동 저장한다 (분석은 하지 않는다) */
 export const AUTOSAVE_MS = 2_000
@@ -46,6 +46,8 @@ export function AnswerBox({
   const [status, setStatus] = useState<SaveStatus>('idle')
   const latest = useRef(question.answer) // 지금 칸에 적힌 답 (타이머 · 정리 함수가 읽는다)
   const sent = useRef<string | null>(question.answer) // 서버에 마지막으로 보낸 답. 실패하면 null로 두어 다시 보낸다
+  const version = useRef(question.version)
+  const conflicted = useRef(false)
   const pending = useRef(false) // 자동 저장만 하고 아직 분석에 넘기지 않은 답이 있음
   const timer = useRef<number | undefined>(undefined)
   const queue = useRef<Promise<unknown>>(Promise.resolve()) // 저장 요청을 보낸 순서대로 처리한다
@@ -55,6 +57,7 @@ export function AnswerBox({
   const save = useCallback(
     (analyze: boolean) => {
       window.clearTimeout(timer.current)
+      if (conflicted.current) return queue.current
       const answer = latest.current
       if (answer === sent.current && !(analyze && pending.current)) return queue.current
       const wasPending = pending.current
@@ -62,14 +65,29 @@ export function AnswerBox({
       pending.current = !analyze
       setStatus('saving')
       queue.current = queue.current
-        .then(() => saveAnswer({ questionId: question.questionId, answer, analyze }))
+        .then(() => {
+          if (conflicted.current) throw new ApiError(409, 'ANSWER_CONFLICT', '')
+          return saveAnswer({
+            questionId: question.questionId,
+            answer,
+            analyze,
+            expectedVersion: version.current,
+          })
+        })
         .then(
-          () => {
+          (result) => {
+            const stored = result.questions?.find((item) => item.questionId === question.questionId)
+            if (stored) version.current = stored.version
             if (sent.current !== answer) return // 그 사이 새 저장이 나갔다
             setSaved(answer)
             setStatus('saved')
           },
           (error: unknown) => {
+            if (
+              error instanceof ApiError &&
+              ['ANSWER_CONFLICT', 'UPDATE_CONFLICT'].includes(error.code)
+            )
+              conflicted.current = true
             sent.current = null
             pending.current = wasPending
             setStatus('error')
@@ -80,6 +98,12 @@ export function AnswerBox({
     },
     [question.questionId, saveAnswer],
   )
+
+  // 담당 태그만 바뀌고 답변은 같다면 최신 버전을 쓴다. 다른 답변이 들어오면 기존 초안으로 덮어쓰지 않는다.
+  useEffect(() => {
+    if (!conflicted.current && question.answer === latest.current)
+      version.current = question.version
+  }, [question.answer, question.version])
 
   // 카드가 사라질 때(다른 지원자로 넘어감) 저장 안 된 답이나 분석에 안 넘긴 답이 있으면 보낸다
   useEffect(
@@ -126,7 +150,10 @@ export function AnswerBox({
           applicationId={applicationId}
           question={question}
           canAsk={canFollowUp && value.trim() !== ''}
-          beforeAsk={() => save(false)}
+          beforeAsk={async () => {
+            await save(false)
+            if (conflicted.current) throw new ApiError(409, 'ANSWER_CONFLICT', '')
+          }}
           status={<SaveIndicator status={status} unsaved={value !== saved} />}
         />
       )}
