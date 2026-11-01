@@ -103,6 +103,12 @@ public final class TestApi {
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray())));
     }
 
+    /** SSE처럼 계속 열려 있는 응답을 줄 단위로 받는다. 다 쓰면 응답 본문 스트림을 닫는다. */
+    public java.util.concurrent.CompletableFuture<HttpResponse<java.util.stream.Stream<String>>> stream(String path) {
+        return client.sendAsync(HttpRequest.newBuilder(uri(path)).header("Accept", "text/event-stream").GET().build(),
+                HttpResponse.BodyHandlers.ofLines());
+    }
+
     public static JsonNode json(HttpResponse<String> response) {
         return MAPPER.readTree(response.body());
     }

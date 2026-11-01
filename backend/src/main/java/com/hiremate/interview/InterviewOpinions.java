@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,9 +32,11 @@ public class InterviewOpinions {
     private final InterviewSessionRepository sessions;
     private final RecruitService recruits;
     private final ActivityService activity;
+    private final ApplicationEventPublisher events;
 
     public InterviewOpinions(InterviewOpinionRepository opinions, InterviewSessionRepository sessions,
-            RecruitService recruits, ActivityService activity) {
+            RecruitService recruits, ActivityService activity, ApplicationEventPublisher events) {
+        this.events = events;
         this.opinions = opinions;
         this.sessions = sessions;
         this.recruits = recruits;
@@ -65,6 +68,7 @@ public class InterviewOpinions {
         opinions.save(opinion);
         activity.record(companyId, memberId, "SAVE_INTERVIEW_OPINION", "APPLICATION", applicationId,
                 stageId + ":" + recommendation);
+        events.publishEvent(new InterviewSessionChanged(companyId, stageId, applicationId));
         return forInterviewer(companyId, stageId, applicationId, memberId);
     }
 
