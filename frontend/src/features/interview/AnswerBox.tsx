@@ -48,6 +48,7 @@ export function AnswerBox({
   const sent = useRef<string | null>(question.answer) // 서버에 마지막으로 보낸 답. 실패하면 null로 두어 다시 보낸다
   const version = useRef(question.version)
   const conflicted = useRef(false)
+  const saveError = useRef<Error | null>(null)
   const pending = useRef(false) // 자동 저장만 하고 아직 분석에 넘기지 않은 답이 있음
   const timer = useRef<number | undefined>(undefined)
   const queue = useRef<Promise<unknown>>(Promise.resolve()) // 저장 요청을 보낸 순서대로 처리한다
@@ -78,11 +79,13 @@ export function AnswerBox({
           (result) => {
             const stored = result.questions?.find((item) => item.questionId === question.questionId)
             if (stored) version.current = stored.version
+            saveError.current = null
             if (sent.current !== answer) return // 그 사이 새 저장이 나갔다
             setSaved(answer)
             setStatus('saved')
           },
           (error: unknown) => {
+            saveError.current = error instanceof Error ? error : new Error('Answer save failed')
             if (
               error instanceof ApiError &&
               ['ANSWER_CONFLICT', 'UPDATE_CONFLICT'].includes(error.code)
@@ -151,8 +154,11 @@ export function AnswerBox({
           question={question}
           canAsk={canFollowUp && value.trim() !== ''}
           beforeAsk={async () => {
-            await save(false)
-            if (conflicted.current) throw new ApiError(409, 'ANSWER_CONFLICT', '')
+            do {
+              await save(false)
+              if (saveError.current) throw saveError.current
+              if (conflicted.current) throw new ApiError(409, 'ANSWER_CONFLICT', '')
+            } while (latest.current !== sent.current)
           }}
           status={<SaveIndicator status={status} unsaved={value !== saved} />}
         />
