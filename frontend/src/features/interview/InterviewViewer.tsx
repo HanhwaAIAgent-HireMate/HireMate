@@ -33,6 +33,8 @@ import {
   type InterviewQuestion,
 } from '@/features/interview/api'
 import { AnswerBox } from '@/features/interview/AnswerBox'
+import { HrOpinions } from '@/features/interview/HrOpinions'
+import { InterviewAssign } from '@/features/interview/InterviewAssign'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import { QuestionReason } from '@/features/interview/QuestionReason'
 import { RoleTag } from '@/features/interview/RoleTag'
@@ -91,6 +93,7 @@ export function InterviewViewer({
         <DocumentViewer stageId={stageId} recruitmentId={recruitmentId} detail={detail} />
       )}
       {tab === 'results' && <Results stageId={stageId} applicationId={applicationId} />}
+      {tab === 'questions' && <HrOpinions stageId={stageId} applicationId={applicationId} />}
       {tab === 'questions' &&
         (!interview.data ? (
           <Skeleton className="h-40 w-full" />
@@ -182,6 +185,7 @@ function Questions({
               질문 재생성
             </Button>
           )}
+          <InterviewAssign stageId={stageId} applicationId={applicationId} editable={editable} />
           <ScheduleButton
             stageId={stageId}
             applicationId={applicationId}
@@ -569,7 +573,7 @@ const DECISION_STYLE = {
 } as const
 
 /** 이전 전형까지의 결정 · 점수 · 메모 */
-function Results({ stageId, applicationId }: { stageId: string; applicationId: string }) {
+export function Results({ stageId, applicationId }: { stageId: string; applicationId: string }) {
   const history = useStageHistory(stageId, applicationId)
   if (!history.data) return <Skeleton className="h-24 w-full" />
   return (

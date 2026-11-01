@@ -2,6 +2,9 @@ package com.hiremate.auth.api;
 
 import com.hiremate.ai.InterviewAssistance;
 import com.hiremate.auth.AuthAccess;
+import com.hiremate.auth.application.InterviewMemberDirectory;
+import com.hiremate.interview.InterviewAttendances;
+import com.hiremate.interview.InterviewLive;
 import com.hiremate.interview.InterviewSessions;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.interview.InterviewerRole;
@@ -12,7 +15,10 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** 배정된 면접관 전용 경로. 기업·사용자 ID와 면접 역할은 요청 본문에서 받지 않는다. */
 @RestController
@@ -31,11 +38,55 @@ public class InterviewerSessionController {
     private final AuthAccess access;
     private final InterviewSessions sessions;
     private final InterviewAssistance assistance;
+    private final InterviewAttendances attendances;
+    private final InterviewLive live;
+    private final InterviewMemberDirectory directory;
 
-    public InterviewerSessionController(AuthAccess access, InterviewSessions sessions, InterviewAssistance assistance) {
+    public InterviewerSessionController(AuthAccess access, InterviewSessions sessions, InterviewAssistance assistance,
+            InterviewAttendances attendances, InterviewLive live, InterviewMemberDirectory directory) {
         this.access = access;
         this.sessions = sessions;
         this.assistance = assistance;
+        this.attendances = attendances;
+        this.live = live;
+        this.directory = directory;
+    }
+
+    /** 면접 대기실의 [면접 입장]. 배정된 면접관이 모두 입장하고 접속 중이어야 면접을 시작할 수 있다. */
+    @PostMapping("/{stageId}/{applicationId}/enter")
+    public InterviewAttendances.Attendance enterInterview(@PathVariable UUID stageId,
+            @PathVariable UUID applicationId) {
+        var member = access.currentMember();
+        return named(member.companyId(), attendances.enter(member.companyId(), stageId, applicationId,
+                member.memberId()));
+    }
+
+    /** 배정된 면접관의 입장 · 접속 현황과 전형 진행 여부. */
+    @GetMapping("/{stageId}/{applicationId}/attendance")
+    public InterviewAttendances.Attendance interviewAttendance(@PathVariable UUID stageId,
+            @PathVariable UUID applicationId) {
+        var member = access.currentMember();
+        return named(member.companyId(), attendances.attendance(member.companyId(), stageId, applicationId,
+                member.memberId()));
+    }
+
+    /**
+     * 면접 진행 화면의 실시간 알림(SSE). 입장 · 시작 · 종료 · 질문 · 답변 · 의견이 바뀌면 changed 이벤트를 보낸다.
+     * 연결이 열려 있는 동안을 접속 중으로 본다.
+     */
+    @GetMapping(path = "/{stageId}/{applicationId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter interviewEvents(@PathVariable UUID stageId, @PathVariable UUID applicationId) {
+        var member = access.currentMember();
+        attendances.requireAssigned(member.companyId(), stageId, applicationId, member.memberId());
+        return live.subscribe(member.companyId(), stageId, applicationId, member.memberId());
+    }
+
+    private InterviewAttendances.Attendance named(UUID companyId, InterviewAttendances.Attendance attendance) {
+        Map<UUID, String> names = directory.list(companyId).stream().collect(Collectors.toMap(
+                InterviewMemberDirectory.InterviewMemberChoice::memberId,
+                InterviewMemberDirectory.InterviewMemberChoice::name));
+        return new InterviewAttendances.Attendance(attendance.stageActive(), attendance.attendees().stream()
+                .map(attendee -> attendee.named(names.getOrDefault(attendee.memberId(), ""))).toList());
     }
 
     @GetMapping

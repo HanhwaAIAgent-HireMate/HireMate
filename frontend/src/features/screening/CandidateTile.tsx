@@ -15,6 +15,7 @@ export function CandidateTile({
   scoreStage,
   active,
   action,
+  note,
   onOpen,
 }: {
   row: CandidateRow
@@ -22,6 +23,8 @@ export function CandidateTile({
   scoreStage: boolean
   active: boolean
   action: ReactNode
+  /** 경력 아래 한 줄 (면접 전형의 면접 진행 · 면접관 의견 배지 등) */
+  note?: ReactNode
   onOpen: () => void
 }) {
   const gray = documentStage && !row.aboveLine
@@ -65,6 +68,7 @@ export function CandidateTile({
           </span>
         )}
       </span>
+      {note}
       {action && <div className="absolute top-1.5 right-1.5">{action}</div>}
     </div>
   )

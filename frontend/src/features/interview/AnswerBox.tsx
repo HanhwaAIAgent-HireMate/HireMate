@@ -10,12 +10,51 @@ import {
   type FollowUps,
   type InterviewQuestion,
 } from '@/features/interview/api'
+import type { RegisterAnswerSave } from '@/features/interview/pending-saves'
 import { ApiError, errorMessage } from '@/lib/api/client'
 
 /** 💾 타이핑을 멈추고 이만큼 지나면 DB에만 자동 저장한다 (분석은 하지 않는다) */
 export const AUTOSAVE_MS = 2_000
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
+/**
+ * 답변 칸이 쓰는 저장 · 꼬리질문 동작. HR 지원자 카드는 전형 API로, 면접관 모드는 면접관 API로 채운다.
+ * save는 저장한 뒤의 질문 목록(새 version)을 돌려준다.
+ */
+export type AnswerActions = {
+  save: (input: {
+    questionId: string
+    answer: string
+    analyze: boolean
+    expectedVersion: number
+  }) => Promise<InterviewQuestion[]>
+  suggest: (input: { questionId: string; avoid: string[] }) => Promise<FollowUps>
+  addFollowUp: (input: {
+    questionId: string
+    text: string
+    source: 'AI' | 'MANUAL'
+    check: string | null
+  }) => Promise<unknown>
+  adding: boolean
+}
+
+/** HR 지원자 카드의 답변 동작 (전형 API) */
+function useStageAnswerActions(stageId: string, applicationId: string): AnswerActions {
+  const actions = useInterviewActions(stageId, applicationId)
+  return {
+    save: async (input) => {
+      const view = await actions.answer.mutateAsync(input)
+      return view?.questions ?? []
+    },
+    suggest: (input) => actions.suggestFollowUps.mutateAsync(input),
+    addFollowUp: (input) =>
+      new Promise((resolve, reject) => {
+        actions.addFollowUp.mutate(input, { onSuccess: resolve, onError: reject })
+      }),
+    adding: actions.addFollowUp.isPending,
+  }
+}
 
 /**
  * 질문 하나의 답변 칸과 꼬리질문 받기.
@@ -32,14 +71,20 @@ export function AnswerBox({
   question,
   editable,
   canFollowUp,
+  answerActions,
+  registerSave,
 }: {
   stageId: string
   applicationId: string
   question: InterviewQuestion
   editable: boolean
   canFollowUp: boolean
+  /** 없으면 HR 지원자 카드의 전형 API를 쓴다 */
+  answerActions?: AnswerActions
+  registerSave?: RegisterAnswerSave
 }) {
-  const actions = useInterviewActions(stageId, applicationId)
+  const stageActions = useStageAnswerActions(stageId, applicationId)
+  const actions = answerActions ?? stageActions
   const card = useRef<HTMLDivElement>(null)
   const [value, setValue] = useState(question.answer)
   const [saved, setSaved] = useState(question.answer) // 서버가 저장했다고 알려 준 마지막 답
@@ -52,7 +97,11 @@ export function AnswerBox({
   const pending = useRef(false) // 자동 저장만 하고 아직 분석에 넘기지 않은 답이 있음
   const timer = useRef<number | undefined>(undefined)
   const queue = useRef<Promise<unknown>>(Promise.resolve()) // 저장 요청을 보낸 순서대로 처리한다
-  const { mutateAsync: saveAnswer } = actions.answer
+  // 저장 동작은 렌더마다 새로 만들어지므로 ref로 최신 것을 읽는다 (save가 바뀌면 정리 effect가 저장을 다시 보낸다)
+  const saveRef = useRef(actions.save)
+  useEffect(() => {
+    saveRef.current = actions.save
+  })
 
   /** 지금 칸의 답을 저장한다. analyze가 true면 분석도 요청한다. 보낼 것이 없으면 앞선 저장이 끝나기를 기다린다. */
   const save = useCallback(
@@ -68,7 +117,7 @@ export function AnswerBox({
       queue.current = queue.current
         .then(() => {
           if (conflicted.current) throw new ApiError(409, 'ANSWER_CONFLICT', '')
-          return saveAnswer({
+          return saveRef.current({
             questionId: question.questionId,
             answer,
             analyze,
@@ -76,8 +125,8 @@ export function AnswerBox({
           })
         })
         .then(
-          (result) => {
-            const stored = result.questions?.find((item) => item.questionId === question.questionId)
+          (questions) => {
+            const stored = questions.find((item) => item.questionId === question.questionId)
             if (stored) version.current = stored.version
             saveError.current = null
             if (sent.current !== answer) return // 그 사이 새 저장이 나갔다
@@ -99,8 +148,17 @@ export function AnswerBox({
         )
       return queue.current
     },
-    [question.questionId, saveAnswer],
+    [question.questionId],
   )
+
+  const flushSave = useCallback(async () => {
+    do {
+      await save(true)
+      if (saveError.current) throw saveError.current
+      if (conflicted.current) throw new ApiError(409, 'ANSWER_CONFLICT', '')
+    } while (latest.current !== sent.current)
+  }, [save])
+  useEffect(() => registerSave?.(flushSave), [registerSave, flushSave])
 
   // 담당 태그만 바뀌고 답변은 같다면 최신 버전을 쓴다. 다른 답변이 들어오면 기존 초안으로 덮어쓰지 않는다.
   useEffect(() => {
@@ -149,9 +207,8 @@ export function AnswerBox({
       />
       {editable && (
         <FollowUpArea
-          stageId={stageId}
-          applicationId={applicationId}
           question={question}
+          actions={actions}
           canAsk={canFollowUp && value.trim() !== ''}
           beforeAsk={async () => {
             do {
@@ -194,33 +251,30 @@ type Mode = 'idle' | 'loading' | 'none' | 'suggestions' | 'manual'
  * [다시 제안]은 질문마다 한 번, [직접 쓰기]는 면접관이 쓴 질문을 넣고, [선택 안 함]은 아무것도 저장하지 않고 닫는다.
  */
 function FollowUpArea({
-  stageId,
-  applicationId,
   question,
   canAsk,
   beforeAsk,
   status,
+  actions,
 }: {
-  stageId: string
-  applicationId: string
   question: InterviewQuestion
   canAsk: boolean
   beforeAsk: () => Promise<unknown>
   status: ReactNode
+  actions: AnswerActions
 }) {
-  const actions = useInterviewActions(stageId, applicationId)
   const [mode, setMode] = useState<Mode>('idle')
   const [found, setFound] = useState<FollowUps['suggestions']>([])
   const [retried, setRetried] = useState(false)
   const [manual, setManual] = useState('')
-  const adding = actions.addFollowUp.isPending
+  const adding = actions.adding
 
   async function ask(avoid: string[]) {
     const back = mode
     setMode('loading')
     try {
       await beforeAsk() // 서버가 읽는 답이 화면과 같도록 먼저 저장한다 (분석은 하지 않는다)
-      const result = await actions.suggestFollowUps.mutateAsync({
+      const result = await actions.suggest({
         questionId: question.questionId,
         avoid,
       })
@@ -233,15 +287,12 @@ function FollowUpArea({
   }
 
   function add(text: string, source: 'AI' | 'MANUAL', check: string | null) {
-    actions.addFollowUp.mutate(
-      { questionId: question.questionId, text, source, check },
-      {
-        onSuccess: () => {
-          setMode('idle')
-          setManual('')
-        },
-        onError: (error) => toast.error(errorMessage(error)),
+    actions.addFollowUp({ questionId: question.questionId, text, source, check }).then(
+      () => {
+        setMode('idle')
+        setManual('')
       },
+      (error: unknown) => toast.error(errorMessage(error)),
     )
   }
 

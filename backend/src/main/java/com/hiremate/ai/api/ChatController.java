@@ -9,6 +9,7 @@ import com.hiremate.ai.application.ChatStatus;
 import com.hiremate.ai.application.ChatTurn;
 import com.hiremate.global.ApiException;
 import com.hiremate.global.AuthenticatedMember;
+import com.hiremate.screening.StageTabService;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -48,10 +49,12 @@ public class ChatController {
 
     private final ChatService chat;
     private final Executor executor;
+    private final StageTabService tabs;
 
-    public ChatController(ChatService chat, @Qualifier("chatExecutor") Executor executor) {
+    public ChatController(ChatService chat, @Qualifier("chatExecutor") Executor executor, StageTabService tabs) {
         this.chat = chat;
         this.executor = executor;
+        this.tabs = tabs;
     }
 
     @PostMapping("/api/stages/{stageId}/tabs/{tabId}/chat")
@@ -60,9 +63,11 @@ public class ChatController {
                     ChatStatus.class, ChatItem.class, ChatAnswer.class, ChatTitle.class, ChatError.class})))
     public SseEmitter chat(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId,
             @Valid @RequestBody ChatRequest request) {
+        // HR은 공유 탭, 면접관은 자기 탭만 쓴다. 면접관 Chat은 배정된 지원자만 보고 선택 지원자를 바꾸지 않는다
+        tabs.requireAccess(member, stageId, tabId);
         ChatInput input = chat.prepare(member.companyId(), stageId, tabId,
                 new ChatAsker(member.memberId(), member.name()), request.message(), request.mentionIds(),
-                request.checkedIds());
+                request.checkedIds(), member.hr() ? null : member.memberId());
         SseEmitter emitter = new SseEmitter(NO_TIMEOUT);
         executor.execute(() -> answer(emitter, input));
         return emitter;
@@ -90,6 +95,7 @@ public class ChatController {
     /** 탭의 대화 기록. 같은 기업 담당자가 함께 보고, 탭을 지울 때 지워진다. */
     @GetMapping("/api/stages/{stageId}/tabs/{tabId}/chat")
     public List<ChatTurn> history(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId) {
+        tabs.requireAccess(member, stageId, tabId);
         return chat.history(member.companyId(), stageId, tabId);
     }
 

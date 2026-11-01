@@ -14,4 +14,7 @@ public interface AuthenticatedMember {
     UUID companyId();
 
     String name();
+
+    /** HR 담당자인가. 아니면 면접관이다. 업무 모듈은 auth의 역할 대신 이 값으로 권한을 나눈다. */
+    boolean hr();
 }

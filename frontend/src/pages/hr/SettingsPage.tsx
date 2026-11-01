@@ -3,6 +3,7 @@ import { NavLink, useParams } from 'react-router'
 
 import { useCompanyProfile, usePostingSettings } from '@/features/company/api'
 import { CompanyProfileForm } from '@/features/company/CompanyProfileForm'
+import { InterviewerAccounts } from '@/features/company/InterviewerAccounts'
 import { MailStyleForm } from '@/features/company/MailStyleForm'
 import { NoticeTemplateForm } from '@/features/company/NoticeTemplateForm'
 import { PostingSettingsForm } from '@/features/company/PostingSettingsForm'
@@ -13,9 +14,10 @@ const SECTIONS = [
   { key: 'company', label: '회사 소개', path: '/hr/settings' },
   { key: 'posting', label: '채용 공고', path: '/hr/settings/posting' },
   { key: 'mail', label: '안내 메일', path: '/hr/settings/mail' },
+  { key: 'interviewers', label: '면접관', path: '/hr/settings/interviewers' },
 ] as const
 
-// 설정에는 회사 소개 · 채용 공고 · 안내 메일 세 가지만 있다 (기획 v7 §6)
+// 설정: 회사 소개 · 채용 공고 · 안내 메일 (기획 v7 §6), 면접관 계정 (면접관 모드)
 export function SettingsPage() {
   const { section = 'company' } = useParams()
   const profile = useCompanyProfile()
@@ -63,6 +65,8 @@ export function SettingsPage() {
             <NoticeTemplateForm />
             <MailStyleForm />
           </>
+        ) : section === 'interviewers' ? (
+          <InterviewerAccounts />
         ) : (
           <CompanyProfileForm />
         )}

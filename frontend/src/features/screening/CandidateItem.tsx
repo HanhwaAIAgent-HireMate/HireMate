@@ -18,6 +18,7 @@ export function CandidateItem({
   active,
   checkbox,
   action,
+  note,
   onOpen,
 }: {
   row: CandidateRow
@@ -29,6 +30,8 @@ export function CandidateItem({
   active?: boolean
   checkbox?: { checked: boolean; onChange: (value: boolean) => void }
   action?: ReactNode
+  /** 경력 아래 한 줄 (면접 전형의 면접관 의견 배지 등) */
+  note?: ReactNode
   onOpen: () => void
 }) {
   const gray = documentStage && !row.aboveLine
@@ -66,6 +69,7 @@ export function CandidateItem({
         <div className={cn('truncate text-xs text-muted-foreground', gray && 'opacity-80')}>
           {careerLabel(row)}
         </div>
+        {note}
       </div>
       {scoreStage &&
         (row.score !== null ? (

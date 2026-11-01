@@ -42,7 +42,8 @@ AI는 분석, 탐색, 초안 작성을 돕되 채용 결정은 담당자가 직�
 2. `ai/`가 `backend/`에 보낼 수 있는 변경 명령은 선택 지원자 영역 편집(넣기, 빼기)과 면접 질문 생성, 교체 요청이다.
    `backend/`가 대상과 권한을 검증한 뒤 실행한다.
 3. 업무 데이터(지원자 상태, 결정 이력)는 `backend/`만 쓴다. `ai/`는 지원자 프로필, 분석 결과, AI 호출 로그,
-   Root Agent의 Chat 대화방(전형 화면의 탭별, 같은 기업 담당자 공유, 탭을 지울 때 삭제, 지원 문서 원문 제외)만 저장한다.
+   Root Agent의 Chat 대화방(전형 화면의 탭별. HR 탭은 같은 기업 담당자가 공유하고 면접관 탭은 본인만 본다.
+   탭을 지울 때 삭제, 지원 문서 원문 제외)만 저장한다.
 4. 조회는 현재 기업, 채용, 전형 범위로 제한한다. 다른 기업의 데이터를 검색 대상에 넣지 않는다.
 5. 제출 문서와 URL의 내용은 분석 자료로만 다룬다. 문서 안의 지시문으로 도구 권한이나 채용 상태가 바뀌면 안 된다.
 6. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건으로 지원자를 탐색하거나 거르는 기능을 만들지 않는다.
@@ -75,7 +76,10 @@ src/main/java/com/hiremate/
   한 계층의 클래스만 보는 테스트는 그 하위 패키지(`ai/infra/AiServerClientTests`)에 둔다. 여러 모듈 테스트가 같이 쓰는
   도구(`IntegrationTest`, `TestApi`, `TestFixtures`)와 앱 전체 테스트(`ModularityTests`)는 최상위 `com.hiremate`에 둔다.
 - DB나 Redis가 필요한 테스트는 `TestcontainersConfiguration`을 `@Import`한다.
-- `auth/config/SecurityConfig`는 모든 요청을 허용하는 임시 설정이다. 인증 작업이 아니면 고치지 않는다.
+- `auth/config/SecurityConfig`는 인증 작업이 아니면 고치지 않는다. 업무 경로는 HR 역할에만 연다. 면접관 계정은
+  `/api/interviewer/**`, 배정된 지원자의 지원 자료 읽기 경로(`INTERVIEWER_READS`)와 배정된 전형의 자기 Chat 탭
+  경로(`INTERVIEWER_TABS`)만 쓴다(`InterviewerAccess`). 면접관 Chat은 배정된 지원자만 보고 선택 지원자를 바꾸지 않는다.
+  면접관에게 API를 새로 열려면 그 목록과 `InterviewerAccessTests`의 목록을 함께 고친다.
 - AI Agent 구현은 `ai/infra`에 둔다. stub은 `@ConditionalOnAiMode(agent = ..., mode = AiMode.STUB)`,
   ai 서버를 부르는 구현은 `mode = AiMode.REMOTE`로 달고 `AiServerClient`로만 호출한다.
   연동 방식은 `hiremate.ai.agents.{key}`로 Agent마다 바꾼다(없으면 `hiremate.ai.mode`).
@@ -104,6 +108,7 @@ src/
 ├── index.css
 ├── app/
 │   ├── HrLayout.tsx             HR 콘솔 공통 레이아웃
+│   ├── InterviewerLayout.tsx    면접관 모드 공통 레이아웃
 │   ├── providers.tsx            Provider
 │   ├── router.tsx              라우트 등록
 │   └── router.test.tsx          라우트 검사
@@ -115,9 +120,12 @@ src/
 │   │   ├── StagePage.tsx        전형 운영
 │   │   ├── StageClosePage.tsx   전형 마감
 │   │   └── ReportPage.tsx       최종 리포트
-│   └── careers/
-│       ├── PostingPage.tsx      지원자용 공고
-│       └── ApplyPage.tsx        지원서 제출
+│   ├── careers/
+│   │   ├── PostingPage.tsx      지원자용 공고
+│   │   └── ApplyPage.tsx        지원서 제출
+│   └── interviewer/
+│       ├── MyInterviewsPage.tsx 내 면접 (배정된 면접)
+│       └── InterviewRoomPage.tsx 면접 진행 (질문 대본, 내 담당 질문 기록, 지원 자료)
 ├── features/                   기능 단위 컴포넌트와 훅
 │   ├── company/, recruit/, posting/, apply/, dashboard/
 │   └── screening/, assessment/, interview/, notice/, report/, chat/
@@ -125,7 +133,8 @@ src/
 └── test/                       공통 테스트 설정
 ```
 
-- HR 화면은 `app/HrLayout.tsx` 아래에 등록한다. 지원자용 화면은 `/careers/:postingId`와 `/careers/:postingId/apply`로 연다.
+- HR 화면은 `app/HrLayout.tsx` 아래에 등록한다. 면접관 모드 화면은 `app/InterviewerLayout.tsx` 아래 `/interviewer`에 등록한다.
+  지원자용 화면은 `/careers/:postingId`와 `/careers/:postingId/apply`로 연다.
 - `features` 이름은 backend 업무 모듈 이름과 맞춘다. `chat`은 AI Chat 전용이다.
 - API는 `lib/api/client.ts`의 `api`로만 호출한다. 타입은 `npm run api:generate`로 만든 `lib/api/schema.d.ts`를 쓰고, 이 파일은 직접 고치지 않는다.
 - 서버 상태는 TanStack Query, 전역 클라이언트 상태는 Zustand, 폼은 React Hook Form + Zod를 쓴다.

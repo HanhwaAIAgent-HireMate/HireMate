@@ -238,7 +238,8 @@ def screen_text(
     )
     lines = [
         f"[전형] {context.stage_name} ({STAGE_LABELS[context.stage_type]}, {STATUS_LABELS[stage.status]}) · "
-        f"선택 변경 가능: {'예' if context.selectable else '아니요'} · 지원자 {len(context.candidates)}명 ({counts})",
+        f"선택 변경 가능: {'예' if context.selectable else '아니요'} · 지원자 {len(context.candidates)}명 ({counts})"
+        + (" · 묻는 사람: 면접관 (배정된 지원자만, 선택 변경 없음)" if context.interviewer else ""),
         f"[멘션] {_people(context, context.mentions)}",
         f"[체크] {_people(context, context.checked)}",
         f"[선택] {_people(context, [row.application_id for row in context.candidates if row.selected])}",

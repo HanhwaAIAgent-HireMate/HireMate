@@ -13,8 +13,11 @@ import com.hiremate.recruit.StageStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -30,9 +33,14 @@ public class InterviewSessions {
     private final InterviewService interviews;
     private final RecruitService recruits;
     private final ApplicationService applications;
+    private final InterviewAttendances attendances;
+    private final ApplicationEventPublisher events;
 
     public InterviewSessions(InterviewSessionRepository sessions, InterviewQuestionRepository questions,
-            InterviewService interviews, RecruitService recruits, ApplicationService applications) {
+            InterviewService interviews, RecruitService recruits, ApplicationService applications,
+            InterviewAttendances attendances, ApplicationEventPublisher events) {
+        this.attendances = attendances;
+        this.events = events;
         this.sessions = sessions;
         this.questions = questions;
         this.interviews = interviews;
@@ -66,6 +74,7 @@ public class InterviewSessions {
             }
             session.assign(hrMemberId, practicalMemberId);
         }
+        changed(companyId, stageId, applicationId);
         return toAssignment(sessions.saveAndFlush(session));
     }
 
@@ -88,9 +97,40 @@ public class InterviewSessions {
             String name = applications.applicants(companyId, List.of(session.getApplicationId())).getFirst().name();
             return new AssignedInterview(session.getStageId(), session.getApplicationId(), recruit.title(),
                     recruit.stage(session.getStageId()).orElseThrow().name(), name, view.schedule(),
-                    session.roleOf(memberId), session.getStatus());
+                    session.roleOf(memberId), session.getStatus(), recruit.id());
         }).toList();
         return new AssignedInterviews(items, found.getTotalElements(), page, size);
+    }
+
+    /** 면접관 모드의 자료 읽기 권한: 이 지원자의 이 면접에 배정됐나. */
+    @Transactional(readOnly = true)
+    public boolean assigned(UUID companyId, UUID memberId, UUID stageId, UUID applicationId) {
+        return sessions.assignedTo(companyId, memberId, stageId, applicationId);
+    }
+
+    /** 면접관 Chat 탭 경로의 권한: 이 전형에서 한 명이라도 배정됐나. */
+    @Transactional(readOnly = true)
+    public boolean assignedInStage(UUID companyId, UUID memberId, UUID stageId) {
+        return !roles(companyId, memberId, stageId).isEmpty();
+    }
+
+    /** 이 전형에서 계정이 배정된 지원자와 그 지원자에서 맡은 담당. 면접관 Chat은 이 지원자만 본다. */
+    @Transactional(readOnly = true)
+    public Map<UUID, InterviewerRole> roles(UUID companyId, UUID memberId, UUID stageId) {
+        Map<UUID, InterviewerRole> roles = new LinkedHashMap<>();
+        sessions.findByStageIdAndCompanyId(stageId, companyId).forEach(session -> {
+            InterviewerRole role = session.roleOf(memberId);
+            if (role != null) {
+                roles.put(session.getApplicationId(), role);
+            }
+        });
+        return roles;
+    }
+
+    /** 지원 문서처럼 채용 단위 경로의 읽기 권한: 이 지원자의 면접 하나에라도 배정됐나. */
+    @Transactional(readOnly = true)
+    public boolean assignedToApplication(UUID companyId, UUID memberId, UUID applicationId) {
+        return sessions.assignedToApplication(companyId, memberId, applicationId);
     }
 
     @Transactional(readOnly = true)
@@ -128,8 +168,13 @@ public class InterviewSessions {
                     throw conflict("FOLLOW_UP_OWNER", "A follow-up must keep its parent's owner.");
                 }
             }
+            // 배정된 면접관이 모두 면접 진행 화면에서 입장하고 접속 중이어야 시작한다
+            if (!attendances.ready(session)) {
+                throw conflict("INTERVIEWERS_NOT_READY", "Every assigned interviewer must enter first.");
+            }
             session.start();
             sessions.flush();
+            changed(companyId, stageId, applicationId);
         }
         return workspace(session, memberId);
     }
@@ -146,6 +191,7 @@ public class InterviewSessions {
             interviews.submitPendingAnswers(companyId, stageId, applicationId);
             session.end();
             sessions.flush();
+            changed(companyId, stageId, applicationId);
         }
         return workspace(session, memberId);
     }
@@ -157,6 +203,8 @@ public class InterviewSessions {
                 InterviewSessionStatus.IN_PROGRESS)) {
             throw conflict("INTERVIEW_IN_PROGRESS", "End all interviews before confirming the stage results.");
         }
+        sessions.findByStageIdAndCompanyId(event.stageId(), event.companyId())
+                .forEach(session -> changed(event.companyId(), event.stageId(), session.getApplicationId()));
     }
 
     /** 개인 메모만 반환한다. 상대 면접관의 메모는 API에 포함하지 않는다. */
@@ -184,6 +232,7 @@ public class InterviewSessions {
         if (session != null && expectedVersion == null) {
             throw conflict("ANSWER_VERSION_REQUIRED", "Send the displayed answer version.");
         }
+        changed(companyId, stageId, question.getApplicationId());
         return interviews.answer(companyId, stageId, questionId, answer, analyze, expectedVersion);
     }
 
@@ -218,6 +267,7 @@ public class InterviewSessions {
             QuestionSource source, String check, boolean assignmentRequired) {
         InterviewQuestion parent = question(companyId, stageId, questionId);
         writeAccess(companyId, stageId, parent, memberId, assignmentRequired);
+        changed(companyId, stageId, parent.getApplicationId());
         return interviews.addFollowUp(companyId, stageId, questionId, text, source, check);
     }
 
@@ -230,12 +280,14 @@ public class InterviewSessions {
             if (answeredTree(question, card(companyId, stageId, question.getApplicationId()))) {
                 throw conflict("QUESTION_ANSWERED", "Recorded answers cannot be removed from an assigned interview.");
             }
+            changed(companyId, stageId, question.getApplicationId());
             return interviews.deleteQuestion(companyId, stageId, questionId);
         }
         InterviewSession session = writeAccess(companyId, stageId, question, memberId, assignmentRequired);
         if (session != null && answeredTree(question, card(companyId, stageId, question.getApplicationId()))) {
             throw conflict("QUESTION_ANSWERED", "Recorded answers cannot be removed in interviewer mode.");
         }
+        changed(companyId, stageId, question.getApplicationId());
         return interviews.deleteQuestion(companyId, stageId, questionId);
     }
 
@@ -355,6 +407,11 @@ public class InterviewSessions {
                 session.getVersion());
     }
 
+    /** 열어 둔 면접관 · HR 화면에 알린다. 저장이 끝난 뒤에 보낸다 (InterviewLive). */
+    private void changed(UUID companyId, UUID stageId, UUID applicationId) {
+        events.publishEvent(new InterviewSessionChanged(companyId, stageId, applicationId));
+    }
+
     private static ApiException forbidden() {
         return new ApiException(HttpStatus.FORBIDDEN, "INTERVIEW_ACCESS_DENIED",
                 "Only the assigned interviewer can edit this question.");
@@ -386,7 +443,7 @@ public class InterviewSessions {
 
     public record AssignedInterview(UUID stageId, UUID applicationId, String recruitmentTitle, String stageName,
             String applicantName, @Schema(nullable = true) InterviewView.Schedule schedule,
-            InterviewerRole myRole, InterviewSessionStatus status) {
+            InterviewerRole myRole, InterviewSessionStatus status, UUID recruitmentId) {
     }
 
     public record AssignedInterviews(List<AssignedInterview> items, long total, int page, int size) {

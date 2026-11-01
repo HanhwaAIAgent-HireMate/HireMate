@@ -15,4 +15,9 @@ public record MemberPrincipal(UUID memberId, UUID companyId, String name, String
         Objects.requireNonNull(email);
         Objects.requireNonNull(role);
     }
+
+    @Override
+    public boolean hr() {
+        return role == MemberRole.HR;
+    }
 }

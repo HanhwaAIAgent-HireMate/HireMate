@@ -142,6 +142,7 @@ class ChatContext(ContractModel):
     message: str
 
     asker: ChatAsker | None = None  # 질문한 담당자. Studio와 평가에는 없다
+    interviewer: bool = False  # 면접관 모드의 Chat. 배정된 지원자만 있고 선택 지원자를 바꿀 수 없다
     interviewer_memos: dict[UUID, list[InterviewerMemo]] = {}
     assessments: dict[UUID, AssessmentScores] = {}  # 현재 평가 전형의 영역 점수 · 등급. 평가 전형일 때만 채워진다
 
