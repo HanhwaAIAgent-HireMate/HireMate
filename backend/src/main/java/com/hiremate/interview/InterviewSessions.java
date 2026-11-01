@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -32,9 +33,14 @@ public class InterviewSessions {
     private final InterviewService interviews;
     private final RecruitService recruits;
     private final ApplicationService applications;
+    private final InterviewAttendances attendances;
+    private final ApplicationEventPublisher events;
 
     public InterviewSessions(InterviewSessionRepository sessions, InterviewQuestionRepository questions,
-            InterviewService interviews, RecruitService recruits, ApplicationService applications) {
+            InterviewService interviews, RecruitService recruits, ApplicationService applications,
+            InterviewAttendances attendances, ApplicationEventPublisher events) {
+        this.attendances = attendances;
+        this.events = events;
         this.sessions = sessions;
         this.questions = questions;
         this.interviews = interviews;
@@ -68,6 +74,7 @@ public class InterviewSessions {
             }
             session.assign(hrMemberId, practicalMemberId);
         }
+        changed(companyId, stageId, applicationId);
         return toAssignment(sessions.saveAndFlush(session));
     }
 
@@ -161,8 +168,13 @@ public class InterviewSessions {
                     throw conflict("FOLLOW_UP_OWNER", "A follow-up must keep its parent's owner.");
                 }
             }
+            // 배정된 면접관이 모두 면접 진행 화면에서 입장하고 접속 중이어야 시작한다
+            if (!attendances.ready(session)) {
+                throw conflict("INTERVIEWERS_NOT_READY", "Every assigned interviewer must enter first.");
+            }
             session.start();
             sessions.flush();
+            changed(companyId, stageId, applicationId);
         }
         return workspace(session, memberId);
     }
@@ -179,6 +191,7 @@ public class InterviewSessions {
             interviews.submitPendingAnswers(companyId, stageId, applicationId);
             session.end();
             sessions.flush();
+            changed(companyId, stageId, applicationId);
         }
         return workspace(session, memberId);
     }
@@ -217,6 +230,7 @@ public class InterviewSessions {
         if (session != null && expectedVersion == null) {
             throw conflict("ANSWER_VERSION_REQUIRED", "Send the displayed answer version.");
         }
+        changed(companyId, stageId, question.getApplicationId());
         return interviews.answer(companyId, stageId, questionId, answer, analyze, expectedVersion);
     }
 
@@ -243,6 +257,7 @@ public class InterviewSessions {
         if (InterviewService.INTRO.equals(text.strip()) && role != InterviewerRole.HR) {
             throw conflict("INTRO_OWNER", "HR records the common introduction.");
         }
+        changed(companyId, stageId, applicationId);
         return interviews.addManualQuestion(companyId, stageId, applicationId, text, role);
     }
 
@@ -251,6 +266,7 @@ public class InterviewSessions {
             QuestionSource source, String check, boolean assignmentRequired) {
         InterviewQuestion parent = question(companyId, stageId, questionId);
         writeAccess(companyId, stageId, parent, memberId, assignmentRequired);
+        changed(companyId, stageId, parent.getApplicationId());
         return interviews.addFollowUp(companyId, stageId, questionId, text, source, check);
     }
 
@@ -263,12 +279,14 @@ public class InterviewSessions {
             if (answeredTree(question, card(companyId, stageId, question.getApplicationId()))) {
                 throw conflict("QUESTION_ANSWERED", "Recorded answers cannot be removed from an assigned interview.");
             }
+            changed(companyId, stageId, question.getApplicationId());
             return interviews.deleteQuestion(companyId, stageId, questionId);
         }
         InterviewSession session = writeAccess(companyId, stageId, question, memberId, assignmentRequired);
         if (session != null && answeredTree(question, card(companyId, stageId, question.getApplicationId()))) {
             throw conflict("QUESTION_ANSWERED", "Recorded answers cannot be removed in interviewer mode.");
         }
+        changed(companyId, stageId, question.getApplicationId());
         return interviews.deleteQuestion(companyId, stageId, questionId);
     }
 
@@ -386,6 +404,11 @@ public class InterviewSessions {
         return new InterviewAssignment(session.getStageId(), session.getApplicationId(), session.getHrMemberId(),
                 session.getPracticalMemberId(), session.getStatus(), session.getStartedAt(), session.getEndedAt(),
                 session.getVersion());
+    }
+
+    /** 열어 둔 면접관 · HR 화면에 알린다. 저장이 끝난 뒤에 보낸다 (InterviewLive). */
+    private void changed(UUID companyId, UUID stageId, UUID applicationId) {
+        events.publishEvent(new InterviewSessionChanged(companyId, stageId, applicationId));
     }
 
     private static ApiException forbidden() {
