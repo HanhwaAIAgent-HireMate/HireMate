@@ -8,6 +8,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { InterviewerScript } from '@/features/interview/InterviewerScript'
+import { OpinionCard } from '@/features/interview/OpinionCard'
 import { Results } from '@/features/interview/InterviewViewer'
 import { RoleTag } from '@/features/interview/RoleTag'
 import {
@@ -182,6 +183,15 @@ function Room({ interview }: { interview: AssignedInterview }) {
             <span>
               내 질문 {recorded}/{mine.length} 기록
             </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                document.getElementById('opinion')?.scrollIntoView({ behavior: 'smooth' })
+              }
+            >
+              의견 남기기
+            </Button>
             {status && status !== 'IN_PROGRESS' && (
               <Button
                 size="sm"
@@ -248,6 +258,7 @@ function Room({ interview }: { interview: AssignedInterview }) {
                 filter={filter}
                 ownerNames={{}}
               />
+              <OpinionCard stageId={stageId} applicationId={applicationId} editable />
               <PersonalMemo
                 key={data.session.version}
                 stageId={stageId}

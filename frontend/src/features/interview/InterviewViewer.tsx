@@ -33,6 +33,7 @@ import {
   type InterviewQuestion,
 } from '@/features/interview/api'
 import { AnswerBox } from '@/features/interview/AnswerBox'
+import { HrOpinions } from '@/features/interview/HrOpinions'
 import { InterviewAssign } from '@/features/interview/InterviewAssign'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import { QuestionReason } from '@/features/interview/QuestionReason'
@@ -92,6 +93,7 @@ export function InterviewViewer({
         <DocumentViewer stageId={stageId} recruitmentId={recruitmentId} detail={detail} />
       )}
       {tab === 'results' && <Results stageId={stageId} applicationId={applicationId} />}
+      {tab === 'questions' && <HrOpinions stageId={stageId} applicationId={applicationId} />}
       {tab === 'questions' &&
         (!interview.data ? (
           <Skeleton className="h-40 w-full" />

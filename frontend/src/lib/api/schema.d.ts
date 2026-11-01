@@ -196,6 +196,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/interviewer/sessions/{stageId}/{applicationId}/opinions/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["save_1"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/interviewer/sessions/{stageId}/{applicationId}/memo": {
         parameters: {
             query?: never;
@@ -1172,6 +1188,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/interview/opinions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stage_1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates": {
         parameters: {
             query?: never;
@@ -1244,6 +1276,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["preparing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/candidates/{applicationId}/interview/opinions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["candidate"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1436,6 +1484,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["interviewerWorkspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/{applicationId}/opinions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["mine"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1944,6 +2008,27 @@ export interface components {
         };
         StagesRequest: {
             stages: components["schemas"]["StageItem"][];
+        };
+        OpinionRequest: {
+            /** @enum {string} */
+            recommendation: "RECOMMEND" | "HOLD" | "NOT_RECOMMEND";
+            comment: string;
+        };
+        OpinionView: {
+            /** Format: uuid */
+            memberId: string;
+            name: string;
+            /** @enum {string} */
+            role: "HR" | "PRACTICAL";
+            submitted: boolean;
+            /** @enum {string|null} */
+            recommendation: "RECOMMEND" | "HOLD" | "NOT_RECOMMEND" | null;
+            comment: string | null;
+            /** Format: date-time */
+            updatedAt: string | null;
+            edited: boolean;
+            mine: boolean;
+            unassigned: boolean;
         };
         PersonalInterviewMemo: {
             text: string;
@@ -2508,6 +2593,11 @@ export interface components {
             subject: string;
             html: string;
         };
+        CandidateOpinions: {
+            /** Format: uuid */
+            applicationId: string;
+            opinions: components["schemas"]["OpinionView"][];
+        };
         ApplicantDocument: {
             /** @enum {string} */
             type: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
@@ -2757,8 +2847,8 @@ export interface components {
         };
         CsrfToken: {
             token: string;
-            parameterName: string;
             headerName: string;
+            parameterName: string;
         };
         CsrfResponse: {
             token: string;
@@ -3156,6 +3246,33 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PostingView"];
+                };
+            };
+        };
+    };
+    save_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpinionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["OpinionView"][];
                 };
             };
         };
@@ -5001,6 +5118,28 @@ export interface operations {
             };
         };
     };
+    stage_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CandidateOpinions"][];
+                };
+            };
+        };
+    };
     candidates: {
         parameters: {
             query?: {
@@ -5117,6 +5256,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PreparingView"];
+                };
+            };
+        };
+    };
+    candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["OpinionView"][];
                 };
             };
         };
@@ -5390,6 +5552,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["InterviewerWorkspace"];
+                };
+            };
+        };
+    };
+    mine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["OpinionView"][];
                 };
             };
         };

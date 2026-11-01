@@ -2,8 +2,23 @@ import { Check, Undo2, X } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { useCandidateDetail, useDecisionActions, type Decision } from '@/features/screening/api'
+import { missingOpinions, useStageOpinions } from '@/features/interview/opinions'
+import {
+  useCandidateDetail,
+  useDecisionActions,
+  useStageOverview,
+  type Decision,
+} from '@/features/screening/api'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
 
@@ -35,6 +50,13 @@ export function DecisionBar({
     Record<string, { decision: Decision; before: Decision | undefined }>
   >({})
   const open = useCandidateDetail(stageId, openId ?? '')
+  // 면접 전형: 배정된 면접관의 의견이 빠진 지원자를 결정하면 한 번 확인한다 (막지는 않는다. 결정은 HR이 한다)
+  const overview = useStageOverview(stageId)
+  const interview = overview.data?.type === 'INTERVIEW'
+  const opinions = useStageOpinions(stageId, interview)
+  const [warning, setWarning] = useState<{ decision: 'PASS' | 'FAIL'; lines: string[] } | null>(
+    null,
+  )
   const openRow = openId ? open.data?.row : undefined
 
   const single = checked.length === 0 ? openRow : undefined
@@ -87,6 +109,19 @@ export function DecisionBar({
     )
   }
 
+  const attempt = (decision: 'PASS' | 'FAIL') => {
+    const lines = interview
+      ? targets.flatMap((id) => {
+          const missing = missingOpinions(opinions.data?.find((row) => row.applicationId === id))
+          return missing.length
+            ? [`${targetNames[id] ?? '지원자'}: ${missing.join(' · ')} 의견이 아직 없어요`]
+            : []
+        })
+      : []
+    if (lines.length) setWarning({ decision, lines })
+    else run(decision)
+  }
+
   const undo = () => {
     const ids = single ? [single.applicationId] : (last?.ids ?? [])
     if (ids.length === 0) return
@@ -127,7 +162,7 @@ export function DecisionBar({
         <Button
           variant="outline"
           disabled={!canDecide}
-          onClick={() => run('FAIL')}
+          onClick={() => attempt('FAIL')}
           className="border-fail-foreground/40 text-fail-foreground hover:bg-fail disabled:border-border disabled:text-muted-foreground"
         >
           <X />
@@ -135,13 +170,39 @@ export function DecisionBar({
         </Button>
         <Button
           disabled={!canDecide}
-          onClick={() => run('PASS')}
+          onClick={() => attempt('PASS')}
           className="bg-pass-foreground text-white hover:bg-pass-foreground/90 disabled:border-border disabled:bg-background disabled:text-muted-foreground"
         >
           <Check />
           합격
         </Button>
       </div>
+      <AlertDialog open={warning !== null} onOpenChange={(value) => !value && setWarning(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>면접관 의견이 아직 없는 지원자가 있어요</AlertDialogTitle>
+            <AlertDialogDescription>
+              그래도 결정할까요? 결정은 채용 담당자가 해요.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="space-y-1 text-sm">
+            {warning?.lines.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <Button
+              onClick={() => {
+                if (warning) run(warning.decision)
+                setWarning(null)
+              }}
+            >
+              그래도 {warning?.decision === 'FAIL' ? '불합격' : '합격'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
