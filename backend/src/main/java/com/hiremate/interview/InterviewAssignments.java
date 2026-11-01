@@ -139,7 +139,8 @@ public class InterviewAssignments {
     private StageInfo interviewStage(UUID companyId, UUID stageId) {
         StageInfo stage = recruits.getByStage(companyId, stageId).stage(stageId).orElseThrow();
         if (stage.type() != StageType.INTERVIEW) {
-            throw new ApiException(HttpStatus.CONFLICT, "NOT_INTERVIEW_STAGE", "Only interview stages have interviewers.");
+            throw new ApiException(HttpStatus.CONFLICT, "NOT_INTERVIEW_STAGE",
+                    "Only interview stages have interviewers.");
         }
         return stage;
     }

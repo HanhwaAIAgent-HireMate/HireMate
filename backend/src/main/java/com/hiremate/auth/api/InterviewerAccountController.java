@@ -36,7 +36,8 @@ public class InterviewerAccountController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public InterviewerAccount create(AuthenticatedMember member, @Valid @RequestBody InterviewerAccountRequest request) {
+    public InterviewerAccount create(AuthenticatedMember member,
+            @Valid @RequestBody InterviewerAccountRequest request) {
         return InterviewerAccount.from(accounts.create(member.companyId(), request.name(), request.email(),
                 request.password()));
     }
