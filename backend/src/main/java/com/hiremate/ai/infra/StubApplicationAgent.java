@@ -6,14 +6,17 @@ import com.hiremate.ai.application.ApplicationAgent;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicantDocument;
 import com.hiremate.apply.ApplicationAnalysis;
+import com.hiremate.apply.CriterionMark;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.ScreeningRubric;
 import java.math.BigDecimal;
 import java.time.Year;
 import java.time.YearMonth;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -24,8 +27,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * 개발용 Application Agent. 제출 문서 본문에서 경력 연수와 마지막 회사를 찾고, 공고의 업무 · 자격 요건 · 우대 사항
- * 낱말이 문서에 얼마나 나오는지로 서류 점수(0~100)를 매긴다. 60점 이상을 자격요건 통과로 보고, 점수는 보류하지 않는다
- * (개발용 기본값. 실제 판정은 ai 서버의 Application Agent가 한다).
+ * 낱말이 문서에 얼마나 나오는지로 서류 점수(0~100)를 매긴다. 60점 이상을 자격요건 통과로 보고, 점수는 보류하지 않는다.
+ * 평가 항목마다 항목 글의 낱말이 문서에 나오는 비율로 판정도 붙인다(선 위 · 분포를 모델 없이 보려는 개발용 값이다).
+ * 실제 판정은 ai 서버의 Application Agent가 한다.
  */
 @Component
 @ConditionalOnAiMode(agent = AiAgent.APPLICATION, mode = AiMode.STUB)
@@ -50,8 +54,45 @@ class StubApplicationAgent implements ApplicationAgent {
         int careerYears = careerYears(text);
         String lastCompany = careerYears == 0 ? null : lastCompany(text);
         int score = score(text, posting, careerYears);
-        return Optional.of(ApplicationAnalysis.of(careerYears, lastCompany, BigDecimal.valueOf(score),
-                score >= PASS_SCORE, false, List.of()));
+        ApplicationAnalysis summary = ApplicationAnalysis.of(careerYears, lastCompany, BigDecimal.valueOf(score),
+                score >= PASS_SCORE, false, List.of());
+        return Optional.of(new ApplicationAnalysis(summary.careerYears(), summary.lastCompany(),
+                summary.criteriaVersion(), summary.qualificationStatus(), summary.qualificationRate(),
+                summary.qualificationScore(), summary.qualificationMax(), summary.preferenceScore(),
+                summary.preferenceMax(), summary.documentScore(), summary.documentScoreLow(),
+                summary.qualificationScoreLow(), summary.passed(), summary.held(), summary.shortfalls(),
+                marks(text, rubric)));
+    }
+
+    /**
+     * 항목 글의 낱말이 문서에 나오는 비율로 판정한다. 60% 이상 충족, 30% 이상은 복합 경험형이면 부분 충족이고
+     * 아니면 확인 필요, 조금이라도 나오면 확인 필요, 하나도 없으면 미충족이다. 서류가 비면 모두 확인 필요다.
+     */
+    static Map<String, CriterionMark> marks(String text, ScreeningRubric rubric) {
+        String lower = text.toLowerCase(Locale.ROOT);
+        Map<String, CriterionMark> marks = new LinkedHashMap<>();
+        for (ScreeningRubric.Criterion criterion : rubric.criteria()) {
+            Set<String> words = WORD.matcher(criterion.text()).results()
+                    .map(match -> match.group().toLowerCase(Locale.ROOT))
+                    .filter(word -> !STOP_WORDS.contains(word))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            double coverage = words.isEmpty() ? 0 : (double) words.stream().filter(lower::contains).count()
+                    / words.size();
+            CriterionMark mark;
+            if (text.isBlank()) {
+                mark = CriterionMark.UNKNOWN;
+            } else if (coverage >= 0.6) {
+                mark = CriterionMark.MET;
+            } else if (coverage >= 0.3 && criterion.criterionType() == ScreeningRubric.CriterionType.COMPOSITE) {
+                mark = CriterionMark.PARTIAL;
+            } else if (coverage > 0) {
+                mark = CriterionMark.UNKNOWN;
+            } else {
+                mark = CriterionMark.NOT_MET;
+            }
+            marks.put(criterion.criterionId(), mark);
+        }
+        return marks;
     }
 
     static int careerYears(String text) {
