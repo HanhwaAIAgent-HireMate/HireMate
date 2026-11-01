@@ -916,6 +916,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/interviewer/sessions/{stageId}/{applicationId}/enter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["enterInterview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/interviewer/sessions/{stageId}/{applicationId}/end": {
         parameters: {
             query?: never;
@@ -1188,6 +1204,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/interview/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["interviewProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/interview/opinions": {
         parameters: {
             query?: never;
@@ -1196,6 +1228,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["stage_1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/interview/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["interviewEvents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1500,6 +1548,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["mine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/{applicationId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["interviewEvents_1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/interviewer/sessions/{stageId}/{applicationId}/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["interviewAttendance"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2372,6 +2452,20 @@ export interface components {
             /** @enum {string} */
             interviewerRole: "HR" | "PRACTICAL";
         };
+        Attendance: {
+            stageActive: boolean;
+            attendees: components["schemas"]["Attendee"][];
+        };
+        Attendee: {
+            /** @enum {string} */
+            role: "HR" | "PRACTICAL";
+            /** Format: uuid */
+            memberId: string;
+            name: string;
+            entered: boolean;
+            online: boolean;
+            me: boolean;
+        };
         InterviewerFollowUp: {
             text: string;
             /** @enum {string} */
@@ -2541,14 +2635,10 @@ export interface components {
             fallback: boolean;
         };
         JsonNode: {
-            number: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
             string: boolean;
             integralNumber: boolean;
-            missingNode: boolean;
-            valueNode: boolean;
-            container: boolean;
             pojo: boolean;
             floatingPointNumber: boolean;
             short: boolean;
@@ -2561,6 +2651,10 @@ export interface components {
             textual: boolean;
             boolean: boolean;
             binary: boolean;
+            missingNode: boolean;
+            valueNode: boolean;
+            container: boolean;
+            number: boolean;
             empty: boolean;
             array: boolean;
             null: boolean;
@@ -2593,10 +2687,25 @@ export interface components {
             subject: string;
             html: string;
         };
+        SessionProgress: {
+            /** Format: uuid */
+            applicationId: string;
+            /** @enum {string} */
+            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED";
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            endedAt: string | null;
+            attendees: components["schemas"]["Attendee"][];
+        };
         CandidateOpinions: {
             /** Format: uuid */
             applicationId: string;
             opinions: components["schemas"]["OpinionView"][];
+        };
+        SseEmitter: {
+            /** Format: int64 */
+            timeout: number;
         };
         ApplicantDocument: {
             /** @enum {string} */
@@ -2846,9 +2955,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            token: string;
             headerName: string;
             parameterName: string;
+            token: string;
         };
         CsrfResponse: {
             token: string;
@@ -4559,6 +4668,29 @@ export interface operations {
             };
         };
     };
+    enterInterview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Attendance"];
+                };
+            };
+        };
+    };
     endInterviewSession: {
         parameters: {
             query?: never;
@@ -5118,6 +5250,28 @@ export interface operations {
             };
         };
     };
+    interviewProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SessionProgress"][];
+                };
+            };
+        };
+    };
     stage_1: {
         parameters: {
             query?: never;
@@ -5136,6 +5290,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CandidateOpinions"][];
+                };
+            };
+        };
+    };
+    interviewEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["SseEmitter"];
                 };
             };
         };
@@ -5575,6 +5751,52 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["OpinionView"][];
+                };
+            };
+        };
+    };
+    interviewEvents_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["SseEmitter"];
+                };
+            };
+        };
+    };
+    interviewAttendance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Attendance"];
                 };
             };
         };
