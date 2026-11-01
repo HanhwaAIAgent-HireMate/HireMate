@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
+import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -26,7 +28,7 @@ class CompanyLogoTests extends IntegrationTest {
 
     @Test
     @DisplayName("회사 로고를 한 번 올리면 메일용은 메일 머리 크기로, 포스터용은 포스터 한도 안으로 줄여 저장하고 "
-            + "포스터 색만 로고에 맞춘다")
+            + "메일과 포스터 색을 로고에 맞춘다")
     void oneLogoServesMailAndPoster() throws Exception {
         TestApi hr = newHr();
         String posterColor = json(expect(hr.get(POSTER), 200)).path("color").asString();
@@ -38,7 +40,7 @@ class CompanyLogoTests extends IntegrationTest {
         assertThat(shown.getHeight()).isEqualTo(120);
         JsonNode mail = json(expect(hr.get(MAIL), 200));
         assertThat(mail.path("hasLogo").asBoolean()).isTrue();
-        assertThat(mail.path("color").asString()).isEqualTo("#1e3a5f");
+        assertThat(mail.path("color").asString()).isNotEqualTo("#1e3a5f");
         JsonNode poster = json(expect(hr.get(POSTER), 200));
         assertThat(poster.path("logoFileId").isNull()).isFalse();
         assertThat(poster.path("color").asString()).isNotEqualTo(posterColor);
@@ -46,6 +48,33 @@ class CompanyLogoTests extends IntegrationTest {
         BufferedImage posterImage = ImageIO.read(new ByteArrayInputStream(posterLogo));
         assertThat(posterLogo.length).isLessThanOrEqualTo(500 * 1024);
         assertThat(posterImage.getWidth()).isEqualTo(1600);
+    }
+
+    @Test
+    @DisplayName("메일 대표 색은 로고에서 가장 넓은 브랜드 색이 되고, 흑백 로고면 그대로 둔다")
+    void mailColorFollowsLogo() throws Exception {
+        TestApi hr = newHr();
+        BufferedImage navy = new BufferedImage(300, 100, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = navy.createGraphics();
+        graphics.setColor(new Color(0x1b2a4a));
+        graphics.fillRect(0, 0, 300, 100);
+        graphics.setColor(new Color(0xc2410c));
+        graphics.fillRect(200, 20, 80, 60);
+        graphics.dispose();
+
+        expect(hr.multipart(BASE, Map.of("file", new TestApi.FilePart("navy.png", "image/png", png(navy)))), 204);
+        assertThat(json(expect(hr.get(MAIL), 200)).path("color").asString()).isEqualTo("#1b2a4a");
+
+        BufferedImage gray = new BufferedImage(300, 100, BufferedImage.TYPE_INT_RGB);
+        graphics = gray.createGraphics();
+        graphics.setColor(Color.WHITE);
+        graphics.fillRect(0, 0, 300, 100);
+        graphics.setColor(Color.BLACK);
+        graphics.fillRect(50, 30, 200, 40);
+        graphics.dispose();
+
+        expect(hr.multipart(BASE, Map.of("file", new TestApi.FilePart("gray.png", "image/png", png(gray)))), 204);
+        assertThat(json(expect(hr.get(MAIL), 200)).path("color").asString()).isEqualTo("#1b2a4a");
     }
 
     @Test
