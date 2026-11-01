@@ -1204,6 +1204,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/reports/distribution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["distribution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/notices": {
         parameters: {
             query?: never;
@@ -2716,25 +2732,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            integralNumber: boolean;
-            missingNode: boolean;
-            valueNode: boolean;
-            floatingPointNumber: boolean;
-            bigInteger: boolean;
-            container: boolean;
-            bigDecimal: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            int: boolean;
-            /** @deprecated */
-            textual: boolean;
-            short: boolean;
-            binary: boolean;
             boolean: boolean;
-            double: boolean;
             pojo: boolean;
             long: boolean;
+            binary: boolean;
+            /** @deprecated */
+            textual: boolean;
             string: boolean;
+            int: boolean;
+            short: boolean;
+            double: boolean;
+            floatingPointNumber: boolean;
+            bigInteger: boolean;
+            valueNode: boolean;
+            bigDecimal: boolean;
+            missingNode: boolean;
+            integralNumber: boolean;
+            container: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -2757,6 +2773,105 @@ export interface components {
             names: {
                 [key: string]: string;
             };
+        };
+        CareerBand: {
+            label: string;
+            /** Format: int32 */
+            all: number;
+            /** Format: int32 */
+            aboveLine: number;
+        };
+        CountBucket: {
+            /** Format: int32 */
+            value: number;
+            /** Format: int32 */
+            count: number;
+        };
+        CriterionStat: {
+            criterionId: string;
+            /** @enum {string} */
+            category: "QUALIFICATION" | "PREFERENCE";
+            text: string;
+            required: boolean;
+            /** Format: int32 */
+            met: number;
+            /** Format: int32 */
+            partial: number;
+            /** Format: int32 */
+            notMet: number;
+            /** Format: int32 */
+            unknown: number;
+        };
+        Cut: {
+            /** Format: int32 */
+            value: number;
+            /** Format: int32 */
+            from: number;
+            /** Format: int32 */
+            to: number;
+            /** Format: int32 */
+            inside: number;
+        };
+        Group: {
+            id: string;
+            label: string;
+            reason: string;
+            people: components["schemas"]["Person"][];
+        };
+        Person: {
+            /** Format: uuid */
+            applicationId: string;
+            name: string;
+            /** Format: int32 */
+            careerYears: number | null;
+            /** Format: int32 */
+            metCount: number;
+            /** Format: int32 */
+            criterionTotal: number;
+            /** Format: int32 */
+            talentCount: number;
+            /** Format: int32 */
+            unknownCount: number;
+            /** Format: int32 */
+            partialCount: number;
+            missingRequired: string[];
+        };
+        ReportDistribution: {
+            /** Format: uuid */
+            stageId: string;
+            /** Format: int32 */
+            total: number;
+            /** Format: int32 */
+            analyzed: number;
+            /** Format: int32 */
+            aboveLine: number;
+            /** Format: int32 */
+            target: number;
+            /** Format: int32 */
+            defaultTarget: number;
+            /** Format: int32 */
+            hireCount: number;
+            /** Format: int32 */
+            targetMultiplier: number;
+            /** @enum {string} */
+            sort: "BASIC" | "TALENT";
+            required: components["schemas"]["Required"];
+            criteria: components["schemas"]["CriterionStat"][];
+            counts: components["schemas"]["CountBucket"][];
+            cut: components["schemas"]["Cut"] | null;
+            groups: components["schemas"]["Group"][];
+            /** Format: int32 */
+            deepSize: number;
+            careers: components["schemas"]["CareerBand"][];
+        };
+        Required: {
+            /** Format: int32 */
+            met: number;
+            /** Format: int32 */
+            unmet: number;
+            /** Format: int32 */
+            unknown: number;
+            criterionIds: string[];
         };
         MailPreview: {
             subject: string;
@@ -5359,6 +5474,31 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ReportPayload"];
+                };
+            };
+        };
+    };
+    distribution: {
+        parameters: {
+            query?: {
+                target?: number;
+                sort?: "BASIC" | "TALENT";
+            };
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ReportDistribution"];
                 };
             };
         };

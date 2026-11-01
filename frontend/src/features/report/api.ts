@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap, type Schemas } from '@/lib/api/client'
 
@@ -38,6 +38,32 @@ export function useRequestCompareReport(stageId: string) {
           body: request,
         }),
       ),
+  })
+}
+
+export type ReportDistribution = Schemas['ReportDistribution']
+export type DistributionSort = ReportDistribution['sort']
+
+/**
+ * 서류 전형 분포. backend가 모델 없이 바로 센다. 목표 인원(target)은 저장하지 않고 요청마다 넘긴다.
+ * 목표를 바꾸는 동안 앞 결과를 그대로 보여 준다
+ */
+export function useReportDistribution(
+  stageId: string,
+  target: number | null,
+  sort: DistributionSort,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['report-distribution', stageId, target, sort],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/stages/{stageId}/reports/distribution', {
+          params: { path: { stageId }, query: { target: target ?? undefined, sort } },
+        }),
+      ),
+    enabled,
+    placeholderData: keepPreviousData,
   })
 }
 
