@@ -10,6 +10,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
+import { OpinionBadges } from '@/features/interview/OpinionBadges'
+import { useStageOpinions } from '@/features/interview/opinions'
 import {
   useCandidates,
   useSelectionActions,
@@ -58,6 +60,8 @@ export function CandidateList({
   const { openId, open } = useStageUi()
   const sentinel = useRef<HTMLDivElement>(null)
   const documentStage = overview.type === 'DOCUMENT'
+  // 면접 전형은 지원자마다 면접관 의견을 배지로 보인다 (결정은 HR이 결정 바에서 한다)
+  const opinions = useStageOpinions(stageId, overview.type === 'INTERVIEW')
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 250)
@@ -192,6 +196,13 @@ export function CandidateList({
             scoreStage={overview.type === 'ASSESSMENT'}
             active={openId === row.applicationId}
             action={action(row)}
+            note={
+              overview.type === 'INTERVIEW' ? (
+                <OpinionBadges
+                  row={opinions.data?.find((item) => item.applicationId === row.applicationId)}
+                />
+              ) : undefined
+            }
             onOpen={() => open({ applicationId: row.applicationId, name: row.name })}
           />
         ))}

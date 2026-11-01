@@ -21,6 +21,7 @@ const state = vi.hoisted(() => ({
 
 // 면접관 배정은 따로 검사한다 (InterviewAssign.test.tsx)
 vi.mock('@/features/interview/InterviewAssign', () => ({ InterviewAssign: () => null }))
+vi.mock('@/features/interview/HrOpinions', () => ({ HrOpinions: () => null }))
 
 vi.mock('@/features/interview/api', () => ({
   useInterview: () => ({
