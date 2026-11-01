@@ -125,7 +125,7 @@ class InterviewerChatTests extends IntegrationTest {
         body.put("hrMemberId", newInterviewer(interview.hr(), "최인사").memberId().toString());
         body.put("practicalMemberId", kim.memberId().toString());
         body.put("expectedVersion", null);
-        expect(interview.hr().put(interview.candidate() + "/interview/session", body), 200);
+        expect(interview.hr().put(interview.stage() + "/interview/assignment", body), 200);
         String tab = json(expect(kim.get(interview.stage() + "/tabs"), 200)).get(0).path("id").asString();
         return new Room(interview, kim, tab);
     }

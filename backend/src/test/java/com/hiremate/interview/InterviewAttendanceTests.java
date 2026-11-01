@@ -181,7 +181,7 @@ class InterviewAttendanceTests extends IntegrationTest {
         body.put("hrMemberId", people.memberId().toString());
         body.put("practicalMemberId", kim.memberId().toString());
         body.put("expectedVersion", null);
-        expect(interview.hr().put(interview.candidate() + "/interview/session", body), 200);
+        expect(interview.hr().put(interview.stage() + "/interview/assignment", body), 200);
         // 앞 전형 확정 때 AI가 미리 만드는 질문이 다 들어온 뒤에 시작한다 (만드는 중이면 시작할 수 없다)
         long deadline = System.currentTimeMillis() + 15_000;
         while (System.currentTimeMillis() < deadline && (json(expect(interview.hr().get(interview.candidate()

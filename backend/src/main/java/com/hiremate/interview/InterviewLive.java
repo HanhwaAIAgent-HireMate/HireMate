@@ -107,9 +107,14 @@ public class InterviewLive {
     /** 바뀐 내용이 저장된 뒤에 알린다. 저장이 취소되면 알리지 않는다. */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void on(InterviewSessionChanged changed) {
-        String data = "{\"applicationId\":\"" + changed.applicationId() + "\"}";
-        rooms.getOrDefault(new SessionKey(changed.stageId(), changed.applicationId()), Set.of())
-                .forEach(subscriber -> send(subscriber.emitter(), "changed", data));
+        String data = changed.applicationId() == null ? "{}"
+                : "{\"applicationId\":\"" + changed.applicationId() + "\"}";
+        rooms.forEach((key, subscribers) -> {
+            if (key.stageId().equals(changed.stageId())
+                    && (changed.applicationId() == null || key.applicationId().equals(changed.applicationId()))) {
+                subscribers.forEach(subscriber -> send(subscriber.emitter(), "changed", data));
+            }
+        });
         stages.getOrDefault(changed.stageId(), Set.of()).forEach(emitter -> send(emitter, "changed", data));
     }
 

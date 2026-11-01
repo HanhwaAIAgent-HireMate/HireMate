@@ -113,7 +113,7 @@ class InterviewerAccessTests extends IntegrationTest {
         body.put("hrMemberId", newInterviewer(interview.hr(), "최인사").memberId().toString());
         body.put("practicalMemberId", interviewer.memberId().toString());
         body.put("expectedVersion", null);
-        expect(interview.hr().put(interview.candidate() + "/interview/session", body), 200);
+        expect(interview.hr().put(interview.stage() + "/interview/assignment", body), 200);
     }
 
     /** 경로 변수에 이 면접의 값을 넣는다. 모르는 변수는 임의 UUID다. */
