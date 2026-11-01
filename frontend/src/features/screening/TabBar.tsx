@@ -60,7 +60,7 @@ export function TabBar({
       <div
         role="tablist"
         aria-label="탭"
-        className="flex min-w-0 items-stretch gap-0.5 overflow-x-auto"
+        className="flex min-w-0 items-stretch gap-0.5 overflow-hidden"
       >
         {tabs.map((tab) => {
           const active = tab.id === current
@@ -68,7 +68,7 @@ export function TabBar({
             <div
               key={tab.id}
               className={cn(
-                'group flex shrink-0 items-center gap-1 border-b-2 px-2',
+                'group @container/tab relative flex w-56 min-w-0 items-center gap-1 border-b-2 px-1',
                 active ? 'border-foreground' : 'border-transparent',
               )}
             >
@@ -85,7 +85,7 @@ export function TabBar({
                     if (event.key === 'Enter') save(tab)
                     if (event.key === 'Escape') setEditing(null)
                   }}
-                  className="w-40 rounded border bg-background px-1.5 py-0.5 text-[13px] outline-none"
+                  className="w-full min-w-0 rounded border bg-background px-1.5 py-0.5 text-[13px] outline-none"
                 />
               ) : (
                 <button
@@ -101,17 +101,17 @@ export function TabBar({
                     setDraft(tab.name)
                     setEditing(tab.id)
                   }}
-                  title="두 번 누르면 이름을 바꿔요"
+                  title={`${tab.name} (두 번 누르면 이름을 바꿔요)`}
                   className={cn(
-                    'inline-flex max-w-56 items-center gap-1.5 text-[13px] whitespace-nowrap',
+                    'inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-[13px] whitespace-nowrap after:absolute after:inset-0',
                     active
                       ? 'font-semibold text-foreground'
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  <span className="truncate">{tab.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-left">{tab.name}</span>
                   {tab.selectedCount > 0 && (
-                    <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-muted px-1.5 text-[11px] font-semibold text-muted-foreground tabular-nums">
+                    <span className="hidden h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-muted px-1.5 text-[11px] font-semibold text-muted-foreground tabular-nums @min-[4rem]/tab:inline-flex">
                       {tab.selectedCount}
                     </span>
                   )}
@@ -122,11 +122,11 @@ export function TabBar({
                   aria-label={`${tab.name} 지우기`}
                   onClick={() => setRemoving(tab)}
                   className={cn(
-                    'rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground',
+                    'relative shrink-0 rounded text-muted-foreground hover:bg-muted hover:text-foreground @min-[4rem]/tab:p-0.5',
                     !active && 'opacity-60',
                   )}
                 >
-                  <X className="size-3.5" />
+                  <X className="size-3 @min-[4rem]/tab:size-3.5" />
                 </button>
               )}
             </div>
