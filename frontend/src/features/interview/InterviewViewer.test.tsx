@@ -19,6 +19,9 @@ const state = vi.hoisted(() => ({
   previous: [] as unknown[],
 }))
 
+// 면접관 배정은 따로 검사한다 (InterviewAssign.test.tsx)
+vi.mock('@/features/interview/InterviewAssign', () => ({ InterviewAssign: () => null }))
+
 vi.mock('@/features/interview/api', () => ({
   useInterview: () => ({
     data: { questions: state.questions, previous: state.previous, schedule: null },
