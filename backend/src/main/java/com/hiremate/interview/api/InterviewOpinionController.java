@@ -56,7 +56,11 @@ public class InterviewOpinionController {
         return opinions.stage(member.companyId(), stageId);
     }
 
-    /** @param comment 판단 이유. 나이 · 성별 · 출신 지역 · 혼인 여부 · 신체 조건은 쓰지 않는다 (화면이 안내한다) */
+    /**
+     * 의견 저장 요청.
+     *
+     * @param comment 판단 이유. 나이 · 성별 · 출신 지역 · 혼인 여부 · 신체 조건은 쓰지 않는다 (화면이 안내한다)
+     */
     public record OpinionRequest(@NotNull Recommendation recommendation,
             @NotBlank @Size(max = 2000) String comment) {
     }
