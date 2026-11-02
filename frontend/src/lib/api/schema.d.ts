@@ -2303,6 +2303,7 @@ export interface components {
             culture: string;
             talents: components["schemas"]["TalentItem"][];
             benefits: string[];
+            address: string | null;
         };
         TalentItem: {
             title: string;
@@ -2316,6 +2317,7 @@ export interface components {
             culture: string;
             talents: components["schemas"]["Talent"][];
             benefits: string[];
+            address: string;
         };
         Talent: {
             title: string;
@@ -2814,25 +2816,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            missingNode: boolean;
-            bigInteger: boolean;
-            integralNumber: boolean;
             floatingPointNumber: boolean;
+            integralNumber: boolean;
+            missingNode: boolean;
             bigDecimal: boolean;
-            container: boolean;
+            bigInteger: boolean;
             valueNode: boolean;
+            container: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            short: boolean;
+            string: boolean;
             pojo: boolean;
-            double: boolean;
+            boolean: boolean;
             /** @deprecated */
             textual: boolean;
-            long: boolean;
-            string: boolean;
+            double: boolean;
             binary: boolean;
-            short: boolean;
+            long: boolean;
             int: boolean;
-            boolean: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3099,6 +3101,7 @@ export interface components {
             /** @enum {string} */
             state: "UPCOMING" | "OPEN" | "CLOSED";
             poster: components["schemas"]["PosterDesign"] | null;
+            companyAddress: string;
         };
         PublicStage: {
             name: string;
@@ -3141,9 +3144,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
+            headerName: string;
             parameterName: string;
             token: string;
-            headerName: string;
         };
         CsrfResponse: {
             token: string;

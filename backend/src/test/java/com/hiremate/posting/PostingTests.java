@@ -421,6 +421,12 @@ class PostingTests extends IntegrationTest {
 
         JsonNode careers = json(expect(anonymous().get("/api/public/postings/" + postingId), 200));
         assertThat(careers.path("state").asString()).isEqualTo("OPEN");
+        assertThat(careers.path("companyAddress").asString()).isEmpty();
+        // 회사 주소는 공고 내용이 아니라 회사 정보라, 게시한 뒤에 바꿔도 채용 페이지에 지금 주소가 보인다
+        expect(hr.put("/api/companies/me/profile", Map.of("intro", "", "culture", "", "talents", List.of(),
+                "benefits", List.of(), "address", "경기도 성남시 분당구 판교역로 1")), 200);
+        assertThat(json(expect(anonymous().get("/api/public/postings/" + postingId), 200)).path("companyAddress")
+                .asString()).isEqualTo("경기도 성남시 분당구 판교역로 1");
         assertThat(careers.path("content").path("title").asString()).isEqualTo("백엔드 개발자 (Java/Spring)");
 
         JsonNode locked = json(expect(hr.post(base + "/ai-requests",

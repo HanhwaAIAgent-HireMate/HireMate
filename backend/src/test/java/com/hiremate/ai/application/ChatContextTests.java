@@ -68,7 +68,7 @@ class ChatContextTests {
                 "개발자 채용", RecruitmentStatus.IN_PROGRESS, stageId, List.of(stage), Instant.EPOCH, null, null));
         CompanyService companies = mock(CompanyService.class);
         when(companies.profile(companyId)).thenReturn(new CompanyProfile(companyId, "개발기업", "소개", "문화",
-                List.of(), List.of()));
+                List.of(), List.of(), ""));
         PostingService postings = mock(PostingService.class);
         PostingContent content = new PostingContent("개발자 채용", "백엔드 개발", "정규직", "경력", "서울", "소개",
                 List.of(), List.of(), List.of(), List.of());
@@ -110,7 +110,7 @@ class ChatContextTests {
                 "개발자 채용", RecruitmentStatus.IN_PROGRESS, stageId, List.of(stage), Instant.EPOCH, null, null));
         CompanyService companies = mock(CompanyService.class);
         when(companies.profile(companyId)).thenReturn(new CompanyProfile(companyId, "개발기업", "소개", "문화",
-                List.of(), List.of()));
+                List.of(), List.of(), ""));
         PostingService postings = mock(PostingService.class);
         PostingContent content = new PostingContent("개발자 채용", "백엔드 개발", "정규직", "경력", "서울", "소개",
                 List.of(), List.of(), List.of(), List.of());

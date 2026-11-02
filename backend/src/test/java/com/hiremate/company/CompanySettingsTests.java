@@ -16,12 +16,13 @@ import tools.jackson.databind.JsonNode;
 class CompanySettingsTests extends IntegrationTest {
 
     @Test
-    @DisplayName("회사 소개를 저장하고 다시 불러온다")
+    @DisplayName("회사 소개를 저장하고 다시 불러온다. 주소는 빼고 보내면 빈 글이고, 앞뒤 빈칸은 지운다")
     void savesProfile() throws Exception {
         TestApi hr = newHr();
         JsonNode empty = json(expect(hr.get("/api/companies/me/profile"), 200));
         assertThat(empty.path("name").asString()).isEqualTo("테스트 기업");
         assertThat(empty.path("talents").size()).isZero();
+        assertThat(empty.path("address").asString()).isEmpty();
 
         expect(hr.put("/api/companies/me/profile", Map.of(
                 "intro", "결제 인프라를 만드는 핀테크 기업이에요.",
@@ -33,6 +34,14 @@ class CompanySettingsTests extends IntegrationTest {
         assertThat(saved.path("intro").asString()).isEqualTo("결제 인프라를 만드는 핀테크 기업이에요.");
         assertThat(saved.path("talents").get(0).path("title").asString()).isEqualTo("고객 신뢰를 최우선으로");
         assertThat(saved.path("benefits").size()).isEqualTo(2);
+        assertThat(saved.path("address").asString()).isEmpty();
+
+        expect(hr.put("/api/companies/me/profile", Map.of("intro", "", "culture", "", "talents", List.of(),
+                "benefits", List.of(), "address", " 서울특별시 강남구 테헤란로 123, 4층 ")), 200);
+        assertThat(json(expect(hr.get("/api/companies/me/profile"), 200)).path("address").asString())
+                .isEqualTo("서울특별시 강남구 테헤란로 123, 4층");
+        expect(hr.put("/api/companies/me/profile", Map.of("intro", "", "culture", "", "talents", List.of(),
+                "benefits", List.of(), "address", "가".repeat(201))), 400);
     }
 
     @Test

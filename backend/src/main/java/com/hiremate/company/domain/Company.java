@@ -36,6 +36,10 @@ public class Company {
     @Column(nullable = false)
     private String culture = "";
 
+    /** 회사 주소. 채용 페이지 맨 아래에 보여 준다. */
+    @Column(nullable = false, length = 200)
+    private String address = "";
+
     @Convert(converter = TalentListConverter.class)
     @Column(nullable = false)
     private List<Talent> talents = new ArrayList<>();
@@ -72,9 +76,11 @@ public class Company {
         this.createdAt = Instant.now();
     }
 
-    public void updateProfile(String intro, String culture, List<Talent> talents, List<String> benefits) {
+    public void updateProfile(String intro, String culture, List<Talent> talents, List<String> benefits,
+            String address) {
         this.intro = intro;
         this.culture = culture;
+        this.address = address;
         this.talents = new ArrayList<>(talents);
         this.benefits = new ArrayList<>(benefits);
     }
