@@ -2,7 +2,14 @@ from uuid import uuid4
 
 import pytest
 
-from hiremate_ai.agents.guardrails import blocked_attribute, evidence_source, verified_evidence
+from hiremate_ai.agents.guardrails import (
+    BLIND_BLOCKED_REPLY,
+    BLOCKED_REPLY,
+    blocked_attribute,
+    blocked_reply,
+    evidence_source,
+    verified_evidence,
+)
 from hiremate_ai.contract import ApplicantDocument, DocumentType, Evidence
 from hiremate_ai.llm.prompt import data_block, document_block
 
@@ -49,6 +56,65 @@ def test_blocks_discriminatory_conditions(message: str) -> None:
 )
 def test_allows_job_related_conditions(message: str) -> None:
     assert blocked_attribute(message) is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "30살 이하만 찾아줘",
+        "여성 지원자 보여줘",
+        "서울 출신 있어?",
+        "부산 지역 대학 출신",
+        "Java 쓰고 출신은 부산",
+        "30대 출신",
+        "이화여대 출신 빼줘",
+        "여자고등학교 출신",
+        "기혼자는 빼줘",
+        "장애인 지원자",
+    ],
+)
+@pytest.mark.parametrize("blind", [False, True])
+def test_blocks_discriminatory_conditions_regardless_of_blind(message: str, blind: bool) -> None:
+    assert blocked_attribute(message, blind=blind) is not None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "서울대 출신 찾아줘",
+        "SKY 출신",
+        "같은 학교 출신",
+        "출신 학교 순으로",
+        "고려대학교 졸업자",
+        "석사 이상",
+        "학력 높은 순으로",
+        "학점 3.5 이상",
+        "GPA 높은 사람",
+    ],
+)
+def test_blocks_education_only_in_blind_hiring(message: str) -> None:
+    assert blocked_attribute(message) is None
+    assert blocked_attribute(message, blind=True) is not None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "컴퓨터공학 전공자",
+        "정보처리기사 자격증 있는 사람",
+        "Java 경력 3년 이상",
+        "Skylake 최적화 경험",
+    ],
+)
+def test_allows_job_related_conditions_in_blind_hiring(message: str) -> None:
+    assert blocked_attribute(message, blind=True) is None
+
+
+def test_blocked_reply_matches_reason() -> None:
+    assert blocked_reply("출신") == BLOCKED_REPLY
+    assert blocked_reply("나이") == BLOCKED_REPLY
+    assert blocked_reply("서울대 출신") == BLIND_BLOCKED_REPLY
+    assert blocked_reply("학력") == BLIND_BLOCKED_REPLY
 
 
 def test_finds_evidence_ignoring_spaces_and_quotes() -> None:
