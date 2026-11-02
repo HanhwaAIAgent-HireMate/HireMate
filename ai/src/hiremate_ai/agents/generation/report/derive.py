@@ -125,3 +125,12 @@ def drawable(bundle: ReportBundle) -> Drawable:
         families={prefix: keys for prefix, keys in families.items() if len(keys) > 1},
         groups=groups,
     )
+
+
+def split_keys(bundle: ReportBundle) -> list[str]:
+    """비교 대상끼리 판정이 갈린 항목 판정 key. 영역 항목 순서이고, 값이 없는 대상은 빼고 본다."""
+    if bundle.kind is not ReportKind.COMPARE:
+        return []
+    verdicts = {(fact.applicant, fact.key): fact.value for fact in bundle.facts if isinstance(fact.value, str)}
+    keys = [key for area in bundle.areas for key in area.keys]
+    return [key for key in keys if len({verdicts.get((number, key)) for number in bundle.targets} - {None}) > 1]

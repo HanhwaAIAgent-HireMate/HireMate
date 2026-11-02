@@ -12,7 +12,7 @@ from hiremate_ai.agents.generation.report.fallback import fallback_spec
 from hiremate_ai.agents.generation.report.repair import repair
 from hiremate_ai.agents.generation.report.skills import catalog
 from hiremate_ai.agents.generation.report.spec import ReportSpec
-from hiremate_ai.agents.generation.report.tools import TOOLS, ReportScope
+from hiremate_ai.agents.generation.report.tools import TOOLS, ReportScope, Specialist, check_candidates, consult
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ContractModel, StageType
 from hiremate_ai.llm.chat import LlmOutputError
@@ -63,6 +63,7 @@ class ComposedReport(ContractModel):
     """Report Agent 결과 (contract/ComposedReport.json). fallback이면 모델 설계서 대신 기본 구성을 썼다.
 
     skills · specialists는 읽은 스킬과 근거 확인을 맡긴 분석 Agent로, 화면의 실행 기록 칩에 쓴다.
+    steps는 화면의 'AI 작업 과정'에 보일 한 줄씩이다 (읽은 자료, 맡긴 확인, 검사 횟수, 코드가 고친 것).
     bundle은 Agent가 실제로 읽은 묶음이다 (ai가 분석 판정 · 근거를 붙인 뒤). 화면은 이 묶음으로 그린다.
     """
 
@@ -71,6 +72,7 @@ class ComposedReport(ContractModel):
     specialists: list[str]
     fallback: bool
     bundle: ReportBundle
+    steps: list[str] = []
 
 
 async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport:
@@ -86,11 +88,15 @@ async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport
     )
 
     repaired: list[ReportSpec] = []
+    notes: list[str] = []
+    if bundle.kind is ReportKind.COMPARE and not bundle.brief:
+        await _check_weak_evidence(scope)
 
     async def validate(spec: ReportSpec) -> str | None:
         # 기계적인 규칙 위반은 코드가 먼저 고치고, 고친 설계서를 검사한다
         # 관점 묶음은 다시 쓸 기회가 남았으면 모델에게 돌려주고, 마지막 시도에서는 코드가 묶는다
-        spec = repair(spec, bundle, group_by_code=len(repaired) >= REWRITES)
+        notes.clear()
+        spec = repair(spec, bundle, group_by_code=len(repaired) >= REWRITES, notes=notes)
         repaired.append(spec)
         found = problems(spec, bundle)
         if unread := [name for name in recommended_skills(bundle) if name not in scope.skills]:
@@ -105,21 +111,49 @@ async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport
         spec = await agent.run(request(bundle), context=scope, validate=validate, rewrites=REWRITES)
     except LlmOutputError as error:
         logger.warning("리포트를 기본 구성으로 만든다 (reason=%s)", error.reason.value)
+        tried = f"설계서 검사 {len(repaired)}번에 모두 걸려 코드가 숫자와 표로 기본 구성을 만듦" if repaired else ""
         return ComposedReport(
             spec=fallback_spec(bundle),
             skills=scope.skills,
             specialists=scope.specialists,
             fallback=True,
             bundle=bundle,
+            steps=steps(scope, [tried or "설계서를 받지 못해 코드가 기본 구성을 만듦"]),
         )
     spec = repaired[-1] if repaired else spec
+    finished = [f"설계서 검사 {max(1, len(repaired))}번째에 통과"]
+    finished += [f"코드 보완: {note}" for note in notes]
     return ComposedReport(
         spec=spec.model_copy(update={"skills": scope.skills}),
         skills=scope.skills,
         specialists=scope.specialists,
         fallback=False,
         bundle=bundle,
+        steps=steps(scope, finished),
     )
+
+
+async def _check_weak_evidence(scope: ReportScope) -> None:
+    """판정이 갈렸는데 서술 근거뿐이거나 본인 역할이 불분명한 강점을 서류 Agent에게 다시 확인한다.
+
+    필요한 근거가 있을 때만, MAX_CHECKS건까지 맡긴다. 확인한 점은 get_evidence가 근거와 함께 모델에게 보여 준다.
+    """
+    for item in check_candidates(scope.bundle):
+        question = (
+            f"'{item.label}' 항목: {item.applicant}가 직접 한 일인지, "
+            "수행 범위와 규모가 서류에 드러나는지 확인해 주세요."
+        )
+        answer = await consult(scope, Specialist.APPLICATION, item.applicant, question)
+        scope.checks.setdefault(item.applicant, []).append(f"[{item.label}] {answer}")
+
+
+def steps(scope: ReportScope, finished: list[str]) -> list[str]:
+    """화면의 AI 작업 과정. 읽은 스킬, 도구로 읽은 자료, 분석 Agent에게 맡긴 확인, 검사 · 보완 순서다."""
+    lines = [f"지침 {len(scope.skills)}개를 읽음 ({', '.join(scope.skills)})"] if scope.skills else []
+    lines += list(dict.fromkeys(scope.log))
+    if scope.read:
+        lines.append(f"근거 {sum(scope.read.values())}건을 읽음 ({len(scope.read)}명)")
+    return lines + [line for line in finished if line]
 
 
 def recommended_skills(bundle: ReportBundle) -> list[str]:
@@ -159,6 +193,11 @@ def request(bundle: ReportBundle) -> str:
         lines.append(f"영역: {areas}. 영역마다 섹션을 하나씩 둔다.")
     if bundle.targets:
         lines.append(f"비교 대상: {', '.join(bundle.targets)}")
+    if bundle.kind is ReportKind.COMPARE and bundle.total_key is None and not any(a.score_key for a in bundle.areas):
+        lines.append(
+            "점수 없이 항목 판정만 있는 전형이다. rings(관점) · matrix · tally로 그리고 "
+            "bar · stacked · distribution · position · donut은 쓰지 않는다 (compare 스킬의 '점수가 없을 때')."
+        )
     if bundle.focus:
         lines.append(f"요청 관점: {bundle.focus}")
     if len(bundle.stages) > 1 and bundle.kind is not ReportKind.FINAL:

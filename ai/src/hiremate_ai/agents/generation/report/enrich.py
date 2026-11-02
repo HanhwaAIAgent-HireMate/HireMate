@@ -3,7 +3,7 @@
 backend는 업무 데이터(지원자번호, 결정, 점수, 지표)로 묶음 뼈대를 만들고, 분석 결과는 ai가 저장하므로
 (아키텍처 규칙 3) 여기서 지원자의 application_id로 찾아 붙인다. 찾지 못한 지원자는 그대로 둔다.
 
-- 서류 전형: 항목 판정(document.criterion.<항목>)과 판정 이유 · 원문 근거
+- 서류 전형: 항목 판정(document.criterion.<항목>)과 판정 이유 · 원문 근거 (정량 원문을 먼저 고른다)
 - 평가 · 면접 전형: 분석 Agent가 프로필에 남긴 강점 · 확인할 점 수(<전형>.strengths · <전형>.checks)와 그 근거
 
 값 key 앞부분은 전형 종류(document · assessment · interview)이고,
@@ -18,8 +18,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hiremate_ai.agents.analysis.application.types import ApplicationReview, CriterionResult
-from hiremate_ai.agents.generation.report.bundle import BundleStage, Evidence, Fact, ReportBundle
+from hiremate_ai.agents.analysis.application.types import Actor, ApplicationReview, CriterionResult
+from hiremate_ai.agents.generation.report.bundle import BundleStage, Evidence, Fact, ReportBundle, Strength
+from hiremate_ai.agents.generation.report.strength import quote_strength
 from hiremate_ai.contract import StageType
 from hiremate_ai.db.profile import CandidateProfile, ItemAgent, ItemCategory
 
@@ -152,6 +153,7 @@ async def _stage_items(bundle: ReportBundle, source: StageItems) -> ReportBundle
                         source=item.source,
                         quote=item.evidence,
                         label=_ITEM_LABELS.get(item.category),
+                        strength=quote_strength(item.evidence),
                     )
                 )
     return bundle.model_copy(update={"facts": facts, "evidence": evidence})
@@ -193,8 +195,12 @@ async def _document(bundle: ReportBundle, reviews: Reviews) -> ReportBundle:
 
 
 def _evidence(number: str, stage_id: UUID, result: CriterionResult) -> Evidence:
-    """항목 판정 이유(서류 Agent의 판단)와 첫 원문 문장. 원문이 있으면 그 서류를 출처로 쓴다."""
-    quote = result.quotes[0] if result.quotes else None
+    """항목 판정 이유(서류 Agent의 판단)와 원문 한 문장. 정량 원문이 있으면 그 문장을, 없으면 첫 문장을 고른다.
+    원문이 있으면 그 서류를 출처로 쓴다."""
+    quote = next(
+        (item for item in result.quotes if quote_strength(item.sentence) is Strength.QUANT),
+        result.quotes[0] if result.quotes else None,
+    )
     source = _DOCUMENT_LABELS.get(quote.document.value, quote.document.value) if quote else "서류 전체"
     return Evidence(
         id=f"e-{number}-{result.criterion_id}",
@@ -206,4 +212,26 @@ def _evidence(number: str, stage_id: UUID, result: CriterionResult) -> Evidence:
         quote=quote.sentence if quote else None,
         label=result.text,
         verdict=result.verdict.value,
+        strength=quote_strength(quote.sentence) if quote else None,
+        detail=_detail(result),
+        role=result.role.value if result.role else None,
     )
+
+
+_ROLE_LABELS = {Actor.SELF: "본인이 직접", Actor.TEAM: "팀 · 조직의 성과", Actor.UNCLEAR: "본인 역할 불분명"}
+
+
+def _detail(result: CriterionResult) -> str | None:
+    """판정 세부 한 줄. 서류 Agent가 남긴 충족한 부분 · 못 채운 부분 · 확인 필요한 부분 · 역할 · 수행 범위다."""
+    parts = []
+    if result.satisfied_parts:
+        parts.append(f"충족한 부분 {', '.join(result.satisfied_parts)}")
+    if result.unsatisfied_parts:
+        parts.append(f"못 채운 부분 {', '.join(result.unsatisfied_parts)}")
+    if result.unknown_parts:
+        parts.append(f"확인 필요한 부분 {', '.join(result.unknown_parts)}")
+    if result.role:
+        parts.append(f"역할 {_ROLE_LABELS[result.role]}")
+    if result.scope:
+        parts.append(f"수행 범위 {result.scope}")
+    return " · ".join(parts) or None

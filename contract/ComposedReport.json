@@ -114,7 +114,16 @@
         ]
       }
     ],
-    "perspectives": []
+    "perspectives": [],
+    "splits": [
+      {
+        "key": "document.criterion.Q-04",
+        "text": "A-0017은 팀 PR 리뷰 규칙을 직접 만들었고, A-0026은 협업 방식이 서류에 없어요.",
+        "evidence": [
+          "e-A-0017-Q-04"
+        ]
+      }
+    ]
   },
   "skills": [
     "visual-guide",
@@ -276,8 +285,16 @@
         "source": "자기소개서",
         "quote": "팀 PR 리뷰 규칙을 만들고 주 2회 리뷰를 이끌었어요",
         "label": "Git 코드 리뷰 · 협업",
-        "verdict": "MET"
+        "verdict": "MET",
+        "strength": "QUANT"
       }
     ]
-  }
+  },
+  "steps": [
+    "지침 3개를 읽음 (visual-guide, compare, evidence)",
+    "판정 · 값 4개를 읽음 (2명)",
+    "Application Agent에게 A-0017 근거 확인을 맡김 → 1건 확인",
+    "근거 1건을 읽음 (1명)",
+    "설계서 검사 1번째에 통과"
+  ]
 }
