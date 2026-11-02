@@ -364,6 +364,12 @@ STAGES_STEP = (
     "지금 할 일: 바꾼 뒤의 전형 절차 전체를 순서대로 stages에 쓴다. 이름만으로 종류를 알 수 없는 전형"
     "(예: PT, 발표, 워크숍)은 추측하지 말고 type을 null로 둔다."
 )
+ROLES_STEP = (
+    "지금 할 일: 요청한 모집 직무를 roles의 별도 행으로 나눠 작성한다. name은 HR이 말한 직무 이름, "
+    "career는 요청한 신입/경력 구분이다. 경력을 말하지 않았으면 빈 문자열이다. duties, qualifications, "
+    "preferred는 직무별 일반적인 초안을 각각 3~5개 쓴다. 급여, 복지, 인원이나 회사만의 기술·실적은 "
+    "지어내지 않는다. 수정하지 않은 직무는 기존대로 보존한다. 삭제 요청은 해당 행을 뺀 목록을 반환한다."
+)
 EXTRAS_STEP = "지금 할 일: 요청대로 바꾼 뒤, 이력서 · 자기소개서 밖에 필수로 받을 서류 전체를 required_extras에 쓴다."
 
 NCS_SYSTEM = """너는 채용 공고의 자격 요건과 우대 사항을 NCS(국가직무능력표준) 능력단위를 근거로 쓰는 Posting Agent다.
@@ -432,6 +438,15 @@ async def revise_posting(
     context = _context(posting, writing_style, request)
     route = await _ask(llm, Route, context, ROUTE_STEP)
     targets = set(route.targets)
+    roles: list[PostingRole] | None = None
+    if "ROLES" in targets and not posting.content.roles:
+        # 작은 모델이 직무 하나짜리 공고도 직무별 표로 고르곤 한다. 직무가 둘 이상일 때만 표로 쓰고,
+        # 하나면 표를 빼고 공고 본문으로 쓴다 (빈 자격 요건 · 우대 사항과 기본 문구도 채운다)
+        roles = await _roles(llm, context)
+        if len(roles) < 2:
+            targets.discard("ROLES")
+            targets.add("CONTENT")
+            roles = None
     if "CONTENT" in targets and _writes_whole_list(posting.content, request):
         targets.add("NCS_REQUIREMENTS")
     # 공고 전체를 써 달라는 요청이면 자격 요건 · 우대 사항을 말하지 않았어도 비어 있는 목록을 NCS 근거로 쓴다
@@ -458,7 +473,7 @@ async def revise_posting(
     whole = route.writes_posting and "ROLES" not in targets and not posting.content.roles
     found: list[str] = []
     for _ in range(ATTEMPTS):
-        edit = await _write(llm, posting, writing_style, request, context, targets, found, fills_empty)
+        edit = await _write(llm, posting, writing_style, request, context, targets, found, fills_empty, roles)
         draft = _draft(posting, edit, request)
         if whole:
             draft, edit = _with_defaults(draft, edit)
@@ -562,10 +577,12 @@ async def _write(
     targets: set[Target],
     found: list[str],
     fills_empty: bool = False,
+    asked_roles: list[PostingRole] | None = None,
 ) -> _Edit:
     """고른 대상마다 그 대상만 쓰게 한다. found가 있으면 앞서 쓴 수정안이 걸린 이유를 붙인다.
 
     fills_empty면 NCS 근거로 비어 있는 자격 요건 · 우대 사항만 쓴다 (공고 전체를 써 달라는 요청).
+    asked_roles는 직무 수를 보려고 먼저 받은 직무별 표다. 처음 쓸 때는 다시 묻지 않고 쓴다.
     """
     changes: list[FieldChange] = []
     cited: list[NcsUnit] = []
@@ -582,18 +599,7 @@ async def _write(
         changes = (await _ask(llm, ContentChanges, context, step, found)).changes
     roles = None
     if "ROLES" in targets:
-        roles = (
-            await _ask(
-                llm,
-                RoleChanges,
-                context,
-                "지금 할 일: 요청한 모집 직무를 roles의 별도 행으로 나눠 작성한다. name은 HR이 말한 직무 이름, "
-                "career는 요청한 신입/경력 구분이다. 경력을 말하지 않았으면 빈 문자열이다. duties, qualifications, "
-                "preferred는 직무별 일반적인 초안을 각각 3~5개 쓴다. 급여, 복지, 인원이나 회사만의 기술·실적은 "
-                "지어내지 않는다. 수정하지 않은 직무는 기존대로 보존한다. 삭제 요청은 해당 행을 뺀 목록을 반환한다.",
-                found,
-            )
-        ).roles
+        roles = asked_roles if asked_roles is not None and not found else await _roles(llm, context, found)
     if "NCS_REQUIREMENTS" in targets and (plan := _ncs_plan(posting.content, request, fills_empty)):
         pick = await _ask(llm, NcsPick, context, _ncs_pick_step(), found)
         if units := _chosen_units(pick.ncs_codes):
@@ -616,6 +622,10 @@ async def _write(
     if "REQUIRED_EXTRAS" in targets:
         extras = list((await _ask(llm, ExtrasPlan, context, EXTRAS_STEP, found)).required_extras)
     return _Edit(changes=changes, stages=stages, required_extras=extras, cited=cited, notes=notes, roles=roles)
+
+
+async def _roles(llm: LlmClient, context: str, found: list[str] | None = None) -> list[PostingRole]:
+    return (await _ask(llm, RoleChanges, context, ROLES_STEP, found)).roles
 
 
 async def _ask[T: BaseModel](

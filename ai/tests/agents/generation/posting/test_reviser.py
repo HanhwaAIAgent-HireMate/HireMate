@@ -1096,6 +1096,24 @@ async def test_revise_fills_blank_fields_with_neutral_defaults_for_a_whole_posti
     assert "고용 형태, 채용 인원 칸은 정해 주세요." in result.reply
 
 
+async def test_revise_writes_one_job_as_the_posting_body_even_if_routed_to_roles() -> None:
+    one_role = PostingRole(name="백엔드 개발자", career="", duties=["API 개발"], qualifications=[], preferred=[])
+    llm = FakeLlm(
+        route("CONTENT", "ROLES", writes_posting=True),
+        RoleChanges(roles=[one_role]),
+        content(title="백엔드 개발자 채용", duties=["결제 API 개발"]),
+        NcsPick(ncs_codes=[SERVER]),
+        ncs_draft(items(5), preferred_items(5)),
+    )
+
+    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "백엔드 개발자 채용 공고 작성해줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.roles == []
+    assert "roles" not in result.suggestion.changed_fields
+    assert {"qualifications", "preferred", "education", "salary"} <= set(result.suggestion.changed_fields)
+
+
 async def test_revise_keeps_blank_fields_when_hr_asks_to_change_some_fields() -> None:
     llm = FakeLlm(route("CONTENT"), content(title="결제 플랫폼 백엔드 개발자 채용"))
 
