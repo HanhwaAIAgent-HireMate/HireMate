@@ -11,6 +11,7 @@ import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageConfirmed;
 import com.hiremate.recruit.StageStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -143,6 +144,19 @@ public class InterviewSessions {
             changed(companyId, stageId, applicationId);
         }
         return attendances.attendance(companyId, stageId, applicationId, memberId);
+    }
+
+    /** HR 알림: 최근 7일 안에 시작한 면접, 최근 것부터 20개. */
+    @Transactional(readOnly = true)
+    public List<StartedInterview> recentStarts(UUID companyId) {
+        Instant since = Instant.now().minus(Duration.ofDays(7));
+        return sessions.startedSince(companyId, since, PageRequest.of(0, 20)).stream().map(session -> {
+            RecruitmentInfo recruit = recruits.getByStage(companyId, session.getStageId());
+            String name = applications.applicants(companyId, List.of(session.getApplicationId())).getFirst().name();
+            return new StartedInterview(session.getStageId(), session.getApplicationId(), recruit.id(),
+                    recruit.title(), recruit.stage(session.getStageId()).orElseThrow().name(), name,
+                    session.getStartedAt());
+        }).toList();
     }
 
     /** 면접을 시작할 수 있는 질문 구성인가: 생성이 끝났고, 모든 질문에 담당이 있고, 담당 규칙을 지킨다. */
@@ -437,5 +451,10 @@ public class InterviewSessions {
     }
 
     public record AssignedInterviews(List<AssignedInterview> items, long total, int page, int size) {
+    }
+
+    /** HR 알림 한 줄: 시작한 면접. */
+    public record StartedInterview(UUID stageId, UUID applicationId, UUID recruitmentId, String recruitmentTitle,
+            String stageName, String applicantName, Instant startedAt) {
     }
 }

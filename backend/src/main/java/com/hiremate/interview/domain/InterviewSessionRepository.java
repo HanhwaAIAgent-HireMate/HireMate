@@ -2,6 +2,7 @@ package com.hiremate.interview.domain;
 
 import com.hiremate.interview.InterviewSessionStatus;
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -36,4 +37,8 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     boolean assignedToApplication(UUID companyId, UUID memberId, UUID applicationId);
 
     List<InterviewSession> findByStageIdAndCompanyId(UUID stageId, UUID companyId);
+
+    @Query("select s from InterviewSession s where s.companyId = :companyId and s.startedAt >= :since "
+            + "order by s.startedAt desc")
+    List<InterviewSession> startedSince(UUID companyId, Instant since, Pageable pageable);
 }
