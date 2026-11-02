@@ -67,8 +67,8 @@ class InterviewerSessionTests extends IntegrationTest {
                 Map.of("text", "시작 전 메모", "expectedVersion", 0)), 409);
         expect(f.unassigned().api().put(f.workspace() + "/memo",
                 Map.of("text", "미배정 메모", "expectedVersion", 0)), 403);
-        enter(f);
-        JsonNode started = json(expect(f.people().api().post(f.workspace() + "/start", null), 200));
+        readyBoth(f);
+        JsonNode started = json(expect(f.people().api().get(f.workspace()), 200));
         assertThat(started.path("session").path("status").asString()).isEqualTo("IN_PROGRESS");
         JsonNode practical = json(expect(f.practical().api().get(f.workspace()), 200));
         assertThat(practical.path("questions").get(0).path("question").path("interviewerRole").asString())
@@ -141,11 +141,14 @@ class InterviewerSessionTests extends IntegrationTest {
                 .findFirst().orElseThrow().path("questionId").asString();
         JsonNode assigned = json(expect(f.hr().put(f.admin(), assignment(f)), 200));
         expect(f.hr().put(f.admin(), assignment(f)), 409);
-        enter(f);
-        expect(f.people().api().post(f.workspace() + "/start", null), 409);
+        // 담당이 없는 질문이 있으면 시작할 수 없으므로 준비 완료도 받지 않는다
+        assertThat(json(expect(f.practical().api().post(f.workspace() + "/ready", null), 409)).path("code")
+                .asString()).isEqualTo("QUESTION_OWNER_REQUIRED");
         expect(f.hr().put(f.legacy() + "/interview/questions/" + questionId + "/role",
                 Map.of("interviewerRole", "PRACTICAL")), 200);
-        expect(f.people().api().post(f.workspace() + "/start", null), 200);
+        readyBoth(f);
+        assertThat(json(expect(f.people().api().get(f.workspace()), 200)).path("session").path("status")
+                .asString()).isEqualTo("IN_PROGRESS");
         assertThat(assigned.path("hrMemberId").asString()).isEqualTo(f.people().id().toString());
         expect(f.hr().put(f.legacy() + "/interview/assignment",
                 Map.of("hrMemberId", f.practical().id(), "practicalMemberId", f.people().id(),
@@ -157,8 +160,8 @@ class InterviewerSessionTests extends IntegrationTest {
     void concurrentAutosavesCannotOverwriteEachOther() throws Exception {
         Fixture f = fixture();
         expect(f.hr().put(f.admin(), assignment(f)), 200);
-        enter(f);
-        JsonNode started = json(expect(f.practical().api().post(f.workspace() + "/start", null), 200));
+        readyBoth(f);
+        JsonNode started = json(expect(f.practical().api().get(f.workspace()), 200));
         JsonNode question = question(started, "PRACTICAL");
         String path = answerPath(f, question.path("questionId").asString());
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -175,8 +178,7 @@ class InterviewerSessionTests extends IntegrationTest {
     void stageConfirmationRequiresEndedInterviews() throws Exception {
         Fixture f = fixture();
         expect(f.hr().put(f.admin(), assignment(f)), 200);
-        enter(f);
-        expect(f.people().api().post(f.workspace() + "/start", null), 200);
+        readyBoth(f);
         JsonNode rejected = json(expect(f.hr().post(f.legacy() + "/confirm", null), 409));
         assertThat(rejected.path("code").asString()).isEqualTo("INTERVIEW_IN_PROGRESS");
         expect(f.people().api().post(f.workspace() + "/end", null), 200);
@@ -203,8 +205,7 @@ class InterviewerSessionTests extends IntegrationTest {
                 .filter(item -> item.path("questionId").asString().equals(id))
                 .findFirst().orElseThrow().path("answer").asString()).isEqualTo("보존할 답변");
         expect(f.hr().post(card, Map.of("text", "배정 후 직접 질문", "interviewerRole", "HR")), 200);
-        enter(f);
-        expect(f.people().api().post(f.workspace() + "/start", null), 200);
+        readyBoth(f);
         expect(f.hr().put(root + "/role", Map.of("interviewerRole", "HR")), 409);
     }
 
@@ -213,10 +214,11 @@ class InterviewerSessionTests extends IntegrationTest {
     void concurrentStartAndConfirmationCannotBothSucceed() throws Exception {
         Fixture f = fixture();
         expect(f.hr().put(f.admin(), assignment(f)), 200);
-        enter(f);
+        expect(f.practical().api().post(f.workspace() + "/ready", null), 200);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            // 두 번째 준비 완료가 면접을 시작한다
             Future<Integer> start = executor.submit(() ->
-                    f.people().api().post(f.workspace() + "/start", null).statusCode());
+                    f.people().api().post(f.workspace() + "/ready", null).statusCode());
             Future<Integer> confirm = executor.submit(() -> f.hr().post(f.legacy() + "/confirm", null).statusCode());
             assertThat(List.of(start.get(), confirm.get())).containsExactlyInAnyOrder(200, 409);
         }
@@ -246,8 +248,7 @@ class InterviewerSessionTests extends IntegrationTest {
                 .containsOnly(f.stageId());
         expect(f.hr().put(f.legacy() + "/candidates/" + f.applicationId() + "/interview/session",
                 assignment(f)), 405);
-        enter(f);
-        expect(f.people().api().post(f.workspace() + "/start", null), 200);
+        readyBoth(f);
         JsonNode locked = json(expect(f.hr().get(f.legacy() + "/interview/assignment"), 200));
         assertThat(locked.path("locked").asBoolean()).isTrue();
         expect(f.hr().put(f.legacy() + "/interview/assignment", Map.of(
@@ -292,8 +293,8 @@ class InterviewerSessionTests extends IntegrationTest {
     void personalMemoVersionsAreIndependent() throws Exception {
         Fixture f = fixture();
         expect(f.hr().put(f.admin(), assignment(f)), 200);
-        enter(f);
-        JsonNode started = json(expect(f.people().api().post(f.workspace() + "/start", null), 200));
+        readyBoth(f);
+        JsonNode started = json(expect(f.people().api().get(f.workspace()), 200));
         long version = started.path("personalMemoVersion").asLong();
         assertThat(version).isZero();
         assertThat(started.path("session").path("version").asLong()).isGreaterThan(version);
@@ -323,8 +324,8 @@ class InterviewerSessionTests extends IntegrationTest {
     void concurrentPersonalMemoWritesCannotOverwriteEachOther() throws Exception {
         Fixture f = fixture();
         expect(f.hr().put(f.admin(), assignment(f)), 200);
-        enter(f);
-        JsonNode started = json(expect(f.people().api().post(f.workspace() + "/start", null), 200));
+        readyBoth(f);
+        JsonNode started = json(expect(f.people().api().get(f.workspace()), 200));
         long version = started.path("personalMemoVersion").asLong();
         JsonNode wrongVersion = json(expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "세션 버전 오용",
                 "expectedVersion", started.path("session").path("version").asLong())), 409));
@@ -421,10 +422,10 @@ class InterviewerSessionTests extends IntegrationTest {
         return new Account(api, member.getId());
     }
 
-    /** 두 면접관이 면접관 모드에 입장한다. 면접은 배정된 면접관이 모두 입장해야 시작할 수 있다. */
-    private static void enter(Fixture f) throws Exception {
-        expect(f.people().api().post(f.workspace() + "/enter", null), 200);
-        expect(f.practical().api().post(f.workspace() + "/enter", null), 200);
+    /** 두 면접관이 [준비 완료]를 누른다. 배정된 면접관이 모두 준비 완료하면 면접이 바로 시작된다. */
+    private static void readyBoth(Fixture f) throws Exception {
+        expect(f.practical().api().post(f.workspace() + "/ready", null), 200);
+        expect(f.people().api().post(f.workspace() + "/ready", null), 200);
     }
 
     private static Map<String, Object> assignment(Fixture f) {
