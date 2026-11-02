@@ -170,21 +170,16 @@ FACT_WORDS = {
 작은 모델이 공고 전체를 써 달라는 요청에 회사가 알려 주지 않은 복지 · 회사 소개 · 근무 조건을 지어내곤 한다.
 경력 · 고용 형태도 회사가 정할 일이라, 말하지 않았는데 흔한 값("경력 3년 이상", "정규직")을 채우면 지어낸 것이다."""
 
-WHOLE_POSTING_DEFAULTS = {
-    "career": "경력 무관",
-    "education": "학력 무관",
-    "work_hours": "회사 내규에 따름",
-    "salary": "회사 내규에 따름",
-}
-"""공고 전체를 써 달라는 요청에서 비어 있는 칸에 코드가 넣는 기본 문구. 빈 칸이 거의 없게 하되, 회사가 정할 값을
-지어내지 않고 공고에서 흔히 쓰는 중립 문구만 쓴다. HR이 수정안을 보고 회사에 맞게 고친다."""
+WHOLE_POSTING_DEFAULTS = {"salary": "회사 내규에 따름"}
+"""공고 전체를 써 달라는 요청에서 비어 있는 칸에 코드가 넣는 기본 문구. 공고에서 흔히 쓰고 거짓이 되지 않는
+중립 문구만 쓴다. HR이 수정안을 보고 회사에 맞게 고친다."""
 CAREER_UNSET_NOTE = (
     "경력을 정하지 않아 신입도 지원할 수 있는 수준으로 자격 요건 · 우대 사항을 썼어요. "
     "경력으로 바꾸면 다시 쓸 수 있어요."
 )
-LEFT_FOR_HR = ("employment_type", "headcount")
-"""공고 전체를 써 달라는 요청에서도 비워 두는 칸. 회사마다 달라 중립 문구가 없어,
-비어 있으면 답에서 정해 달라고 한다."""
+LEFT_FOR_HR = ("employment_type", "career", "headcount", "education", "work_hours")
+"""공고 전체를 써 달라는 요청에서도 비워 두는 칸. 누구를 어떻게 뽑을지는 회사만 알아 "무관"이나 흔한 값
+("월~금 09:00~18:00")을 넣으면 지어낸 것이 된다. 비어 있으면 답에서 정해 달라고 한다."""
 
 # 이름만으로 전형 종류를 알 수 없는 낱말과, 종류를 알 수 있는 낱말. 새 전형 이름이 앞에만 걸리고
 # 요청에도 종류가 없으면 모델이 종류를 골랐어도 되묻는다 (FR-04). 모델은 지시를 어기고 추측하곤 한다.
@@ -859,7 +854,7 @@ def _with_defaults(draft: _Draft, edit: _Edit) -> tuple[_Draft, _Edit]:
     if filled:
         labels = ", ".join(FIELD_LABELS[name] for name in filled)
         notes.append(f"{labels} 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요.")
-    if "career" in filled and {name for name, _ in NCS_FIELDS} & set(draft.changed):
+    if not content.career and {name for name, _ in NCS_FIELDS} & set(draft.changed):
         notes.append(CAREER_UNSET_NOTE)
     if left := [FIELD_LABELS[name] for name in LEFT_FOR_HR if getattr(content, name) in ("", None)]:
         notes.append(f"{', '.join(left)} 칸은 정해 주세요.")
