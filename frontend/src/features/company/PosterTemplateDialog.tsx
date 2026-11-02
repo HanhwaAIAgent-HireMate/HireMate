@@ -78,9 +78,14 @@ export function PosterTemplateDialog({ brand }: { brand: PosterBrand }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" disabled={brand.templates.length >= 12}>
-          <Plus />새 템플릿 추가
-        </Button>
+        <button
+          type="button"
+          aria-label="새 템플릿 추가"
+          disabled={brand.templates.length >= 12}
+          className="flex h-60 w-44 shrink-0 snap-start items-center justify-center rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-foreground/40 hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus className="size-8" aria-hidden="true" />
+        </button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

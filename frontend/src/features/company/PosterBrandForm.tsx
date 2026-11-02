@@ -1,11 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
-import { Link } from 'react-router'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useEffect, useRef } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { Button } from '@/components/ui/button'
+import { useCompanyProfile } from '@/features/company/api'
 import { SettingsRow, SettingsSection } from '@/features/company/SettingsSection'
 import { PosterTemplateDialog } from '@/features/company/PosterTemplateDialog'
 import {
@@ -13,8 +14,11 @@ import {
   usePosterBrand,
   useSavePosterBrand,
 } from '@/features/posting/poster-api'
-import { POSTER_TEMPLATES } from '@/features/posting/poster-design'
+import { initialPoster, POSTER_TEMPLATES } from '@/features/posting/poster-design'
+import { PosterThumbnail } from '@/features/posting/PosterThumbnail'
+import type { PosterPosting } from '@/features/posting/PostingPoster'
 import { errorMessage } from '@/lib/api/client'
+import { cn } from '@/lib/utils'
 
 const schema = z.object({
   template: z.enum(['CLASSIC', 'EDITORIAL', 'BOLD', 'PREMIUM', 'NATURAL', 'TICKET']),
@@ -25,12 +29,48 @@ const schema = z.object({
 type Values = z.infer<typeof schema>
 
 export function PosterBrandForm() {
+  const templateList = useRef<HTMLDivElement>(null)
   const brand = usePosterBrand()
+  const company = useCompanyProfile()
   const save = useSavePosterBrand()
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: { template: 'CLASSIC', mood: 'TRUST', color: '#2459a6', decoration: 1 },
   })
+  const [template, color, mood, decoration] = useWatch({
+    control: form.control,
+    name: ['template', 'color', 'mood', 'decoration'],
+  })
+  const design = { ...initialPoster(brand.data), template, color, mood, decoration, enabled: true }
+  const selectedCompanyTemplate = brand.data?.templates.find(
+    (item) => item.template === template && item.color === color && item.decoration === decoration,
+  )
+  const preview: PosterPosting = {
+    companyName: company.data?.name ?? '회사명',
+    openAt: null,
+    closeAt: null,
+    stages: [],
+    documents: [],
+    notices: [],
+    content: {
+      roles: [],
+      title: '함께할 동료를 찾습니다',
+      jobCategory: '모집 직무',
+      employmentType: '',
+      career: '',
+      location: '',
+      intro: company.data?.intro ?? '',
+      duties: ['담당할 주요 업무를 안내해요.'],
+      qualifications: ['직무에 필요한 역량과 경험을 소개해요.'],
+      preferred: [],
+      benefits: company.data?.benefits ?? ['함께 일하는 환경을 소개해요.'],
+      headcount: null,
+      position: '',
+      education: '',
+      workHours: '',
+      salary: '',
+    },
+  }
   useEffect(() => {
     const parsed = schema.safeParse(brand.data)
     if (parsed.success) form.reset(parsed.data)
@@ -56,70 +96,98 @@ export function PosterBrandForm() {
         </p>
       )}
       <fieldset disabled={!brand.data || save.isPending} className="space-y-5">
-        {/* 로고는 설정 › 회사 소개에서 올려 안내 메일과 같이 쓴다. 여기서는 보여 주기만 한다 */}
-        <SettingsRow label="회사 로고">
-          <div className="space-y-2">
-            {brand.data?.logoFileId && (
-              <img
-                src={companyPosterLogoUrl(brand.data.logoFileId)}
-                alt="포스터용 회사 로고"
-                className="h-14 max-w-40 rounded border bg-white object-contain p-2"
-              />
-            )}
-            <p className="text-xs text-muted-foreground">
-              로고는{' '}
-              <Link to="/hr/settings" className="underline">
-                설정 › 회사 소개
-              </Link>
-              에서 올리고 바꿔요. 올리면 포스터 대표 색상도 로고에 맞춰요.
-            </p>
-          </div>
-        </SettingsRow>
         <SettingsRow label="기본 템플릿">
-          <select
-            aria-label="기본 포스터 템플릿"
-            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-            {...form.register('template')}
-          >
-            {POSTER_TEMPLATES.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} — {item.description}
-              </option>
-            ))}
-          </select>
-        </SettingsRow>
-        <SettingsRow label="회사 템플릿">
           <div className="space-y-3">
-            {brand.data && <PosterTemplateDialog brand={brand.data} />}
-            {(brand.data?.templates ?? []).map((item) => (
-              <div key={item.id} className="flex items-center gap-3 rounded-md border px-3 py-2">
-                <span
-                  className="size-5 shrink-0 rounded border"
-                  style={{ backgroundColor: item.color }}
-                />
-                <div className="min-w-0 flex-1">
-                  <strong className="block truncate text-sm">{item.name}</strong>
-                  <span className="text-xs text-muted-foreground">
-                    {POSTER_TEMPLATES.find((base) => base.id === item.template)?.name}
-                  </span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
+            <div className="flex justify-end gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-label="이전 템플릿 보기"
+                onClick={() => templateList.current?.scrollBy({ left: -188, behavior: 'smooth' })}
+              >
+                <ChevronLeft />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-label="다음 템플릿 보기"
+                onClick={() => templateList.current?.scrollBy({ left: 188, behavior: 'smooth' })}
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+            <div
+              ref={templateList}
+              role="region"
+              aria-label="포스터 템플릿 미리보기"
+              tabIndex={0}
+              className="flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-1 pt-1 pb-3 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              {brand.data && <PosterTemplateDialog brand={brand.data} />}
+              {POSTER_TEMPLATES.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={template === item.id && !selectedCompanyTemplate}
+                  onClick={() => form.setValue('template', item.id, { shouldDirty: true })}
+                  className={cn(
+                    'flex h-60 w-44 shrink-0 snap-start flex-col overflow-hidden rounded-lg border text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none',
+                    template === item.id && !selectedCompanyTemplate
+                      ? 'border-foreground ring-1 ring-foreground'
+                      : 'hover:border-foreground/40',
+                  )}
+                >
+                  <PosterThumbnail
+                    posting={preview}
+                    design={{ ...design, template: item.id }}
+                    logoUrl={companyPosterLogoUrl(brand.data?.logoFileId)}
+                    fill
+                  />
+                  <div className="flex min-h-0 w-full flex-1 items-center justify-center border-t bg-background px-3 text-center">
+                    <strong className="block text-sm">{item.name}</strong>
+                  </div>
+                </button>
+              ))}
+              {(brand.data?.templates ?? []).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={selectedCompanyTemplate?.id === item.id}
                   onClick={() => {
                     const base = POSTER_TEMPLATES.find((base) => base.id === item.template)
                     if (!base) return
-                    form.setValue('template', base.id)
-                    form.setValue('color', item.color)
-                    form.setValue('mood', base.mood)
-                    form.setValue('decoration', item.decoration)
-                    toast.info('기본값에 불러왔어요. 저장을 눌러 반영해 주세요.')
+                    form.setValue('template', base.id, { shouldDirty: true })
+                    form.setValue('color', item.color, { shouldDirty: true })
+                    form.setValue('mood', base.mood, { shouldDirty: true })
+                    form.setValue('decoration', item.decoration, { shouldDirty: true })
                   }}
+                  className={cn(
+                    'flex h-60 w-44 shrink-0 snap-start flex-col overflow-hidden rounded-lg border text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none',
+                    selectedCompanyTemplate?.id === item.id
+                      ? 'border-foreground ring-1 ring-foreground'
+                      : 'hover:border-foreground/40',
+                  )}
                 >
-                  기본값에 적용
-                </Button>
-              </div>
-            ))}
+                  <PosterThumbnail
+                    posting={preview}
+                    design={{
+                      ...design,
+                      template:
+                        POSTER_TEMPLATES.find((base) => base.id === item.template)?.id ?? 'CLASSIC',
+                      color: item.color,
+                      decoration: item.decoration,
+                    }}
+                    logoUrl={companyPosterLogoUrl(brand.data?.logoFileId)}
+                    fill
+                  />
+                  <div className="flex min-h-0 w-full flex-1 items-center justify-center border-t bg-background px-3 text-center">
+                    <strong className="block truncate text-sm">{item.name}</strong>
+                  </div>
+                </button>
+              ))}
+            </div>
             <p className="text-xs text-muted-foreground">
               회사 전용 템플릿은 최대 12개까지 저장할 수 있어요.
             </p>
@@ -134,18 +202,12 @@ export function PosterBrandForm() {
               {...form.register('color')}
             />
             <span className="text-xs text-muted-foreground">
-              로고를 올리면 대표 색상을 추출해요. 원하는 색으로 바꿀 수 있어요.
+              포스터에 사용할 대표 색상을 바꿀 수 있어요.
             </span>
           </div>
           {form.formState.errors.color && <p role="alert">{form.formState.errors.color.message}</p>}
         </SettingsRow>
       </fieldset>
-      <p className="text-xs text-muted-foreground">
-        회사 소개 기반 AI 추천은 개별 공고의 포스터 디자인 단계에서 확인해요.{' '}
-        <Link to="/hr/settings" className="underline">
-          회사 소개 수정
-        </Link>
-      </p>
     </SettingsSection>
   )
 }
