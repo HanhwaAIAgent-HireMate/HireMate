@@ -140,9 +140,8 @@ export function useInterviewerTab(stageId: string) {
 }
 
 /** 면접관 화면의 지원자 한 명: 내 담당, 질문별 권한, 개인 메모. 실시간 알림으로 다시 받아 온다 */
-export function useWorkspace(stageId: string, applicationId: string, enabled = true) {
+export function useWorkspace(stageId: string, applicationId: string) {
   return useQuery({
-    enabled,
     queryKey: sessionKeys.workspace(stageId, applicationId),
     queryFn: () =>
       unwrap(

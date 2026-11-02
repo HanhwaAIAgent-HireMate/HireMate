@@ -259,6 +259,9 @@ describe('InterviewRoomPage', () => {
     expect(screen.getByLabelText('원장 재설계에서 직접 정한 부분은? 답변')).toBeEnabled()
     expect(screen.getByText('일정을 두고 조율했다')).toBeInTheDocument()
     expect(screen.getByText('본인 역할을 확인할 질문 하나 더 만들어줘')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '내 메모' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '의견 이유' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /인사.*실무 공유 기록/ })).not.toBeInTheDocument()
   })
 
   it('다른 면접관 접속이 끊겼으면 입장했어도 시작할 수 없다', async () => {

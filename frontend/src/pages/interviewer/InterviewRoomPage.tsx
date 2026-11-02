@@ -7,7 +7,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ChatPanel } from '@/features/chat/ChatPanel'
 import { InterviewerScript } from '@/features/interview/InterviewerScript'
 import { NoteEditor } from '@/features/interview/NoteEditor'
-import { SharedNotes } from '@/features/interview/SharedNotes'
 import { OpinionCard } from '@/features/interview/OpinionCard'
 import { Results } from '@/features/interview/InterviewViewer'
 import { InterviewSessionBar } from '@/features/interview/InterviewSessionBar'
@@ -268,14 +267,6 @@ function Room({
                 stageId={stageId}
                 applicationId={applicationId}
                 editable={attendance.data?.stageActive === true}
-              />
-              <SharedNotes
-                stageId={stageId}
-                applicationId={applicationId}
-                interviewer
-                editable={
-                  status === 'IN_PROGRESS' && !ending && attendance.data?.stageActive === true
-                }
               />
               <PersonalMemo
                 stageId={stageId}

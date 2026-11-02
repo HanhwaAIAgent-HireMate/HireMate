@@ -1,9 +1,21 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { clearDraft, readDraft, writeDraft } from './drafts'
+import { clearDraft, readDraft, writeDraft, removeSharedNoteDrafts } from './drafts'
 
 beforeEach(() => {
   localStorage.clear()
   vi.restoreAllMocks()
+})
+
+it('제거된 공유 기록 초안만 지우고 개인 메모·답변·다른 계정은 유지한다', () => {
+  const prefix = 'hiremate:interview-draft:company:'
+  const shared = `${prefix}me:s:a:shared-note`
+  const privateMemo = `${prefix}me:s:a:personal-memo`
+  const answer = `${prefix}me:s:a:answer:q1`
+  const other = `${prefix}other:s:a:shared-note`
+  for (const key of [shared, privateMemo, answer, other]) writeDraft(key, '초안', 0)
+  removeSharedNoteDrafts('company', 'me')
+  expect(readDraft(shared)).toBeNull()
+  for (const key of [privateMemo, answer, other]) expect(readDraft(key)?.text).toBe('초안')
 })
 
 it('이전 저장 응답이 새 초안을 삭제하지 않는다', () => {
