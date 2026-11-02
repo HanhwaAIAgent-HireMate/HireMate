@@ -51,11 +51,12 @@ from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.analysis.application.present import notable_facts
 from hiremate_ai.agents.analysis.application.types import VERDICT_LABEL, Actor, ApplicationReview, CriterionResult
 from hiremate_ai.agents.analysis.interview.agent import CONFIRMED, NO_ANSWER, analyze_answers
+from hiremate_ai.agents.generation.interview.quality import checked_role, clarity_problem
 from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
 from hiremate_ai.agents.guardrails import blocked_attribute, evidence_source
 from hiremate_ai.contract import (
@@ -395,6 +396,10 @@ class _FreePick(BaseModel):
     sid: str
     question: str
     purpose: str = ""
+    interviewer_role: InterviewerRole = Field(
+        default=InterviewerRole.PRACTICAL,
+        description="질문 자체가 동기·협업·가치관·태도를 확인하면 HR, 직무 수행·기술·문제 해결이면 PRACTICAL",
+    )
 
 
 class _SlotPick(BaseModel):
@@ -463,6 +468,7 @@ class State(TypedDict, total=False):
     slot_purposes: dict[str, str]
     slot_sids: dict[str, str]
     pick_purpose: str
+    pick_role: InterviewerRole
     follow_ups: list[Gap]
     existing: list[str]
     sentences: dict[str, str]
@@ -2379,6 +2385,8 @@ def _checked(
 
 
 def _problem(text: str, others: list[str]) -> str | None:
+    if unclear := clarity_problem(text):
+        return unclear
     if not text or len(text) < 5:
         return "질문이 비어 있음"
     # '파티션 키가'의 키는 신체 조건이 아니다. 명확한 기술 복합어만 구분하고
@@ -2770,6 +2778,7 @@ def _validate(
         open_ids.discard(gap_id)
     pick, pick_sid = state["pick"], state["pick_sid"]
     pick_purpose = state.get("pick_purpose", "")
+    pick_role = state.get("pick_role", InterviewerRole.PRACTICAL)
     if want_pick:
         if draft.free_pick is None:
             errors.append("free_pick이 없음")
@@ -2803,6 +2812,7 @@ def _validate(
             else:
                 pick, pick_sid = checked, sid
                 pick_purpose = draft.free_pick.purpose or checked
+                pick_role = checked_role(checked, draft.free_pick.interviewer_role)
     slot_kept = dict(state.get("slot_kept", {}))
     slot_purposes = dict(state.get("slot_purposes", {}))
     slot_sids = dict(state.get("slot_sids", {}))
@@ -2838,6 +2848,7 @@ def _validate(
         "pick": pick,
         "pick_sid": pick_sid,
         "pick_purpose": pick_purpose,
+        "pick_role": pick_role,
         "errors": errors,
         "slot_kept": slot_kept,
         "slot_purposes": slot_purposes,
@@ -3336,7 +3347,7 @@ def finalize(state: State) -> dict[str, Any]:
         if state["pick"]:
             questions.append(state["pick"])
             reasons[state["pick"]] = _pick_reason(state)
-            roles[state["pick"]] = InterviewerRole.PRACTICAL
+            roles[state["pick"]] = state.get("pick_role", InterviewerRole.PRACTICAL)
         elif state["spare"]:
             text = _template(state["spare"][0])
             questions.append(text)

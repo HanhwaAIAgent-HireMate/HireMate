@@ -65,6 +65,7 @@ from hiremate_ai.contract import (
     CriterionType,
     DocumentType,
     Finding,
+    InterviewerRole,
     InterviewQuestion,
     InterviewView,
     PostingContent,
@@ -3705,3 +3706,22 @@ def test_metaphor_or_title_only_sentence_is_not_experience_material(sentence: st
     from hiremate_ai.agents.generation.interview.agent import _experience_material
 
     assert _experience_material(sentence) is usable
+
+
+def test_additional_pick_keeps_hr_owner_instead_of_defaulting_to_practical(
+    sample_applicants: dict[str, ApplicantDetail],
+) -> None:
+    text = "협업에서 의견 차이를 조율한 경험을 말씀해 주세요."
+    state: State = {
+        "applicant": sample_applicants["이도윤"],
+        "interview": view(),
+        "gaps": [],
+        "kept": {},
+        "pick": text,
+        "pick_role": InterviewerRole.HR,
+        "sentences": {},
+        "existing": [],
+        "spare": [],
+    }
+    result = finalize(state)
+    assert result["roles"][text] == InterviewerRole.HR
