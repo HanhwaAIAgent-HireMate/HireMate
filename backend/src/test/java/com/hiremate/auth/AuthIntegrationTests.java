@@ -303,7 +303,7 @@ class AuthIntegrationTests {
         String sessionId = sessionId(client);
         Session session = sessions.findById(sessionId);
         assertThat(session).isNotNull();
-        assertThat(session.getMaxInactiveInterval()).isEqualTo(Duration.ofMinutes(30));
+        assertThat(session.getMaxInactiveInterval()).isEqualTo(Duration.ofDays(1));
         SecurityContext context = session.getAttribute("SPRING_SECURITY_CONTEXT");
         assertThat(context.getAuthentication().getCredentials()).isNull();
         assertThat(context.getAuthentication().getPrincipal()).isInstanceOf(MemberPrincipal.class);
@@ -373,7 +373,7 @@ class AuthIntegrationTests {
 
     private <S extends Session> void expireSession(SessionRepository<S> repository, String id) {
         S session = repository.findById(id);
-        session.setLastAccessedTime(Instant.now().minus(Duration.ofMinutes(31)));
+        session.setLastAccessedTime(Instant.now().minus(Duration.ofDays(1).plusMinutes(1)));
         repository.save(session);
     }
 
