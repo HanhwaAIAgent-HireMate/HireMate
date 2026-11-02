@@ -1,4 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
+import { fireEvent, render as renderBase, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { InterviewViewer } from './InterviewViewer'
@@ -25,6 +27,15 @@ vi.mock('@/features/interview/CandidateInterviewProgress', () => ({
   CandidateInterviewProgress: () => <p>지원자 면접 진행 현황</p>,
 }))
 vi.mock('@/features/interview/HrOpinions', () => ({ HrOpinions: () => null }))
+
+function render(ui: ReactNode) {
+  const client = new QueryClient()
+  return renderBase(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  })
+}
 
 vi.mock('@/features/interview/api', () => ({
   useInterview: () => ({

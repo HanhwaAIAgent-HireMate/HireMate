@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -29,18 +30,22 @@ const question = {
   parentQuestionId: null,
 }
 
-function renderBox(answer = '') {
+function renderBox(answer = '', version = 0) {
+  const client = new QueryClient()
+  client.setQueryData(['auth', 'me'], { companyId: 'company', memberId: 'member' })
   return render(
-    <div>
-      <AnswerBox
-        stageId="stage"
-        applicationId="kim"
-        question={{ ...question, answer }}
-        editable
-        canFollowUp
-      />
-      <button>다른 질문</button>
-    </div>,
+    <QueryClientProvider client={client}>
+      <div>
+        <AnswerBox
+          stageId="stage"
+          applicationId="kim"
+          question={{ ...question, answer, version }}
+          editable
+          canFollowUp
+        />
+        <button>다른 질문</button>
+      </div>
+    </QueryClientProvider>,
   )
 }
 
@@ -48,6 +53,7 @@ const box = () => screen.getByLabelText('정산 배치 개선에서 맡은 일 �
 const flush = () => act(async () => {})
 
 beforeEach(() => {
+  localStorage.clear()
   actions.answer.mockReset().mockResolvedValue({})
   actions.suggest.mockReset()
   actions.add.mockReset()
@@ -250,4 +256,52 @@ describe('🎤 꼬리질문', () => {
       actions.suggest.mock.invocationCallOrder[0],
     )
   })
+})
+
+it('실패한 답변은 지원자를 떠났다가 다시 돌아오면 복구된다', async () => {
+  actions.answer.mockRejectedValue(new Error('offline'))
+  const first = renderBox()
+  fireEvent.change(box(), { target: { value: '복구할 답변' } })
+  first.unmount()
+  await flush()
+  renderBox()
+  expect(box()).toHaveValue('복구할 답변')
+  expect(screen.getByText('저장되지 않은 답변을 이 브라우저에서 복구했어요.')).toBeInTheDocument()
+})
+
+it('오래된 초안을 편집하고 다시 이동해도 충돌 확인을 건너뛰지 않는다', async () => {
+  localStorage.setItem(
+    'hiremate:interview-draft:company:member:stage:kim:answer:q1',
+    JSON.stringify({ text: '옛 초안', version: 0, savedAt: Date.now() }),
+  )
+  const first = renderBox('다른 창의 답변', 1)
+  fireEvent.change(box(), { target: { value: '옛 초안 수정' } })
+  first.unmount()
+  await flush()
+  renderBox('다른 창의 답변', 1)
+  expect(
+    screen.getByText('다른 화면에서 답변이 변경됐어요. 작성한 초안은 보관돼 있어요.'),
+  ).toBeInTheDocument()
+  expect(actions.answer).not.toHaveBeenCalled()
+})
+
+it('작성 중이 아닌 답변은 실시간 서버 갱신을 표시하고 초안은 유지한다', () => {
+  const client = new QueryClient()
+  const renderQuestion = (answer: string, version: number) => (
+    <QueryClientProvider client={client}>
+      <AnswerBox
+        stageId="s"
+        applicationId="a"
+        question={{ ...question, answer, version }}
+        editable
+        canFollowUp
+      />
+    </QueryClientProvider>
+  )
+  const view = render(renderQuestion('', 0))
+  view.rerender(renderQuestion('다른 면접관의 새 답변', 1))
+  expect(box()).toHaveValue('다른 면접관의 새 답변')
+  fireEvent.change(box(), { target: { value: '현재 작성 중인 초안' } })
+  view.rerender(renderQuestion('또 갱신된 서버 답변', 2))
+  expect(box()).toHaveValue('현재 작성 중인 초안')
 })
