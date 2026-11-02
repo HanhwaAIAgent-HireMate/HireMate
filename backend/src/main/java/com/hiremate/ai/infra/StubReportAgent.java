@@ -3,8 +3,10 @@ package com.hiremate.ai.infra;
 import com.hiremate.ai.application.AiAgent;
 import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.ComposedReport;
+import com.hiremate.ai.application.DistributionNote;
 import com.hiremate.ai.application.ReportAgent;
 import com.hiremate.ai.application.ReportBundle;
+import com.hiremate.ai.application.ReportDistribution;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,6 +55,12 @@ class StubReportAgent implements ReportAgent {
             distribution.putArray("reference");
             distribution.putNull("split");
         }
-        return Optional.of(new ComposedReport(spec, List.of(), List.of(), true, null));
+        return Optional.of(new ComposedReport(spec, List.of(), List.of(), true, null, List.of()));
+    }
+
+    /** 개발용은 모델을 부르지 않아 해설이 없다. 화면은 숫자 요약만 보여 준다. */
+    @Override
+    public DistributionNote explain(ReportDistribution.ForAi distribution) {
+        return DistributionNote.EMPTY;
     }
 }

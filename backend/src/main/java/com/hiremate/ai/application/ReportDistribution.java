@@ -25,11 +25,38 @@ import java.util.UUID;
  * @param groups 경계 그룹 (선발 경계, 선 아래 다시 볼 사람)
  * @param deepSize 심층 분석 한 번에 보는 인원 (설정 hiremate.report.distribution.deep-size)
  * @param careers 경력 구간별 인원 (전체, 선 위)
+ * @param passed 담당자가 합격 처리한 인원. 목표 인원과 견주어 보여 주고 합격을 막지 않는다. HR이 아니면 null이다
  */
 public record ReportDistribution(UUID stageId, int total, int analyzed, int aboveLine, int target, int defaultTarget,
         int hireCount, int targetMultiplier, CandidateSort sort, Required required, List<CriterionStat> criteria,
         List<CountBucket> counts, @Schema(nullable = true) Cut cut, List<Group> groups, int deepSize,
-        List<CareerBand> careers) {
+        List<CareerBand> careers, @Schema(nullable = true) Integer passed) {
+
+    /**
+     * Report Agent에 보내는 분포. 경계 그룹은 인원만 남기고 지원자(이름 · 지원서 ID)는 넣지 않는다.
+     */
+    public ForAi forAi() {
+        return new ForAi(total, analyzed, aboveLine, target, passed, required, criteria,
+                groups.stream().map(group -> new GroupCount(group.label(), group.reason(), group.people().size()))
+                        .toList(),
+                careers, counts, cut);
+    }
+
+    /** Report Agent에 보내는 분포 (ai의 DistributionFacts). counts · cut은 충족 개수 차트의 자료다. */
+    public record ForAi(int total, int analyzed, int aboveLine, int target, @Schema(nullable = true) Integer passed,
+            Required required, List<CriterionStat> criteria, List<GroupCount> groups, List<CareerBand> careers,
+            List<CountBucket> counts, @Schema(nullable = true) Cut cut) {
+    }
+
+    /** 경계 그룹의 이름 · 까닭 · 인원. */
+    public record GroupCount(String label, String reason, int size) {
+    }
+
+    /** 결정을 볼 수 없는 구성원에게 줄 분포. 합격 처리 인원을 뺀다. */
+    public ReportDistribution hideDecision() {
+        return new ReportDistribution(stageId, total, analyzed, aboveLine, target, defaultTarget, hireCount,
+                targetMultiplier, sort, required, criteria, counts, cut, groups, deepSize, careers, null);
+    }
 
     /**
      * 필수 조건 판정별 인원. 미충족은 하나라도 미충족 · 부분 충족, 확인 필요는 확인 필요만 남았거나 분석 전이다.

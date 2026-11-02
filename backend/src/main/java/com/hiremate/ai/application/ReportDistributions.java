@@ -13,6 +13,7 @@ import com.hiremate.recruit.StageInfo;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.CandidateRow;
 import com.hiremate.screening.CandidateSort;
+import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -41,12 +42,13 @@ public class ReportDistributions {
     private final ScreeningService screening;
     private final ApplicationService applications;
     private final PostingService postings;
+    private final ReportAgent agent;
     private final int targetMultiplier;
     private final int maxMissingRequired;
     private final int deepSize;
 
     ReportDistributions(RecruitService recruits, ScreeningService screening, ApplicationService applications,
-            PostingService postings,
+            PostingService postings, ReportAgent agent,
             @Value("${hiremate.report.distribution.target-multiplier:10}") int targetMultiplier,
             @Value("${hiremate.report.distribution.max-missing-required:1}") int maxMissingRequired,
             @Value("${hiremate.report.distribution.deep-size:5}") int deepSize) {
@@ -54,6 +56,7 @@ public class ReportDistributions {
         this.screening = screening;
         this.applications = applications;
         this.postings = postings;
+        this.agent = agent;
         this.targetMultiplier = targetMultiplier;
         this.maxMissingRequired = maxMissingRequired;
         this.deepSize = deepSize;
@@ -112,7 +115,19 @@ public class ReportDistributions {
         return new ReportDistribution(stageId, rows.size(), analyzed.size(), above.size(), goal, defaultTarget,
                 hireCount, targetMultiplier, sort, required(rows, infos, requiredIds),
                 criteria(rubric, requiredIds, analyzed, infos), counts(above, key), cut, groups, deepSize,
-                careers(rows));
+                careers(rows), (int) rows.stream().filter(row -> row.decision() == Decision.PASS).count());
+    }
+
+    /**
+     * 분포 해설. Report Agent가 숫자를 읽고 먼저 볼 점을 쓴다. ai 서버를 부르지 못하면 빈 해설이라 화면은 숫자 요약만
+     * 보여 준다 (분포 자체는 해설과 상관없이 보인다).
+     */
+    public DistributionNote note(ReportDistribution distribution) {
+        try {
+            return agent.explain(distribution.forAi());
+        } catch (ApiException exception) {
+            return DistributionNote.EMPTY;
+        }
     }
 
     private List<CandidateRow> rows(UUID companyId, UUID stageId, CandidateSort sort) {

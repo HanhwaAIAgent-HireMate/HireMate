@@ -35,4 +35,32 @@ class ReportDistributionsTests {
     void noCutWhenAboveLineFitsTheTarget() {
         assertThat(ReportDistributions.cut(rows(9, 8, 7), 3, CandidateRow::metCount)).isNull();
     }
+
+    @Test
+    @DisplayName("결정을 볼 수 없는 구성원에게는 합격 처리 인원을 빼고 준다")
+    void hideDecisionDropsThePassCount() {
+        var distribution = new ReportDistribution(UUID.randomUUID(), 300, 300, 97, 60, 60, 6, 10, null,
+                new ReportDistribution.Required(97, 16, 187, List.of()), List.of(), List.of(), null, List.of(), 5,
+                List.of(), 35);
+
+        assertThat(distribution.passed()).isEqualTo(35);
+        assertThat(distribution.hideDecision().passed()).isNull();
+        assertThat(distribution.hideDecision().aboveLine()).isEqualTo(97);
+    }
+
+    @Test
+    @DisplayName("Report Agent에 보내는 분포는 경계 그룹의 인원만 남기고 지원자는 넣지 않는다")
+    void forAiKeepsGroupSizesWithoutPeople() {
+        var person = new ReportDistribution.Person(UUID.randomUUID(), "김지원", 3, 4, 10, 0, 5, 1, List.of());
+        var distribution = new ReportDistribution(UUID.randomUUID(), 300, 300, 97, 60, 60, 6, 10, null,
+                new ReportDistribution.Required(97, 16, 187, List.of()), List.of(), List.of(), null,
+                List.of(new ReportDistribution.Group("selection-edge", "선발 경계", "개수가 같아요", List.of(person, person))),
+                5, List.of(), 35);
+
+        var facts = distribution.forAi();
+
+        assertThat(facts.groups()).containsExactly(new ReportDistribution.GroupCount("선발 경계", "개수가 같아요", 2));
+        assertThat(facts.toString()).doesNotContain("김지원");
+        assertThat(facts.passed()).isEqualTo(35);
+    }
 }

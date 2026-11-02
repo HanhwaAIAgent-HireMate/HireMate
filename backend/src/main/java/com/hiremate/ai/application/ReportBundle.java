@@ -58,10 +58,12 @@ public record ReportBundle(Kind kind, UUID companyId, UUID recruitmentId, UUID s
      * @param quote 원문 문장. 원문이 없는 판단이면 null
      * @param label 근거가 받치는 항목 이름 (서류 평가 항목, 강점 · 확인할 점)
      * @param verdict 그 항목의 판정 코드 (MET · PARTIAL 등)
+     * @param strength 원문의 강도. QUANT는 성과를 숫자와 단위로 적은 문장, CLAIM은 한 일만 적은 문장이다. ai가 붙이고 원문이
+     *     없으면 null이다
      */
     public record Evidence(String id, String applicant, UUID stageId, String agent, String text, String source,
             @Schema(nullable = true) String quote, @Schema(nullable = true) String label,
-            @Schema(nullable = true) String verdict) {
+            @Schema(nullable = true) String verdict, @Schema(nullable = true) String strength) {
     }
 
     /** 평가 영역 하나. scoreKey는 영역 점수 값 key, keys는 영역 항목 값 key(판정)다. */

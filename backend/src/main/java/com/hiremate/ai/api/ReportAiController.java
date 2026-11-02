@@ -1,5 +1,6 @@
 package com.hiremate.ai.api;
 
+import com.hiremate.ai.application.DistributionNote;
 import com.hiremate.ai.application.ReportComposer;
 import com.hiremate.ai.application.ReportComposer.ReportPayload;
 import com.hiremate.ai.application.ReportComposer.ReportSummary;
@@ -69,7 +70,20 @@ public class ReportAiController {
     public ReportDistribution distribution(AuthenticatedMember member, @PathVariable UUID stageId,
             @RequestParam(required = false) Integer target,
             @RequestParam(defaultValue = "BASIC") CandidateSort sort) {
-        return distributions.build(member.companyId(), stageId, target, sort);
+        ReportDistribution distribution = distributions.build(member.companyId(), stageId, target, sort);
+        return member.hr() ? distribution : distribution.hideDecision();
+    }
+
+    /**
+     * 서류 전형 분포 해설. Report Agent가 분포 숫자를 읽고 먼저 볼 점을 두세 문장으로 쓴다. 분포와 같은 목표 인원 · 정렬로 센
+     * 숫자를 쓰고, 지원자 이름은 보내지 않는다. 만들지 못하면 빈 목록이다.
+     */
+    @GetMapping("/api/stages/{stageId}/reports/distribution/note")
+    public DistributionNote distributionNote(AuthenticatedMember member, @PathVariable UUID stageId,
+            @RequestParam(required = false) Integer target,
+            @RequestParam(defaultValue = "BASIC") CandidateSort sort) {
+        ReportDistribution distribution = distributions.build(member.companyId(), stageId, target, sort);
+        return distributions.note(member.hr() ? distribution : distribution.hideDecision());
     }
 
     /** 전형 결과 리포트를 연다. 저장된 것이 있으면 그 ID를, 없으면 결과를 확정한 전형만 새로 만든다. */
