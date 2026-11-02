@@ -15,7 +15,7 @@ public record PostingView(UUID postingId, UUID recruitmentId, String companyName
         @Schema(nullable = true) Instant openAt, @Schema(nullable = true) Instant closeAt,
         @Schema(nullable = true) Instant publishedAt, @Schema(nullable = true) Instant closedAt,
         @Schema(nullable = true) PostingSuggestionView suggestion,
-        @Schema(nullable = true) PosterDesign poster) {
+        @Schema(nullable = true) PosterDesign poster, RequiredCriteria required) {
 
     /** status는 전형 진행 상태다. 수정안의 단계는 아직 전형이 없어 null이다. */
     public record PostingStage(UUID id, String name, StageType type, @Schema(nullable = true) StageStatus status,

@@ -175,6 +175,56 @@ class PostingTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("서류 필수 조건은 공고에 있는 줄만 저장하고, 줄이 빠지거나 AI 수정안으로 바뀌면 표시도 빠지며, 지원자에게는 보내지 않는다")
+    void requiredCriteriaFollowLinesAndStayHidden() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        UUID id = UUID.fromString(draft.path("recruitmentId").asString());
+        String base = "/api/recruitments/" + id + "/posting";
+        Map<String, Object> content = new HashMap<>(Map.of("title", "결제 백엔드 개발자", "jobCategory", "",
+                "employmentType", "", "career", "", "location", "", "intro", "", "duties", List.of("결제 개발"),
+                "qualifications", List.of("Java 3년 이상", "학사 이상"), "preferred", List.of("금융 도메인 경험"),
+                "benefits", List.of()));
+        content.put("requiredQualifications", List.of("Java 3년 이상", "공고에 없는 줄"));
+        content.put("requiredPreferred", List.of("금융 도메인 경험"));
+        JsonNode required = json(expect(hr.put(base, content), 200)).path("required");
+        assertThat(required.path("qualifications")).extracting(JsonNode::asString).containsExactly("Java 3년 이상");
+        assertThat(required.path("preferred")).extracting(JsonNode::asString).containsExactly("금융 도메인 경험");
+
+        // 표시를 빼고 보내면 그대로 두고, 본문에서 빠진 줄의 표시만 뺀다
+        content.remove("requiredQualifications");
+        content.remove("requiredPreferred");
+        content.put("preferred", List.of("대용량 트래픽 경험"));
+        required = json(expect(hr.put(base, content), 200)).path("required");
+        assertThat(required.path("qualifications")).extracting(JsonNode::asString).containsExactly("Java 3년 이상");
+        assertThat(required.path("preferred")).isEmpty();
+
+        // AI 수정안으로 그 줄이 바뀌면 표시가 빠진다
+        PostingContent current = postings.draftContext(hr.companyId(), id).content();
+        PostingContent suggested = new PostingContent(current.title(), current.jobCategory(),
+                current.employmentType(), current.career(), current.location(), current.intro(), current.duties(),
+                List.of("Java · Spring 3년 이상", "학사 이상"), current.preferred(), current.benefits(),
+                current.headcount(), current.position(), current.education(), current.workHours(), current.salary());
+        postings.suggest(hr.companyId(), id, new PostingSuggestion(suggested, null, null, List.of("qualifications")));
+        assertThat(json(expect(hr.post(base + "/suggestion/apply", null), 200)).path("required")
+                .path("qualifications")).isEmpty();
+
+        content.put("qualifications", List.of("Java · Spring 3년 이상", "학사 이상"));
+        content.put("requiredQualifications", List.of("학사 이상"));
+        content.put("requiredPreferred", List.of());
+        expect(hr.put(base, content), 200);
+        Instant now = Instant.now();
+        expect(hr.post(base + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
+                "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
+        JsonNode careers = json(expect(anonymous().get("/api/public/postings/" + draft.path("postingId").asString()),
+                200));
+        assertThat(careers.has("required")).isFalse();
+        assertThat(careers.path("content").has("requiredQualifications")).isFalse();
+        assertThat(json(expect(hr.get(base), 200)).path("required").path("qualifications"))
+                .extracting(JsonNode::asString).containsExactly("학사 이상");
+    }
+
+    @Test
     @DisplayName("HR이 전형 절차를 직접 정하면 그 순서와 종류로 저장하고 안내는 이름으로 이어 받으며, 게시하면 잠긴다")
     void hrEditsStagesDirectly() throws Exception {
         TestApi hr = newHr();

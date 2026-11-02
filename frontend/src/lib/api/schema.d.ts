@@ -2049,6 +2049,8 @@ export interface components {
             workHours: string | null;
             salary: string | null;
             roles: components["schemas"]["PostingRole"][];
+            requiredQualifications: string[] | null;
+            requiredPreferred: string[] | null;
         };
         PostingRole: {
             name: string;
@@ -2134,6 +2136,11 @@ export interface components {
             closedAt: string | null;
             suggestion: components["schemas"]["PostingSuggestionView"] | null;
             poster: components["schemas"]["PosterDesign"] | null;
+            required: components["schemas"]["RequiredCriteria"];
+        };
+        RequiredCriteria: {
+            qualifications: string[];
+            preferred: string[];
         };
         RequiredDocument: {
             /** @enum {string} */
@@ -2750,25 +2757,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            boolean: boolean;
-            pojo: boolean;
-            int: boolean;
-            short: boolean;
-            long: boolean;
-            binary: boolean;
-            double: boolean;
-            string: boolean;
-            /** @deprecated */
-            textual: boolean;
+            missingNode: boolean;
+            valueNode: boolean;
+            container: boolean;
+            floatingPointNumber: boolean;
+            bigInteger: boolean;
+            bigDecimal: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            floatingPointNumber: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
             integralNumber: boolean;
-            container: boolean;
-            valueNode: boolean;
-            missingNode: boolean;
+            int: boolean;
+            double: boolean;
+            string: boolean;
+            pojo: boolean;
+            long: boolean;
+            /** @deprecated */
+            textual: boolean;
+            boolean: boolean;
+            binary: boolean;
+            short: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3078,9 +3085,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
+            headerName: string;
             parameterName: string;
             token: string;
-            headerName: string;
         };
         CsrfResponse: {
             token: string;
