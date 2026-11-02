@@ -134,7 +134,7 @@ export function CareersPosting({
           <Block title="모집 조건">
             <dl className="space-y-1.5 text-sm">
               {conditions.map((row) => (
-                <Row key={row.label} label={row.label} value={row.value} />
+                <Row key={row.label} label={row.label} value={row.value} wide />
               ))}
             </dl>
           </Block>
@@ -243,10 +243,11 @@ function Lines({
   )
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+/** 이름과 값 한 줄. 모집 조건은 "근무 요일 · 시간"처럼 이름이 길어 이름 칸을 넓힌다(wide) */
+function Row({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
   return (
     <div className="flex gap-4">
-      <dt className="w-16 shrink-0 text-muted-foreground">{label}</dt>
+      <dt className={cn('shrink-0 text-muted-foreground', wide ? 'w-28' : 'w-16')}>{label}</dt>
       <dd className="font-medium">{value || '-'}</dd>
     </div>
   )

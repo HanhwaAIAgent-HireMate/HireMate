@@ -1122,7 +1122,9 @@ async def test_context_shows_recruitment_conditions() -> None:
     await revise_posting(llm, posting(content=conditions), "", "음")
 
     user = llm.calls[0].user
-    assert "채용 인원: 2명\n직급: (비어 있음)\n학력: 학력 무관\n근무 일시: (비어 있음)\n급여: (비어 있음)" in user
+    assert (
+        "채용 인원: 2명\n직급: (비어 있음)\n학력: 학력 무관\n근무 요일 · 시간: (비어 있음)\n급여: (비어 있음)" in user
+    )
 
 
 # 고른 줄
