@@ -14,7 +14,7 @@ HR이 줄을 골라 요청하면 대상을 고르지 않고 그 줄만 한 번�
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -171,6 +171,18 @@ FACT_WORDS = {
 """회사가 알려 주는 사실을 담는 칸과, 요청에서 그 칸을 말하는 낱말. 요청에서 그 칸을 말했을 때만 바꾼다.
 작은 모델이 공고 전체를 써 달라는 요청에 회사가 알려 주지 않은 복지 · 회사 소개 · 근무 조건을 지어내곤 한다.
 경력 · 고용 형태도 회사가 정할 일이라, 말하지 않았는데 흔한 값("경력 3년 이상", "정규직")을 채우면 지어낸 것이다."""
+
+WHOLE_POSTING_DEFAULTS = {
+    "career": "경력 무관",
+    "education": "학력 무관",
+    "work_hours": "회사 내규에 따름",
+    "salary": "회사 내규에 따름",
+}
+"""공고 전체를 써 달라는 요청에서 비어 있는 칸에 코드가 넣는 기본 문구. 빈 칸이 거의 없게 하되, 회사가 정할 값을
+지어내지 않고 공고에서 흔히 쓰는 중립 문구만 쓴다. HR이 수정안을 보고 회사에 맞게 고친다."""
+LEFT_FOR_HR = ("employment_type", "headcount")
+"""공고 전체를 써 달라는 요청에서도 비워 두는 칸. 회사마다 달라 중립 문구가 없어,
+비어 있으면 답에서 정해 달라고 한다."""
 
 # 이름만으로 전형 종류를 알 수 없는 낱말과, 종류를 알 수 있는 낱말. 새 전형 이름이 앞에만 걸리고
 # 요청에도 종류가 없으면 모델이 종류를 골랐어도 되묻는다 (FR-04). 모델은 지시를 어기고 추측하곤 한다.
@@ -442,10 +454,14 @@ async def revise_posting(
         reply = LOCKED_REPLY if locked else (route.question or NOTHING_CHANGED_REPLY)
         return RevisionResult(reply=reply, suggestion=None)
 
+    # 공고 전체를 써 달라는 요청이면 남은 빈 칸을 기본 문구로 채운다. 직무별 표는 직무마다 경력이 달라 채우지 않는다
+    whole = route.writes_posting and "ROLES" not in targets and not posting.content.roles
     found: list[str] = []
     for _ in range(ATTEMPTS):
         edit = await _write(llm, posting, writing_style, request, context, targets, found, fills_empty)
         draft = _draft(posting, edit, request)
+        if whole:
+            draft, edit = _with_defaults(draft, edit)
         if draft.unknown_stages:
             # 모델의 되묻는 말은 평가 방식 같은 다른 것을 묻곤 해서, 정해 둔 말로 종류만 묻는다
             return RevisionResult(reply=_stage_question(draft.unknown_stages), suggestion=None)
@@ -815,6 +831,20 @@ def _draft(posting: PostingDraftContext, edit: _Edit, request: str) -> _Draft:
         if set(proposed_extras) != set(posting.required_extras):
             extras = proposed_extras
     return _Draft(content=content, changed=changed, stages=stages, required_extras=extras, unknown_stages=unknown)
+
+
+def _with_defaults(draft: _Draft, edit: _Edit) -> tuple[_Draft, _Edit]:
+    """수정안에서도 비어 있는 칸을 기본 문구(WHOLE_POSTING_DEFAULTS)로 채우고, 채운 칸과 남은 칸을 답에 알린다."""
+    filled = {name: text for name, text in WHOLE_POSTING_DEFAULTS.items() if not getattr(draft.content, name)}
+    content = draft.content.model_copy(update=filled)
+    changed = [name for name in FIELD_LABELS if name in draft.changed or name in filled]
+    notes = list(edit.notes)
+    if filled:
+        labels = ", ".join(FIELD_LABELS[name] for name in filled)
+        notes.append(f"{labels} 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요.")
+    if left := [FIELD_LABELS[name] for name in LEFT_FOR_HR if getattr(content, name) in ("", None)]:
+        notes.append(f"{', '.join(left)} 칸은 정해 주세요.")
+    return replace(draft, content=content, changed=changed), replace(edit, notes=notes)
 
 
 def _ambiguous(name: str, current: set[str], request: str) -> bool:
