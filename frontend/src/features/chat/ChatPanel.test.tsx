@@ -234,7 +234,7 @@ describe('ChatPanel', () => {
     ]
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <ChatPanel overview={overview} tabId="t1" people={people} />
+        <ChatPanel overview={overview} tabId="t1" people={people} examples={[]} />
       </QueryClientProvider>,
     )
     const input = screen.getByRole('textbox', { name: 'AI Chat 입력' })
