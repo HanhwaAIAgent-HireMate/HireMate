@@ -65,44 +65,33 @@ describe('공고 포스터', () => {
     )
     expect(source.stages[0].icon).toBe('CODE')
   })
-  it.each(POSTER_TEMPLATES)('$name에서도 2개 이상 직무는 모집 표로 표시한다', (template) => {
-    const roles = ['백엔드', '인사', '생산관리'].map((name) => ({
-      name,
-      career: '신입',
-      duties: [`${name} 업무`],
-      qualifications: ['기초 지식'],
-      preferred: [],
-    }))
-    render(
-      <PostingPoster
-        posting={{ ...posting, content: { ...posting.content, roles } }}
-        design={{ ...initialPoster(), template: template.id }}
-      />,
-    )
-    expect(screen.getByRole('table', { name: '직무별 모집 내용' })).toBeInTheDocument()
-    expect(screen.getByText('생산관리 업무')).toBeInTheDocument()
-    expect(screen.queryByText('정수 서비스 일정 관리')).not.toBeInTheDocument()
-  })
-
-  it('직무가 1개이면 표 대신 기존 본문 형태로 그 직무의 내용을 보여 준다', () => {
-    const roles = [
-      {
-        name: '인사',
-        career: '신입',
-        duties: ['인사 운영 업무'],
-        qualifications: ['기초 지식'],
+  it.each(POSTER_TEMPLATES)(
+    '$name에서도 이전 직무 목록 대신 단일 직무 본문을 표시한다',
+    (template) => {
+      const roles = ['Backend', 'HR', 'Marketing'].map((name) => ({
+        name,
+        career: '',
+        duties: ['Legacy role duty'],
+        qualifications: [],
         preferred: [],
-      },
-    ]
-    render(
-      <PostingPoster
-        posting={{ ...posting, content: { ...posting.content, roles } }}
-        design={initialPoster()}
-      />,
-    )
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByText('인사 운영 업무')).toBeInTheDocument()
-  })
+      }))
+      const { container } = render(
+        <PostingPoster
+          posting={{ ...posting, content: { ...posting.content, roles } }}
+          design={{ ...initialPoster(), template: template.id }}
+        />,
+      )
+      expect(screen.queryByRole('table')).not.toBeInTheDocument()
+      expect(container.querySelector('.poster-block-duties')).toHaveTextContent(
+        posting.content.duties[0],
+      )
+      expect(container.querySelector('.poster-block-qualifications')).toHaveTextContent(
+        posting.content.qualifications[0],
+      )
+      expect(screen.queryByText('Legacy role duty')).not.toBeInTheDocument()
+    },
+  )
+
   it.each(POSTER_TEMPLATES)(
     '$name에서도 조건과 필수 안내를 생략하거나 꾸며내지 않는다',
     (template) => {
