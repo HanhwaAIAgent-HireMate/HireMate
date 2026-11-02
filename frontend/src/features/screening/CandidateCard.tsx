@@ -17,6 +17,7 @@ import {
 import { AssessmentViewer } from '@/features/assessment/AssessmentViewer'
 import { scheduleLabel, useInterview } from '@/features/interview/api'
 import { InterviewViewer } from '@/features/interview/InterviewViewer'
+import { SharedNotes } from '@/features/interview/SharedNotes'
 import { DocumentViewer } from '@/features/screening/DocumentViewer'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
@@ -192,7 +193,19 @@ function MemoButton({
           메모{memo && ' ·'}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 space-y-2">
+      <PopoverContent
+        align="end"
+        className="max-h-[80vh] w-[min(46rem,calc(100vw-2rem))] space-y-3 overflow-y-auto"
+      >
+        {interview && openState && (
+          <SharedNotes
+            key={applicationId}
+            stageId={stageId}
+            applicationId={applicationId}
+            initiallyOpen
+          />
+        )}
+        <h4 className="text-sm font-semibold">채용 담당자 공용 메모</h4>
         <Textarea
           aria-label="메모"
           rows={5}

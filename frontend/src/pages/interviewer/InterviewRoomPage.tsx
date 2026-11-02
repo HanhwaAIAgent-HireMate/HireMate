@@ -1,14 +1,13 @@
 import { useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
-import { toast } from 'sonner'
 
 import { useHeaderCrumb } from '@/app/header-store'
-import { Button } from '@/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/textarea'
 import { ChatPanel } from '@/features/chat/ChatPanel'
 import { InterviewerScript } from '@/features/interview/InterviewerScript'
+import { NoteEditor } from '@/features/interview/NoteEditor'
+import { SharedNotes } from '@/features/interview/SharedNotes'
 import { OpinionCard } from '@/features/interview/OpinionCard'
 import { Results } from '@/features/interview/InterviewViewer'
 import { InterviewSessionBar } from '@/features/interview/InterviewSessionBar'
@@ -29,7 +28,6 @@ import {
 } from '@/features/interview/sessions'
 import { useCandidateDetail } from '@/features/screening/api'
 import { DocumentViewer } from '@/features/screening/DocumentViewer'
-import { errorMessage } from '@/lib/api/client'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -271,8 +269,15 @@ function Room({
                 applicationId={applicationId}
                 editable={attendance.data?.stageActive === true}
               />
+              <SharedNotes
+                stageId={stageId}
+                applicationId={applicationId}
+                interviewer
+                editable={
+                  status === 'IN_PROGRESS' && !ending && attendance.data?.stageActive === true
+                }
+              />
               <PersonalMemo
-                key={data.personalMemoVersion}
                 stageId={stageId}
                 applicationId={applicationId}
                 workspace={data}
@@ -386,37 +391,22 @@ function PersonalMemo({
   editable: boolean
 }) {
   const actions = useWorkspaceActions(stageId, applicationId)
-  const [text, setText] = useState(workspace.personalMemo)
-  const changed = text !== workspace.personalMemo
+  const query = useWorkspace(stageId, applicationId)
   return (
-    <section className="space-y-2 rounded-xl border p-3">
-      <h3 className="text-sm font-semibold">내 메모</h3>
-      <Textarea
-        aria-label="내 메모"
-        disabled={!editable}
-        value={text}
-        rows={3}
-        placeholder="나만 보는 메모예요. 다른 면접관과 채용 담당자에게는 보이지 않아요."
-        onChange={(event) => setText(event.target.value)}
-      />
-      <div className="flex justify-end">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!editable || !changed || actions.memo.isPending}
-          onClick={() =>
-            actions.memo.mutate(
-              { text, expectedVersion: workspace.personalMemoVersion },
-              {
-                onSuccess: () => toast.success('메모를 저장했어요.'),
-                onError: (error) => toast.error(errorMessage(error)),
-              },
-            )
-          }
-        >
-          메모 저장
-        </Button>
-      </div>
-    </section>
+    <NoteEditor
+      stageId={stageId}
+      applicationId={applicationId}
+      field="personal-memo"
+      label="내 메모"
+      description="나만 보는 메모예요. 다른 면접관과 채용 담당자에게는 보이지 않아요."
+      text={workspace.personalMemo}
+      version={workspace.personalMemoVersion}
+      editable={editable}
+      reload={() => query.refetch({ throwOnError: true })}
+      save={async (text, expectedVersion) => {
+        const stored = await actions.memo.mutateAsync({ text, expectedVersion })
+        return { text: stored.personalMemo, version: stored.personalMemoVersion }
+      }}
+    />
   )
 }

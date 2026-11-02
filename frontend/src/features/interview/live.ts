@@ -66,6 +66,9 @@ export function useInterviewRoomLive(stageId: string, applicationId: string) {
     [stageId, applicationId],
   )
   const refresh = useCallback(() => {
+    void client.invalidateQueries({
+      queryKey: ['interview', 'shared-notes', stageId, applicationId],
+    })
     void client.invalidateQueries({ queryKey: sessionKeys.workspace(stageId, applicationId) })
     void client.invalidateQueries({ queryKey: sessionKeys.attendance(stageId, applicationId) })
     void client.invalidateQueries({ queryKey: opinionKeys.mine(stageId, applicationId) })
@@ -92,6 +95,7 @@ export function useInterviewStageLive(stageId: string, enabled = true) {
   const refresh = useCallback(
     (event?: SseEvent) => {
       const applicationId = changedApplication(event?.data)
+      void client.invalidateQueries({ queryKey: ['interview', 'shared-notes', stageId] })
       void client.invalidateQueries({ queryKey: sessionKeys.stageAssignment(stageId) })
       void client.invalidateQueries({ queryKey: sessionKeys.progress(stageId) })
       void client.invalidateQueries({
