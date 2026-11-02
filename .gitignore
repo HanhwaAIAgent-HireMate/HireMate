@@ -42,3 +42,6 @@ CLAUDE.local.md
 output/*
 !output/v9/
 output/v9/.*
+
+# Local-only AI test data and experiments
+/ai/.local/
