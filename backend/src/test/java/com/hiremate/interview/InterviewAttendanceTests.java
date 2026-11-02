@@ -23,7 +23,7 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * 면접관 준비 완료와 실시간 알림. 배정된 면접관이 모두 [준비 완료]를 누르고 접속 중이면 면접이 바로 시작된다.
- * 준비 · 시작 같은 변화는 SSE로 다른 면접관 화면과 HR 화면에 바로 알린다.
+ * 준비 · 시작 같은 변화는 SSE로 다른 면접관 화면과 HR 화면에 바로 알리고, 시작한 면접은 HR 알림에 보인다.
  */
 class InterviewAttendanceTests extends IntegrationTest {
 
@@ -34,7 +34,7 @@ class InterviewAttendanceTests extends IntegrationTest {
     private InterviewAttendanceRepository attendance;
 
     @Test
-    @DisplayName("두 면접관이 모두 준비 완료하면 바로 시작하고, 준비 현황은 HR에게 보인다")
+    @DisplayName("두 면접관이 모두 준비 완료하면 바로 시작하고, 준비 현황과 시작 알림은 HR에게 보인다")
     void startsWhenEveryInterviewerIsReady() throws Exception {
         Room room = room();
 
@@ -68,8 +68,17 @@ class InterviewAttendanceTests extends IntegrationTest {
         assertThat(hr.get(0).path("attendees")).hasSize(2);
         assertThat(hr.get(0).path("attendees").get(0).path("ready").asBoolean()).isTrue();
 
-        // 면접관은 HR 진행 현황을 열 수 없다
+        JsonNode started = json(expect(room.interview().hr().get("/api/companies/current/interviews/started"), 200));
+        assertThat(started).hasSize(1);
+        assertThat(started.get(0).path("applicationId").asString())
+                .isEqualTo(room.interview().applicationId().toString());
+        assertThat(started.get(0).path("stageId").asString()).isEqualTo(room.interview().stageId().toString());
+        assertThat(started.get(0).path("applicantName").asString()).isNotBlank();
+        assertThat(started.get(0).path("stageName").asString()).isNotBlank();
+        assertThat(started.get(0).path("startedAt").asString()).isNotBlank();
+        // 면접관은 HR 진행 현황과 HR 알림을 열 수 없다
         expect(room.kim().get(room.interview().stage() + "/interview/sessions"), 403);
+        expect(room.kim().get("/api/companies/current/interviews/started"), 403);
     }
 
     @Test
