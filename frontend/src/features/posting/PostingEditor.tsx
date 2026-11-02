@@ -32,9 +32,7 @@ import { PostingStepHeader } from '@/features/posting/PostingStepHeader'
 import { usePostingRecovery } from '@/features/posting/usePostingRecovery'
 import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/stages'
 import {
-  CONDITION_FIELDS,
   CAREER_KINDS,
-  CONDITION_KEYS,
   EMPLOYMENT_TYPES,
   MAX_CAREER_YEARS,
   formatCareer,
@@ -43,6 +41,8 @@ import {
   type CareerKind,
   MAX_HEADCOUNT,
   toHeadcount,
+  WORK_FIELDS,
+  WORK_KEYS,
 } from '@/features/posting/conditions'
 import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
@@ -54,13 +54,13 @@ const EXAMPLES = [
 ]
 
 const TAGS: {
-  key: 'jobCategory' | 'employmentType' | 'career' | 'location'
+  key: 'jobCategory' | 'employmentType' | 'career' | 'education'
   placeholder: string
 }[] = [
   { key: 'jobCategory', placeholder: '직무 (예: 개발 › 백엔드)' },
   { key: 'employmentType', placeholder: '고용 형태' },
   { key: 'career', placeholder: '경력' },
-  { key: 'location', placeholder: '근무지' },
+  { key: 'education', placeholder: '학력' },
 ]
 
 type ListKey = 'duties' | 'qualifications' | 'preferred' | 'benefits'
@@ -72,7 +72,15 @@ const LISTS: { key: ListKey; label: string }[] = [
 ]
 
 /** 수정안을 한 덩어리로 처리하는 기본 정보 칸 */
-const BASIC_FIELDS = ['title', 'jobCategory', 'employmentType', 'career', 'location']
+const BASIC_FIELDS = [
+  'title',
+  'jobCategory',
+  'employmentType',
+  'career',
+  'position',
+  'headcount',
+  'education',
+]
 
 // PST-01 Job Posting Editor. HR이 직접 쓰거나 AI에게 말해 고치고, 바뀐 부분은 HR이 적용 여부를 정한다
 export function PostingEditor({
@@ -226,14 +234,14 @@ export function PostingEditor({
   }
 
   /**
-   * 덩어리마다 [적용] [되돌리기]. 기본 정보(채용명 · 직무 · 고용 형태 · 경력 · 근무지)와
-   * 모집 조건(채용 인원 · 직급 · 학력 · 급여 · 근무 요일 · 시간)은 각각 한 덩어리로 처리한다
+   * 덩어리마다 [적용] [되돌리기]. 기본 정보(채용명 · 직무 · 고용 형태 · 경력 · 직급 · 채용 인원 · 학력)와
+   * 근무 조건(근무지 · 근무 요일 · 시간 · 급여)은 각각 한 덩어리로 처리한다
    */
   const actions = (field: string) => {
     let fields = BASIC_FIELDS.includes(field)
       ? BASIC_FIELDS
-      : CONDITION_KEYS.includes(field)
-        ? CONDITION_KEYS
+      : WORK_KEYS.includes(field)
+        ? WORK_KEYS
         : [field]
     if (
       changed.has('career') &&
@@ -362,9 +370,11 @@ export function PostingEditor({
                     <CareerField
                       key={tag.key}
                       value={shown.career}
+                      position={shown.position}
                       disabled={locked(tag.key)}
-                      changed={changed.has(tag.key)}
+                      changed={changed.has(tag.key) || changed.has('position')}
                       onChange={(career) => update({ career })}
+                      onPositionChange={(position) => update({ position })}
                     />
                   ) : (
                     <input
@@ -384,47 +394,52 @@ export function PostingEditor({
                     />
                   ),
                 )}
+                <label
+                  className={cn(
+                    'flex h-7 items-center gap-1 rounded-md bg-muted px-2 text-xs',
+                    changed.has('headcount') && 'bg-pass',
+                  )}
+                >
+                  <span className="text-muted-foreground">채용</span>
+                  <input
+                    aria-label="채용 인원"
+                    type="number"
+                    min={1}
+                    max={MAX_HEADCOUNT}
+                    value={shown.headcount ?? ''}
+                    placeholder="0"
+                    disabled={locked('headcount')}
+                    onChange={(event) => update({ headcount: toHeadcount(event.target.value) })}
+                    className="w-10 bg-transparent text-right outline-none"
+                  />
+                  명
+                </label>
               </div>
               {actions('title')}
             </div>
-            <Section title="모집 조건">
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                {CONDITION_FIELDS.map((field) => (
-                  <label
-                    key={field.key}
-                    className={cn('flex items-center gap-2 text-sm', field.wide && 'col-span-2')}
-                  >
+            <Section title="근무 조건">
+              <div className="space-y-2">
+                {WORK_FIELDS.map((field) => (
+                  <label key={field.key} className="flex items-center gap-2 text-sm">
                     <span className="w-24 shrink-0 text-xs text-muted-foreground">
                       {field.label}
                     </span>
                     <input
                       aria-label={field.label}
-                      type={field.key === 'headcount' ? 'number' : 'text'}
-                      min={field.key === 'headcount' ? 1 : undefined}
-                      max={field.key === 'headcount' ? MAX_HEADCOUNT : undefined}
-                      value={field.key === 'headcount' ? (shown.headcount ?? '') : shown[field.key]}
+                      value={shown[field.key]}
                       placeholder={field.placeholder}
                       maxLength={field.maxLength}
                       disabled={locked(field.key)}
-                      onChange={(event) =>
-                        update({
-                          [field.key]:
-                            field.key === 'headcount'
-                              ? toHeadcount(event.target.value)
-                              : event.target.value,
-                        })
-                      }
+                      onChange={(event) => update({ [field.key]: event.target.value })}
                       className={cn(
                         'h-8 min-w-0 flex-1 rounded-md bg-muted px-2 outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring',
-                        field.key === 'headcount' && 'max-w-24 flex-none',
                         changed.has(field.key) && 'bg-pass',
                       )}
                     />
-                    {field.key === 'headcount' && <span className="text-xs">명</span>}
                   </label>
                 ))}
               </div>
-              {actions('headcount')}
+              {actions('location')}
             </Section>
             <Section
               title="회사 소개"
@@ -668,19 +683,24 @@ function EmploymentTypeSelect({
 }
 
 /**
- * 경력은 신입 · 경력 · 경력 무관 중에서 고르고, 경력이면 "N년 이상" 연차를 적을 수 있다(비우면 "경력").
- * 예전에 글로 적은 값은 지우지 않고 목록 끝에 보여 준다
+ * 경력은 신입 · 경력 · 경력 무관 중에서 고르고, 경력이면 "N년 이상" 연차와 직급을 적을 수 있다(연차를 비우면 "경력").
+ * 직급은 경력직에서만 뜻이 있어 경력일 때 보인다. 다른 경력이어도 적어 둔 직급이 있으면 지우지 않고 보여 준다.
+ * 예전에 글로 적은 경력은 지우지 않고 목록 끝에 보여 준다
  */
 function CareerField({
   value,
+  position,
   disabled,
   changed,
   onChange,
+  onPositionChange,
 }: {
   value: string
+  position: string
   disabled: boolean
   changed: boolean
   onChange: (value: string) => void
+  onPositionChange: (value: string) => void
 }) {
   const { kind, years } = parseCareer(value)
   const options: string[] = [...CAREER_KINDS]
@@ -731,6 +751,18 @@ function CareerField({
           />
           년 이상
         </label>
+      )}
+      {(kind === '경력' || position) && (
+        <input
+          aria-label="직급"
+          value={position}
+          placeholder="직급 (예: 대리~과장)"
+          maxLength={50}
+          disabled={disabled}
+          onChange={(event) => onPositionChange(event.target.value)}
+          style={{ width: `calc(${textWidth(position || '직급 (예: 대리~과장)')}em + 1.25rem)` }}
+          className="h-7 rounded-md bg-muted px-2 text-xs outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+        />
       )}
     </div>
   )
