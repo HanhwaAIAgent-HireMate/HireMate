@@ -184,7 +184,7 @@ public class NoticeService {
                 content(notice, recruitment, companyName).fill(values), mailStyles.brand(companyId));
     }
 
-    /** 공고 작성 화면의 전형 안내. 첫 전형은 안내하는 메일이 없어 뺀다. */
+    /** 전형 안내. 첫 전형은 안내하는 메일이 없어 뺀다. */
     @Transactional(readOnly = true)
     public List<StageGuideView> guides(UUID companyId, UUID recruitmentId) {
         RecruitmentInfo recruitment = recruits.get(companyId, recruitmentId);
@@ -194,11 +194,16 @@ public class NoticeService {
                 .toList();
     }
 
-    /** 이미 보낸 메일은 바뀌지 않는다. 화면은 notifiedCount로 받은 사람이 있음을 알린다. */
+    /** 다음 전형 안내 메일을 보내기 전에만 고친다. 메일과 함께 잠가 받는 사람마다 안내가 달라지지 않게 한다. */
     @Transactional
     public StageGuideView changeGuide(UUID companyId, UUID stageId, StageGuide guide) {
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
-        checkGuide(recruitment, recruitment.stage(stageId).orElseThrow(), guide);
+        StageInfo target = recruitment.stage(stageId).orElseThrow();
+        if (guideLocked(companyId, recruitment, target)) {
+            throw new ApiException(HttpStatus.CONFLICT, "GUIDE_SENT",
+                    "The notice announcing this stage has already been sent.");
+        }
+        checkGuide(recruitment, target, guide);
         StageInfo stage = recruits.changeGuide(companyId, stageId, guide);
         return guideView(companyId, recruits.getByStage(companyId, stageId), stage);
     }
@@ -304,15 +309,19 @@ public class NoticeService {
 
     /** 전형 안내와, 그 전형을 안내하는 메일(앞 전형의 다음 전형 안내)을 받은 지원자 수. */
     private StageGuideView guideView(UUID companyId, RecruitmentInfo recruitment, StageInfo stage) {
-        int notified = recruitment.stages().stream()
+        return new StageGuideView(stage.id(), stage.seq(), stage.name(), stage.guide(),
+                missing(items(stage.guide())), guideLocked(companyId, recruitment, stage));
+    }
+
+    /** 이 전형을 안내하는 메일(앞 전형의 합격 안내)을 보내기 시작했는지. */
+    private boolean guideLocked(UUID companyId, RecruitmentInfo recruitment, StageInfo stage) {
+        return recruitment.stages().stream()
                 .filter(other -> other.seq() == stage.seq() - 1)
                 .findFirst()
                 .flatMap(before -> notices.findByStageIdAndCompanyIdAndGroupType(before.id(), companyId,
                         NoticeGroup.PASS))
-                .map(Notice::getSentCount)
-                .orElse(0);
-        return new StageGuideView(stage.id(), stage.seq(), stage.name(), stage.guide(),
-                missing(items(stage.guide())), notified);
+                .map(notice -> !notice.isEditable())
+                .orElse(false);
     }
 
     /** 전형 안내 칸 이름과 값. 메일과 화면 경고에 같은 이름을 쓴다. 기타 안내(note)는 이름 없이 ※로 붙여 여기 없다. */
@@ -399,6 +408,9 @@ public class NoticeService {
                 label(notice.getTemplateType()), notice.getSubject(), notice.getGreeting(), notice.getContent(),
                 guideText(notice, recruitment), guideMissing(notice, recruitment), notice.onboarding(),
                 notice.getClosing(), notice.getRequiredText(), notice.getRecipientCount(), notice.getStatus(),
-                notice.getSentCount(), notice.getFailedCount(), notice.getSentAt());
+                notice.getSentCount(), notice.getFailedCount(), notice.getSentAt(),
+                notice.getTemplateType() == NoticeTemplateType.NEXT_STAGE
+                        ? nextStage(notice, recruitment).map(StageInfo::id).orElse(null)
+                        : null);
     }
 }

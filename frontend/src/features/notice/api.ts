@@ -18,10 +18,11 @@ export const stageGuideKeys = {
     [...stageGuideKeys.all(recruitmentId), stageIds] as const,
 }
 
-/** 공고 작성 화면의 전형별 안내. 첫 전형은 안내하는 메일이 없어 빠져 있다. */
-export function useStageGuides(recruitmentId: string, stageIds: string) {
+/** 전형별 안내. 다음 전형 안내 메일 화면에서 고친다. 첫 전형은 안내하는 메일이 없어 빠져 있다. */
+export function useStageGuides(recruitmentId: string, stageIds: string, enabled = true) {
   return useQuery({
     queryKey: stageGuideKeys.stages(recruitmentId, stageIds),
+    enabled,
     queryFn: () =>
       unwrap(
         api.GET('/api/recruitments/{recruitmentId}/stage-guides', {
@@ -31,12 +32,17 @@ export function useStageGuides(recruitmentId: string, stageIds: string) {
   })
 }
 
-export function useSaveStageGuide(recruitmentId: string, stageId: string) {
+/** 저장하면 안내와, 안내를 붙여 보여 주는 안내 메일(noticeStageId 전형의 안내 초안)을 새로 받는다 */
+export function useSaveStageGuide(recruitmentId: string, stageId: string, noticeStageId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (body: StageGuide) =>
       unwrap(api.PUT('/api/stages/{stageId}/guide', { params: { path: { stageId } }, body })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: stageGuideKeys.all(recruitmentId) }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: stageGuideKeys.all(recruitmentId) }),
+        queryClient.invalidateQueries({ queryKey: noticeKeys.all(noticeStageId) }),
+      ]),
   })
 }
 

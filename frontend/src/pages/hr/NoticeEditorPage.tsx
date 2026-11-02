@@ -28,15 +28,24 @@ import {
   useNotices,
   usePrepareNotice,
   useSaveOnboarding,
+  useSaveStageGuide,
   useSendNotice,
+  useStageGuides,
   type Notice,
   type OnboardingGuide,
+  type StageGuide,
 } from '@/features/notice/api'
 import { emptyFields, type GuideField } from '@/features/notice/guide'
 import { GuideFields } from '@/features/notice/GuideFields'
 import { MailFrame } from '@/features/notice/MailFrame'
 import { sentenceDiff } from '@/features/notice/sentenceDiff'
-import { STAGE_GUIDES_ID } from '@/features/notice/StageGuides'
+import {
+  guideProblems,
+  missingGuideFields,
+  scheduleBounds,
+  todayIso,
+} from '@/features/notice/stageGuide'
+import { StageGuideFields } from '@/features/notice/StageGuides'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import { useStageOverview } from '@/features/screening/api'
@@ -74,6 +83,9 @@ const ONBOARDING_FIELDS: GuideField<keyof OnboardingGuide>[] = [
   },
 ]
 const ONBOARDING_ID = 'onboarding'
+const NEXT_GUIDE_ID = 'next-stage-guide'
+/** 비었는지 보는 다음 전형 안내 칸 수(일정 · 진행 방식 · 장소 · 준비 사항). 기타 안내는 따로 본다 */
+const GUIDE_FIELD_COUNT = 4
 /** 입사 안내를 비워 두면 backend가 본문 아래에 붙이는 문장 */
 const ONBOARDING_LATER = '입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.'
 
@@ -120,7 +132,7 @@ export function NoticeEditorPage() {
       notices={notices.data ?? []}
       stageName={overview.data.name}
       closePath={closePath}
-      guidesPath={`/hr/recruitments/${overview.data.recruitmentId}/posting#${STAGE_GUIDES_ID}`}
+      recruitmentId={overview.data.recruitmentId}
     />
   )
 }
@@ -181,14 +193,13 @@ function Editor({
   notices,
   stageName,
   closePath,
-  guidesPath,
+  recruitmentId,
 }: {
   notice: Notice
   notices: Notice[]
   stageName: string
   closePath: string
-  /** 공고 작성 화면의 전형별 안내 칸 */
-  guidesPath: string
+  recruitmentId: string
 }) {
   const navigate = useNavigate()
   const [confirmingGuide, setConfirmingGuide] = useState(false)
@@ -209,6 +220,22 @@ function Editor({
   const ai = useNoticeAiRequest(notice.stageId, notice.group)
   const editable = notice.status === 'DRAFT'
   const final = notice.templateType === 'FINAL_PASS'
+  // 다음 전형 안내는 다음 전형의 안내(일정 · 장소 등)를 이 화면에서 보내기 전에 채운다. 메일을 보내면 함께 잠긴다
+  const nextStageId = notice.nextStageId ?? ''
+  const guides = useStageGuides(recruitmentId, nextStageId, Boolean(notice.nextStageId))
+  const nextGuide = guides.data?.find((view) => view.stageId === nextStageId)
+  const saveGuide = useSaveStageGuide(recruitmentId, nextStageId, notice.stageId)
+  const [guideEdits, setGuideEdits] = useState<StageGuide | null>(null)
+  const guideDraft = guideEdits ?? nextGuide?.guide
+  const guideEditable = editable && Boolean(nextGuide) && !nextGuide?.locked
+  const guideBounds =
+    nextGuide && guides.data ? scheduleBounds(guides.data, nextGuide.stageId) : null
+  const guideIssues =
+    nextGuide && guideDraft && guideBounds
+      ? guideProblems(guideDraft, nextGuide.guide, guideBounds, todayIso())
+      : {}
+  const guideDirty =
+    guideEdits !== null && JSON.stringify(guideEdits) !== JSON.stringify(nextGuide?.guide)
   const textDirty =
     draft.subject !== notice.subject ||
     draft.greeting !== notice.greeting ||
@@ -217,12 +244,21 @@ function Editor({
   const onboardingDirty =
     final &&
     ONBOARDING_FIELDS.some((field) => onboarding[field.key] !== notice.onboarding[field.key])
-  const dirty = textDirty || onboardingDirty
+  const dirty = textDirty || onboardingDirty || guideDirty
 
   const save = async () => {
+    if (guideDirty && Object.keys(guideIssues).length > 0) {
+      toast.error('다음 전형 안내에서 맞지 않는 칸을 고쳐 주세요.')
+      document.getElementById(NEXT_GUIDE_ID)?.scrollIntoView({ block: 'center' })
+      return false
+    }
     try {
       if (textDirty) await edit.mutateAsync(draft)
       if (onboardingDirty) await saveOnboarding.mutateAsync(onboarding)
+      if (guideDirty && guideEdits) {
+        await saveGuide.mutateAsync(guideEdits)
+        setGuideEdits(null)
+      }
       return true
     } catch (error) {
       toast.error(errorMessage(error))
@@ -274,23 +310,27 @@ function Editor({
 
   const remaining = notice.recipientCount - notice.sentCount
   // 다음 전형 안내(다음 전형의 안내)나 최종 합격 안내(입사 안내)의 칸이 비어 있으면 보내기 전에 묻는다.
-  // 기타 안내는 비어도 묻지 않는다. 입사 안내는 이 화면에서 고치는 중인 값으로 본다
+  // 기타 안내는 비어도 묻지 않는다. 둘 다 이 화면에서 고치는 중인 값으로 본다
   const guideMissing = final
     ? emptyFields(ONBOARDING_FIELDS, onboarding).map((field) => field.label)
-    : notice.guideMissing
+    : guideDraft
+      ? missingGuideFields(guideDraft)
+      : notice.guideMissing
   const hasGuide = final
     ? ONBOARDING_FIELDS.some((field) => onboarding[field.key].trim())
-    : Boolean(notice.guide)
+    : guideDraft
+      ? missingGuideFields(guideDraft).length < GUIDE_FIELD_COUNT || Boolean(guideDraft.note.trim())
+      : Boolean(notice.guide)
   const missingGuide =
     (notice.templateType === 'NEXT_STAGE' || final) &&
     notice.status === 'DRAFT' &&
     guideMissing.length > 0
   const guideName = final ? '입사 안내' : '다음 전형 안내'
   const goFillGuide = () => {
-    if (final) {
-      setConfirmingGuide(false)
-      document.getElementById(ONBOARDING_ID)?.scrollIntoView({ block: 'center' })
-    } else void save().then((ok) => ok && navigate(guidesPath))
+    setConfirmingGuide(false)
+    document
+      .getElementById(final ? ONBOARDING_ID : NEXT_GUIDE_ID)
+      ?.scrollIntoView({ block: 'center' })
   }
 
   return (
@@ -339,7 +379,7 @@ function Editor({
                   ? `비어 있는 칸: ${guideMissing.join(', ')}. 그대로 보내면 이 칸은 메일에서 빠져요.`
                   : final
                     ? `그대로 보내면 '${ONBOARDING_LATER}'라고 보내요.`
-                    : '공고 작성의 전형별 안내에 일정, 장소 같은 안내를 입력하면 메일 아래에 함께 보내요. 그대로 보내면 합격 결과와 다음 전형 이름만 보내요.'}
+                    : '다음 전형 안내에 일정, 장소 같은 안내를 입력하면 메일 아래에 함께 보내요. 그대로 보내면 합격 결과와 다음 전형 이름만 보내요.'}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -464,21 +504,27 @@ function Editor({
                       }
                     />
                   </div>
+                ) : guideEditable && nextGuide && guideDraft && guideBounds ? (
+                  <div id={NEXT_GUIDE_ID} className="space-y-2 rounded-lg bg-muted/50 px-3 py-3">
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground">{nextGuide.name} 안내</span> ·
+                      본문 아래에 붙어요. 비워 둔 칸은 빠지고, 메일을 보내면 고칠 수 없어요
+                    </p>
+                    <StageGuideFields
+                      view={nextGuide}
+                      draft={guideDraft}
+                      bounds={guideBounds}
+                      problems={guideIssues}
+                      disabled={!guideEditable}
+                      onChange={(patch) => setGuideEdits({ ...guideDraft, ...patch })}
+                    />
+                  </div>
                 ) : (
                   notice.guide && (
                     <div className="space-y-1 rounded-lg bg-muted/50 px-3 py-2">
                       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Lock className="size-3.5" />
-                        {final ? (
-                          '보낸 입사 안내'
-                        ) : (
-                          <>
-                            보낼 때 붙는 다음 전형 안내 ·
-                            <Link to={guidesPath} className="underline">
-                              공고 작성에서 고치기
-                            </Link>
-                          </>
-                        )}
+                        {final ? '보낸 입사 안내' : '보낸 다음 전형 안내'}
                       </p>
                       <p className="leading-6 whitespace-pre-line">{notice.guide}</p>
                     </div>
@@ -501,7 +547,7 @@ function Editor({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={edit.isPending || saveOnboarding.isPending}
+                disabled={edit.isPending || saveOnboarding.isPending || saveGuide.isPending}
                 onClick={() => void save().then((ok) => ok && toast.success('초안을 저장했어요.'))}
               >
                 저장

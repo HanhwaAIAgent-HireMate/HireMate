@@ -443,7 +443,7 @@ class PostingTests extends IntegrationTest {
         assertThat(saved.path("guide").path("schedule").asString()).isEqualTo(day(3));
         assertThat(saved.path("guide").path("preparation").asString()).isEqualTo("신분증");
         assertThat(saved.path("missing").toString()).isEqualTo("[\"장소·접속 링크\"]");
-        assertThat(saved.path("notifiedCount").asInt()).isZero();
+        assertThat(saved.path("locked").asBoolean()).isFalse();
 
         expect(hr.post(base + "/ai-requests", Map.of("message", "전형은 서류, 코딩테스트, 1차 면접 순으로 해줘")), 200);
         expect(hr.post(base + "/suggestion/apply", null), 200);

@@ -20,7 +20,7 @@ function view(stageId: string, name: string, schedule: string | null): StageGuid
     name,
     guide: { ...empty, schedule },
     missing: [],
-    notifiedCount: 0,
+    locked: false,
   }
 }
 
