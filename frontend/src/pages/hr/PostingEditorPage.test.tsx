@@ -9,6 +9,7 @@ import { posterBrandKey } from '@/features/posting/poster-api'
 import { initialPoster, type PosterDesign } from '@/features/posting/poster-design'
 import { resetCsrf } from '@/lib/api/client'
 import { PostingEditorPage } from '@/pages/hr/PostingEditorPage'
+import { PostingPosterPage } from '@/pages/hr/PostingPosterPage'
 
 // 편집기 내부 저장은 기존 동작이며, 여기서는 저장 이후의 형식 선택과 이동을 검사한다.
 vi.mock('@/features/posting/PostingEditor', () => ({
@@ -155,4 +156,52 @@ describe('선택한 형식의 채용 페이지', () => {
     expect(screen.queryByRole('button', { name: 'PDF 내보내기' }) !== null).toBe(enabled)
     expect(screen.getByRole('link', { name: '지원하기' })).toHaveAttribute('href', '/apply')
   })
+})
+
+it('포스터 대화를 지우면 복구 기록과 다음 요청의 대화는 비우고 디자인은 유지한다', async () => {
+  const key = `hiremate:posting:${posting.recruitmentId}:poster-chat`
+  sessionStorage.setItem(
+    key,
+    JSON.stringify({
+      baseline: '[]',
+      value: [
+        { role: 'USER', text: '이전 요청', design: null, recommendations: [] },
+        { role: 'ASSISTANT', text: '이전 답변', design: null, recommendations: [] },
+      ],
+    }),
+  )
+  let request: { history: unknown[]; design: PosterDesign } | undefined
+  vi.stubGlobal('fetch', async (input: Request | string) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.endsWith('/csrf')) return Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' })
+    if (input instanceof Request && url.endsWith('/ai-requests')) {
+      request = (await input.json()) as { history: unknown[]; design: PosterDesign }
+      return Response.json({ reply: '새 답변', recommendations: [] })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  const query = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+  })
+  query.setQueryData(postingKeys.posting(posting.recruitmentId), posting)
+  query.setQueryData(posterBrandKey, {})
+  const router = createMemoryRouter(
+    [{ path: '/hr/recruitments/:recruitmentId/posting/poster', element: <PostingPosterPage /> }],
+    { initialEntries: [`/hr/recruitments/${posting.recruitmentId}/posting/poster`] },
+  )
+  render(
+    <QueryClientProvider client={query}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
+  expect(screen.getByText('이전 답변')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '대화 지우기' }))
+  expect(screen.queryByText('이전 답변')).not.toBeInTheDocument()
+  expect(screen.queryByText('이전 요청')).not.toBeInTheDocument()
+  expect(sessionStorage.getItem(key)).toBeNull()
+  expect(screen.getByLabelText('대표 색상')).toHaveValue(posting.poster!.color)
+  fireEvent.click(screen.getByRole('button', { name: '우리는 더 고급스러운 느낌이 있어야 해' }))
+  await screen.findByText('새 답변')
+  expect(request?.history).toEqual([])
+  expect(request?.design).toEqual(posting.poster)
 })
