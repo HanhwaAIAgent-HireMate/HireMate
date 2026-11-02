@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { suggestQuestions, type SuggestionInput } from '@/features/chat/suggestions'
+import {
+  suggestInterviewerQuestions,
+  suggestQuestions,
+  type SuggestionInput,
+} from '@/features/chat/suggestions'
 
 const FEATURES: SuggestionInput['features'] = [
   { group: 'QUALIFICATION', label: 'Java·Spring' },
@@ -120,5 +124,39 @@ describe('suggestQuestions', () => {
         input({ type: 'INTERVIEW', status: 'CONFIRMED', features: [], mentions: 1 }),
       )[0],
     ).toBe('멘션한 지원자의 강점과 확인할 점을 정리해줘')
+  })
+})
+
+describe('suggestInterviewerQuestions', () => {
+  const base = { name: '김하늘', answered: false, previousAnswered: false }
+
+  it('면접 전에는 서류에서 확인할 점과 면접 질문을 권한다', () => {
+    expect(suggestInterviewerQuestions({ ...base, status: 'SCHEDULED' })).toEqual([
+      '김하늘 님의 서류에서 면접 때 확인할 점을 정리해줘',
+      '김하늘 님에게 물어볼 면접 질문 만들어줘',
+    ])
+  })
+
+  it('앞 면접 기록이 있으면 그때 확인하지 못한 점을 권한다', () => {
+    expect(
+      suggestInterviewerQuestions({ ...base, status: 'SCHEDULED', previousAnswered: true })[1],
+    ).toBe('김하늘 님의 이전 면접에서 확인하지 못한 점을 정리해줘')
+  })
+
+  it('진행 중에는 답변이 쌓이면 답변에서 더 확인할 점을 먼저 권한다', () => {
+    expect(suggestInterviewerQuestions({ ...base, status: 'IN_PROGRESS' })).toEqual([
+      '김하늘 님이 프로젝트에서 본인이 한 일을 정리해줘',
+      '김하늘 님의 본인 역할을 확인할 질문 하나 더 만들어줘',
+    ])
+    expect(suggestInterviewerQuestions({ ...base, status: 'IN_PROGRESS', answered: true })[0]).toBe(
+      '김하늘 님의 지금까지 답변에서 더 확인할 점을 알려줘',
+    )
+  })
+
+  it('면접이 끝나면 질문을 더 만들지 않고 답변을 돌아본다', () => {
+    expect(suggestInterviewerQuestions({ ...base, status: 'ENDED', answered: true })).toEqual([
+      '김하늘 님의 면접 답변을 서류 내용과 비교해줘',
+      '김하늘 님의 강점과 더 확인이 필요한 점을 정리해줘',
+    ])
   })
 })

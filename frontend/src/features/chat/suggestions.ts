@@ -1,3 +1,4 @@
+import type { AssignedInterview, InterviewerWorkspace } from '@/features/interview/sessions'
 import type { StageOverview } from '@/features/screening/api'
 import { useStageUi } from '@/features/screening/store'
 import { useCandidateTable, type TableFeature } from '@/features/screening/table'
@@ -101,5 +102,62 @@ export function useStageSuggestions(overview: StageOverview): string[] {
     features: document ? (table.data?.features ?? []) : [],
     mentions,
     checked,
+  })
+}
+
+export type InterviewerSuggestionInput = {
+  /** 면접 화면에 연 지원자 이름 */
+  name: string
+  status: AssignedInterview['status']
+  /** 이번 면접에 기록한 답변이 있는가 */
+  answered: boolean
+  /** 앞 면접 전형에 기록한 답변이 있는가 */
+  previousAnswered: boolean
+}
+
+/**
+ * 면접관 Chat의 추천 질문. 면접관 화면은 지금 연 지원자를 멘션하지 않으므로 '이 지원자' 대신 이름으로 가리키고,
+ * 면접 전, 진행 중, 종료 뒤에 맞춰 고른다. 선택 지원자는 바꿀 수 없어 찾기 대신 분석 · 질문을 권한다.
+ */
+export function suggestInterviewerQuestions({
+  name,
+  status,
+  answered,
+  previousAnswered,
+}: InterviewerSuggestionInput): string[] {
+  const who = `${name} 님`
+  switch (status) {
+    case 'SCHEDULED':
+      return [
+        `${who}의 서류에서 면접 때 확인할 점을 정리해줘`,
+        ...(previousAnswered ? [`${who}의 이전 면접에서 확인하지 못한 점을 정리해줘`] : []),
+        `${who}에게 물어볼 면접 질문 만들어줘`,
+      ].slice(0, LIMIT)
+    case 'IN_PROGRESS':
+      return [
+        ...(answered ? [`${who}의 지금까지 답변에서 더 확인할 점을 알려줘`] : []),
+        `${who}이 프로젝트에서 본인이 한 일을 정리해줘`,
+        `${who}의 본인 역할을 확인할 질문 하나 더 만들어줘`,
+      ].slice(0, LIMIT)
+    case 'ENDED':
+      return [
+        ...(answered ? [`${who}의 면접 답변을 서류 내용과 비교해줘`] : []),
+        `${who}의 강점과 더 확인이 필요한 점을 정리해줘`,
+      ]
+  }
+}
+
+/** 면접관 화면의 추천 질문. 면접 기록을 받기 전에는 목록의 면접 상태로 고른다 */
+export function interviewerSuggestions(
+  interview: Pick<AssignedInterview, 'applicantName' | 'status'>,
+  workspace: InterviewerWorkspace | undefined,
+): string[] {
+  return suggestInterviewerQuestions({
+    name: interview.applicantName,
+    status: workspace?.session.status ?? interview.status,
+    answered: (workspace?.questions ?? []).some((access) => access.question.answer.trim() !== ''),
+    previousAnswered: (workspace?.previous ?? []).some((previous) =>
+      previous.questions.some((question) => question.answer.trim() !== ''),
+    ),
   })
 }

@@ -263,7 +263,9 @@ describe('InterviewRoomPage', () => {
     expect(posts).toEqual(['POST /api/interviewer/sessions/s1/a1/ready'])
     expect(screen.getByLabelText('원장 재설계에서 직접 정한 부분은? 답변')).toBeEnabled()
     expect(screen.getByText('일정을 두고 조율했다')).toBeInTheDocument()
-    expect(screen.getByText('본인 역할을 확인할 질문 하나 더 만들어줘')).toBeInTheDocument()
+    expect(
+      screen.getByText('김하늘 님의 본인 역할을 확인할 질문 하나 더 만들어줘'),
+    ).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '내 메모' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '의견 이유' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /인사.*실무 공유 기록/ })).not.toBeInTheDocument()
