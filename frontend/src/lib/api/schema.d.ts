@@ -948,6 +948,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/interviewer/sessions/{stageId}/{applicationId}/absent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["markInterviewAbsent"];
+        delete: operations["cancelInterviewAbsent"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/interviewer/sessions/{stageId}/questions/{questionId}/follow-ups": {
         parameters: {
             query?: never;
@@ -1260,6 +1276,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["interviewProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/interview/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["schedules"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2220,6 +2252,15 @@ export interface components {
              */
             expectedVersion: number;
         };
+        GroupMember: {
+            /** Format: uuid */
+            applicationId: string;
+            applicantName: string;
+            /** @enum {string} */
+            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED" | "ABSENT";
+            answered: boolean;
+            blocker: string | null;
+        };
         InterviewAssignment: {
             /** Format: uuid */
             stageId: string;
@@ -2230,13 +2271,20 @@ export interface components {
             /** Format: uuid */
             practicalMemberId: string;
             /** @enum {string} */
-            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED";
+            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED" | "ABSENT";
             /** Format: date-time */
             startedAt: string | null;
             /** Format: date-time */
             endedAt: string | null;
             /** Format: int64 */
             version: number;
+        };
+        InterviewGroup: {
+            /** Format: date-time */
+            scheduledAt: string | null;
+            /** @enum {string} */
+            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED" | "ABSENT";
+            members: components["schemas"]["GroupMember"][];
         };
         InterviewerQuestionAccess: {
             question: components["schemas"]["Question"];
@@ -2255,6 +2303,7 @@ export interface components {
             questions: components["schemas"]["InterviewerQuestionAccess"][];
             previous: components["schemas"]["PreviousInterview"][];
             schedule: components["schemas"]["Schedule"] | null;
+            group: components["schemas"]["InterviewGroup"];
         };
         InterviewerAnswer: {
             answer: string;
@@ -2946,12 +2995,20 @@ export interface components {
             /** Format: uuid */
             applicationId: string;
             /** @enum {string} */
-            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED";
+            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED" | "ABSENT";
+            /** Format: date-time */
+            scheduledAt: string | null;
             /** Format: date-time */
             startedAt: string | null;
             /** Format: date-time */
             endedAt: string | null;
             attendees: components["schemas"]["Attendee"][];
+        };
+        StageSchedule: {
+            /** Format: uuid */
+            applicationId: string;
+            /** Format: date-time */
+            scheduledAt: string;
         };
         CandidateOpinions: {
             /** Format: uuid */
@@ -3202,7 +3259,7 @@ export interface components {
             /** @enum {string} */
             myRole: "HR" | "PRACTICAL";
             /** @enum {string} */
-            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED";
+            status: "SCHEDULED" | "IN_PROGRESS" | "ENDED" | "ABSENT";
             /** Format: uuid */
             recruitmentId: string;
         };
@@ -3219,12 +3276,12 @@ export interface components {
             /** Format: uuid */
             stageId: string;
             /** Format: uuid */
-            applicationId: string;
-            /** Format: uuid */
             recruitmentId: string;
             recruitmentTitle: string;
             stageName: string;
-            applicantName: string;
+            /** Format: date-time */
+            scheduledAt: string | null;
+            applicantNames: string[];
             /** Format: date-time */
             startedAt: string;
         };
@@ -5042,6 +5099,52 @@ export interface operations {
             };
         };
     };
+    markInterviewAbsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerWorkspace"];
+                };
+            };
+        };
+    };
+    cancelInterviewAbsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InterviewerWorkspace"];
+                };
+            };
+        };
+    };
     interviewerFollowUp: {
         parameters: {
             query?: never;
@@ -5668,6 +5771,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["SessionProgress"][];
+                };
+            };
+        };
+    };
+    schedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["StageSchedule"][];
                 };
             };
         };

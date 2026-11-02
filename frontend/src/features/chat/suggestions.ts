@@ -144,6 +144,9 @@ export function suggestInterviewerQuestions({
         ...(answered ? [`${who}의 면접 답변을 서류 내용과 비교해줘`] : []),
         `${who}의 강점과 더 확인이 필요한 점을 정리해줘`,
       ]
+    case 'ABSENT':
+      // 면접에 오지 않았으니 서류로만 정리한다
+      return [`${who}의 서류에서 강점과 확인할 점을 정리해줘`]
   }
 }
 

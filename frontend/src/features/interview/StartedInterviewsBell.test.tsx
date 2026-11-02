@@ -18,13 +18,14 @@ if (!('PointerEvent' in window)) {
   Object.assign(window, { PointerEvent: PointerEventShim })
 }
 
-const started = (applicationId: string, applicantName: string, startedAt: string) => ({
+/** 같은 시간에 함께 시작한 면접 한 줄 */
+const started = (names: string | string[], startedAt: string) => ({
   stageId: 's1',
-  applicationId,
   recruitmentId: 'r1',
   recruitmentTitle: '결제 플랫폼 백엔드 개발자',
   stageName: '1차 기술 면접',
-  applicantName,
+  scheduledAt: startedAt,
+  applicantNames: typeof names === 'string' ? [names] : names,
   startedAt,
 })
 
@@ -54,8 +55,8 @@ afterEach(() => {
 describe('HR 알림: 시작한 면접', () => {
   it('새로 시작한 면접을 종에 세고, 열면 면접 전형으로 가는 알림을 보여 주고, 닫으면 읽은 것으로 둔다', async () => {
     renderBell([
-      started('a2', '박서준', '2026-11-02T05:00:00Z'),
-      started('a1', '김하늘', '2026-11-02T02:00:00Z'),
+      started('박서준', '2026-11-02T05:00:00Z'),
+      started('김하늘', '2026-11-02T02:00:00Z'),
     ])
     fireEvent.click(await screen.findByRole('button', { name: '알림 2개' }))
 
@@ -77,8 +78,8 @@ describe('HR 알림: 시작한 면접', () => {
       String(Date.parse('2026-11-02T03:00:00Z')),
     )
     renderBell([
-      started('a2', '박서준', '2026-11-02T05:00:00Z'),
-      started('a1', '김하늘', '2026-11-02T02:00:00Z'),
+      started('박서준', '2026-11-02T05:00:00Z'),
+      started('김하늘', '2026-11-02T02:00:00Z'),
     ])
 
     expect(await screen.findByRole('button', { name: '알림 1개' })).toBeInTheDocument()
@@ -86,14 +87,14 @@ describe('HR 알림: 시작한 면접', () => {
 
   it('화면을 연 뒤에 새로 시작한 면접은 종 아래에 띄워 보여 주고 잠시 뒤 내린다', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    const { server, client } = renderBell([started('a1', '김하늘', '2026-11-02T02:00:00Z')])
+    const { server, client } = renderBell([started('김하늘', '2026-11-02T02:00:00Z')])
     // 처음 받아 온 알림은 띄우지 않고 점만 찍는다
     expect(await screen.findByRole('button', { name: '알림 1개' })).toBeInTheDocument()
     expect(screen.queryByRole('status', { name: '새 알림' })).not.toBeInTheDocument()
 
     server.items = [
-      started('a2', '박서준', '2026-11-02T05:00:00Z'),
-      started('a1', '김하늘', '2026-11-02T02:00:00Z'),
+      started('박서준', '2026-11-02T05:00:00Z'),
+      started('김하늘', '2026-11-02T02:00:00Z'),
     ]
     await act(() => client.refetchQueries())
     const preview = await screen.findByRole('status', { name: '새 알림' })
@@ -116,7 +117,7 @@ describe('HR 알림: 시작한 면접', () => {
     await vi.waitFor(() =>
       expect(client.getQueryState(['interview', 'started'])?.status).toBe('success'),
     )
-    server.items = [started('a2', '박서준', '2026-11-02T05:00:00Z')]
+    server.items = [started('박서준', '2026-11-02T05:00:00Z')]
     await act(() => client.refetchQueries())
     fireEvent.click(await screen.findByRole('button', { name: '새 알림 닫기' }))
     expect(screen.queryByRole('status', { name: '새 알림' })).not.toBeInTheDocument()
@@ -124,7 +125,7 @@ describe('HR 알림: 시작한 면접', () => {
     await act(() => client.refetchQueries())
     expect(screen.queryByRole('status', { name: '새 알림' })).not.toBeInTheDocument()
 
-    server.items = [started('a3', '이도윤', '2026-11-02T06:00:00Z'), ...server.items]
+    server.items = [started('이도윤', '2026-11-02T06:00:00Z'), ...server.items]
     await act(() => client.refetchQueries())
     const preview = await screen.findByRole('status', { name: '새 알림' })
     expect(preview).toHaveTextContent('이도윤 면접이 시작됐어요')
@@ -136,7 +137,7 @@ describe('HR 알림: 시작한 면접', () => {
     await vi.waitFor(() =>
       expect(client.getQueryState(['interview', 'started'])?.status).toBe('success'),
     )
-    server.items = [started('a2', '박서준', '2026-11-02T05:00:00Z')]
+    server.items = [started('박서준', '2026-11-02T05:00:00Z')]
     await act(() => client.refetchQueries())
     const preview = await screen.findByRole('status', { name: '새 알림' })
 
@@ -161,6 +162,14 @@ describe('HR 알림: 시작한 면접', () => {
     )
     // 밀어서 닫아도 알림 목록을 열어 보기 전까지 점은 남는다
     expect(screen.getByRole('button', { name: '알림 1개' })).toBeInTheDocument()
+  })
+
+  it('같은 시간에 함께 시작한 면접은 한 줄로 알린다', async () => {
+    renderBell([started(['김하늘', '박서준', '이도윤'], '2026-11-02T05:00:00Z')])
+    fireEvent.click(await screen.findByRole('button', { name: '알림 1개' }))
+    expect(
+      screen.getByRole('link', { name: /김하늘 외 2명 면접이 시작됐어요/ }),
+    ).toBeInTheDocument()
   })
 
   it('시작한 면접이 없으면 새 알림이 없다고 알린다', async () => {

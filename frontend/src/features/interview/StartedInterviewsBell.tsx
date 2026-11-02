@@ -48,6 +48,14 @@ type StartedInterview = Schemas['StartedInterview']
 const stagePath = (item: StartedInterview) =>
   `/hr/recruitments/${item.recruitmentId}/stages/${item.stageId}`
 
+const noticeKey = (item: StartedInterview) => `${item.stageId}:${item.startedAt}`
+
+/** 같은 시간에 함께 시작한 면접은 한 줄로 알린다. 예: 김하늘 외 2명 면접이 시작됐어요 */
+const noticeTitle = (item: StartedInterview) => {
+  const [first = '', ...rest] = item.applicantNames
+  return `${first}${rest.length > 0 ? ` 외 ${rest.length}명` : ''} 면접이 시작됐어요`
+}
+
 /**
  * HR 머리글의 알림. 면접관이 모두 준비 완료해 시작한 면접을 알리고, 누르면 그 면접 전형으로 간다.
  * 화면을 연 뒤에 새로 시작한 면접은 종 바로 아래에 잠깐 띄워 보여 주고, 마지막으로 열어 본 뒤에 시작한 면접이 있으면
@@ -108,7 +116,7 @@ export function StartedInterviewsBell({ memberId }: { memberId: string }) {
           ) : (
             <ul aria-label="시작한 면접" className="max-h-96 divide-y overflow-auto">
               {items.map((item) => (
-                <li key={`${item.stageId}:${item.applicationId}`}>
+                <li key={noticeKey(item)}>
                   <Link
                     to={stagePath(item)}
                     className={cn(
@@ -120,7 +128,7 @@ export function StartedInterviewsBell({ memberId }: { memberId: string }) {
                       {fresh(item.startedAt) && (
                         <span aria-hidden="true" className="size-1.5 rounded-full bg-destructive" />
                       )}
-                      {item.applicantName} 면접이 시작됐어요
+                      {noticeTitle(item)}
                     </p>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       {item.recruitmentTitle} · {item.stageName} · {formatDateTime(item.startedAt)}
@@ -241,7 +249,7 @@ function ArrivedPreview({
     >
       <ul className="divide-y">
         {items.slice(0, 3).map((item) => (
-          <li key={`${item.stageId}:${item.applicationId}`}>
+          <li key={noticeKey(item)}>
             <Link
               to={stagePath(item)}
               draggable={false}
@@ -252,7 +260,7 @@ function ArrivedPreview({
                 <Bell className="size-3.5" />
               </span>
               <span className="min-w-0">
-                <span className="block font-medium">{item.applicantName} 면접이 시작됐어요</span>
+                <span className="block font-medium">{noticeTitle(item)}</span>
                 <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                   {item.recruitmentTitle} · {item.stageName}
                 </span>
