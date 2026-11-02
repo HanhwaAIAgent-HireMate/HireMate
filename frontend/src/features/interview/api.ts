@@ -228,10 +228,7 @@ export function useStageSchedules(stageId: string, enabled = true) {
   })
 }
 
-/** 면접 일정 한 줄. 예: 10.31 (금) 14:00 · 면접관 2명 */
+/** 면접 일시만 표시한다. 담당자 이름은 실제 배정·준비 현황에서 읽는다. */
 export function scheduleLabel(schedule: Interview['schedule']) {
-  if (!schedule) return null
-  return [schedule.scheduledAt && formatDateTime(schedule.scheduledAt), schedule.interviewers]
-    .filter(Boolean)
-    .join(' · ')
+  return schedule?.scheduledAt ? formatDateTime(schedule.scheduledAt) : null
 }

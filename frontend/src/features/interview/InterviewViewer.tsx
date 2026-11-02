@@ -34,7 +34,6 @@ import {
   type InterviewQuestion,
 } from '@/features/interview/api'
 import { HrOpinions } from '@/features/interview/HrOpinions'
-import { CandidateInterviewProgress } from '@/features/interview/CandidateInterviewProgress'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import { QuestionReason } from '@/features/interview/QuestionReason'
 import { RoleTag } from '@/features/interview/RoleTag'
@@ -169,7 +168,6 @@ function Questions({
           <PreviousQuestions questions={previous.questions} />
         </section>
       ))}
-      <CandidateInterviewProgress stageId={stageId} applicationId={applicationId} />
       <div className="flex items-center gap-2 text-sm font-semibold">
         맞춤 질문
         <AgentChip name="Interview Agent" />

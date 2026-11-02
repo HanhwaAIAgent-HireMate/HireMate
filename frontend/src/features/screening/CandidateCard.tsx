@@ -17,6 +17,7 @@ import {
 import { AssessmentViewer } from '@/features/assessment/AssessmentViewer'
 import { scheduleLabel, useInterview } from '@/features/interview/api'
 import { InterviewViewer } from '@/features/interview/InterviewViewer'
+import { CandidateInterviewProgress } from '@/features/interview/CandidateInterviewProgress'
 import { DocumentViewer } from '@/features/screening/DocumentViewer'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
@@ -84,6 +85,12 @@ export function CandidateCard({
                 </p>
               </div>
             </div>
+            {overview.type === 'INTERVIEW' && (
+              <CandidateInterviewProgress
+                stageId={overview.stageId}
+                applicationId={applicationId}
+              />
+            )}
             {detail.data.row.analysisStatus === 'FAILED' && (
               <RetryAnalysis
                 stageId={overview.stageId}
