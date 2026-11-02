@@ -227,7 +227,7 @@ export function PostingEditor({
 
   /**
    * 덩어리마다 [적용] [되돌리기]. 기본 정보(채용명 · 직무 · 고용 형태 · 경력 · 근무지)와
-   * 모집 조건(채용 인원 · 직급 · 학력 · 급여 · 근무 일시)은 각각 한 덩어리로 처리한다
+   * 모집 조건(채용 인원 · 직급 · 학력 · 급여 · 근무 요일 · 시간)은 각각 한 덩어리로 처리한다
    */
   const actions = (field: string) => {
     let fields = BASIC_FIELDS.includes(field)
@@ -394,7 +394,7 @@ export function PostingEditor({
                     key={field.key}
                     className={cn('flex items-center gap-2 text-sm', field.wide && 'col-span-2')}
                   >
-                    <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                    <span className="w-24 shrink-0 text-xs text-muted-foreground">
                       {field.label}
                     </span>
                     <input

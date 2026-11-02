@@ -45,7 +45,7 @@ export const CONDITION_FIELDS: {
   { key: 'salary', label: '급여', placeholder: '예: 회사 내규에 따름', maxLength: 100 },
   {
     key: 'workHours',
-    label: '근무 일시',
+    label: '근무 요일 · 시간',
     placeholder: '예: 주 5일(월~금) 10:00~19:00',
     maxLength: 100,
     wide: true,
