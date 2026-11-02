@@ -240,11 +240,14 @@ export function CandidateList({
                       <InterviewProgressBadge
                         status={progressByApplication.get(row.applicationId)}
                       />
-                      <OpinionBadges
-                        row={opinions.data?.find(
-                          (item) => item.applicationId === row.applicationId,
-                        )}
-                      />
+                      {/* 의견은 면접을 마친 뒤에 내므로 종료된 지원자에게만 보인다 */}
+                      {progressByApplication.get(row.applicationId) === 'ENDED' && (
+                        <OpinionBadges
+                          row={opinions.data?.find(
+                            (item) => item.applicationId === row.applicationId,
+                          )}
+                        />
+                      )}
                     </div>
                   ) : undefined
                 }
