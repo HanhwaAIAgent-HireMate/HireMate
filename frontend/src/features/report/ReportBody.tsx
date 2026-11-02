@@ -6,12 +6,14 @@ import {
   crossCounts,
   evidenceParts,
   isScoreView,
+  itemNames,
   meterOf,
   POSITIVE,
   SCORE_CELLS,
   topPercent,
   type EvidenceParts,
   type Meter,
+  withItemNames,
 } from './derive'
 import { EChart } from './EChart'
 import { SEQ, STATUS, word } from './palette'
@@ -53,7 +55,7 @@ function pack(blocks: Block[]) {
   return spans
 }
 
-/** 부품이 그리는 데 쓰는 것. 문장 속 지원자번호에 이름을 붙이는 text와 인쇄 중인지(printing)를 더한다 */
+/** 부품이 그리는 데 쓰는 것. 문장 속 지원자번호에 이름을, 항목 코드에 항목 이름을 붙이는 text와 인쇄 중인지(printing)를 더한다 */
 interface BodyContext extends ChartContext {
   text: (value: string) => string
   printing: boolean
@@ -67,16 +69,17 @@ export function ReportBody({ report }: { report: ReportView }) {
   const { bundle, spec } = report
   const printing = usePrinting()
   const names = printing ? NO_NAMES : report.names
+  const items = useMemo(() => itemNames(bundle), [bundle])
   const ctx = useMemo<BodyContext>(
     () => ({
       bundle,
       name: (number) => names[number] ?? null,
       who: (number) => whoOf(names, number),
       color: peopleColors(bundle.targets),
-      text: (value) => withNames(value, names),
+      text: (value) => withItemNames(withNames(value, names), items),
       printing,
     }),
-    [bundle, names, printing],
+    [bundle, names, items, printing],
   )
 
   return (
@@ -89,8 +92,14 @@ export function ReportBody({ report }: { report: ReportView }) {
         </div>
       )}
       <p className="rounded-xl border bg-card px-4 py-3.5 text-[15px] leading-7">
+        {!report.fallback && (
+          <span className="mr-2 rounded bg-ai-soft px-1.5 py-0.5 align-[2px] text-[11px] font-bold text-ai">
+            ◇ AI 요약
+          </span>
+        )}
         {ctx.text(spec.summary)}
       </p>
+      {(spec.splits?.length ?? 0) > 0 && <SplitList splits={spec.splits ?? []} ctx={ctx} />}
       {spec.sections.map((section, index) => (
         <section key={index} className="flex flex-col gap-2.5" aria-label={ctx.text(section.title)}>
           <div className="flex items-center gap-2.5">
@@ -105,6 +114,12 @@ export function ReportBody({ report }: { report: ReportView }) {
             )}
           </div>
           <p className="text-sm leading-6 font-semibold text-foreground/90">
+            {/* 섹션 한 줄 요약은 Report Agent가 그 섹션의 표를 읽고 쓴 해석이다. 기본 구성이면 코드가 쓴 문구라 표시하지 않는다 */}
+            {!report.fallback && (
+              <span className="mr-1.5 rounded bg-ai-soft px-1.5 py-0.5 align-[1px] text-[11px] font-bold text-ai">
+                ◇ AI 해석
+              </span>
+            )}
             {ctx.text(section.takeaway)}
           </p>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
@@ -605,6 +620,7 @@ function EvidenceView({ block, ctx }: { block: EvidenceBlock; ctx: BodyContext }
           style={{ borderLeftColor: ctx.color(number) ?? '#C9CED6' }}
         >
           <Person number={number} ctx={ctx} />
+          <QuantifiedQuotes items={grouped.get(number) ?? []} bundle={bundle} />
           <div className="flex flex-col divide-y divide-dashed">
             {(grouped.get(number) ?? []).map((item, i) => (
               <EvidenceEntry key={i} item={item} bundle={bundle} ctx={ctx} />
@@ -625,10 +641,13 @@ function EvidenceEntry({
   bundle: ReportBundle
   ctx: BodyContext
 }) {
-  const parts = item.evidence.flatMap((id) => {
-    const found = bundle.evidence.find((evidence) => evidence.id === id)
-    return found ? [evidenceParts(bundle, found)] : []
-  })
+  // 정량 원문이 받치는 판단을 먼저 둔다. 같은 강도 안에서는 모델이 고른 순서를 지킨다
+  const parts = item.evidence
+    .flatMap((id) => {
+      const found = bundle.evidence.find((evidence) => evidence.id === id)
+      return found ? [evidenceParts(bundle, found)] : []
+    })
+    .sort((a, b) => Number(b.strength === 'QUANT') - Number(a.strength === 'QUANT'))
   const quotes = [
     ...new Map(parts.flatMap((p) => (p.quote ? [[p.quote, p] as const] : []))).values(),
   ]
@@ -664,8 +683,20 @@ function EvidenceEntry({
             <div className="flex flex-col gap-1">
               <Tag>원문</Tag>
               {quotes.map((part) => (
-                <p key={part.id} className="text-[12.5px] text-muted-foreground">
-                  <span className="text-foreground">“{part.quote}”</span> · {part.source}
+                <p
+                  key={part.id}
+                  className={cn(
+                    'text-[12.5px] text-muted-foreground',
+                    part.strength === 'CLAIM' && 'opacity-80',
+                  )}
+                >
+                  {part.strength && <StrengthChip strength={part.strength} />}
+                  <span
+                    className={cn('text-foreground', part.strength === 'QUANT' && 'font-semibold')}
+                  >
+                    “{part.quote}”
+                  </span>{' '}
+                  · {part.source}
                 </p>
               ))}
             </div>
@@ -700,6 +731,137 @@ function Analysis({ part }: { part: EvidenceParts }) {
         <span className="text-xs text-muted-foreground">· {AGENTS[part.agent] ?? part.agent}</span>
       </p>
     </div>
+  )
+}
+
+/**
+ * 판정이 갈린 이유. Report Agent가 서류 Agent의 판정 세부(충족한 부분 · 못 채운 부분 · 역할)를 읽고 항목마다 한 문장으로
+ * 쓴 것이다. 항목 이름을 앞에 두고, 문장이 인용한 근거 수를 붙인다. 모델이 쓰지 못한 항목은 코드가 판정만 적는다.
+ */
+function SplitList({
+  splits,
+  ctx,
+}: {
+  splits: NonNullable<ReportView['spec']['splits']>
+  ctx: BodyContext
+}) {
+  const labels = new Map(ctx.bundle.facts.map((fact) => [fact.key, fact.label]))
+  return (
+    <section
+      aria-label="판정이 갈린 이유"
+      className="flex flex-col gap-2 rounded-xl border border-ai/30 bg-ai-soft/40 px-4 py-3.5"
+    >
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h3 className="text-sm font-bold text-ai">판정이 갈린 이유</h3>
+        <span className="text-[11px] text-muted-foreground">
+          AI가 서류 분석의 충족한 부분 · 못 채운 부분 · 역할을 읽고 정리했어요
+        </span>
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {splits.map((split) => (
+          <li
+            key={split.key}
+            className="flex flex-col gap-0.5 text-[13px] leading-6 md:flex-row md:gap-3"
+          >
+            <b className="shrink-0 md:w-56">{labels.get(split.key) ?? split.key}</b>
+            <span className="flex-1">
+              {ctx.text(split.text)}
+              {split.evidence.length > 0 && (
+                <span className="ml-1.5 text-[11px] text-muted-foreground">
+                  · 근거 {split.evidence.length}건
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** 원문 안의 성과 수치(숫자 + 단위). 눈에 띄게 칠할 부분만 고르며, 정량 · 서술 판정은 ai가 한다 */
+const FIGURE = /(\d[\d,.]*\s*(?:%|퍼센트|배|ms|초|분|시간|일|개월|건|회|번|개|원|만|억|TPS|QPS|x)?)/
+
+/**
+ * 지원자 카드 맨 위의 성과 수치 상자. 그 지원자가 인용된 근거 중 정량 원문만 모아 숫자를 칠해 먼저 보여 준다.
+ * 정량 근거가 서술 근거보다 강하다는 위계를 화면에서 바로 읽게 한다. 정량 원문이 없으면 그렇다고 알린다.
+ */
+function QuantifiedQuotes({
+  items,
+  bundle,
+}: {
+  items: EvidenceBlock['items']
+  bundle: ReportBundle
+}) {
+  const ids = new Set(items.flatMap((item) => item.evidence))
+  // 근거가 하나도 없는 지원자는 아래 항목이 '확인되지 않았어요'를 알린다
+  if (ids.size === 0) return null
+  const quotes = [
+    ...new Map(
+      bundle.evidence
+        .filter(
+          (evidence) => ids.has(evidence.id) && evidence.strength === 'QUANT' && evidence.quote,
+        )
+        .map((evidence) => [evidence.quote, evidence] as const),
+    ).values(),
+  ]
+  if (quotes.length === 0) {
+    return (
+      <p className="w-fit rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+        성과 수치 없음 · 한 일만 적은 서술 근거예요. 규모와 성과는 면접에서 확인해요.
+      </p>
+    )
+  }
+  return (
+    <div
+      className="flex flex-col gap-1 rounded-md border px-3 py-2"
+      style={{ borderColor: STATUS.MET.bar, background: STATUS.MET.bg }}
+    >
+      <span className="text-xs font-bold" style={{ color: STATUS.MET.fg }}>
+        성과 수치 {quotes.length}건 · 숫자로 확인되는 강한 근거
+      </span>
+      {quotes.map((evidence) => (
+        <p key={evidence.id} className="text-[13px]">
+          “
+          {(evidence.quote ?? '').split(FIGURE).map((part, index) =>
+            index % 2 === 1 ? (
+              <mark
+                key={index}
+                className="rounded px-0.5 font-bold"
+                style={{ background: '#CFE5D7', color: STATUS.MET.fg }}
+              >
+                {part}
+              </mark>
+            ) : (
+              part
+            ),
+          )}
+          ”{' '}
+          <span className="text-xs text-muted-foreground">
+            · {evidence.label ?? evidence.source}
+          </span>
+        </p>
+      ))}
+    </div>
+  )
+}
+
+/** 원문 강도 표시. 정량은 성과를 숫자로 적은 강한 근거, 서술은 한 일만 적은 약한 근거다 */
+function StrengthChip({ strength }: { strength: 'QUANT' | 'CLAIM' }) {
+  const quant = strength === 'QUANT'
+  const status = quant ? STATUS.MET : STATUS.UNKNOWN
+  return (
+    <span
+      title={
+        quant
+          ? '성과를 숫자로 적은 근거예요'
+          : '한 일만 적은 근거예요. 규모 · 성과는 확인이 필요해요'
+      }
+      className="mr-1.5 inline-block rounded px-1.5 py-px align-[1px] text-[10.5px] font-semibold"
+      style={{ background: status.bg, color: status.fg }}
+    >
+      {quant ? '정량' : '서술'}
+    </span>
   )
 }
 

@@ -94,6 +94,7 @@ const report: ReportView = {
   skills: ['compare'],
   specialists: [],
   fallback: false,
+  steps: [],
 }
 
 describe('리포트 본문', () => {
@@ -108,6 +109,39 @@ describe('리포트 본문', () => {
     expect(section).toHaveTextContent('✓ 충족')
     expect(section).toHaveTextContent('✕ 미충족')
     expect(section).toHaveTextContent('정지호')
+  })
+
+  it('정량 원문은 카드 맨 위 성과 수치 상자에 숫자를 칠해 먼저 보여 준다', () => {
+    const quantified = structuredClone(report)
+    quantified.bundle.evidence[0] = {
+      ...quantified.bundle.evidence[0],
+      quote: '리뷰 대기 시간을 40% 줄였다',
+      strength: 'QUANT',
+    }
+    const { container } = render(<ReportBody report={quantified} />)
+
+    expect(screen.getByText(/성과 수치 1건/)).toBeInTheDocument()
+    expect(container.querySelector('mark')).toHaveTextContent('40%')
+    const text = container.textContent ?? ''
+    expect(text.indexOf('성과 수치 1건')).toBeLessThan(text.indexOf('PR 리뷰 규칙'))
+  })
+
+  it('판정이 갈린 이유를 요약 아래에 항목 이름과 함께 보여 준다', () => {
+    const split = structuredClone(report)
+    split.spec.splits = [
+      { key: 'q', text: 'A-0025는 협업 근거가 서류에 없어요.', evidence: ['e1'] },
+    ]
+    render(<ReportBody report={split} />)
+
+    const box = screen.getByRole('region', { name: '판정이 갈린 이유' })
+    expect(box).toHaveTextContent('Q-04 협업')
+    expect(box).toHaveTextContent('김지우(A-0025)는 협업 근거가 서류에 없어요.')
+    expect(box).toHaveTextContent('근거 1건')
+  })
+
+  it('정량 원문이 없으면 서술 근거뿐이라고 알린다', () => {
+    render(<ReportBody report={report} />)
+    expect(screen.getAllByText(/성과 수치 없음/)).toHaveLength(1) // 근거가 없는 김지우 카드에는 붙이지 않는다
   })
 
   it('근거는 지원자마다 한 카드에 키워드, AI 분석, 원문 순서로 보여 준다', () => {
