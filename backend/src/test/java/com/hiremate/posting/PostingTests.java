@@ -124,7 +124,7 @@ class PostingTests extends IntegrationTest {
 
     @Test
     @DisplayName("모집 조건(채용 인원 · 직급 · 학력 · 근무 일시 · 급여)을 저장하고 AI 수정안으로 고치며, 지원자 화면에 보여 준다. "
-            + "고용 형태는 정규직 · 계약직 · 인턴 · 파견직만 받는다")
+            + "고용 형태와 경력은 정해 둔 값만 받는다")
     void recruitmentConditionsAreSavedAndShown() throws Exception {
         TestApi hr = newHr();
         JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
@@ -149,6 +149,11 @@ class PostingTests extends IntegrationTest {
         content.put("employmentType", "파견직");
         assertThat(json(expect(hr.put(base, content), 200)).path("content").path("employmentType").asString())
                 .isEqualTo("파견직");
+        content.put("career", "3년 차 이상");
+        expect(hr.put(base, content), 400);
+        content.put("career", "경력 3년 이상");
+        assertThat(json(expect(hr.put(base, content), 200)).path("content").path("career").asString())
+                .isEqualTo("경력 3년 이상");
 
         PostingContent current = postings.draftContext(hr.companyId(), id).content();
         PostingContent suggested = new PostingContent(current.title(), current.jobCategory(),

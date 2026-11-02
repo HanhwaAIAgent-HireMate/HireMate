@@ -3,6 +3,32 @@ import type { PostingContent } from '@/features/posting/api'
 /** 고용 형태는 이 넷 중에서만 고른다. backend PostingContentRequest, ai reviser와 같다 */
 export const EMPLOYMENT_TYPES = ['정규직', '계약직', '인턴', '파견직'] as const
 
+/** 경력 종류. 경력은 "경력 N년 이상"으로 연차를 붙일 수 있다. backend PostingContentRequest, ai reviser와 같다 */
+export const CAREER_KINDS = ['신입', '경력', '경력 무관'] as const
+export type CareerKind = (typeof CAREER_KINDS)[number]
+export const MAX_CAREER_YEARS = 99
+
+/** 저장된 경력 글을 종류와 연차로 나눈다. 넷 중 어느 모양도 아니면(예전에 글로 적은 값) 종류는 null이다 */
+export function parseCareer(career: string): { kind: CareerKind | null; years: number | null } {
+  const years = /^경력 (\d+)년 이상$/.exec(career)
+  if (years) return { kind: '경력', years: Number(years[1]) }
+  const kind = CAREER_KINDS.find((item) => item === career)
+  return { kind: kind ?? null, years: null }
+}
+
+/** 종류와 연차로 저장할 경력 글을 만든다. 연차는 경력일 때만 붙고, 비우면 "경력"이다 */
+export function formatCareer(kind: CareerKind, years: number | null): string {
+  return kind === '경력' && years ? `경력 ${years}년 이상` : kind
+}
+
+/** 연차 칸 글을 1~MAX_CAREER_YEARS 숫자로 바꾼다. 비우거나 범위 밖이면 null이다 */
+export function toCareerYears(value: string): number | null {
+  const years = Number(value)
+  return value !== '' && Number.isInteger(years) && years >= 1 && years <= MAX_CAREER_YEARS
+    ? years
+    : null
+}
+
 export type ConditionKey = 'headcount' | 'position' | 'education' | 'workHours' | 'salary'
 
 /** 모집 조건 칸. 길이는 backend job_postings 테이블과 같다. 채용 인원은 숫자만 받는다 */

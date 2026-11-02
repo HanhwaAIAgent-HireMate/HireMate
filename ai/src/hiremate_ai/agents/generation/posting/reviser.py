@@ -147,6 +147,8 @@ MAX_HEADCOUNT = 9999
 """채용 인원 한도. backend PostingContentRequest와 같다."""
 EMPLOYMENT_TYPES = ("정규직", "계약직", "인턴", "파견직")
 """고를 수 있는 고용 형태. backend PostingContentRequest, frontend EMPLOYMENT_TYPES와 같다."""
+CAREER_KINDS = ("신입", "경력", "경력 무관")
+"""고를 수 있는 경력 종류. 경력은 "경력 N년 이상"(1~99)으로 연차를 붙일 수 있다. backend, frontend와 같다."""
 
 EXTRA_WORDS = {DocumentType.PORTFOLIO: ("포트폴리오",), DocumentType.CERTIFICATE: ("자격증",)}
 """필수 서류는 요청에 그 서류가 나올 때만 넣고 뺀다. 작은 모델이 요청하지 않은 서류를 더하곤 한다."""
@@ -335,6 +337,7 @@ CONTENT_STEP = (
     "쓰고, 다른 하나는 null로 둔다. 채용 인원은 숫자만 쓴다(예: 3). "
     "고용 형태는 정규직, 계약직, 인턴, 파견직 중 하나만 그대로 쓴다. "
     "넷에 없는 형태를 요청하면 고용 형태는 바꾸지 않는다. "
+    "경력은 신입, 경력, 경력 무관, 경력 N년 이상(예: 경력 3년 이상) 중 하나로 쓴다. "
     "text에는 현재 값을 복사하지 않고 요청한 새 값을 쓴다. "
     "예: 현재 근무지가 서울이고 '근무지만 부산으로 바꿔줘'라는 요청이면 field='근무지', text='부산'이다. "
     "경력 조건을 바꾸면 자격 요건과 우대 사항에 같은 이전 경력 조건이 있는지 확인하고 함께 맞춘다. "
@@ -818,7 +821,7 @@ def _apply(content: PostingContent, changes: list[FieldChange]) -> tuple[Posting
 
     빈 값은 칸을 지우라는 뜻으로 보지 않는다. 작은 모델이 바꾸지 않을 칸을 빈 값으로 채우기 때문이다.
     채용 인원은 글에서 숫자를 읽고, 숫자가 없거나 한도를 넘으면 바꾸지 않는다.
-    고용 형태는 EMPLOYMENT_TYPES 중 하나일 때만 바꾼다.
+    고용 형태는 EMPLOYMENT_TYPES 중 하나일 때만, 경력은 _career로 읽을 수 있을 때만 바꾼다.
     """
     updates: dict[str, str | list[str] | int] = {}
     for change in changes:
@@ -827,6 +830,11 @@ def _apply(content: PostingContent, changes: list[FieldChange]) -> tuple[Posting
             count = _headcount(change.text)
             if count is not None and count != content.headcount:
                 updates[name] = count
+            continue
+        if name == "career":
+            career = _career(change.text)
+            if career is not None and career != content.career:
+                updates[name] = career
             continue
         if name == "employment_type":
             employment = _tidy(change.text or "")
@@ -871,6 +879,22 @@ def career_conflicts(before: PostingContent, after: PostingContent) -> list[str]
         for index, line in enumerate(getattr(after, name))
         if old.search(line) and any(old.search(previous) for previous in getattr(before, name))
     ]
+
+
+def _career(text: str | None) -> str | None:
+    """경력 글을 정해 둔 모양(CAREER_KINDS, "경력 N년 이상")으로 맞춘다. 맞출 수 없으면 None이다.
+
+    "3년 이상", "경력3년이상"처럼 띄어쓰기나 "경력"이 빠진 글도 받는다.
+    """
+    cleaned = re.sub(r"\s+", " ", _tidy(text or ""))
+    if cleaned in CAREER_KINDS:
+        return cleaned
+    if cleaned in ("무관", "경력무관"):
+        return "경력 무관"
+    found = re.fullmatch(r"(?:경력\s*)?(\d{1,2})\s*년\s*이상", cleaned)
+    if found and 1 <= int(found.group(1)) <= 99:
+        return f"경력 {int(found.group(1))}년 이상"
+    return None
 
 
 def _headcount(text: str | None) -> int | None:

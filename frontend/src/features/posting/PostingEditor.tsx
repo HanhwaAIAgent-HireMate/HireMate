@@ -33,8 +33,14 @@ import { usePostingRecovery } from '@/features/posting/usePostingRecovery'
 import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/stages'
 import {
   CONDITION_FIELDS,
+  CAREER_KINDS,
   CONDITION_KEYS,
   EMPLOYMENT_TYPES,
+  MAX_CAREER_YEARS,
+  formatCareer,
+  parseCareer,
+  toCareerYears,
+  type CareerKind,
   MAX_HEADCOUNT,
   toHeadcount,
 } from '@/features/posting/conditions'
@@ -352,6 +358,14 @@ export function PostingEditor({
                       changed={changed.has(tag.key)}
                       onChange={(employmentType) => update({ employmentType })}
                     />
+                  ) : tag.key === 'career' ? (
+                    <CareerField
+                      key={tag.key}
+                      value={shown.career}
+                      disabled={locked(tag.key)}
+                      changed={changed.has(tag.key)}
+                      onChange={(career) => update({ career })}
+                    />
                   ) : (
                     <input
                       key={tag.key}
@@ -650,5 +664,74 @@ function EmploymentTypeSelect({
         ))}
       </SelectContent>
     </Select>
+  )
+}
+
+/**
+ * 경력은 신입 · 경력 · 경력 무관 중에서 고르고, 경력이면 "N년 이상" 연차를 적을 수 있다(비우면 "경력").
+ * 예전에 글로 적은 값은 지우지 않고 목록 끝에 보여 준다
+ */
+function CareerField({
+  value,
+  disabled,
+  changed,
+  onChange,
+}: {
+  value: string
+  disabled: boolean
+  changed: boolean
+  onChange: (value: string) => void
+}) {
+  const { kind, years } = parseCareer(value)
+  const options: string[] = [...CAREER_KINDS]
+  if (value && !kind) options.push(value)
+  return (
+    <div className={cn('flex items-center gap-1 rounded-md', changed && 'bg-pass')}>
+      <Select
+        value={(kind ?? value) || undefined}
+        onValueChange={(next) =>
+          onChange(
+            CAREER_KINDS.includes(next as CareerKind)
+              ? formatCareer(next as CareerKind, years)
+              : next,
+          )
+        }
+        disabled={disabled}
+      >
+        <SelectTrigger
+          size="sm"
+          aria-label="경력"
+          className={cn(
+            'h-7 gap-1 border-0 bg-muted px-2 text-xs focus-visible:ring-1',
+            changed && 'bg-pass',
+          )}
+        >
+          <SelectValue placeholder="경력" />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option} value={option} className="text-xs">
+              {option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {kind === '경력' && (
+        <label className="flex items-center gap-1 text-xs">
+          <input
+            aria-label="경력 연차"
+            type="number"
+            min={1}
+            max={MAX_CAREER_YEARS}
+            value={years ?? ''}
+            placeholder="0"
+            disabled={disabled}
+            onChange={(event) => onChange(formatCareer('경력', toCareerYears(event.target.value)))}
+            className="h-7 w-12 rounded-md bg-muted px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+          />
+          년 이상
+        </label>
+      )}
+    </div>
   )
 }

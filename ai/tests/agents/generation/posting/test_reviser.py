@@ -251,6 +251,24 @@ async def test_revise_keeps_employment_type_outside_the_four_choices() -> None:
     assert result.suggestion is None or "employmentType" not in result.suggestion.changed_fields
 
 
+@pytest.mark.parametrize(
+    ("written", "expected"),
+    [("5년 이상", "경력 5년 이상"), ("경력무관", "경력 무관"), ("신입", "신입"), ("3~5년", None)],
+)
+async def test_revise_keeps_career_to_the_set_shapes(written: str, expected: str | None) -> None:
+    # 연차가 바뀌면 자격 요건에 남은 이전 연차(경력 3년 이상)를 고치게 한 번 더 묻는다
+    fixed = content(career=written, qualifications=["Java · Spring Boot 기반 서버 개발 경력 5년 이상"])
+    llm = FakeLlm(route("CONTENT"), content(career=written), fixed)
+
+    result = await revise_posting(llm, posting(), "", f"경력을 {written}으로 바꿔 줘")
+
+    if expected is None:
+        assert result.suggestion is None or "career" not in result.suggestion.changed_fields
+    else:
+        assert result.suggestion is not None
+        assert result.suggestion.content.career == expected
+
+
 async def test_revise_tidies_text_bullets_and_number_spacing() -> None:
     llm = FakeLlm(
         route("CONTENT"),
