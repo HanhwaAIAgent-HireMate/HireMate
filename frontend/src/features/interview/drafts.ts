@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
 import { meQueryKey, type Member } from '@/lib/auth'
 
@@ -10,9 +11,27 @@ const MAX_AGE = 7 * 24 * 60 * 60 * 1000
 export function useInterviewDraftKey(stage: string, application: string, field: string) {
   const client = useQueryClient()
   const member = client.getQueryData<Member | null>(meQueryKey)
+  const companyId = member?.companyId
+  const memberId = member?.memberId
+  useEffect(() => {
+    if (companyId && memberId) removeSharedNoteDrafts(companyId, memberId)
+  }, [companyId, memberId])
   return member
     ? `${PREFIX}${member.companyId}:${member.memberId}:${stage}:${application}:${field}`
     : null
+}
+
+/** 제거된 공유 기록 초안만 정리한다. 개인 메모와 답변 초안은 유지한다. */
+export function removeSharedNoteDrafts(companyId: string, memberId: string) {
+  const prefix = `${PREFIX}${companyId}:${memberId}:`
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+    for (const key of keys) {
+      if (key?.startsWith(prefix) && key.endsWith(':shared-note')) localStorage.removeItem(key)
+    }
+  } catch {
+    // 브라우저 저장소 접근이 제한돼도 현재 답변과 개인 메모 편집은 계속한다.
+  }
 }
 
 export function readDraft(key: string | null): InterviewDraft | null {
