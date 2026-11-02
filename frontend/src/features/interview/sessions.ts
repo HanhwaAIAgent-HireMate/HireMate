@@ -167,16 +167,6 @@ export function useWorkspaceActions(stageId: string, applicationId: string) {
     queryClient.invalidateQueries({ queryKey: sessionKeys.workspace(stageId, applicationId) })
   const question = (questionId: string) => ({ params: { path: { stageId, questionId } } })
   return {
-    start: useMutation({
-      mutationFn: () =>
-        unwrap(
-          api.POST(
-            '/api/interviewer/sessions/{stageId}/{applicationId}/start',
-            workspacePath(stageId, applicationId),
-          ),
-        ),
-      onSuccess,
-    }),
     end: useMutation({
       mutationFn: () =>
         unwrap(

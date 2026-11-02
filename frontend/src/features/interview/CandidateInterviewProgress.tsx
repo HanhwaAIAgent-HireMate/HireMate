@@ -2,7 +2,7 @@ import { useStageInterviewProgress } from '@/features/interview/live'
 import { INTERVIEW_STATUS_LABELS } from '@/features/interview/sessions'
 import { cn } from '@/lib/utils'
 
-/** 지원자별로 달라지는 면접 진행과 입장 현황. 면접관 구성은 전형 상단에서만 바꾼다. */
+/** 지원자별로 달라지는 면접 진행과 면접관 준비 현황. 면접관 구성은 전형 상단에서만 바꾼다. */
 export function CandidateInterviewProgress({
   stageId,
   applicationId,
@@ -30,7 +30,7 @@ export function CandidateInterviewProgress({
       >
         면접 {INTERVIEW_STATUS_LABELS[current.status]}
       </span>
-      <ul aria-label="면접관 입장 상태" className="flex flex-wrap gap-x-4 gap-y-1">
+      <ul aria-label="면접관 준비 상태" className="flex flex-wrap gap-x-4 gap-y-1">
         {current.attendees.map((attendee) => (
           <li key={attendee.memberId} className="flex items-center gap-1.5">
             <span>
@@ -39,12 +39,12 @@ export function CandidateInterviewProgress({
             <span
               className={cn(
                 'flex items-center gap-1 text-muted-foreground',
-                attendee.entered && attendee.online && 'text-emerald-700',
-                attendee.entered && !attendee.online && 'text-amber-800',
+                attendee.ready && attendee.online && 'text-emerald-700',
+                attendee.ready && !attendee.online && 'text-amber-800',
               )}
             >
               <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
-              {!attendee.entered ? '입장 대기' : attendee.online ? '접속 중' : '접속 끊김'}
+              {!attendee.ready ? '준비 전' : attendee.online ? '준비 완료' : '접속 끊김'}
             </span>
           </li>
         ))}

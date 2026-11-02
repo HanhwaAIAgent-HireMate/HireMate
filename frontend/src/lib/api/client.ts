@@ -73,7 +73,6 @@ const MESSAGES: Record<string, string> = {
   INTERVIEW_ACCESS_DENIED: '배정된 면접관만 본인 담당 질문을 수정할 수 있어요.',
   INTERVIEW_ASSIGNMENT_CONFLICT:
     '기존 지원자별 면접관 배정이 서로 달라요. 면접 기록을 확인한 뒤 전형 공통 면접관을 설정해 주세요.',
-  INTERVIEWERS_NOT_READY: '배정된 면접관이 모두 입장하고 접속 중인지 확인해 주세요.',
   STAGE_NOT_ACTIVE: '진행 중인 전형에서만 바꿀 수 있어요.',
   QUESTIONS_PREPARING: '질문 준비가 끝나면 면접을 시작할 수 있어요.',
   INTERVIEW_NOT_RUNNING: '면접 진행 중에만 기록할 수 있어요.',
@@ -87,7 +86,7 @@ const MESSAGES: Record<string, string> = {
   INVALID_INTERVIEWER: '같은 기업의 계정만 면접관으로 배정할 수 있어요.',
   DISTINCT_INTERVIEWERS: '인사 면접관과 실무 면접관은 서로 다른 계정으로 배정해 주세요.',
   STAGE_CLOSED: '결과를 확정한 전형이라 바꿀 수 없어요.',
-  INTERVIEW_NOT_STARTED: '먼저 [면접 시작]을 눌러 주세요.',
+  INTERVIEW_NOT_STARTED: '두 면접관이 모두 [준비 완료]를 눌러 면접을 시작한 뒤에 할 수 있어요.',
   INTERVIEW_ENDED: '종료한 면접이에요.',
 
   INVALID_CREDENTIALS: '이메일이나 비밀번호가 맞지 않아요.',

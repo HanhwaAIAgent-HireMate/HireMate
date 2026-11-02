@@ -9,7 +9,7 @@ import { readEvents, type SseEvent } from '@/lib/api/sse'
 export type InterviewAttendance = Schemas['Attendance']
 export type SessionProgress = Schemas['SessionProgress']
 
-/** 배정된 면접관의 명시적 입장과 현재 접속 현황. */
+/** 배정된 면접관의 준비 완료와 현재 접속 현황. */
 export function useInterviewAttendance(stageId: string, applicationId: string) {
   return useQuery({
     queryKey: sessionKeys.attendance(stageId, applicationId),
@@ -22,18 +22,30 @@ export function useInterviewAttendance(stageId: string, applicationId: string) {
   })
 }
 
-export function useEnterInterview(stageId: string, applicationId: string) {
+/**
+ * [준비 완료]와 그 취소. 두 면접관이 모두 준비 완료하면 서버가 그 자리에서 면접을 시작하므로,
+ * 준비 현황과 함께 면접 상태(질문 기록 권한)와 내 면접 목록도 다시 읽는다.
+ */
+export function useInterviewReady(stageId: string, applicationId: string) {
   const client = useQueryClient()
-  return useMutation({
-    mutationFn: () =>
-      unwrap(
-        api.POST('/api/interviewer/sessions/{stageId}/{applicationId}/enter', {
-          params: { path: { stageId, applicationId } },
-        }),
-      ),
-    onSuccess: (saved) =>
-      client.setQueryData(sessionKeys.attendance(stageId, applicationId), saved),
-  })
+  const params = { params: { path: { stageId, applicationId } } }
+  const onSuccess = (saved: InterviewAttendance) => {
+    client.setQueryData(sessionKeys.attendance(stageId, applicationId), saved)
+    void client.invalidateQueries({ queryKey: sessionKeys.workspace(stageId, applicationId) })
+    void client.invalidateQueries({ queryKey: sessionKeys.mine })
+  }
+  return {
+    ready: useMutation({
+      mutationFn: () =>
+        unwrap(api.POST('/api/interviewer/sessions/{stageId}/{applicationId}/ready', params)),
+      onSuccess,
+    }),
+    cancel: useMutation({
+      mutationFn: () =>
+        unwrap(api.DELETE('/api/interviewer/sessions/{stageId}/{applicationId}/ready', params)),
+      onSuccess,
+    }),
+  }
 }
 
 /** HR 지원자 목록과 배정 카드에서 같은 전형 진행 현황 캐시를 공유한다. */

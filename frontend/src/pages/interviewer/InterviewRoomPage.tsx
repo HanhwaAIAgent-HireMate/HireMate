@@ -11,7 +11,7 @@ import { OpinionCard } from '@/features/interview/OpinionCard'
 import { Results } from '@/features/interview/InterviewViewer'
 import { InterviewSessionBar } from '@/features/interview/InterviewSessionBar'
 import {
-  useEnterInterview,
+  useInterviewReady,
   useInterviewAttendance,
   useInterviewRoomLive,
 } from '@/features/interview/live'
@@ -158,7 +158,7 @@ const CHAT_EXAMPLES = [
   '본인 역할을 확인할 질문 하나 더 만들어줘',
 ]
 
-/** 가운데 · 오른쪽: 지원자 한 명의 면접. 위쪽에 진행 상태와 [면접 시작] · [면접 종료] */
+/** 가운데 · 오른쪽: 지원자 한 명의 면접. 위쪽에 진행 상태와 [준비 완료] · [면접 종료] */
 function Room({
   interview,
   assigned,
@@ -173,7 +173,7 @@ function Room({
   const [filter, setFilter] = useState<'all' | 'mine'>('all')
   const [side, setSide] = useState<SideTab>('chat')
   const attendance = useInterviewAttendance(stageId, applicationId)
-  const enter = useEnterInterview(stageId, applicationId)
+  const readiness = useInterviewReady(stageId, applicationId)
   const live = useInterviewRoomLive(stageId, applicationId)
   const saves = usePendingAnswerSaves()
   const [ending, setEnding] = useState(false)
@@ -200,10 +200,10 @@ function Room({
           workspace={data}
           attendance={attendance.data}
           connected={live.connected}
-          entering={enter.isPending}
-          busy={ending || actions.start.isPending}
-          onEnter={() => enter.mutateAsync()}
-          onStart={() => actions.start.mutateAsync()}
+          readying={readiness.ready.isPending || readiness.cancel.isPending}
+          busy={ending}
+          onReady={() => readiness.ready.mutateAsync()}
+          onCancelReady={() => readiness.cancel.mutateAsync()}
           onEnd={endInterview}
         />
         <div className="min-h-0 flex-1 space-y-4 overflow-auto px-5 py-4">

@@ -1,4 +1,4 @@
-import { Check, Clock3, LogIn, Play, Square, Users } from 'lucide-react'
+import { Check, CircleCheck, Clock3, Square, Users } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -20,16 +20,19 @@ import { errorMessage } from '@/lib/api/client'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-/** 지원자 면접의 대기, 진행, 종료 상태와 입장 현황. 시작과 종료는 확인 뒤에 실행한다. */
+/**
+ * 지원자 면접의 대기, 진행, 종료 상태와 준비 현황. 두 면접관이 모두 [준비 완료]를 누르면 서버가 바로 면접을 시작하고,
+ * 종료는 확인 뒤에 실행한다.
+ */
 export function InterviewSessionBar({
   interview,
   workspace,
   attendance,
   connected,
   busy,
-  entering,
-  onEnter,
-  onStart,
+  readying,
+  onReady,
+  onCancelReady,
   onEnd,
 }: {
   interview: AssignedInterview
@@ -37,12 +40,12 @@ export function InterviewSessionBar({
   attendance: InterviewAttendance | undefined
   connected: boolean
   busy: boolean
-  entering: boolean
-  onEnter: () => Promise<unknown>
-  onStart: () => Promise<unknown>
+  readying: boolean
+  onReady: () => Promise<unknown>
+  onCancelReady: () => Promise<unknown>
   onEnd: () => Promise<unknown>
 }) {
-  const [confirm, setConfirm] = useState<'start' | 'end' | null>(null)
+  const [confirm, setConfirm] = useState(false)
   const status = workspace?.session.status
   const mine = (workspace?.questions ?? []).filter(
     (item) => item.question.interviewerRole === workspace?.myRole,
@@ -53,19 +56,15 @@ export function InterviewSessionBar({
   ).length
   const attendees = attendance?.attendees ?? []
   const me = attendees.find((attendee) => attendee.me)
-  const ready =
-    !!attendance?.stageActive &&
-    connected &&
-    attendees.length > 0 &&
-    attendees.every((attendee) => attendee.entered && attendee.online) &&
-    missingOwners === 0 &&
-    !!workspace?.questions.length
+  // 준비 완료를 받아도 시작할 수 없는 상태면 누를 수 없게 한다 (서버도 같은 조건으로 거절한다)
+  const canReady =
+    !!attendance?.stageActive && connected && missingOwners === 0 && !!workspace?.questions.length
   const opinion = () => document.getElementById('opinion')?.scrollIntoView({ behavior: 'smooth' })
 
   async function execute(action: () => Promise<unknown>) {
     try {
       await action()
-      setConfirm(null)
+      setConfirm(false)
     } catch (error) {
       toast.error(errorMessage(error))
     }
@@ -85,31 +84,32 @@ export function InterviewSessionBar({
               : '일정 미정'}
           </p>
         </div>
-        {status === 'SCHEDULED' && (
-          <>
-            {!me?.entered && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!attendance?.stageActive || entering || !connected}
-                onClick={() => void execute(onEnter)}
-              >
-                <LogIn />
-                면접 입장
-              </Button>
-            )}
-            <Button size="sm" disabled={!ready || busy} onClick={() => setConfirm('start')}>
-              <Play />
-              면접 시작
+        {status === 'SCHEDULED' &&
+          (me?.ready ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={readying}
+              onClick={() => void execute(onCancelReady)}
+            >
+              준비 취소
             </Button>
-          </>
-        )}
+          ) : (
+            <Button
+              size="sm"
+              disabled={!canReady || readying}
+              onClick={() => void execute(onReady)}
+            >
+              <CircleCheck />
+              준비 완료
+            </Button>
+          ))}
         {status === 'IN_PROGRESS' && (
           <Button
             size="sm"
             variant="outline"
             disabled={busy || !attendance?.stageActive}
-            onClick={() => setConfirm('end')}
+            onClick={() => setConfirm(true)}
           >
             <Square />
             {busy ? '답변을 저장하고 있어요…' : '면접 종료'}
@@ -134,7 +134,7 @@ export function InterviewSessionBar({
             ? '면접 진행 중'
             : status === 'ENDED'
               ? '면접이 끝났어요. 의견을 남겨 주세요.'
-              : '면접관 입장 대기'}
+              : '면접관 준비 대기'}
         </span>
         {workspace?.session.startedAt && (
           <ElapsedTime from={workspace.session.startedAt} to={workspace.session.endedAt} />
@@ -154,7 +154,7 @@ export function InterviewSessionBar({
             <span
               className={cn(
                 'size-1.5 rounded-full',
-                attendee.online && attendee.entered ? 'bg-emerald-600' : 'bg-muted-foreground/40',
+                attendee.online && attendee.ready ? 'bg-emerald-600' : 'bg-muted-foreground/40',
               )}
             />
             <span>
@@ -162,7 +162,7 @@ export function InterviewSessionBar({
               {attendee.me ? ' (나)' : ''}
             </span>
             <span className="text-muted-foreground">
-              {!attendee.entered ? '입장 대기' : attendee.online ? '입장 완료' : '접속 끊김'}
+              {!attendee.ready ? '준비 전' : attendee.online ? '준비 완료' : '접속 끊김'}
             </span>
           </li>
         ))}
@@ -178,36 +178,34 @@ export function InterviewSessionBar({
             ? `담당이 없는 질문 ${missingOwners}개가 있어요. 채용 담당자에게 담당 지정을 요청하세요.`
             : !workspace?.questions.length
               ? '질문을 준비한 뒤 면접을 시작할 수 있어요.'
-              : '배정된 면접관이 모두 입장하고 접속 중이면 시작할 수 있어요. 시작 전에는 질문만 미리 볼 수 있어요.'}
+              : me?.ready
+                ? '다른 면접관이 준비 완료하면 바로 면접이 시작돼요. 그 전에는 준비를 취소할 수 있어요.'
+                : '두 면접관이 모두 [준비 완료]를 누르면 바로 면접이 시작돼요. 시작하면 배정과 질문 구성은 바꿀 수 없어요.'}
         </p>
       )}
       <AlertDialog
-        open={confirm !== null}
+        open={confirm}
         onOpenChange={(open) => {
-          if (!open && !busy) setConfirm(null)
+          if (!open && !busy) setConfirm(false)
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirm === 'start' ? '면접을 시작할까요?' : '면접을 종료할까요?'}
-            </AlertDialogTitle>
+            <AlertDialogTitle>면접을 종료할까요?</AlertDialogTitle>
             <AlertDialogDescription>
-              {confirm === 'start'
-                ? '시작하면 모든 면접관 화면에서 답변을 기록할 수 있어요. 배정과 질문 구성은 바꿀 수 없어요.'
-                : `답변이 없는 내 질문 ${mine.length - recorded}개가 있어요. 작성한 답변을 모두 저장한 뒤 종료해요. 종료하면 답변을 더 이상 고칠 수 없어요.`}
+              {`답변이 없는 내 질문 ${mine.length - recorded}개가 있어요. 작성한 답변을 모두 저장한 뒤 종료해요. 종료하면 답변을 더 이상 고칠 수 없어요.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>취소</AlertDialogCancel>
             <AlertDialogAction
-              disabled={busy || (confirm === 'start' && !ready)}
+              disabled={busy}
               onClick={(event) => {
                 event.preventDefault()
-                void execute(confirm === 'start' ? onStart : onEnd)
+                void execute(onEnd)
               }}
             >
-              {busy ? '처리 중…' : confirm === 'start' ? '시작하기' : '저장하고 종료'}
+              {busy ? '처리 중…' : '저장하고 종료'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
