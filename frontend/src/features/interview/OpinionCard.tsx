@@ -153,7 +153,13 @@ function OtherOpinion({ opinion }: { opinion: OpinionView }) {
 }
 
 /** 의견 한 줄 (HR 카드와 면접관 화면이 같이 쓴다) */
-export function OpinionLine({ opinion }: { opinion: OpinionView }) {
+export function OpinionLine({
+  opinion,
+  scrollable = false,
+}: {
+  opinion: OpinionView
+  scrollable?: boolean
+}) {
   const who = `${ROLE_LABELS[opinion.role]}${opinion.name ? ` · ${opinion.name}` : ''}`
   if (!opinion.submitted || !opinion.recommendation)
     return (
@@ -162,8 +168,8 @@ export function OpinionLine({ opinion }: { opinion: OpinionView }) {
       </p>
     )
   return (
-    <div className="space-y-1 rounded-lg border p-2.5 text-sm">
-      <div className="flex items-center gap-2 text-xs">
+    <div className="min-w-0 space-y-1 rounded-lg border p-2.5 text-sm">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
         <span
           className={cn(
             'rounded-md border px-1.5 py-0.5 font-semibold',
@@ -180,7 +186,18 @@ export function OpinionLine({ opinion }: { opinion: OpinionView }) {
           </span>
         )}
       </div>
-      <p className="whitespace-pre-wrap text-muted-foreground">{opinion.comment}</p>
+      <p
+        className={cn(
+          'break-words whitespace-pre-wrap text-muted-foreground',
+          scrollable &&
+            'max-h-48 overflow-y-auto overscroll-contain rounded-sm focus-visible:ring-2',
+        )}
+        role={scrollable ? 'region' : undefined}
+        aria-label={scrollable ? `${who} 의견 내용` : undefined}
+        tabIndex={scrollable ? 0 : undefined}
+      >
+        {opinion.comment}
+      </p>
     </div>
   )
 }
