@@ -54,8 +54,30 @@ export const CONDITION_FIELDS: {
 
 export const MAX_HEADCOUNT = 9999
 
-/** 수정안을 한 덩어리로 처리하는 모집 조건 칸 */
-export const CONDITION_KEYS: string[] = CONDITION_FIELDS.map((field) => field.key)
+export type WorkKey = 'location' | 'workHours' | 'salary'
+
+/** 근무 조건 묶음: 어디서 · 언제 · 얼마에 일하나. 길이는 backend job_postings 테이블과 같다 */
+export const WORK_FIELDS: {
+  key: WorkKey
+  label: string
+  placeholder: string
+  maxLength: number
+}[] = [
+  { key: 'location', label: '근무지', placeholder: '예: 서울 강남구 테헤란로 123', maxLength: 100 },
+  ...CONDITION_FIELDS.flatMap((field) =>
+    field.key === 'workHours' || field.key === 'salary' ? [{ ...field, key: field.key }] : [],
+  ),
+]
+
+/** 수정안을 한 덩어리로 처리하는 근무 조건 칸 */
+export const WORK_KEYS: string[] = WORK_FIELDS.map((field) => field.key)
+
+/** 지원자 화면의 근무 조건. 비어 있는 칸은 뺀다 */
+export function workRows(content: PostingContent): { label: string; value: string }[] {
+  return WORK_FIELDS.map((field) => ({ label: field.label, value: content[field.key] })).filter(
+    (row) => row.value,
+  )
+}
 
 /** 채용 인원 입력값. 1~9999의 정수만 받고 나머지는 비운다 */
 export function toHeadcount(value: string): number | null {

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import type { PostingContent } from './api'
-import { conditionRows, formatCareer, parseCareer, toCareerYears, toHeadcount } from './conditions'
+import {
+  conditionRows,
+  formatCareer,
+  parseCareer,
+  toCareerYears,
+  toHeadcount,
+  workRows,
+} from './conditions'
 
 const content: PostingContent = {
   roles: [],
@@ -58,5 +65,14 @@ describe('경력', () => {
     expect(toCareerYears('0')).toBeNull()
     expect(toCareerYears('100')).toBeNull()
     expect(toCareerYears('2.5')).toBeNull()
+  })
+})
+
+describe('근무 조건', () => {
+  it('근무지 · 근무 요일 · 시간 · 급여 중 채운 칸만 순서대로 보여 준다', () => {
+    expect(workRows({ ...content, location: '서울 강남구', workHours: '' })).toEqual([
+      { label: '근무지', value: '서울 강남구' },
+      { label: '급여', value: '회사 내규에 따름' },
+    ])
   })
 })

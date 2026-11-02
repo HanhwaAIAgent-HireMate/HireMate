@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { LogoMark } from '@/app/LogoMark'
 import { Button } from '@/components/ui/button'
 import type { PublicPosting } from '@/features/posting/api'
-import { conditionRows } from '@/features/posting/conditions'
+import { workRows } from '@/features/posting/conditions'
 import { StageFlow } from '@/features/posting/StageFlow'
 import { PostingPoster } from '@/features/posting/PostingPoster'
 import { exportPosterPdf } from '@/features/posting/poster-design'
@@ -76,7 +76,7 @@ export function CareersPosting({
   }
   const open = posting.state === 'OPEN'
   const tags = [content.employmentType, content.career, content.location].filter(Boolean)
-  const conditions = conditionRows(content)
+  const work = workRows(content)
   const category = content.jobCategory.split('›')[0]?.trim()
 
   const share = async () => {
@@ -130,10 +130,10 @@ export function CareersPosting({
         <Lines title="주요 업무" lines={content.duties} />
         <Lines title="자격 요건" lines={content.qualifications} />
         <Lines title="우대 사항" lines={content.preferred} />
-        {conditions.length > 0 && (
-          <Block title="모집 조건">
+        {work.length > 0 && (
+          <Block title="근무 조건">
             <dl className="space-y-1.5 text-sm">
-              {conditions.map((row) => (
+              {work.map((row) => (
                 <Row key={row.label} label={row.label} value={row.value} wide />
               ))}
             </dl>
@@ -176,7 +176,14 @@ export function CareersPosting({
         <h2 className="font-semibold">{content.title}</h2>
         <dl className="mt-4 space-y-3 text-sm">
           <Row label="고용 형태" value={content.employmentType} />
-          <Row label="경력" value={content.career.replace(/^경력 (?=\d)/, '')} />
+          <Row
+            label="경력"
+            value={[content.career.replace(/^경력 (?=\d)/, ''), content.position]
+              .filter(Boolean)
+              .join(' · ')}
+          />
+          {content.headcount && <Row label="채용 인원" value={`${content.headcount}명`} />}
+          {content.education && <Row label="학력" value={content.education} />}
           <Row label="근무지" value={content.location} />
           <Row label="접수 마감" value={formatDateTime(posting.closeAt)} />
         </dl>
@@ -243,7 +250,7 @@ function Lines({
   )
 }
 
-/** 이름과 값 한 줄. 모집 조건은 "근무 요일 · 시간"처럼 이름이 길어 이름 칸을 넓힌다(wide) */
+/** 이름과 값 한 줄. 근무 조건은 "근무 요일 · 시간"처럼 이름이 길어 이름 칸을 넓힌다(wide) */
 function Row({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
   return (
     <div className="flex gap-4">
