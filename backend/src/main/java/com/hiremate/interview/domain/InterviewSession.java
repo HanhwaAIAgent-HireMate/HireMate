@@ -80,14 +80,27 @@ public class InterviewSession {
         return practicalMemberId.equals(memberId) ? InterviewerRole.PRACTICAL : null;
     }
 
-    public void start() {
+    /** 같은 시간 면접은 한꺼번에 시작하므로 시작 시각을 함께 받는다 */
+    public void start(Instant at) {
         status = InterviewSessionStatus.IN_PROGRESS;
-        startedAt = Instant.now();
+        startedAt = at;
     }
 
-    public void end() {
+    /** 면접 시간에 오지 않았다 */
+    public void markAbsent() {
+        status = InterviewSessionStatus.ABSENT;
+    }
+
+    /** 불참을 거두고 같은 시간 면접의 상태로 되돌린다 */
+    public void rejoin(InterviewSessionStatus groupStatus, Instant groupStartedAt) {
+        status = groupStatus;
+        startedAt = groupStatus == InterviewSessionStatus.IN_PROGRESS ? groupStartedAt : null;
+        endedAt = null;
+    }
+
+    public void end(Instant at) {
         status = InterviewSessionStatus.ENDED;
-        endedAt = Instant.now();
+        endedAt = at;
     }
 
     public String memo(InterviewerRole role) {

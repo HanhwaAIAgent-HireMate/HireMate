@@ -65,13 +65,15 @@ public class InterviewLive {
         Runnable gone = () -> {
             rooms.computeIfPresent(key, (ignored, subscribers) -> {
                 if (subscribers.remove(subscriber)) {
-                    // 끊긴 뒤 유예 시간이 지나도 다시 연결하지 않았으면 시작 전 면접의 준비 완료를 거두고,
-                    // 접속 끊김으로 보이도록 다시 알린다
+                    // 끊긴 뒤 유예 시간이 지나도 이 전형의 면접 화면에 다시 연결하지 않았으면 시작 전 면접의 준비 완료를
+                    // 거두고 접속 끊김으로 보이도록 다시 알린다. 같은 전형의 다른 지원자 화면으로 옮긴 것은 떠난 것이 아니다
                     later.schedule(() -> {
-                        if (!connected(stageId, applicationId, memberId)) {
-                            attendance.release(stageId, applicationId, memberId, InterviewSessionStatus.SCHEDULED);
+                        if (!connected(stageId, memberId)) {
+                            attendance.release(stageId, memberId, InterviewSessionStatus.SCHEDULED);
+                            events.publishEvent(new InterviewSessionChanged(companyId, stageId, null));
+                        } else {
+                            events.publishEvent(changed);
                         }
-                        events.publishEvent(changed);
                     }, Instant.now().plus(OFFLINE_NOTICE));
                 }
                 return subscribers.isEmpty() ? null : subscribers;
@@ -105,10 +107,10 @@ public class InterviewLive {
         return emitter;
     }
 
-    /** 이 면접관이 지금 이 면접 화면을 열어 두었나. */
-    public boolean connected(UUID stageId, UUID applicationId, UUID memberId) {
-        return rooms.getOrDefault(new SessionKey(stageId, applicationId), Set.of()).stream()
-                .anyMatch(subscriber -> subscriber.memberId().equals(memberId));
+    /** 이 면접관이 지금 이 전형의 면접 화면(어느 지원자든)을 열어 두었나. 같은 시간 면접자 사이를 오가도 접속 중이다. */
+    public boolean connected(UUID stageId, UUID memberId) {
+        return rooms.entrySet().stream().anyMatch(room -> room.getKey().stageId().equals(stageId)
+                && room.getValue().stream().anyMatch(subscriber -> subscriber.memberId().equals(memberId)));
     }
 
     /** 바뀐 내용이 저장된 뒤에 알린다. 저장이 취소되면 알리지 않는다. */

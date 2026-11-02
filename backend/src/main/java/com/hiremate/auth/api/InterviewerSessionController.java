@@ -71,6 +71,22 @@ public class InterviewerSessionController {
                 member.memberId()));
     }
 
+    /** 면접 시간에 오지 않은 지원자를 불참으로 둔다. 같은 시간 면접의 준비 · 시작 · 종료에서 빠진다. */
+    @PostMapping("/{stageId}/{applicationId}/absent")
+    public InterviewSessions.InterviewerWorkspace markInterviewAbsent(@PathVariable UUID stageId,
+            @PathVariable UUID applicationId) {
+        var member = access.currentMember();
+        return sessions.absent(member.companyId(), stageId, applicationId, member.memberId(), true);
+    }
+
+    /** 불참을 되돌린다. 같은 시간 면접이 진행 중이면 바로 함께 진행한다. */
+    @DeleteMapping("/{stageId}/{applicationId}/absent")
+    public InterviewSessions.InterviewerWorkspace cancelInterviewAbsent(@PathVariable UUID stageId,
+            @PathVariable UUID applicationId) {
+        var member = access.currentMember();
+        return sessions.absent(member.companyId(), stageId, applicationId, member.memberId(), false);
+    }
+
     /** 배정된 면접관의 준비 · 접속 현황과 전형 진행 여부. */
     @GetMapping("/{stageId}/{applicationId}/attendance")
     public InterviewAttendances.Attendance interviewAttendance(@PathVariable UUID stageId,
