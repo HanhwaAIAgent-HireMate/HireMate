@@ -212,22 +212,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/interviewer/sessions/{stageId}/{applicationId}/shared-notes/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["save_1"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/interviewer/sessions/{stageId}/{applicationId}/opinions/me": {
         parameters: {
             query?: never;
@@ -236,7 +220,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put: operations["save_2"];
+        put: operations["save_1"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1380,22 +1364,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/stages/{stageId}/candidates/{applicationId}/interview/shared-notes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["hr"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/stages/{stageId}/candidates/{applicationId}/interview/session": {
         parameters: {
             query?: never;
@@ -1636,22 +1604,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/interviewer/sessions/{stageId}/{applicationId}/shared-notes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["mine"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/interviewer/sessions/{stageId}/{applicationId}/opinions": {
         parameters: {
             query?: never;
@@ -1659,7 +1611,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["mine_1"];
+        get: operations["mine"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2199,24 +2151,6 @@ export interface components {
         };
         StagesRequest: {
             stages: components["schemas"]["StageItem"][];
-        };
-        SharedNoteRequest: {
-            text: string;
-            /** Format: int64 */
-            expectedVersion: number;
-        };
-        Note: {
-            /** Format: uuid */
-            memberId: string;
-            name: string;
-            /** @enum {string} */
-            role: "HR" | "PRACTICAL";
-            text: string;
-            /** Format: int64 */
-            version: number;
-            /** Format: date-time */
-            updatedAt: string;
-            mine: boolean;
         };
         OpinionRequest: {
             /** @enum {string} */
@@ -2816,25 +2750,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            floatingPointNumber: boolean;
-            integralNumber: boolean;
-            missingNode: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
-            valueNode: boolean;
-            container: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            short: boolean;
-            string: boolean;
-            pojo: boolean;
             boolean: boolean;
+            pojo: boolean;
+            int: boolean;
+            short: boolean;
+            long: boolean;
+            binary: boolean;
+            double: boolean;
+            string: boolean;
             /** @deprecated */
             textual: boolean;
-            double: boolean;
-            binary: boolean;
-            long: boolean;
-            int: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            floatingPointNumber: boolean;
+            bigDecimal: boolean;
+            bigInteger: boolean;
+            integralNumber: boolean;
+            container: boolean;
+            valueNode: boolean;
+            missingNode: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3144,9 +3078,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            headerName: string;
             parameterName: string;
             token: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -3595,33 +3529,6 @@ export interface operations {
         };
     };
     save_1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-                applicationId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SharedNoteRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["Note"];
-                };
-            };
-        };
-    };
-    save_2: {
         parameters: {
             query?: never;
             header?: never;
@@ -5720,29 +5627,6 @@ export interface operations {
             };
         };
     };
-    hr: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-                applicationId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["Note"][];
-                };
-            };
-        };
-    };
     interviewAssignment: {
         parameters: {
             query?: never;
@@ -6086,29 +5970,6 @@ export interface operations {
         };
     };
     mine: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-                applicationId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["Note"][];
-                };
-            };
-        };
-    };
-    mine_1: {
         parameters: {
             query?: never;
             header?: never;

@@ -8,9 +8,9 @@ export function HrOpinions({ stageId, applicationId }: { stageId: string; applic
   return (
     <section aria-label="면접관 의견" className="space-y-2">
       <h4 className="text-sm font-semibold">면접관 의견</h4>
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid items-start gap-2 md:grid-cols-2">
         {opinions.data.map((opinion) => (
-          <OpinionLine key={opinion.memberId} opinion={opinion} />
+          <OpinionLine key={opinion.memberId} opinion={opinion} scrollable />
         ))}
       </div>
     </section>

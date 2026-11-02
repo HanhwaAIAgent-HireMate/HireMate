@@ -86,4 +86,42 @@ class InterviewAssignmentMigrationTests extends IntegrationTest {
             }
         }
     }
+
+    @Test
+    @DisplayName("공유 기록 삭제 마이그레이션은 개인 메모와 면접관 의견을 유지한다")
+    void sharedNoteRemovalPreservesPrivateMemosAndOpinions() throws Exception {
+        String schema = "shared_note_removal_" + UUID.randomUUID().toString().replace("-", "");
+        try (Connection connection = dataSource.getConnection();
+                Statement sql = connection.createStatement()) {
+            sql.execute("CREATE SCHEMA " + schema);
+            try {
+                sql.execute("SET search_path TO " + schema);
+                sql.execute("CREATE TABLE interview_sessions (hr_memo TEXT, practical_memo TEXT)");
+                sql.execute("INSERT INTO interview_sessions VALUES ('PRIVATE-HR', 'PRIVATE-PRACTICAL')");
+                sql.execute("CREATE TABLE interview_opinions (comment TEXT)");
+                sql.execute("INSERT INTO interview_opinions VALUES ('OPINION')");
+                sql.execute("CREATE TABLE interview_shared_notes (text TEXT)");
+                sql.execute("INSERT INTO interview_shared_notes VALUES ('OLD-SHARED-NOTE')");
+                ScriptUtils.executeSqlScript(connection,
+                        new ClassPathResource("db/migration/V45__remove_interview_shared_notes.sql"));
+                try (ResultSet table = sql.executeQuery("SELECT to_regclass('interview_shared_notes')")) {
+                    assertThat(table.next()).isTrue();
+                    assertThat(table.getString(1)).isNull();
+                }
+                try (ResultSet memo = sql.executeQuery("SELECT hr_memo, practical_memo FROM interview_sessions")) {
+                    assertThat(memo.next()).isTrue();
+                    assertThat(memo.getString(1)).isEqualTo("PRIVATE-HR");
+                    assertThat(memo.getString(2)).isEqualTo("PRIVATE-PRACTICAL");
+                }
+                try (ResultSet opinion = sql.executeQuery("SELECT comment FROM interview_opinions")) {
+                    assertThat(opinion.next()).isTrue();
+                    assertThat(opinion.getString(1)).isEqualTo("OPINION");
+                }
+            } finally {
+                sql.execute("SET search_path TO public");
+                sql.execute("DROP SCHEMA " + schema + " CASCADE");
+            }
+        }
+    }
+
 }

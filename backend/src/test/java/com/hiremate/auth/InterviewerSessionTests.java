@@ -343,6 +343,20 @@ class InterviewerSessionTests extends IntegrationTest {
                 "expectedVersion", current.path("personalMemoVersion").asLong())), 200);
     }
 
+    @Test
+    @DisplayName("공유 기록 API만 제거하고 개인 메모는 계속 제공한다")
+    void sharedNotesAreRemovedWhilePersonalMemosRemain() throws Exception {
+        Fixture f = fixture();
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        String notes = f.workspace() + "/shared-notes";
+        assertThat(f.people().api().get(notes).statusCode()).isIn(404, 405);
+        assertThat(f.people().api().put(notes + "/me", Map.of("text", "옛 공유 기록", "expectedVersion", 0))
+                .statusCode()).isIn(404, 405);
+        assertThat(f.hr().get(f.legacy() + "/candidates/" + f.applicationId()
+                + "/interview/shared-notes").statusCode()).isIn(404, 405);
+        assertThat(json(expect(f.people().api().get(f.workspace()), 200)).has("personalMemo")).isTrue();
+    }
+
     private Fixture fixture() throws Exception {
         return fixture(1, false);
     }
