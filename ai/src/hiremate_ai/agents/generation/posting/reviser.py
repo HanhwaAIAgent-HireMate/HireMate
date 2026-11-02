@@ -198,11 +198,13 @@ _COUNT_WINDOW = 8
 """목록 이름 뒤에서 개수를 찾는 글자 수 (예: "자격 요건은 7개로")."""
 # 목록 전체를 쓰라는 말과, 항목을 더하거나 빼라는 말. 작은 모델이 "우대 사항만 3개 써 줘"를 고치기(CONTENT)로 골라
 # 근거 없이 항목을 지어내서, 목록을 새로 쓰라는 요청은 코드가 NCS 근거 쓰기로 돌린다
-_WRITE_WORDS = re.compile(r"써|쓰|작성|만들|채워")
+_WRITE_WORDS = re.compile(r"써|쓰|적어|적고|적을|작성|만들|채워")
 _REWRITE_WORDS = re.compile(r"다시|새로|전부|전체")
 _EDIT_WORDS = re.compile(r"추가|더해|넣어|넣고|빼|삭제|지워|고쳐|수정")
-# 지금 줄은 두고 더 써 달라는 말 (예: "추가로 써 줘", "더 써 줘", "3개 더"). "더 구체적으로"는 고쳐 쓰기라 넣지 않는다
-_ADD_WORDS = re.compile(rf"추가|더\s*(?:써|쓰|작성|만들|넣|채워)|{_COUNT}\s*더")
+# 지금 줄은 두고 더 써 달라는 말 (예: "추가로 써 줘", "더 적어 줘", "3개 더"). "더 구체적으로"는 고쳐 쓰기라 넣지 않는다
+_ADD_WORDS = re.compile(rf"추가|더\s*(?:써|쓰|적어|작성|만들|넣|채워)|{_COUNT}\s*더")
+# 목록 전체의 개수를 정하는 말 (예: "7개로 써 줘"). 이때는 목록을 그 개수로 새로 쓴다
+_TOTAL_COUNT = re.compile(rf"{_COUNT}\s*로")
 
 # 모델이 숫자와 단위 사이에 넣는 공백 (예: "1 차 면접", "20 대")
 _NUMBER_SPACE = re.compile(r"(\d)\s+(차|대|년|개월|월|일|시간|시|분|명|회|개|단계|주)")
@@ -681,12 +683,12 @@ def _by_survey(units: list[NcsUnit]) -> list[NcsUnit]:
 
 
 def _appended_lists(content: PostingContent, request: str, counts: dict[str, int]) -> set[str]:
-    """새 줄을 기존 줄 뒤에 더할 목록. 더 써 달라고 했고(_ADD_WORDS) 이미 줄이 있는 목록이다.
+    """새 줄을 기존 줄 뒤에 더할 목록. 이미 줄이 있는 목록은 기본으로 기존 줄을 두고 뒤에 더한다.
 
-    HR이 적어 둔 줄(학력처럼 NCS 근거가 없는 줄 포함)을 더 써 달라는 요청에 지우지 않기 위해서다.
-    "7개로 써 줘"처럼 개수를 정해 쓰라거나 다시 쓰라는 요청은 지금처럼 목록을 바꿔 쓴다.
+    HR이 적어 둔 줄(학력처럼 NCS 근거가 없는 줄 포함)을 "작성해 줘", "더 적어 줘" 같은 요청에 지우지 않기 위해서다.
+    다시 · 새로 쓰라고 했거나(_REWRITE_WORDS) "7개로"처럼 전체 개수를 정했으면(_TOTAL_COUNT) 목록을 새로 쓴다.
     """
-    if not _ADD_WORDS.search(request) or _REWRITE_WORDS.search(request):
+    if _REWRITE_WORDS.search(request) or _TOTAL_COUNT.search(request):
         return set()
     return {name for name in counts if getattr(content, name)}
 

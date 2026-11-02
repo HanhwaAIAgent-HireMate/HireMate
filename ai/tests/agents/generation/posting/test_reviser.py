@@ -62,6 +62,8 @@ CONTENT = PostingContent(
     preferred=["금융 도메인 경험"],
     benefits=["유연 근무"],
 )
+NO_LISTS = CONTENT.model_copy(update={"qualifications": [], "preferred": []})
+"""자격 요건 · 우대 사항이 빈 공고. 줄이 있으면 새 줄을 뒤에 더하므로, 쓴 목록만 볼 때 쓴다."""
 SERVER = "2001020211_23v6"
 """응용SW엔지니어링 · 서버프로그램 구현"""
 SQL = "2001020414_19v4"
@@ -569,7 +571,9 @@ async def test_revise_writes_requirements_from_picked_ncs_units_and_cites_them()
         ),
     )
 
-    result = await revise_posting(llm, posting(), "", "NCS 기반으로 자격 요건 2개와 우대 사항 1개 써 줘")
+    result = await revise_posting(
+        llm, posting(content=NO_LISTS), "", "NCS 기반으로 자격 요건 2개와 우대 사항 1개 써 줘"
+    )
 
     assert result.suggestion is not None
     assert result.suggestion.content.qualifications == [
@@ -584,7 +588,11 @@ async def test_revise_writes_requirements_from_picked_ncs_units_and_cites_them()
     )
 
 
-async def test_revise_adds_ncs_items_after_lines_hr_already_wrote() -> None:
+@pytest.mark.parametrize(
+    "request_text",
+    ["자격 요건 2개 추가로 써 줘", "자격 요건 더 적어줘", "자격 요건 추가해줘", "자격 요건이랑 우대 사항 작성해줘"],
+)
+async def test_revise_adds_ncs_items_after_lines_hr_already_wrote(request_text: str) -> None:
     # HR이 직접 적은 학력 줄처럼 NCS 근거가 없는 줄도, 더 써 달라는 요청에는 지우지 않고 뒤에 더한다
     hr_lines = CONTENT.model_copy(
         update={"qualifications": ["학사 이상", "Java · Spring Boot 기반 서버 개발 경력 3년 이상"]}
@@ -600,7 +608,7 @@ async def test_revise_adds_ncs_items_after_lines_hr_already_wrote() -> None:
         ),
     )
 
-    result = await revise_posting(llm, posting(content=hr_lines), "", "자격 요건 2개 추가로 써 줘")
+    result = await revise_posting(llm, posting(content=hr_lines), "", request_text)
 
     assert result.suggestion is not None
     assert result.suggestion.content.qualifications == [
@@ -919,7 +927,7 @@ async def test_revise_ignores_lists_it_was_not_asked_to_write() -> None:
 async def test_revise_tells_when_ncs_writer_writes_fewer_items() -> None:
     llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(2)))
 
-    result = await revise_posting(llm, posting(), "", "자격 요건 3개 써 줘")
+    result = await revise_posting(llm, posting(content=NO_LISTS), "", "자격 요건 3개 써 줘")
 
     assert result.suggestion is not None
     assert result.suggestion.content.qualifications == [item.text for item in items(2)]
@@ -933,7 +941,7 @@ async def test_revise_tells_when_ncs_writer_writes_fewer_items() -> None:
 async def test_revise_writes_at_most_the_limit_and_says_so() -> None:
     llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(12)))
 
-    result = await revise_posting(llm, posting(), "", "자격 요건 15개 써 줘")
+    result = await revise_posting(llm, posting(content=NO_LISTS), "", "자격 요건 15개 써 줘")
 
     assert result.suggestion is not None
     assert len(result.suggestion.content.qualifications) == MAX_DRAFT_ITEMS
@@ -1150,7 +1158,7 @@ async def test_revise_keeps_one_of_repeated_ncs_items() -> None:
     repeated = [SourcedItem(text="서버 프로그램 구현 경험", sources=[SERVER])] * 3
     llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(repeated))
 
-    result = await revise_posting(llm, posting(), "", "자격 요건 3개 써 줘")
+    result = await revise_posting(llm, posting(content=NO_LISTS), "", "자격 요건 3개 써 줘")
 
     assert result.suggestion is not None
     assert result.suggestion.content.qualifications == ["서버 프로그램 구현 경험"]
