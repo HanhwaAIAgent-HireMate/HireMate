@@ -336,13 +336,14 @@ public class PostingService {
                 .filter(found -> found.getPublishedAt() != null)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "POSTING_NOT_FOUND", "Posting not found."));
         RecruitmentInfo recruitment = recruits.get(posting.getCompanyId(), posting.getRecruitmentId());
-        return new PublicPostingView(posting.getId(), companies.profile(posting.getCompanyId()).name(),
+        CompanyProfile company = companies.profile(posting.getCompanyId());
+        return new PublicPostingView(posting.getId(), company.name(),
                 posting.content(), List.copyOf(posting.getNotices()),
                 recruitment.stages().stream()
                         .map(stage -> new PublicPostingView.PublicStage(stage.name(), stage.type(), stage.icon()))
                         .toList(),
                 documents(requiredExtras(posting)), posting.getOpenAt(), posting.getCloseAt(),
-                state(posting, Instant.now()), posting.design());
+                state(posting, Instant.now()), posting.design(), company.address());
     }
 
     /** 지원서 접수에 필요한 공고 정보. 접수 중이 아니면 409다. */

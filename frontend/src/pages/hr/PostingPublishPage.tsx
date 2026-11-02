@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useCompanyProfile } from '@/features/company/api'
 import { useStageGuides } from '@/features/notice/api'
 import { MailFrame } from '@/features/notice/MailFrame'
 import { STAGE_GUIDES_ID } from '@/features/notice/StageGuides'
@@ -61,6 +62,8 @@ function PublishForm({ posting }: { posting: Posting }) {
   const publish = usePublishPosting(posting.recruitmentId)
   const [initial] = useState(defaultPeriod)
   const [period, setPeriod] = useState(initial)
+  // 채용 페이지 맨 아래의 회사 주소는 공고가 아니라 회사 소개에서 읽는다
+  const company = useCompanyProfile()
   const [device, setDevice] = useState<'mobile' | 'pc'>('pc')
   const [confirming, setConfirming] = useState(false)
   const receipt = useReceiptPreview(posting.recruitmentId)
@@ -162,6 +165,7 @@ function PublishForm({ posting }: { posting: Posting }) {
                   closeAt: new Date(period.close || initial.close).toISOString(),
                   state: 'OPEN',
                   poster: posting.poster,
+                  companyAddress: company.data?.address ?? '',
                 }}
               />
             </div>

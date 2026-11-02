@@ -51,7 +51,7 @@ public class CompanySettingsController {
     @PutMapping("/profile")
     public CompanyProfile updateProfile(AuthenticatedMember member, @Valid @RequestBody ProfileRequest request) {
         return companies.updateProfile(member.companyId(), request.intro(), request.culture(), request.talentList(),
-                request.benefits());
+                request.benefits(), request.addressText());
     }
 
     @GetMapping("/posting-settings")

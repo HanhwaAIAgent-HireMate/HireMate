@@ -5,6 +5,7 @@ import { useFieldArray, useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useCompanyProfile, useSaveCompanyProfile } from '@/features/company/api'
 import { CompanyLogoField } from '@/features/company/CompanyLogoField'
@@ -19,6 +20,7 @@ const schema = z.object({
     .array(z.object({ title: z.string().trim().min(1).max(50), description: z.string().max(200) }))
     .max(10),
   benefits: z.array(z.object({ value: z.string().trim().min(1).max(30) })).max(20),
+  address: z.string().max(200),
 })
 
 type Values = z.infer<typeof schema>
@@ -29,7 +31,7 @@ export function CompanyProfileForm() {
   const save = useSaveCompanyProfile()
   const form = useForm<Values>({
     resolver: zodResolver(schema),
-    defaultValues: { intro: '', culture: '', talents: [], benefits: [] },
+    defaultValues: { intro: '', culture: '', talents: [], benefits: [], address: '' },
   })
   const talents = useFieldArray({ control: form.control, name: 'talents' })
   const benefits = useFieldArray({ control: form.control, name: 'benefits' })
@@ -42,6 +44,7 @@ export function CompanyProfileForm() {
       culture: profile.data.culture,
       talents: profile.data.talents,
       benefits: profile.data.benefits.map((value) => ({ value })),
+      address: profile.data.address,
     })
   }, [profile.data, form])
 
@@ -68,6 +71,14 @@ export function CompanyProfileForm() {
       {/* 로고는 올리는 즉시 저장한다. 아래 [저장]은 글 칸만 저장한다 */}
       <SettingsRow label="회사 로고">
         <CompanyLogoField />
+      </SettingsRow>
+      {/* 채용 페이지 맨 아래에 보여 준다. 게시한 공고에도 늘 지금 주소가 보인다 */}
+      <SettingsRow label="회사 주소">
+        <Input
+          maxLength={200}
+          placeholder="예: 서울특별시 강남구 테헤란로 123, 4층"
+          {...form.register('address')}
+        />
       </SettingsRow>
       <SettingsRow label="회사 소개">
         <Textarea

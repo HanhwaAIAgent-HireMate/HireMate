@@ -161,6 +161,11 @@ export function CareersPosting({
         </Block>
         <Lines id="benefits" title="복지" lines={content.benefits} />
         <Lines title="유의사항" lines={posting.notices} muted />
+        {posting.companyAddress && (
+          <Block title="회사 주소">
+            <p className="text-sm leading-6">{posting.companyAddress}</p>
+          </Block>
+        )}
       </article>
       <aside
         className={cn(

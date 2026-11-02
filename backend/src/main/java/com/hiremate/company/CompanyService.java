@@ -56,10 +56,10 @@ public class CompanyService {
 
     @Transactional
     public CompanyProfile updateProfile(UUID companyId, String intro, String culture, List<Talent> talents,
-            List<String> benefits) {
+            List<String> benefits, String address) {
         Company company = company(companyId);
         String before = company.cultureText();
-        company.updateProfile(intro, culture, talents, benefits);
+        company.updateProfile(intro, culture, talents, benefits, address);
         String text = company.cultureText();
         if (!text.equals(before) || !text.equals(company.getCultureFactorsSource())) {
             events.publishEvent(new CompanyProfileChanged(companyId, text));
@@ -209,7 +209,7 @@ public class CompanyService {
 
     private static CompanyProfile toProfile(Company company) {
         return new CompanyProfile(company.getId(), company.getName(), company.getIntro(), company.getCulture(),
-                List.copyOf(company.getTalents()), List.copyOf(company.getBenefits()));
+                List.copyOf(company.getTalents()), List.copyOf(company.getBenefits()), company.getAddress());
     }
 
     private static CompanyFileInfo toFileInfo(CompanyFile file) {
