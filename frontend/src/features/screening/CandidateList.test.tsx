@@ -20,10 +20,16 @@ const state = vi.hoisted(() => ({
       { memberId: 'practical', role: 'PRACTICAL', recommendation: null, unassigned: false },
     ],
   })),
+  // a1 · a2는 같은 시간 면접(a2 불참), a3은 그 전 시간에 끝났고, a4는 일정이 없다
   progress: [
-    { applicationId: 'a1', status: 'SCHEDULED' },
-    { applicationId: 'a2', status: 'IN_PROGRESS' },
+    { applicationId: 'a1', status: 'IN_PROGRESS' },
+    { applicationId: 'a2', status: 'ABSENT' },
     { applicationId: 'a3', status: 'ENDED' },
+  ],
+  schedules: [
+    { applicationId: 'a1', scheduledAt: '2026-11-03T05:00:00Z' },
+    { applicationId: 'a2', scheduledAt: '2026-11-03T05:00:00Z' },
+    { applicationId: 'a3', scheduledAt: '2026-11-02T03:00:00Z' },
   ],
 }))
 
@@ -33,6 +39,9 @@ vi.mock('@/features/interview/live', () => ({
     return { connected: true }
   },
   useStageInterviewProgress: () => ({ data: state.progress }),
+}))
+vi.mock('@/features/interview/api', () => ({
+  useStageSchedules: () => ({ data: state.schedules }),
 }))
 vi.mock('@/features/interview/opinions', async (original) => ({
   ...(await original<typeof import('@/features/interview/opinions')>()),
@@ -97,24 +106,32 @@ afterEach(() => {
 })
 
 describe('면접 전형 지원자 목록', () => {
-  it('배정된 면접의 예정, 진행 중, 종료를 지원자마다 구분하고 실시간으로 구독한다', () => {
+  it('면접 시간별로 나눠 시간 순으로 두고, 칸마다 그 시간 면접의 상태를 한 번 보여 준다', () => {
     renderList()
-    expect(within(screen.getByTestId('a1')).getByLabelText('면접 상태: 예정')).toBeVisible()
-    expect(within(screen.getByTestId('a2')).getByLabelText('면접 상태: 진행 중')).toBeVisible()
-    const ended = within(screen.getByTestId('a3')).getByLabelText('면접 상태: 종료')
-    expect(ended).toBeVisible()
-    expect(ended).toHaveTextContent('면접 종료')
-    // 종료는 예정(회색)과 다른 색으로 구분한다
-    expect(ended).toHaveClass('bg-sky-100')
-    expect(within(screen.getByTestId('a1')).getByLabelText('면접 상태: 예정')).toHaveClass(
-      'bg-muted',
-    )
-    expect(within(screen.getByTestId('a4')).queryByLabelText(/면접 상태/)).not.toBeInTheDocument()
+    const headings = screen.getAllByRole('heading', { level: 3 })
+    expect(headings).toHaveLength(3)
+    expect(headings[0]).toHaveTextContent('1명')
+    expect(headings[0]).toHaveTextContent('면접 종료')
+    expect(headings[1]).toHaveTextContent('2명')
+    expect(headings[1]).toHaveTextContent('면접 진행 중')
+    // 일정이 없는 지원자는 맨 아래 '일정 미정' 칸에 모아 정할 일이 남았음을 보인다
+    expect(headings[2]).toHaveTextContent('일정 미정 · 1명')
+    expect(headings[2]).toHaveTextContent('면접 일정을 정해 주세요')
+    expect(screen.getAllByTestId(/^a\d$/).map((tile) => tile.dataset.testid)).toEqual([
+      'a3',
+      'a1',
+      'a2',
+      'a4',
+    ])
+    // 카드에는 그 시간에서 빠진 불참만 붙인다
+    expect(within(screen.getByTestId('a2')).getByLabelText('면접 상태: 불참')).toBeVisible()
+    expect(within(screen.getByTestId('a1')).queryByLabelText(/면접 상태/)).not.toBeInTheDocument()
     expect(state.live).toHaveBeenCalledWith('s1', true)
   })
 
   it('면접관 의견 배지는 면접이 종료된 지원자에게만 보이고 내지 않은 의견은 미제출로 보인다', () => {
     renderList()
+    // 진행 중(a1)과 불참(a2)에는 의견 배지가 없다
     expect(within(screen.getByTestId('a1')).queryByLabelText('면접관 의견')).not.toBeInTheDocument()
     expect(within(screen.getByTestId('a2')).queryByLabelText('면접관 의견')).not.toBeInTheDocument()
     const ended = within(screen.getByTestId('a3')).getByLabelText('면접관 의견')
@@ -126,6 +143,7 @@ describe('면접 전형 지원자 목록', () => {
   it('면접 전형이 아니면 면접 상태를 표시하거나 실시간 구독하지 않는다', () => {
     renderList('DOCUMENT')
     expect(screen.queryByLabelText(/면접 상태/)).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('heading', { level: 3 })).toHaveLength(0)
     expect(state.live).toHaveBeenCalledWith('s1', false)
   })
 })
