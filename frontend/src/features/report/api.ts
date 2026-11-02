@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap, type Schemas } from '@/lib/api/client'
 
@@ -38,6 +38,54 @@ export function useRequestCompareReport(stageId: string) {
           body: request,
         }),
       ),
+  })
+}
+
+export type ReportDistribution = Schemas['ReportDistribution']
+export type DistributionSort = ReportDistribution['sort']
+
+/**
+ * 서류 전형 분포. backend가 모델 없이 바로 센다. 목표 인원(target)은 저장하지 않고 요청마다 넘긴다.
+ * 목표를 바꾸는 동안 앞 결과를 그대로 보여 준다
+ */
+export function useReportDistribution(
+  stageId: string,
+  target: number | null,
+  sort: DistributionSort,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['report-distribution', stageId, target, sort],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/stages/{stageId}/reports/distribution', {
+          params: { path: { stageId }, query: { target: target ?? undefined, sort } },
+        }),
+      ),
+    enabled,
+    placeholderData: keepPreviousData,
+  })
+}
+
+/**
+ * 분포 해설. Report Agent가 분포 숫자를 읽고 먼저 볼 점을 쓴다. 모델을 부르므로 목표 인원 · 정렬이 같으면 다시 부르지 않고,
+ * 실패해도 다시 시도하지 않는다 (화면은 숫자 요약만 보여 준다)
+ */
+export function useDistributionNote(
+  stageId: string,
+  target: number | null,
+  sort: DistributionSort,
+) {
+  return useQuery({
+    queryKey: ['report-distribution-note', stageId, target, sort],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/stages/{stageId}/reports/distribution/note', {
+          params: { path: { stageId }, query: { target: target ?? undefined, sort } },
+        }),
+      ),
+    staleTime: Infinity,
+    retry: false,
   })
 }
 
@@ -113,5 +161,6 @@ export function toReportView(payload: ReportPayload): ReportView | null {
     skills: payload.report.skills,
     specialists: payload.report.specialists,
     fallback: payload.report.fallback,
+    steps: payload.report.steps ?? [],
   }
 }
