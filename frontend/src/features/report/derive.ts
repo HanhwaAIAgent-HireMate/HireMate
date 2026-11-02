@@ -142,6 +142,8 @@ export interface EvidenceParts {
   verdict: string | null
   analysis: string
   quote: string | null
+  /** 원문의 강도. 예전 리포트나 원문이 없으면 null이다 */
+  strength: 'QUANT' | 'CLAIM' | null
   source: string
   agent: string
 }
@@ -174,7 +176,38 @@ export function evidenceParts(bundle: ReportBundle, item: Evidence): EvidencePar
     verdict: item.verdict ?? (typeof fact?.value === 'string' ? fact.value : null),
     analysis,
     quote,
+    strength: quote ? (item.strength ?? null) : null,
     source: item.source,
     agent: item.agent,
   }
+}
+
+/** 항목 코드 뒤에 붙이는 이름 길이. 문장이 너무 길어지지 않게 줄인다 */
+const ITEM_NAME_LENGTH = 16
+
+/** 묶음의 항목 코드(Q-01, P-03)마다 짧은 항목 이름. 서류 판정 값 이름이 'Q-01 Java 또는 …' 꼴이다 */
+export function itemNames(bundle: ReportBundle): Map<string, string> {
+  const names = new Map<string, string>()
+  for (const fact of bundle.facts) {
+    const found = /^([QP]-\d+)\s+(.+)$/.exec(fact.label)
+    if (!found || names.has(found[1])) continue
+    const text = found[2].trim()
+    names.set(
+      found[1],
+      text.length > ITEM_NAME_LENGTH ? `${text.slice(0, ITEM_NAME_LENGTH).trim()}…` : text,
+    )
+  }
+  return names
+}
+
+/**
+ * 문장 속 항목 코드 옆에 항목 이름을 붙인다. 'Q-04' → 'Q-04(Git 기반 코드 리뷰와…)'.
+ * 공고를 외우지 않아도 읽히게 하려는 것이고, 이미 이름이 바로 뒤에 붙은 코드는 그대로 둔다
+ */
+export function withItemNames(text: string, names: Map<string, string>) {
+  if (names.size === 0) return text
+  return text.replace(/(?<![A-Za-z0-9-])([QP]-\d+)(?!\d)(?!\s*\()/g, (code) => {
+    const name = names.get(code)
+    return name ? `${code}(${name})` : code
+  })
 }

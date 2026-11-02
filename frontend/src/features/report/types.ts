@@ -47,6 +47,8 @@ export interface Evidence {
   quote?: string | null
   label?: string | null
   verdict?: string | null
+  /** 원문의 강도. QUANT는 성과를 숫자와 단위로 적은 문장, CLAIM은 한 일만 적은 문장이다 */
+  strength?: 'QUANT' | 'CLAIM' | null
 }
 
 export interface Area {
@@ -115,11 +117,20 @@ export interface Section {
   blocks: Block[]
 }
 
+/** 비교 대상끼리 판정이 갈린 항목 하나와 그 이유 (AI가 서류 분석 세부를 읽고 쓴 문장, 판정만 적은 문장이면 코드가 쓴 것) */
+export interface Split {
+  key: string
+  text: string
+  evidence: string[]
+}
+
 export interface ReportSpec {
   title: string
   summary: string
   skills: string[]
   sections: Section[]
+  /** 비교 리포트만. 예전 리포트에는 없다 */
+  splits?: Split[]
 }
 
 /** 리포트 한 건. backend가 지원자번호 → 이름(names)을 붙여 준다. 실행 기록은 화면 위 칩으로 보여 준다 */
@@ -130,4 +141,6 @@ export interface ReportView {
   skills: string[]
   specialists: string[]
   fallback: boolean
+  /** AI 작업 과정 (읽은 자료, 맡긴 확인, 검사 횟수, 코드가 고친 것). 예전 리포트는 비어 있다 */
+  steps: string[]
 }

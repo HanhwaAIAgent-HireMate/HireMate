@@ -42,7 +42,7 @@ export function SelectionPanel({
   const comparable = compared.length >= MIN_COMPARED && compared.length <= MAX_COMPARED
   const requestReport = useRequestCompareReport(stageId)
   const [reportId, setReportId] = useState<string | null>(null)
-  // 서류 전형은 분포 · 심층 분석을 바꿔 보는 창으로 연다. 비교할 사람이 없으면 분포부터 연다
+  // 서류 전형은 전체 · 비교를 바꿔 보는 창으로 연다. 비교할 사람이 없으면 전체 화면부터 연다
   const isDocument = overview.type === 'DOCUMENT'
   const [reportWindow, setReportWindow] = useState<{
     key: number
@@ -102,7 +102,7 @@ export function SelectionPanel({
             {comparable
               ? `${compared.length}명을 비교하는 리포트를 Report Agent가 만들어요${isDocument ? '. 분포도 바꿔 볼 수 있어요' : ''}`
               : isDocument
-                ? `전형 전체 분포를 열어요. 선택 지원자 ${MIN_COMPARED}~${MAX_COMPARED}명을 체크하면 심층 분석도 만들어요`
+                ? `서류 지원자 전체 화면을 열어요. 선택 지원자 ${MIN_COMPARED}~${MAX_COMPARED}명을 체크하면 비교 리포트도 만들어요`
                 : `선택 지원자 ${MIN_COMPARED}~${MAX_COMPARED}명을 체크하면 비교 리포트를 만들 수 있어요`}
           </TooltipContent>
         </Tooltip>

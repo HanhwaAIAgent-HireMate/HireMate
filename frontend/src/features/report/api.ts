@@ -67,6 +67,28 @@ export function useReportDistribution(
   })
 }
 
+/**
+ * 분포 해설. Report Agent가 분포 숫자를 읽고 먼저 볼 점을 쓴다. 모델을 부르므로 목표 인원 · 정렬이 같으면 다시 부르지 않고,
+ * 실패해도 다시 시도하지 않는다 (화면은 숫자 요약만 보여 준다)
+ */
+export function useDistributionNote(
+  stageId: string,
+  target: number | null,
+  sort: DistributionSort,
+) {
+  return useQuery({
+    queryKey: ['report-distribution-note', stageId, target, sort],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/stages/{stageId}/reports/distribution/note', {
+          params: { path: { stageId }, query: { target: target ?? undefined, sort } },
+        }),
+      ),
+    staleTime: Infinity,
+    retry: false,
+  })
+}
+
 export type ReportSummary = Schemas['ReportSummary']
 
 /** 전형의 전형 결과 리포트 목록. 최근 것이 먼저고, 쓰는 중인 리포트가 있으면 다 쓸 때까지 다시 묻는다 */
@@ -139,5 +161,6 @@ export function toReportView(payload: ReportPayload): ReportView | null {
     skills: payload.report.skills,
     specialists: payload.report.specialists,
     fallback: payload.report.fallback,
+    steps: payload.report.steps ?? [],
   }
 }

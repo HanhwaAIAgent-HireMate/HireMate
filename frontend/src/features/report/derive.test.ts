@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { crossCounts, ringPercent, roundHalfEven, sharePercents, tally, topPercent } from './derive'
+import {
+  crossCounts,
+  itemNames,
+  ringPercent,
+  roundHalfEven,
+  sharePercents,
+  tally,
+  topPercent,
+  withItemNames,
+} from './derive'
 import type { Fact, ReportBundle } from './types'
 
 function fact(applicant: string, key: string, value: number | string, max?: number): Fact {
@@ -77,5 +86,32 @@ describe('리포트 부품 계산 (ai derive.py와 같은 결과)', () => {
     expect(tally(bundle, 'q2', ['A-0001', 'A-0002']).rate).toBe(50)
     expect(topPercent(bundle, 'document.total', 'A-0001')).toBe(25)
     expect(topPercent(bundle, 'document.total', 'A-0003')).toBe(50)
+  })
+})
+
+describe('항목 이름', () => {
+  const labelled: ReportBundle = {
+    ...bundle,
+    facts: [
+      {
+        ...fact('A-1', 'document.criterion.Q-01', 'MET'),
+        label: 'Q-01 Java 또는 Kotlin 기반 서버 개발 경력 3년 이상',
+      },
+      { ...fact('A-1', 'document.criterion.P-04', 'MET'), label: 'P-04 CI/CD 구성' },
+    ],
+  }
+
+  it('문장 속 항목 코드 옆에 짧은 항목 이름을 붙인다', () => {
+    const names = itemNames(labelled)
+    expect(withItemNames('Q-01과 P-04가 갈렸어요.', names)).toBe(
+      'Q-01(Java 또는 Kotlin 기…)과 P-04(CI/CD 구성)가 갈렸어요.',
+    )
+  })
+
+  it('이름이 이미 붙은 코드와 모르는 코드, 지원자번호는 그대로 둔다', () => {
+    const names = itemNames(labelled)
+    expect(withItemNames('Q-01(Java 경력)과 Q-09, A-0001', names)).toBe(
+      'Q-01(Java 경력)과 Q-09, A-0001',
+    )
   })
 })
