@@ -4,7 +4,7 @@ import type { PropsWithChildren } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  useEnterInterview,
+  useInterviewReady,
   useInterviewAttendance,
   useInterviewRoomLive,
   useInterviewStageLive,
@@ -54,12 +54,12 @@ function connection(request: Request) {
 const attendance = (): InterviewAttendance => ({
   stageActive: true,
   attendees: [
-    { role: 'HR', memberId: 'hr', name: '인사', entered: false, online: true, me: true },
+    { role: 'HR', memberId: 'hr', name: '인사', ready: false, online: true, me: true },
     {
       role: 'PRACTICAL',
       memberId: 'practical',
       name: '실무',
-      entered: true,
+      ready: true,
       online: true,
       me: false,
     },
@@ -93,17 +93,17 @@ afterEach(() => {
 })
 
 describe('면접 실시간 알림', () => {
-  it('시작 전에도 다른 면접관의 시작 알림을 받아 질문 권한과 입장 현황을 다시 읽는다', async () => {
+  it('시작 전에도 다른 면접관의 시작 알림을 받아 질문 권한과 준비 현황을 다시 읽는다', async () => {
     const streams: ReturnType<typeof connection>[] = []
     let status: 'SCHEDULED' | 'IN_PROGRESS' = 'SCHEDULED'
-    let entered = attendance()
+    let current = attendance()
     vi.stubGlobal('fetch', (request: Request) => {
       if (request.url.endsWith('/events')) {
         const stream = connection(request)
         streams.push(stream)
         return Promise.resolve(stream.response)
       }
-      if (request.url.endsWith('/attendance')) return Promise.resolve(Response.json(entered))
+      if (request.url.endsWith('/attendance')) return Promise.resolve(Response.json(current))
       return Promise.resolve(Response.json(workspace(status)))
     })
     const { client, wrapper } = setup()
@@ -119,15 +119,13 @@ describe('면접 실시간 알림', () => {
     streams[0].send('connected')
     await waitFor(() => expect(hook.result.current.live.connected).toBe(true))
     status = 'IN_PROGRESS'
-    entered = {
-      ...entered,
-      attendees: entered.attendees.map((person) => ({ ...person, entered: true })),
+    current = {
+      ...current,
+      attendees: current.attendees.map((person) => ({ ...person, ready: true })),
     }
     streams[0].send('changed', '{"applicationId":"kim"}')
     await waitFor(() => expect(hook.result.current.room.data?.session.status).toBe('IN_PROGRESS'))
-    await waitFor(() =>
-      expect(hook.result.current.attendance.data?.attendees[0].entered).toBe(true),
-    )
+    await waitFor(() => expect(hook.result.current.attendance.data?.attendees[0].ready).toBe(true))
     hook.unmount()
     expect(streams[0].request.signal.aborted).toBe(true)
     client.clear()
@@ -401,38 +399,47 @@ describe('면접 실시간 알림', () => {
     client.clear()
   })
 
-  it('명시적으로 입장한 결과로 입장 현황을 즉시 갱신한다', async () => {
-    let entered = attendance()
+  it('준비 완료 · 취소 결과로 준비 현황을 바로 바꾸고, 시작했을 수 있는 면접 상태를 다시 읽는다', async () => {
+    let current = attendance()
+    let workspaceReads = 0
+    const calls: string[] = []
     resetCsrf()
     vi.stubGlobal('fetch', (request: Request | string) => {
       const url = typeof request === 'string' ? request : request.url
       if (url.endsWith('/csrf'))
         return Promise.resolve(Response.json({ token: 'token', headerName: 'X-CSRF-TOKEN' }))
-      if (url.endsWith('/enter')) {
-        entered = {
-          ...entered,
-          attendees: entered.attendees.map((person) => ({ ...person, entered: true })),
+      if (typeof request !== 'string' && url.endsWith('/ready')) {
+        calls.push(request.method)
+        const ready = request.method === 'POST'
+        current = {
+          ...current,
+          attendees: current.attendees.map((person) => (person.me ? { ...person, ready } : person)),
         }
-        return Promise.resolve(Response.json(entered))
+        return Promise.resolve(Response.json(current))
       }
-      return Promise.resolve(Response.json(entered))
+      if (url.endsWith('/attendance')) return Promise.resolve(Response.json(current))
+      workspaceReads += 1
+      return Promise.resolve(Response.json(workspace('SCHEDULED')))
     })
     const { client, wrapper } = setup()
     const hook = renderHook(
       () => ({
         attendance: useInterviewAttendance('stage', 'kim'),
-        enter: useEnterInterview('stage', 'kim'),
+        room: useWorkspace('stage', 'kim'),
+        readiness: useInterviewReady('stage', 'kim'),
       }),
       { wrapper },
     )
-    await waitFor(() =>
-      expect(hook.result.current.attendance.data?.attendees[0].entered).toBe(false),
-    )
-    await act(() => hook.result.current.enter.mutateAsync())
-    await waitFor(() =>
-      expect(hook.result.current.attendance.data?.attendees[0].entered).toBe(true),
-    )
-    expect(client.getQueryData(sessionKeys.attendance('stage', 'kim'))).toEqual(entered)
+    await waitFor(() => expect(hook.result.current.attendance.data?.attendees[0].ready).toBe(false))
+    await waitFor(() => expect(workspaceReads).toBe(1))
+    await act(() => hook.result.current.readiness.ready.mutateAsync())
+    expect(client.getQueryData(sessionKeys.attendance('stage', 'kim'))).toEqual(current)
+    await waitFor(() => expect(hook.result.current.attendance.data?.attendees[0].ready).toBe(true))
+    // 두 번째 준비 완료면 서버가 면접을 시작했을 수 있어 면접 상태를 다시 읽는다
+    await waitFor(() => expect(workspaceReads).toBe(2))
+    await act(() => hook.result.current.readiness.cancel.mutateAsync())
+    await waitFor(() => expect(hook.result.current.attendance.data?.attendees[0].ready).toBe(false))
+    expect(calls).toEqual(['POST', 'DELETE'])
     hook.unmount()
     client.clear()
   })

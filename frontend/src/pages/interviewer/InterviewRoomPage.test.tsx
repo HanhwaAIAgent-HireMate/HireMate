@@ -54,7 +54,10 @@ const workspace = (status: string) => ({
 function mockServer(
   options: {
     status?: string
-    entered?: boolean
+    /** 내가 이미 준비 완료했나 */
+    ready?: boolean
+    /** 상대 면접관(인사)이 준비 완료했나. 기본은 준비 완료 */
+    otherReady?: boolean
     otherOnline?: boolean
     unassigned?: boolean
     holdAnswer?: boolean
@@ -78,7 +81,7 @@ function mockServer(
   Element.prototype.scrollIntoView = vi.fn()
   const posts: string[] = []
   let status = options.status ?? 'SCHEDULED'
-  let entered = options.entered ?? false
+  let ready = options.ready ?? false
   const requests: string[] = []
   let releaseAnswer = () => {}
   const answerGate = new Promise<void>((resolve) => {
@@ -99,11 +102,11 @@ function mockServer(
         role: 'HR',
         memberId: 'hr1',
         name: '최인사',
-        entered: true,
+        ready: options.otherReady ?? true,
         online: options.otherOnline ?? true,
         me: false,
       },
-      { role: 'PRACTICAL', memberId: 'kim', name: '김실무', entered, online: true, me: true },
+      { role: 'PRACTICAL', memberId: 'kim', name: '김실무', ready, online: true, me: true },
     ],
   })
   vi.stubGlobal(
@@ -125,12 +128,16 @@ function mockServer(
           { headers: { 'Content-Type': 'text/event-stream' } },
         )
       }
+      if (url.endsWith('/ready')) {
+        posts.push(`${input.method} ${url}`)
+        ready = input.method === 'POST'
+        // 서버처럼 두 면접관이 모두 준비 완료하고 접속 중이면 그 자리에서 시작한다
+        if (ready && (options.otherReady ?? true) && (options.otherOnline ?? true))
+          status = 'IN_PROGRESS'
+        return Response.json(attendance())
+      }
       if (input.method === 'POST') {
         posts.push(url)
-        if (url.endsWith('/enter')) {
-          entered = true
-          return Response.json(attendance())
-        }
         status = url.endsWith('/end') ? 'ENDED' : 'IN_PROGRESS'
         return Response.json(makeWorkspace())
       }
@@ -242,20 +249,18 @@ describe('InterviewRoomPage', () => {
     expect(requests).not.toContain('GET /api/interviewer/sessions/s1/a0')
   })
 
-  it('내 입장과 전원 접속을 확인한 뒤 확인 창에서 시작한다', async () => {
+  it('상대가 준비 완료했으면 내 [준비 완료]로 확인 창 없이 바로 시작한다', async () => {
     const { posts } = mockServer()
     renderRoom()
     expect(await screen.findByLabelText('원장 재설계에서 직접 정한 부분은? 답변')).toBeDisabled()
-    expect(await screen.findByRole('button', { name: '면접 시작' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '면접 입장' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '면접 시작' })).not.toBeInTheDocument()
     expect(screen.getAllByText(/최인사/).length).toBeGreaterThan(0)
-    fireEvent.click(screen.getByRole('button', { name: '면접 입장' }))
-    await vi.waitFor(() => expect(screen.getByRole('button', { name: '면접 시작' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: '면접 시작' }))
-    const dialog = await screen.findByRole('alertdialog')
-    expect(dialog).toHaveTextContent('배정과 질문 구성')
-    expect(posts).not.toContain('/api/interviewer/sessions/s1/a1/start')
-    fireEvent.click(within(dialog).getByRole('button', { name: '시작하기' }))
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: '준비 완료' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '준비 완료' }))
     expect(await screen.findByRole('button', { name: '면접 종료' })).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(posts).toEqual(['POST /api/interviewer/sessions/s1/a1/ready'])
     expect(screen.getByLabelText('원장 재설계에서 직접 정한 부분은? 답변')).toBeEnabled()
     expect(screen.getByText('일정을 두고 조율했다')).toBeInTheDocument()
     expect(screen.getByText('본인 역할을 확인할 질문 하나 더 만들어줘')).toBeInTheDocument()
@@ -264,24 +269,46 @@ describe('InterviewRoomPage', () => {
     expect(screen.queryByRole('button', { name: /인사.*실무 공유 기록/ })).not.toBeInTheDocument()
   })
 
-  it('다른 면접관 접속이 끊겼으면 입장했어도 시작할 수 없다', async () => {
-    mockServer({ entered: true, otherOnline: false })
+  it('상대가 준비 전이면 준비 완료한 채 기다리고, 시작 전에는 취소할 수 있다', async () => {
+    const { posts } = mockServer({ otherReady: false })
     renderRoom()
-    expect(await screen.findByText('접속 끊김')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '면접 시작' })).toBeDisabled()
+    const people = await screen.findByRole('list', { name: '배정 면접관 접속 현황' })
+    await vi.waitFor(() => expect(people).toHaveTextContent('인사 최인사준비 전'))
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: '준비 완료' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '준비 완료' }))
+    expect(await screen.findByRole('button', { name: '준비 취소' })).toBeInTheDocument()
+    expect(people).toHaveTextContent('실무 김실무 (나)준비 완료')
+    expect(screen.getByText(/다른 면접관이 준비 완료하면 바로 면접이 시작돼요/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '면접 종료' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '준비 취소' }))
+    expect(await screen.findByRole('button', { name: '준비 완료' })).toBeInTheDocument()
+    expect(posts).toEqual([
+      'POST /api/interviewer/sessions/s1/a1/ready',
+      'DELETE /api/interviewer/sessions/s1/a1/ready',
+    ])
   })
 
-  it('질문 담당이 비어 있으면 채용 담당자에게 요청하도록 안내한다', async () => {
-    mockServer({ entered: true, unassigned: true })
+  it('준비 완료한 다른 면접관의 접속이 끊겼으면 내가 준비 완료해도 시작하지 않는다', async () => {
+    mockServer({ otherOnline: false })
+    renderRoom()
+    expect(await screen.findByText('접속 끊김')).toBeInTheDocument()
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: '준비 완료' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '준비 완료' }))
+    expect(await screen.findByRole('button', { name: '준비 취소' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '면접 종료' })).not.toBeInTheDocument()
+  })
+
+  it('질문 담당이 비어 있으면 채용 담당자에게 요청하도록 안내하고 준비 완료를 막는다', async () => {
+    mockServer({ unassigned: true })
     renderRoom()
     expect(await screen.findByText(/담당 지정을 요청/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '면접 시작' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '준비 완료' })).toBeDisabled()
   })
 
   it('종료 확인 후 마지막 답변 저장이 끝나야 종료 API를 호출한다', async () => {
     const { posts, requests, releaseAnswer } = mockServer({
       status: 'IN_PROGRESS',
-      entered: true,
+      ready: true,
       holdAnswer: true,
     })
     renderRoom()
@@ -304,7 +331,7 @@ describe('InterviewRoomPage', () => {
   it('자동 저장 중 새로 쓴 답변도 저장한 뒤 종료한다', async () => {
     const { posts, requests, releaseAnswer, savedAnswers } = mockServer({
       status: 'IN_PROGRESS',
-      entered: true,
+      ready: true,
       holdAnswer: true,
     })
     renderRoom()
@@ -330,7 +357,7 @@ describe('InterviewRoomPage', () => {
   it('마지막 답변을 저장하지 못하면 종료하지 않고 초안을 보존한다', async () => {
     const { posts, requests } = mockServer({
       status: 'IN_PROGRESS',
-      entered: true,
+      ready: true,
       failAnswer: true,
     })
     renderRoom()
@@ -350,7 +377,7 @@ describe('InterviewRoomPage', () => {
   })
 
   it('결과가 확정된 전형에서는 의견을 읽기만 한다', async () => {
-    mockServer({ status: 'ENDED', entered: true, stageActive: false })
+    mockServer({ status: 'ENDED', ready: true, stageActive: false })
     renderRoom()
     expect(await screen.findByRole('radio', { name: '추천' })).toBeDisabled()
     expect(screen.getByLabelText('의견 이유')).toBeDisabled()
