@@ -61,7 +61,12 @@ class InterviewOpinionTests extends IntegrationTest {
         String mine = room.opinions() + "/me";
 
         expect(room.kim().put(mine, Map.of("recommendation", "RECOMMEND", "comment", " ")), 400);
-        expect(room.kim().put(mine, Map.of("recommendation", "RECOMMEND", "comment", "처음 의견")), 200);
+        JsonNode first = json(expect(room.kim().put(mine,
+                Map.of("recommendation", "RECOMMEND", "comment", "처음 의견")), 200));
+        assertThat(entry(first, "PRACTICAL").path("edited").asBoolean()).isFalse();
+        assertThat(entry(first, "PRACTICAL").path("updatedAt").isNull()).isFalse();
+        JsonNode firstRead = json(expect(room.kim().get(room.opinions()), 200));
+        assertThat(entry(firstRead, "PRACTICAL").path("edited").asBoolean()).isFalse();
         JsonNode edited = json(expect(room.kim().put(mine, Map.of("recommendation", "NOT_RECOMMEND",
                 "comment", "다시 보니 근거가 약함")), 200));
         assertThat(entry(edited, "PRACTICAL").path("edited").asBoolean()).isTrue();

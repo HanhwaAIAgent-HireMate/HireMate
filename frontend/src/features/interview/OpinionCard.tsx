@@ -180,9 +180,9 @@ export function OpinionLine({
         </span>
         <b>{who}</b>
         {opinion.unassigned && <span className="text-muted-foreground">배정 해제됨</span>}
-        {opinion.edited && opinion.updatedAt && (
+        {opinion.updatedAt && (
           <span className="ml-auto text-muted-foreground">
-            수정됨 · {formatDateTime(opinion.updatedAt)}
+            {opinion.edited ? '수정됨' : '작성됨'} · {formatDateTime(opinion.updatedAt)}
           </span>
         )}
       </div>
