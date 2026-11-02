@@ -64,8 +64,8 @@ export const WORK_FIELDS: {
   maxLength: number
 }[] = [
   { key: 'location', label: '근무지', placeholder: '예: 서울 강남구 테헤란로 123', maxLength: 100 },
-  ...CONDITION_FIELDS.flatMap((field) =>
-    field.key === 'workHours' || field.key === 'salary' ? [{ ...field, key: field.key }] : [],
+  ...(['workHours', 'salary'] as const).flatMap((key) =>
+    CONDITION_FIELDS.filter((field) => field.key === key).map((field) => ({ ...field, key })),
   ),
 ]
 
