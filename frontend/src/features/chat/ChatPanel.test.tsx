@@ -6,6 +6,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ChatPanel } from '@/features/chat/ChatPanel'
 import { useChatStore } from '@/features/chat/store'
 import { stageKeys, type StageOverview } from '@/features/screening/api'
+import { useStageUi } from '@/features/screening/store'
 import { useStageTabs } from '@/features/screening/tabs'
 import { resetCsrf } from '@/lib/api/client'
 
@@ -87,6 +88,7 @@ beforeAll(() => {
 
 afterEach(() => {
   useChatStore.setState({ threads: {} })
+  useStageUi.getState().clearMentions()
   resetCsrf()
   vi.unstubAllGlobals()
 })
@@ -221,6 +223,54 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(tabReads).toBeGreaterThanOrEqual(3))
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.getByTestId('tabs')).toHaveTextContent('금융 경험 찾기,탭 2')
+  })
+
+  it('@ 후보를 위아래 키로 옮겨 Enter나 Tab으로 고르고 Esc로 닫는다', () => {
+    mockServer()
+    const people = [
+      { applicationId: 'a1', name: '김민수' },
+      { applicationId: 'a2', name: '김지현' },
+      { applicationId: 'a3', name: '박서준' },
+    ]
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ChatPanel overview={overview} tabId="t1" people={people} />
+      </QueryClientProvider>,
+    )
+    const input = screen.getByRole('textbox', { name: 'AI Chat 입력' })
+    const selected = () =>
+      screen
+        .getAllByRole('option')
+        .find((option) => option.getAttribute('aria-selected') === 'true')
+
+    fireEvent.change(input, { target: { value: '@김' } })
+    expect(selected()).toHaveTextContent('김민수')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(selected()).toHaveTextContent('김지현')
+    expect(input).toHaveAttribute('aria-activedescendant', selected()?.id)
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(selected()).toHaveTextContent('김민수')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(selected()).toHaveTextContent('김지현')
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(input).toHaveValue('')
+    expect(useStageUi.getState().mentions.map((mention) => mention.name)).toEqual(['김지현'])
+
+    fireEvent.change(input, { target: { value: '@' } })
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    fireEvent.keyDown(input, { key: 'Tab' })
+    expect(useStageUi.getState().mentions.map((mention) => mention.name)).toEqual([
+      '김지현',
+      '박서준',
+    ])
+
+    fireEvent.change(input, { target: { value: '@박' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    fireEvent.change(input, { target: { value: '@박서' } })
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
   })
 
   it('[대화 지우기] 버튼이 없다. 대화는 탭을 지울 때 지운다', async () => {
