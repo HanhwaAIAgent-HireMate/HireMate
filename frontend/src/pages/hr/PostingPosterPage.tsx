@@ -135,8 +135,9 @@ function PosterEditor({ posting }: { posting: Posting }) {
   }
   const persist = async (next = design) => {
     try {
-      await save.mutateAsync(next)
-      setDesign(next)
+      const selected = { ...next, enabled: true }
+      await save.mutateAsync(selected)
+      setDesign(selected)
       return true
     } catch (error) {
       toast.error(errorMessage(error))
@@ -456,14 +457,6 @@ function PosterEditor({ posting }: { posting: Posting }) {
               </section>
             )}
             <fieldset disabled={!editable || busy} className="space-y-5 border-t pt-5">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={design.enabled}
-                  onChange={(event) => update({ enabled: event.target.checked })}
-                />
-                포스터 함께 게시
-              </label>
               <div>
                 <label htmlFor="poster-color" className="mb-2 block text-xs font-medium">
                   대표 색상

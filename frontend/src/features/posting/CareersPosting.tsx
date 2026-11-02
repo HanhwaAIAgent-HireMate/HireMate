@@ -108,11 +108,12 @@ export function CareersPosting({
             </span>
           </div>
         </div>
-        {posting.poster?.enabled && (
+        {posting.poster?.enabled ? (
           <div ref={posterRef}>
             <PostingPoster
               posting={posting}
               design={posting.poster}
+              sectionIds
               careersUrl={
                 applyPath
                   ? new URL(`/careers/${posting.postingId}`, window.location.origin).href
@@ -121,46 +122,49 @@ export function CareersPosting({
               logoUrl={posterLogoUrl ?? `/api/public/postings/${posting.postingId}/poster/logo`}
             />
           </div>
+        ) : (
+          <>
+            {content.intro && (
+              <Block id="company" title="회사 소개">
+                <p className="text-sm leading-6 whitespace-pre-wrap">{content.intro}</p>
+              </Block>
+            )}
+            <Lines title="주요 업무" lines={content.duties} />
+            <Lines title="자격 요건" lines={content.qualifications} />
+            <Lines title="우대 사항" lines={content.preferred} />
+            {work.length > 0 && (
+              <Block title="근무 조건">
+                <dl className="space-y-1.5 text-sm">
+                  {work.map((row) => (
+                    <Row key={row.label} label={row.label} value={row.value} wide />
+                  ))}
+                </dl>
+              </Block>
+            )}
+            <Block title="전형 절차">
+              <StageFlow stages={posting.stages} showType={false} />
+            </Block>
+            <Block title="제출 서류">
+              <div className="flex flex-wrap gap-2">
+                {posting.documents.map((document) => (
+                  <span
+                    key={document.type}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium',
+                      document.required ? 'bg-muted/60' : 'bg-background',
+                    )}
+                  >
+                    {document.format === 'PDF' && <FileText className="size-3.5" />}
+                    {document.label}
+                    {document.format === 'PDF' && ' PDF'} · {document.required ? '필수' : '선택'}
+                  </span>
+                ))}
+              </div>
+            </Block>
+            <Lines id="benefits" title="복지" lines={content.benefits} />
+            <Lines title="유의사항" lines={posting.notices} muted />
+          </>
         )}
-        {content.intro && (
-          <Block id="company" title="회사 소개">
-            <p className="text-sm leading-6 whitespace-pre-wrap">{content.intro}</p>
-          </Block>
-        )}
-        <Lines title="주요 업무" lines={content.duties} />
-        <Lines title="자격 요건" lines={content.qualifications} />
-        <Lines title="우대 사항" lines={content.preferred} />
-        {work.length > 0 && (
-          <Block title="근무 조건">
-            <dl className="space-y-1.5 text-sm">
-              {work.map((row) => (
-                <Row key={row.label} label={row.label} value={row.value} wide />
-              ))}
-            </dl>
-          </Block>
-        )}
-        <Block title="전형 절차">
-          <StageFlow stages={posting.stages} showType={false} />
-        </Block>
-        <Block title="제출 서류">
-          <div className="flex flex-wrap gap-2">
-            {posting.documents.map((document) => (
-              <span
-                key={document.type}
-                className={cn(
-                  'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium',
-                  document.required ? 'bg-muted/60' : 'bg-background',
-                )}
-              >
-                {document.format === 'PDF' && <FileText className="size-3.5" />}
-                {document.label}
-                {document.format === 'PDF' && ' PDF'} · {document.required ? '필수' : '선택'}
-              </span>
-            ))}
-          </div>
-        </Block>
-        <Lines id="benefits" title="복지" lines={content.benefits} />
-        <Lines title="유의사항" lines={posting.notices} muted />
         {posting.companyAddress && (
           <Block title="회사 주소">
             <p className="text-sm leading-6">{posting.companyAddress}</p>
