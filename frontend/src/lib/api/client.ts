@@ -76,7 +76,7 @@ const MESSAGES: Record<string, string> = {
   STAGE_NOT_ACTIVE: '진행 중인 전형에서만 바꿀 수 있어요.',
   QUESTIONS_PREPARING: '질문 준비가 끝나면 면접을 시작할 수 있어요.',
   INTERVIEW_NOT_RUNNING: '면접 진행 중에만 기록할 수 있어요.',
-  INTERVIEW_STARTED: '면접이 시작되어 배정이나 질문 구성을 바꿀 수 없어요.',
+  INTERVIEW_STARTED: '면접이 시작되어 배정, 질문 구성이나 일정을 바꿀 수 없어요.',
   INTERVIEW_IN_PROGRESS: '진행 중인 면접을 모두 종료한 뒤 전형 결과를 확정해 주세요.',
   QUESTION_ANSWERED: '답변이 기록된 질문의 담당 변경이나 삭제는 할 수 없어요.',
   SESSION_CONFLICT: '면접 정보가 변경됐어요. 최신 내용을 확인해 주세요.',
@@ -88,6 +88,9 @@ const MESSAGES: Record<string, string> = {
   STAGE_CLOSED: '결과를 확정한 전형이라 바꿀 수 없어요.',
   INTERVIEW_NOT_STARTED: '두 면접관이 모두 [준비 완료]를 눌러 면접을 시작한 뒤에 할 수 있어요.',
   INTERVIEW_ENDED: '종료한 면접이에요.',
+  INTERVIEW_NOT_SCHEDULED: '면접 일시가 정해져야 면접을 시작할 수 있어요.',
+  INTERVIEW_SLOT_STARTED: '이미 시작한 면접 시간이에요. 다른 시간을 골라 주세요.',
+  INTERVIEW_ANSWERED: '답변을 기록한 지원자는 불참으로 표시할 수 없어요.',
 
   INVALID_CREDENTIALS: '이메일이나 비밀번호가 맞지 않아요.',
   EMAIL_ALREADY_EXISTS: '이미 가입한 이메일이에요.',

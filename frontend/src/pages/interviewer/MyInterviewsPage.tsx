@@ -65,7 +65,7 @@ function StageCard({ items }: { items: AssignedInterview[] }) {
           <span>
             지원자 <b className="text-foreground">{items.length}</b>명
           </span>
-          {(['IN_PROGRESS', 'SCHEDULED', 'ENDED'] as const)
+          {(['IN_PROGRESS', 'SCHEDULED', 'ENDED', 'ABSENT'] as const)
             .filter((status) => count(status) > 0)
             .map((status) => (
               <span key={status}>

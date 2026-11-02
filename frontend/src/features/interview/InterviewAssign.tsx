@@ -35,7 +35,10 @@ export function InterviewAssign({ stageId, editable }: { stageId: string; editab
   const [practical, setPractical] = useState('')
   const [expectedVersion, setExpectedVersion] = useState<number | null>(null)
   const current = assignment.data
-  const locked = current?.locked || progress.data?.some((row) => row.status !== 'SCHEDULED')
+  // 불참은 면접을 하지 않은 것이라 배정을 잠그지 않는다 (서버와 같다)
+  const locked =
+    current?.locked ||
+    progress.data?.some((row) => row.status === 'IN_PROGRESS' || row.status === 'ENDED')
   const conflicting =
     assignment.error instanceof ApiError &&
     assignment.error.code === 'INTERVIEW_ASSIGNMENT_CONFLICT'

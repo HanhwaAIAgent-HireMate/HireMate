@@ -14,13 +14,18 @@ export const INTERVIEW_STATUS_LABELS = {
   SCHEDULED: '예정',
   IN_PROGRESS: '진행 중',
   ENDED: '종료',
+  ABSENT: '불참',
 } as const satisfies Record<InterviewAssignment['status'], string>
 
-/** 면접 상태 칩의 색. 예정은 회색, 진행 중은 주황, 종료는 파랑 (합격 초록 · 불합격 빨강과 겹치지 않게) */
+/**
+ * 면접 상태 칩의 색. 예정은 회색, 진행 중은 주황, 종료는 파랑, 불참은 진한 회색
+ * (합격 초록 · 불합격 빨강과 겹치지 않게)
+ */
 export const INTERVIEW_STATUS_STYLES = {
   SCHEDULED: 'bg-muted text-muted-foreground',
   IN_PROGRESS: 'bg-amber-100 text-amber-800',
   ENDED: 'bg-sky-100 text-sky-800',
+  ABSENT: 'bg-zinc-200 text-zinc-700',
 } as const satisfies Record<InterviewAssignment['status'], string>
 
 /** 내 면접 목록은 별도 실시간 연결 없이 이 간격으로 상태를 다시 받아 온다 */
@@ -183,6 +188,25 @@ export function useWorkspaceActions(stageId: string, applicationId: string) {
           ),
         ),
       onSuccess,
+    }),
+    // 불참은 같은 시간 면접자 모두의 준비 현황을 바꾸므로 준비 현황도 다시 읽는다
+    absent: useMutation({
+      mutationFn: (absent: boolean) =>
+        unwrap(
+          absent
+            ? api.POST(
+                '/api/interviewer/sessions/{stageId}/{applicationId}/absent',
+                workspacePath(stageId, applicationId),
+              )
+            : api.DELETE(
+                '/api/interviewer/sessions/{stageId}/{applicationId}/absent',
+                workspacePath(stageId, applicationId),
+              ),
+        ),
+      onSuccess: (workspace: InterviewerWorkspace) => {
+        onSuccess(workspace)
+        void queryClient.invalidateQueries({ queryKey: ['interviewer', 'attendance', stageId] })
+      },
     }),
     memo: useMutation({
       mutationFn: (body: Schemas['PersonalInterviewMemo']) =>

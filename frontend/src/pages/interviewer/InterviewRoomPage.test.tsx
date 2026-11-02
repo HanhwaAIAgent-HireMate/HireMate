@@ -65,7 +65,10 @@ function mockServer(
     stageActive?: boolean
     /** 내 면접 목록에서 a1보다 먼저 오는 지원자 */
     listedBefore?: Record<string, unknown>[]
-    scheduledAt?: string
+    /** a1의 면접 일시. null이면 일정 미정 */
+    scheduledAt?: string | null
+    /** a1과 같은 시간에 면접 보는 지원자 */
+    together?: { applicationId: string; applicantName: string }[]
   } = {},
 ) {
   // 칸 너비 조절(react-resizable-panels)이 쓰는 브라우저 API. jsdom에는 없다
@@ -80,6 +83,8 @@ function mockServer(
   // Chat이 새 말풍선으로 내리는 브라우저 API. jsdom에는 없다
   Element.prototype.scrollIntoView = vi.fn()
   const posts: string[] = []
+  const at = options.scheduledAt === undefined ? '2026-11-03T02:00:00Z' : options.scheduledAt
+  let absent = false
   let status = options.status ?? 'SCHEDULED'
   let ready = options.ready ?? false
   const requests: string[] = []
@@ -90,10 +95,34 @@ function mockServer(
   const savedAnswers: string[] = []
   let savedAnswer = ''
   const makeWorkspace = () => {
-    const value = workspace(status)
+    const value = workspace(absent ? 'ABSENT' : status)
     value.questions[0].question.answer = savedAnswer
     if (options.unassigned) value.questions[0].question.interviewerRole = ''
-    return value
+    const others = (options.together ?? []).map((member) => ({
+      ...member,
+      status,
+      answered: false,
+      blocker: null,
+    }))
+    return {
+      ...value,
+      schedule: at ? { scheduledAt: at, interviewers: '' } : null,
+      // 같은 시간 면접 (서버의 InterviewGroup)
+      group: {
+        scheduledAt: at,
+        status: absent && others.length === 0 ? 'ABSENT' : status,
+        members: [
+          {
+            applicationId: 'a1',
+            applicantName: '김하늘',
+            status: absent ? 'ABSENT' : status,
+            answered: savedAnswer !== '',
+            blocker: status === 'SCHEDULED' && options.unassigned ? '담당이 없는 질문 1개' : null,
+          },
+          ...others,
+        ],
+      },
+    }
   }
   const attendance = () => ({
     stageActive: options.stageActive ?? true,
@@ -136,6 +165,11 @@ function mockServer(
           status = 'IN_PROGRESS'
         return Response.json(attendance())
       }
+      if (url.endsWith('/absent')) {
+        posts.push(`${input.method} ${url}`)
+        absent = input.method === 'POST'
+        return Response.json(makeWorkspace())
+      }
       if (input.method === 'POST') {
         posts.push(url)
         status = url.endsWith('/end') ? 'ENDED' : 'IN_PROGRESS'
@@ -162,14 +196,22 @@ function mockServer(
               recruitmentTitle: '결제 플랫폼 백엔드 개발자',
               stageName: '1차 기술 면접',
               applicantName: '김하늘',
-              schedule: options.scheduledAt
-                ? { scheduledAt: options.scheduledAt, interviewers: '' }
-                : null,
+              schedule: at ? { scheduledAt: at, interviewers: '' } : null,
+              myRole: 'PRACTICAL',
+              status: absent ? 'ABSENT' : status,
+            },
+            ...(options.together ?? []).map((member) => ({
+              stageId: 's1',
+              recruitmentId: 'r1',
+              recruitmentTitle: '결제 플랫폼 백엔드 개발자',
+              stageName: '1차 기술 면접',
+              schedule: at ? { scheduledAt: at, interviewers: '' } : null,
               myRole: 'PRACTICAL',
               status,
-            },
+              ...member,
+            })),
           ],
-          total: 1 + (options.listedBefore?.length ?? 0),
+          total: 1 + (options.listedBefore?.length ?? 0) + (options.together?.length ?? 0),
           page: 0,
           size: 50,
         },
@@ -222,9 +264,8 @@ function renderRoom() {
 }
 
 describe('InterviewRoomPage', () => {
-  it('지원자를 고르지 않고 전형으로 들어오면 왼쪽 목록 맨 위 지원자를 연다', async () => {
+  it('지원자를 고르지 않고 전형으로 들어오면 다가오는 면접 시간의 첫 지원자를 연다', async () => {
     const { requests } = mockServer({
-      scheduledAt: '2026-11-03T02:00:00Z',
       listedBefore: [
         {
           stageId: 's1',
@@ -280,7 +321,7 @@ describe('InterviewRoomPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '준비 완료' }))
     expect(await screen.findByRole('button', { name: '준비 취소' })).toBeInTheDocument()
     expect(people).toHaveTextContent('실무 김실무 (나)준비 완료')
-    expect(screen.getByText(/다른 면접관이 준비 완료하면 바로 면접이 시작돼요/)).toBeInTheDocument()
+    expect(screen.getByText(/다른 면접관이 준비 완료하면 .*바로 함께 시작돼요/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '면접 종료' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '준비 취소' }))
     expect(await screen.findByRole('button', { name: '준비 완료' })).toBeInTheDocument()
@@ -303,8 +344,55 @@ describe('InterviewRoomPage', () => {
   it('질문 담당이 비어 있으면 채용 담당자에게 요청하도록 안내하고 준비 완료를 막는다', async () => {
     mockServer({ unassigned: true })
     renderRoom()
-    expect(await screen.findByText(/담당 지정을 요청/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/채용 담당자에게 요청하세요: 김하늘 담당이 없는 질문 1개/),
+    ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '준비 완료' })).toBeDisabled()
+  })
+
+  it('일정이 정해지지 않은 지원자는 일정 미정으로 모으고 면접을 시작할 수 없다', async () => {
+    mockServer({ scheduledAt: null })
+    renderRoom()
+    const list = await screen.findByRole('navigation', { name: '면접 지원자' })
+    expect(await within(list).findByRole('region', { name: '일정 미정 면접' })).toHaveTextContent(
+      '일정 미정 · 1명',
+    )
+    expect(
+      await screen.findByText(/면접 일시가 정해지면 면접을 시작할 수 있어요/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '준비 완료' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '불참' })).not.toBeInTheDocument()
+  })
+
+  it('같은 시간 면접자를 한 칸으로 보여 주고, 오지 않은 지원자는 불참으로 뺄 수 있다', async () => {
+    const { posts } = mockServer({
+      otherReady: false,
+      together: [{ applicationId: 'a2', applicantName: '박서준' }],
+    })
+    renderRoom()
+    const list = await screen.findByRole('navigation', { name: '면접 지원자' })
+    const slot = (await within(list).findAllByRole('region'))[0]
+    expect(slot).toHaveTextContent('2명')
+    expect(
+      within(slot)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['김하늘', '박서준'])
+    const together = await screen.findByRole('list', { name: '같은 시간 면접자' })
+    expect(together).toHaveTextContent('김하늘')
+    expect(together).toHaveTextContent('박서준')
+    expect(screen.getByText(/이 시간 면접자 2명의 면접이 바로 함께 시작돼요/)).toBeInTheDocument()
+
+    fireEvent.click(await screen.findByRole('button', { name: '불참' }))
+    expect(await screen.findByRole('button', { name: '불참 취소' })).toBeInTheDocument()
+    expect(posts).toEqual(['POST /api/interviewer/sessions/s1/a1/absent'])
+    expect(screen.getByText(/불참으로 표시한 지원자예요/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '불참 취소' }))
+    expect(await screen.findByRole('button', { name: '불참' })).toBeInTheDocument()
+    expect(posts).toEqual([
+      'POST /api/interviewer/sessions/s1/a1/absent',
+      'DELETE /api/interviewer/sessions/s1/a1/absent',
+    ])
   })
 
   it('종료 확인 후 마지막 답변 저장이 끝나야 종료 API를 호출한다', async () => {
