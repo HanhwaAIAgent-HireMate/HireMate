@@ -29,20 +29,6 @@ const WAITING = '지원자 자료를 살펴보고 있어요…'
 type Progress = { steps: string[]; items: ChatItem[] }
 const NO_PROGRESS: Progress = { steps: [], items: [] }
 
-const EXAMPLES: Record<StageOverview['type'], string[]> = {
-  DOCUMENT: [
-    '금융 도메인 경험이 있는 지원자 찾아줘',
-    '인재상이 잘 드러나는 지원자 찾아줘',
-    '미결정이 몇 명 남았어?',
-  ],
-  ASSESSMENT: [
-    '총점 85점 이상인 지원자 찾아줘',
-    '평가 결과가 아직 없는 지원자 보여줘',
-    '미결정이 몇 명 남았어?',
-  ],
-  INTERVIEW: ['면접에서 프로젝트 역할을 꼭 확인해야 할 지원자 찾아줘', '미결정이 몇 명 남았어?'],
-}
-
 /**
  * AI Chat (STG-02~05). 조건을 말하면 리스트에 표시하고, 특정 지원자 질문은 화면을 바꾸지 않고 대화로 답한다.
  * 대화는 지금 탭(tabId)의 것이고 같은 기업 담당자가 함께 본다. 답을 기다리는 동안 다른 탭으로 옮겨도 답은 물은 탭에
@@ -63,8 +49,8 @@ export function ChatPanel({
   tabId: string
   /** @로 고를 지원자. 없으면 전형의 지원자를 서버에서 찾는다 (면접관 모드는 배정된 지원자만 준다) */
   people?: { applicationId: string; name: string }[]
-  /** 빈 대화의 예시 질문. 없으면 전형 종류별 기본 예시다 */
-  examples?: string[]
+  /** 빈 대화의 추천 질문. HR 전형 화면은 전형 상황에 맞춰 고르고(useStageSuggestions), 면접관 모드는 고정 예시다 */
+  examples: string[]
 }) {
   const stageId = overview.stageId
   const messages = useChatStore((state) => state.threads[tabId] ?? EMPTY)
@@ -195,7 +181,7 @@ export function ChatPanel({
               {overview.name} 지원자 {overview.counts.total}명을 대상으로 물어볼 수 있어요. @로
               지원자를 고를 수도 있어요.
             </p>
-            {(examples ?? EXAMPLES[overview.type]).map((example) => (
+            {examples.map((example) => (
               <button
                 key={example}
                 onClick={() => send(example)}

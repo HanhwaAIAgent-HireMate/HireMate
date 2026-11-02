@@ -74,9 +74,10 @@ function renderPanel() {
   const wrap = (children: ReactNode) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   )
-  const view = render(wrap(<ChatPanel overview={overview} tabId="t1" />))
+  const view = render(wrap(<ChatPanel overview={overview} tabId="t1" examples={[]} />))
   return {
-    show: (tabId: string) => view.rerender(wrap(<ChatPanel overview={overview} tabId={tabId} />)),
+    show: (tabId: string) =>
+      view.rerender(wrap(<ChatPanel overview={overview} tabId={tabId} examples={[]} />)),
   }
 }
 
@@ -147,7 +148,7 @@ describe('ChatPanel', () => {
     ])
     render(
       <QueryClientProvider client={client}>
-        <ChatPanel overview={overview} tabId="t1" />
+        <ChatPanel overview={overview} tabId="t1" examples={[]} />
       </QueryClientProvider>,
     )
     await waitFor(() => expect(client.getQueryData(['auth', 'me'])).toBeTruthy())
@@ -207,7 +208,7 @@ describe('ChatPanel', () => {
     render(
       <QueryClientProvider client={client}>
         <TabNames />
-        <ChatPanel overview={overview} tabId="t1" />
+        <ChatPanel overview={overview} tabId="t1" examples={[]} />
       </QueryClientProvider>,
     )
     await waitFor(() => expect(screen.getByTestId('tabs')).toHaveTextContent('탭 1,탭 2'))
