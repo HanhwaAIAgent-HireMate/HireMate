@@ -20,7 +20,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic.alias_generators import to_camel
 
-from hiremate_ai.agents.generation.posting.checks import JUDGED_FIELDS, blocked_terms, problems
+from hiremate_ai.agents.generation.posting.checks import JUDGED_FIELDS, MAX_ITEMS, blocked_terms, problems
 from hiremate_ai.agents.generation.posting.types import (
     PostingDraftContext,
     PostingFocus,
@@ -201,6 +201,8 @@ _COUNT_WINDOW = 8
 _WRITE_WORDS = re.compile(r"써|쓰|작성|만들|채워")
 _REWRITE_WORDS = re.compile(r"다시|새로|전부|전체")
 _EDIT_WORDS = re.compile(r"추가|더해|넣어|넣고|빼|삭제|지워|고쳐|수정")
+# 지금 줄은 두고 더 써 달라는 말 (예: "추가로 써 줘", "더 써 줘", "3개 더"). "더 구체적으로"는 고쳐 쓰기라 넣지 않는다
+_ADD_WORDS = re.compile(rf"추가|더\s*(?:써|쓰|작성|만들|넣|채워)|{_COUNT}\s*더")
 
 # 모델이 숫자와 단위 사이에 넣는 공백 (예: "1 차 면접", "20 대")
 _NUMBER_SPACE = re.compile(r"(\d)\s+(차|대|년|개월|월|일|시간|시|분|명|회|개|단계|주)")
@@ -578,13 +580,14 @@ async def _write(
         pick = await _ask(llm, NcsPick, context, _ncs_pick_step(), found)
         if units := _chosen_units(pick.ncs_codes):
             counts = {name: min(max(count, 1), MAX_DRAFT_ITEMS) for name, count in plan.items()}
+            adds = _appended_lists(posting.content, request, counts)
             ncs = await llm.structured(
                 NcsDraft,
                 agent=AGENT,
                 system=NCS_SYSTEM,
-                user=_with_reasons(_ncs_prompt(posting, writing_style, request, units, counts), found),
+                user=_with_reasons(_ncs_prompt(posting, writing_style, request, units, counts, adds), found),
             )
-            changes, cited, written, dropped = _apply_ncs(changes, ncs, units, counts)
+            changes, cited, written, dropped = _apply_ncs(changes, ncs, units, counts, posting.content, adds)
             notes = _count_notes(plan, counts, written)
             if dropped:
                 notes.append(f"자격 요건과 같은 능력을 말하는 우대 사항 {dropped}개는 뺐어요.")
@@ -635,12 +638,16 @@ def _writes_whole_list(content: PostingContent, request: str) -> bool:
 
     개수를 말했거나, 다시 쓰라고 했거나, 비어 있는 목록을 쓰라는 요청이다.
     항목을 더하거나 빼라는 말이 있으면 고치기로 둔다 (예: "우대 사항에 AWS 경험 하나 추가해 줘").
+    다만 더 써 달라는 요청(예: "자격 요건 추가로 써 줘", "3개 더 써 줘")은 NCS 근거로 써서 기존 줄 뒤에 더한다.
     """
-    if _EDIT_WORDS.search(request) or not _WRITE_WORDS.search(request):
+    if not _WRITE_WORDS.search(request):
+        return False
+    adding = bool(_ADD_WORDS.search(request))
+    if _EDIT_WORDS.search(request) and not adding:
         return False
     return any(
         re.search(words, request)
-        and (not getattr(content, name) or _REWRITE_WORDS.search(request) or _spoken_count(words, request))
+        and (not getattr(content, name) or adding or _REWRITE_WORDS.search(request) or _spoken_count(words, request))
         for name, words in _LIST_WORDS.items()
     )
 
@@ -673,14 +680,31 @@ def _by_survey(units: list[NcsUnit]) -> list[NcsUnit]:
     return [next(ranked) if unit.code in surveys else unit for unit in units]
 
 
+def _appended_lists(content: PostingContent, request: str, counts: dict[str, int]) -> set[str]:
+    """새 줄을 기존 줄 뒤에 더할 목록. 더 써 달라고 했고(_ADD_WORDS) 이미 줄이 있는 목록이다.
+
+    HR이 적어 둔 줄(학력처럼 NCS 근거가 없는 줄 포함)을 더 써 달라는 요청에 지우지 않기 위해서다.
+    "7개로 써 줘"처럼 개수를 정해 쓰라거나 다시 쓰라는 요청은 지금처럼 목록을 바꿔 쓴다.
+    """
+    if not _ADD_WORDS.search(request) or _REWRITE_WORDS.search(request):
+        return set()
+    return {name for name in counts if getattr(content, name)}
+
+
 def _apply_ncs(
-    changes: list[FieldChange], ncs: NcsDraft, units: list[NcsUnit], counts: dict[str, int]
+    changes: list[FieldChange],
+    ncs: NcsDraft,
+    units: list[NcsUnit],
+    counts: dict[str, int],
+    content: PostingContent,
+    adds: set[str],
 ) -> tuple[list[FieldChange], list[NcsUnit], dict[str, int], int]:
     """NCS 정의를 보고 쓴 목록을 바꿀 칸에 넣고, 보여 준 능력단위 중 근거로 쓴 것, 목록마다 모델이 쓴 항목 수,
     자격 요건과 겹쳐 뺀 우대 사항 수를 돌려준다.
 
     쓰기로 한 목록만 정한 개수까지 넣는다. 목록이 비어 있으면 지금 공고의 목록을 지우지 않게 넣지 않는다.
     개수를 채우려고 같은 항목을 되풀이하면 하나만 남긴다. 보여 주지 않은 능력단위는 근거로 치지 않는다.
+    adds의 목록은 기존 줄을 그대로 두고, 기존 줄과 같은 새 줄은 빼고 뒤에 더한다 (목록 한도 MAX_ITEMS까지).
     """
     shown = {unit.code for unit in units}
     written: list[FieldChange] = []
@@ -691,9 +715,11 @@ def _apply_ncs(
     for name, label in NCS_FIELDS:
         if name not in counts:
             continue
+        existing = list(getattr(content, name)) if name in adds else []
+        known = {_compact(line) for line in existing}
         unique: dict[str, SourcedItem] = {}
         for item in getattr(ncs, name):
-            if item.text.strip():
+            if item.text.strip() and _compact(item.text) not in known:
                 unique.setdefault(_compact(item.text), item)
         items = list(unique.values())[: counts[name]]
         sizes[name] = len(items)
@@ -704,7 +730,8 @@ def _apply_ncs(
         chosen[name] = items
         if not items:
             continue
-        written.append(FieldChange(field=label, text=None, items=[item.text for item in items]))
+        lines = existing + [item.text for item in items]
+        written.append(FieldChange(field=label, text=None, items=lines[:MAX_ITEMS]))
         for code in (code for item in items for code in item.sources):
             if (unit := unit_by_code(code.strip())) and unit.code in shown:
                 cited.setdefault(unit.code, unit)
@@ -973,7 +1000,12 @@ def _ncs_pick_step() -> str:
 
 
 def _ncs_prompt(
-    posting: PostingDraftContext, writing_style: str, request: str, units: list[NcsUnit], counts: dict[str, int]
+    posting: PostingDraftContext,
+    writing_style: str,
+    request: str,
+    units: list[NcsUnit],
+    counts: dict[str, int],
+    adds: set[str] | None = None,
 ) -> str:
     content = posting.content
     lines = [
@@ -995,14 +1027,21 @@ def _ncs_prompt(
         "",
         f"HR 요청: {request}",
         "",
-        _ncs_task(counts),
+        _ncs_task(counts, adds or set()),
     ]
     return "\n".join(lines)
 
 
-def _ncs_task(counts: dict[str, int]) -> str:
-    """쓸 목록과 개수. 요청을 읽고 정하는 일은 코드가 하고 모델에게는 정한 대로 알려 준다."""
-    task = f"지금 할 일: {', '.join(f'{FIELD_LABELS[name]} {count}개' for name, count in counts.items())}를 쓴다."
+def _ncs_task(counts: dict[str, int], adds: set[str]) -> str:
+    """쓸 목록과 개수. 요청을 읽고 정하는 일은 코드가 하고 모델에게는 정한 대로 알려 준다.
+
+    기존 줄 뒤에 더할 목록(adds)은 지금 목록과 겹치지 않는 새 항목만 쓰게 한다. 기존 줄은 코드가 붙인다.
+    """
+    wanted = [
+        f"{FIELD_LABELS[name]} {count}개" + (" (지금 목록과 겹치지 않는 새 항목만)" if name in adds else "")
+        for name, count in counts.items()
+    ]
+    task = f"지금 할 일: {', '.join(wanted)}를 쓴다."
     if skipped := [label for name, label in NCS_FIELDS if name not in counts]:
         task += f" {', '.join(skipped)}은 쓰지 않고 빈 목록으로 둔다."
     return task

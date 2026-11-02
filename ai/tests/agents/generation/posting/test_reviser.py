@@ -584,6 +584,47 @@ async def test_revise_writes_requirements_from_picked_ncs_units_and_cites_them()
     )
 
 
+async def test_revise_adds_ncs_items_after_lines_hr_already_wrote() -> None:
+    # HR이 직접 적은 학력 줄처럼 NCS 근거가 없는 줄도, 더 써 달라는 요청에는 지우지 않고 뒤에 더한다
+    hr_lines = CONTENT.model_copy(
+        update={"qualifications": ["학사 이상", "Java · Spring Boot 기반 서버 개발 경력 3년 이상"]}
+    )
+    llm = FakeLlm(
+        route("NCS_REQUIREMENTS"),
+        NcsPick(ncs_codes=[SERVER]),
+        ncs_draft(
+            [
+                SourcedItem(text="서버 프로그램과 배치 프로그램 구현 경험", sources=[SERVER]),
+                SourcedItem(text="학사 이상", sources=[]),
+            ]
+        ),
+    )
+
+    result = await revise_posting(llm, posting(content=hr_lines), "", "자격 요건 2개 추가로 써 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.qualifications == [
+        "학사 이상",
+        "Java · Spring Boot 기반 서버 개발 경력 3년 이상",
+        "서버 프로그램과 배치 프로그램 구현 경험",
+    ]
+    assert "지금 목록과 겹치지 않는 새 항목만" in llm.calls[2].user
+
+
+@pytest.mark.parametrize("request_text", ["자격 요건 다시 2개 써 줘", "자격 요건은 2개로 써 줘"])
+async def test_revise_replaces_list_when_hr_asks_to_rewrite(request_text: str) -> None:
+    llm = FakeLlm(
+        route("NCS_REQUIREMENTS"),
+        NcsPick(ncs_codes=[SERVER]),
+        ncs_draft([SourcedItem(text="서버 프로그램과 배치 프로그램 구현 경험", sources=[SERVER])]),
+    )
+
+    result = await revise_posting(llm, posting(), "", request_text)
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.qualifications == ["서버 프로그램과 배치 프로그램 구현 경험"]
+
+
 async def test_revise_accepts_ncs_codes_with_a_wrong_version() -> None:
     llm = FakeLlm(
         route("NCS_REQUIREMENTS"),
