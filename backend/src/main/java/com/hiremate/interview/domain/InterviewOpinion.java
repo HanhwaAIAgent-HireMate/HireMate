@@ -61,7 +61,6 @@ public class InterviewOpinion {
         this.applicationId = applicationId;
         this.memberId = memberId;
         this.companyId = companyId;
-        this.createdAt = Instant.now();
     }
 
     public void write(String memberName, InterviewerRole role, Recommendation recommendation, String comment) {
@@ -70,6 +69,9 @@ public class InterviewOpinion {
         this.recommendation = recommendation;
         this.comment = comment;
         this.updatedAt = Instant.now();
+        if (this.createdAt == null) {
+            this.createdAt = this.updatedAt;
+        }
     }
 
     /** 처음 저장한 뒤에 고쳤나. */

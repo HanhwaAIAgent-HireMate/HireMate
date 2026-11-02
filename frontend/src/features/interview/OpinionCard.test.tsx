@@ -3,7 +3,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '@/app/query-client'
-import { OpinionCard } from '@/features/interview/OpinionCard'
+import { OpinionCard, OpinionLine } from '@/features/interview/OpinionCard'
+import { formatDateTime } from '@/lib/format'
 
 const slot = (role: string, mine: boolean, extra: object = {}) => ({
   memberId: role,
@@ -55,6 +56,34 @@ afterEach(() => {
 })
 
 describe('OpinionCard', () => {
+  it.each([
+    [false, '작성됨'],
+    [true, '수정됨'],
+  ] as const)('의견의 최초 저장과 수정 시각을 구분한다: %s', (edited, label) => {
+    const updatedAt = '2026-11-02T01:40:00Z'
+    render(
+      <OpinionLine
+        opinion={{
+          memberId: 'hr',
+          name: '최인사',
+          role: 'HR',
+          submitted: true,
+          recommendation: 'RECOMMEND',
+          comment: '협업 경험 확인',
+          updatedAt,
+          edited,
+          mine: false,
+          unassigned: false,
+        }}
+        scrollable
+      />,
+    )
+    expect(screen.getByText(`${label} · ${formatDateTime(updatedAt)}`)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '인사 · 최인사 의견 내용' })).toHaveTextContent(
+      '협업 경험 확인',
+    )
+  })
+
   it('다른 면접관 의견은 잠겨 있다가 내 의견을 저장하면 열린다', async () => {
     const puts = mockServer()
     render(
