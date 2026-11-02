@@ -1,5 +1,5 @@
 import { useStageInterviewProgress } from '@/features/interview/live'
-import { INTERVIEW_STATUS_LABELS } from '@/features/interview/sessions'
+import { INTERVIEW_STATUS_LABELS, INTERVIEW_STATUS_STYLES } from '@/features/interview/sessions'
 import { cn } from '@/lib/utils'
 
 /** 지원자별로 달라지는 면접 진행과 면접관 준비 현황. 면접관 구성은 전형 상단에서만 바꾼다. */
@@ -23,9 +23,7 @@ export function CandidateInterviewProgress({
       <span
         className={cn(
           'rounded px-1.5 py-0.5 font-semibold',
-          current.status === 'IN_PROGRESS'
-            ? 'bg-amber-100 text-amber-800'
-            : 'bg-muted text-muted-foreground',
+          INTERVIEW_STATUS_STYLES[current.status],
         )}
       >
         면접 {INTERVIEW_STATUS_LABELS[current.status]}

@@ -83,11 +83,18 @@ afterEach(() => {
 })
 
 describe('면접 전형 지원자 목록', () => {
-  it('배정된 면접의 예정, 진행 중, 끝남을 지원자마다 구분하고 실시간으로 구독한다', () => {
+  it('배정된 면접의 예정, 진행 중, 종료를 지원자마다 구분하고 실시간으로 구독한다', () => {
     renderList()
     expect(within(screen.getByTestId('a1')).getByLabelText('면접 상태: 예정')).toBeVisible()
     expect(within(screen.getByTestId('a2')).getByLabelText('면접 상태: 진행 중')).toBeVisible()
-    expect(within(screen.getByTestId('a3')).getByLabelText('면접 상태: 끝남')).toBeVisible()
+    const ended = within(screen.getByTestId('a3')).getByLabelText('면접 상태: 종료')
+    expect(ended).toBeVisible()
+    expect(ended).toHaveTextContent('면접 종료')
+    // 종료는 예정(회색)과 다른 색으로 구분한다
+    expect(ended).toHaveClass('bg-sky-100')
+    expect(within(screen.getByTestId('a1')).getByLabelText('면접 상태: 예정')).toHaveClass(
+      'bg-muted',
+    )
     expect(within(screen.getByTestId('a4')).queryByLabelText(/면접 상태/)).not.toBeInTheDocument()
     expect(state.live).toHaveBeenCalledWith('s1', true)
   })

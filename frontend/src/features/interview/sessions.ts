@@ -13,7 +13,14 @@ export type InterviewerQuestion = Schemas['InterviewerQuestionAccess']
 export const INTERVIEW_STATUS_LABELS = {
   SCHEDULED: '예정',
   IN_PROGRESS: '진행 중',
-  ENDED: '끝남',
+  ENDED: '종료',
+} as const satisfies Record<InterviewAssignment['status'], string>
+
+/** 면접 상태 칩의 색. 예정은 회색, 진행 중은 주황, 종료는 파랑 (합격 초록 · 불합격 빨강과 겹치지 않게) */
+export const INTERVIEW_STATUS_STYLES = {
+  SCHEDULED: 'bg-muted text-muted-foreground',
+  IN_PROGRESS: 'bg-amber-100 text-amber-800',
+  ENDED: 'bg-sky-100 text-sky-800',
 } as const satisfies Record<InterviewAssignment['status'], string>
 
 /** 내 면접 목록은 별도 실시간 연결 없이 이 간격으로 상태를 다시 받아 온다 */

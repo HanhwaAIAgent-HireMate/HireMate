@@ -18,7 +18,7 @@ import {
   useStageInterviewProgress,
   type SessionProgress,
 } from '@/features/interview/live'
-import { INTERVIEW_STATUS_LABELS } from '@/features/interview/sessions'
+import { INTERVIEW_STATUS_LABELS, INTERVIEW_STATUS_STYLES } from '@/features/interview/sessions'
 import { OpinionBadges } from '@/features/interview/OpinionBadges'
 import { useStageOpinions } from '@/features/interview/opinions'
 import {
@@ -323,7 +323,7 @@ function InterviewProgressBadge({ status }: { status: SessionProgress['status'] 
       aria-label={`면접 상태: ${INTERVIEW_STATUS_LABELS[status]}`}
       className={cn(
         'inline-flex rounded px-1 text-[11px] font-semibold',
-        status === 'IN_PROGRESS' ? 'bg-amber-100 text-amber-800' : 'bg-muted text-muted-foreground',
+        INTERVIEW_STATUS_STYLES[status],
       )}
     >
       면접 {INTERVIEW_STATUS_LABELS[status]}
