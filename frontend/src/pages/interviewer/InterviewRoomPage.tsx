@@ -5,6 +5,7 @@ import { useHeaderCrumb } from '@/app/header-store'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChatPanel } from '@/features/chat/ChatPanel'
+import { interviewerSuggestions } from '@/features/chat/suggestions'
 import { InterviewerScript } from '@/features/interview/InterviewerScript'
 import { NoteEditor } from '@/features/interview/NoteEditor'
 import { OpinionCard } from '@/features/interview/OpinionCard'
@@ -150,12 +151,6 @@ function CandidateColumn({
 }
 
 type SideTab = 'chat' | 'documents' | 'results'
-
-/** 면접관 Chat의 예시 질문. 선택 지원자는 바꿀 수 없어 찾기 대신 분석 · 질문 예시를 둔다 */
-const CHAT_EXAMPLES = [
-  '이 지원자가 프로젝트에서 본인이 한 일을 정리해줘',
-  '본인 역할을 확인할 질문 하나 더 만들어줘',
-]
 
 /** 가운데 · 오른쪽: 지원자 한 명의 면접. 위쪽에 진행 상태와 [준비 완료] · [면접 종료] */
 function Room({
@@ -325,7 +320,7 @@ function Room({
                 applicationId: row.applicationId,
                 name: row.applicantName,
               }))}
-              examples={CHAT_EXAMPLES}
+              examples={interviewerSuggestions(interview, data)}
             />
           ) : (
             <p className="p-4 text-sm text-muted-foreground">
