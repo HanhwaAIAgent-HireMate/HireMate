@@ -32,11 +32,11 @@ class PostingTests extends IntegrationTest {
     private PostingService postings;
 
     @Test
-    @DisplayName("새 채용은 설정의 회사 소개 · 복지 · 필수 안내 문구로 공고 초안을 연다")
+    @DisplayName("새 채용은 설정의 회사 소개 · 복지 · 회사 주소 · 필수 안내 문구로 공고 초안을 연다")
     void newRecruitmentStartsFromCompanyTemplate() throws Exception {
         TestApi hr = newHr();
         expect(hr.put("/api/companies/me/profile", Map.of("intro", "핀테크 기업이에요.", "culture", "",
-                "talents", List.of(), "benefits", List.of("유연 근무"))), 200);
+                "talents", List.of(), "benefits", List.of("유연 근무"), "address", "서울 강남구 테헤란로 123")), 200);
         expect(hr.put("/api/companies/me/posting-settings",
                 Map.of("writingStyle", "", "requiredNotices", List.of("채용 일정은 바뀔 수 있어요."))), 200);
 
@@ -44,6 +44,7 @@ class PostingTests extends IntegrationTest {
 
         assertThat(posting.path("status").asString()).isEqualTo("DRAFT");
         assertThat(posting.path("content").path("intro").asString()).isEqualTo("핀테크 기업이에요.");
+        assertThat(posting.path("content").path("location").asString()).isEqualTo("서울 강남구 테헤란로 123");
         assertThat(posting.path("content").path("benefits").get(0).asString()).isEqualTo("유연 근무");
         assertThat(posting.path("notices").get(0).asString()).isEqualTo("채용 일정은 바뀔 수 있어요.");
         assertThat(posting.path("stages").get(0).path("type").asString()).isEqualTo("DOCUMENT");

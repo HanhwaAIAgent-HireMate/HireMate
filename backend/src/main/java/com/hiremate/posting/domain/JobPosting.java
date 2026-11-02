@@ -135,12 +135,13 @@ public class JobPosting {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    public JobPosting(UUID recruitmentId, UUID companyId, String title, String intro, List<String> benefits,
-            List<String> notices) {
+    public JobPosting(UUID recruitmentId, UUID companyId, String title, String location, String intro,
+            List<String> benefits, List<String> notices) {
         this.id = UUID.randomUUID();
         this.recruitmentId = recruitmentId;
         this.companyId = companyId;
         this.title = title;
+        this.location = location;
         this.intro = intro;
         this.benefits = new ArrayList<>(benefits);
         this.notices = new ArrayList<>(notices);
