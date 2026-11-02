@@ -1,13 +1,13 @@
-import { Bell, ChevronRight, ExternalLink, Settings } from 'lucide-react'
+import { ChevronRight, ExternalLink, Settings } from 'lucide-react'
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router'
 
 import { useHeaderStore } from '@/app/header-store'
 import { LogoMark } from '@/app/LogoMark'
 import { MemberMenu } from '@/app/MemberMenu'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCompanyProfile } from '@/features/company/api'
+import { StartedInterviewsBell } from '@/features/interview/StartedInterviewsBell'
 import { useMe, type Member } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
@@ -84,16 +84,7 @@ function HrHeader({ member }: { member: Member }) {
           <Settings className="size-3.5" />
           설정
         </NavLink>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="알림">
-              <Bell />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-64 text-sm text-muted-foreground">
-            새 알림이 없어요.
-          </PopoverContent>
-        </Popover>
+        <StartedInterviewsBell memberId={member.memberId} />
         <MemberMenu member={member} />
       </div>
     </header>
