@@ -36,7 +36,7 @@ class StubPostingAgent implements PostingAgent {
     private static final Pattern TITLE = Pattern.compile("채용명(?:은|을)?\\s*(.+?)(?:으로|로)\\s");
     private static final Pattern LOCATION = Pattern.compile("근무지(?:는|를)?\\s*(.+?)(?:으로|로)\\s");
     private static final Pattern CAREER = Pattern.compile("(경력\\s*\\d+\\s*년\\s*이상|신입|경력 무관)");
-    private static final Pattern EMPLOYMENT = Pattern.compile("(정규직|계약직|인턴)");
+    private static final Pattern EMPLOYMENT = Pattern.compile("(정규직|계약직|인턴|파견직)");
     private static final Pattern LINE_REMOVE = Pattern.compile("빼|지워|지우|삭제");
     private static final Map<String, String> SECTION_FIELDS =
             Map.of("주요 업무", "duties", "자격 요건", "qualifications", "우대 사항", "preferred");

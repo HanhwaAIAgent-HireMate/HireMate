@@ -243,6 +243,14 @@ async def test_revise_lists_changed_fields_in_screen_order() -> None:
     assert result.reply.startswith("고용 형태, 우대 사항 수정안")
 
 
+async def test_revise_keeps_employment_type_outside_the_four_choices() -> None:
+    llm = FakeLlm(route("CONTENT"), content(employment_type="프리랜서"))
+
+    result = await revise_posting(llm, posting(), "", "프리랜서로 바꿔 줘")
+
+    assert result.suggestion is None or "employmentType" not in result.suggestion.changed_fields
+
+
 async def test_revise_tidies_text_bullets_and_number_spacing() -> None:
     llm = FakeLlm(
         route("CONTENT"),

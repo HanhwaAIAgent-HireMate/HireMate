@@ -4,6 +4,13 @@ import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { StageGuides } from '@/features/notice/StageGuides'
@@ -27,6 +34,7 @@ import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/
 import {
   CONDITION_FIELDS,
   CONDITION_KEYS,
+  EMPLOYMENT_TYPES,
   MAX_HEADCOUNT,
   toHeadcount,
 } from '@/features/posting/conditions'
@@ -335,23 +343,33 @@ export function PostingEditor({
                 <span className="shrink-0">채용</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {TAGS.map((tag) => (
-                  <input
-                    key={tag.key}
-                    aria-label={tag.placeholder}
-                    value={shown[tag.key]}
-                    placeholder={tag.placeholder}
-                    disabled={locked(tag.key)}
-                    onChange={(event) => update({ [tag.key]: event.target.value })}
-                    style={{
-                      width: `calc(${textWidth(shown[tag.key] || tag.placeholder)}em + 1.25rem)`,
-                    }}
-                    className={cn(
-                      'h-7 rounded-md bg-muted px-2 text-xs outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring',
-                      changed.has(tag.key) && 'bg-pass',
-                    )}
-                  />
-                ))}
+                {TAGS.map((tag) =>
+                  tag.key === 'employmentType' ? (
+                    <EmploymentTypeSelect
+                      key={tag.key}
+                      value={shown.employmentType}
+                      disabled={locked(tag.key)}
+                      changed={changed.has(tag.key)}
+                      onChange={(employmentType) => update({ employmentType })}
+                    />
+                  ) : (
+                    <input
+                      key={tag.key}
+                      aria-label={tag.placeholder}
+                      value={shown[tag.key]}
+                      placeholder={tag.placeholder}
+                      disabled={locked(tag.key)}
+                      onChange={(event) => update({ [tag.key]: event.target.value })}
+                      style={{
+                        width: `calc(${textWidth(shown[tag.key] || tag.placeholder)}em + 1.25rem)`,
+                      }}
+                      className={cn(
+                        'h-7 rounded-md bg-muted px-2 text-xs outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring',
+                        changed.has(tag.key) && 'bg-pass',
+                      )}
+                    />
+                  ),
+                )}
               </div>
               {actions('title')}
             </div>
@@ -592,5 +610,45 @@ function SuggestionActions({ onApply, onDiscard }: { onApply: () => void; onDisc
         되돌리기
       </Button>
     </div>
+  )
+}
+
+/**
+ * 고용 형태는 정해 둔 넷 중에서 고른다. 예전에 글로 적은 값은 지우지 않고 목록 끝에 보여 주어,
+ * HR이 넷 중 하나로 바꿀 때까지 그대로 둔다
+ */
+function EmploymentTypeSelect({
+  value,
+  disabled,
+  changed,
+  onChange,
+}: {
+  value: string
+  disabled: boolean
+  changed: boolean
+  onChange: (value: string) => void
+}) {
+  const options: string[] = [...EMPLOYMENT_TYPES]
+  if (value && !options.includes(value)) options.push(value)
+  return (
+    <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger
+        size="sm"
+        aria-label="고용 형태"
+        className={cn(
+          'h-7 gap-1 border-0 bg-muted px-2 text-xs focus-visible:ring-1',
+          changed && 'bg-pass',
+        )}
+      >
+        <SelectValue placeholder="고용 형태" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={option} value={option} className="text-xs">
+            {option}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
