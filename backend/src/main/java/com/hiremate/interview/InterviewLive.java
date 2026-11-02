@@ -23,7 +23,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * 바뀌면 "changed" 신호만 보내고 화면이 다시 불러온다 (자료와 권한 판단은 조회 API 한 곳에 둔다).
  *
  * <p>면접관 화면의 연결이 열려 있는 동안을 "접속 중"으로 본다. 연결마다 15초마다 살아 있음을 보내며 마지막 접속 시각을
- * 남기고, 연결이 끊기면 다른 화면에 알린다. backend가 한 대라 연결은 메모리에 둔다 (여러 대가 되면 Redis로 옮긴다).
+ * 남기고, 연결이 끊기면 다른 화면에 알린다. 시작 전에 끊긴 뒤 다시 연결하지 않으면 그 면접관의 준비 완료를 거둔다.
+ * backend가 한 대라 연결은 메모리에 둔다 (여러 대가 되면 Redis로 옮긴다).
  */
 @Component
 public class InterviewLive {
@@ -64,8 +65,14 @@ public class InterviewLive {
         Runnable gone = () -> {
             rooms.computeIfPresent(key, (ignored, subscribers) -> {
                 if (subscribers.remove(subscriber)) {
-                    // 끊긴 뒤 유예 시간이 지나면 접속 끊김으로 보이도록 다시 알린다
-                    later.schedule(() -> events.publishEvent(changed), Instant.now().plus(OFFLINE_NOTICE));
+                    // 끊긴 뒤 유예 시간이 지나도 다시 연결하지 않았으면 시작 전 면접의 준비 완료를 거두고,
+                    // 접속 끊김으로 보이도록 다시 알린다
+                    later.schedule(() -> {
+                        if (!connected(stageId, applicationId, memberId)) {
+                            attendance.release(stageId, applicationId, memberId, InterviewSessionStatus.SCHEDULED);
+                        }
+                        events.publishEvent(changed);
+                    }, Instant.now().plus(OFFLINE_NOTICE));
                 }
                 return subscribers.isEmpty() ? null : subscribers;
             });

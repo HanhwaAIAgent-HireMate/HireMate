@@ -15,14 +15,14 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 면접관 입장. 배정된 면접관이 면접 진행 화면에서 [면접 입장]을 누르면 입장으로 세고, 화면을 열어 둔 동안(SSE 연결)
- * 접속 중으로 본다. 배정된 면접관이 모두 입장하고 접속 중이어야 면접을 시작한다 ({@link InterviewSessions#start}).
+ * 면접관의 준비 완료. 배정된 면접관이 면접 진행 화면에서 [준비 완료]를 누르면 준비로 세고, 화면을 열어 둔 동안(SSE 연결)
+ * 접속 중으로 본다. 배정된 면접관이 모두 준비 완료하고 접속 중이면 면접이 바로 시작된다 ({@link InterviewSessions#ready}).
+ * 시작 전에 화면을 떠나면 준비 완료가 풀린다 ({@link InterviewLive}).
  */
 @Service
 public class InterviewAttendances {
@@ -34,50 +34,50 @@ public class InterviewAttendances {
     private final InterviewSessionRepository sessions;
     private final RecruitService recruits;
     private final InterviewLive live;
-    private final ApplicationEventPublisher events;
 
     public InterviewAttendances(InterviewAttendanceRepository attendance, InterviewSessionRepository sessions,
-            RecruitService recruits, InterviewLive live, ApplicationEventPublisher events) {
+            RecruitService recruits, InterviewLive live) {
         this.attendance = attendance;
         this.sessions = sessions;
         this.recruits = recruits;
         this.live = live;
-        this.events = events;
     }
 
     /** 배정된 면접관 한 명. name은 인증 진입 계층이 채운다 (업무 모듈은 계정 이름을 모른다). */
-    public record Attendee(InterviewerRole role, UUID memberId, String name, boolean entered, boolean online,
+    public record Attendee(InterviewerRole role, UUID memberId, String name, boolean ready, boolean online,
             boolean me) {
 
         public Attendee named(String name) {
-            return new Attendee(role, memberId, name, entered, online, me);
+            return new Attendee(role, memberId, name, ready, online, me);
         }
     }
 
-    /** 지원자 한 명의 입장 현황. stageActive가 false면 결과를 확정한 전형이라 의견도 읽기만 한다. */
+    /** 지원자 한 명의 준비 현황. stageActive가 false면 결과를 확정한 전형이라 의견도 읽기만 한다. */
     public record Attendance(boolean stageActive, List<Attendee> attendees) {
     }
 
-    /** HR 화면의 진행 현황 한 줄: 지원자별 면접 상태와 면접관 입장 현황. */
+    /** HR 화면의 진행 현황 한 줄: 지원자별 면접 상태와 면접관 준비 현황. */
     public record SessionProgress(UUID applicationId, InterviewSessionStatus status,
             @Schema(nullable = true) Instant startedAt, @Schema(nullable = true) Instant endedAt,
             List<Attendee> attendees) {
     }
 
-    @Transactional
-    public Attendance enter(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {
-        InterviewSession session = assigned(companyId, stageId, applicationId, memberId);
-        if (recruits.getByStage(companyId, stageId).stage(stageId).orElseThrow().status() != StageStatus.ACTIVE) {
-            throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "The interview stage is not active.");
-        }
-        attendance.findById(new InterviewAttendance.Key(stageId, applicationId, memberId)).ifPresentOrElse(
-                InterviewAttendance::seen,
-                () -> attendance.save(new InterviewAttendance(stageId, applicationId, memberId, companyId)));
-        events.publishEvent(new InterviewSessionChanged(companyId, stageId, applicationId));
-        return view(companyId, session, memberId);
+    /** 준비 완료를 남긴다. 상태와 권한은 {@link InterviewSessions#ready}가 면접을 잠근 뒤 확인한다. */
+    void markReady(InterviewSession session, UUID memberId) {
+        attendance.findById(new InterviewAttendance.Key(session.getStageId(), session.getApplicationId(), memberId))
+                .ifPresentOrElse(InterviewAttendance::seen, () -> attendance.save(new InterviewAttendance(
+                        session.getStageId(), session.getApplicationId(), memberId, session.getCompanyId())));
+        attendance.flush();
     }
 
-    /** 면접관이 보는 입장 현황. 배정된 면접관만 연다. */
+    /** 준비 완료를 거둔다. */
+    void clearReady(InterviewSession session, UUID memberId) {
+        attendance.findById(new InterviewAttendance.Key(session.getStageId(), session.getApplicationId(), memberId))
+                .ifPresent(attendance::delete);
+        attendance.flush();
+    }
+
+    /** 면접관이 보는 준비 현황. 배정된 면접관만 연다. */
     @Transactional(readOnly = true)
     public Attendance attendance(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {
         return view(companyId, assigned(companyId, stageId, applicationId, memberId), memberId);
@@ -96,11 +96,11 @@ public class InterviewAttendances {
                 .toList();
     }
 
-    /** 배정된 면접관이 모두 입장했고 지금 접속 중인가. */
+    /** 배정된 면접관이 모두 준비 완료했고 지금 접속 중인가. */
     boolean ready(InterviewSession session) {
         return attendees(session, attendance.findByStageIdAndApplicationIdAndCompanyId(session.getStageId(),
                 session.getApplicationId(), session.getCompanyId()), null).stream()
-                .allMatch(attendee -> attendee.entered() && attendee.online());
+                .allMatch(attendee -> attendee.ready() && attendee.online());
     }
 
     /** 면접관의 SSE 구독 전에 배정을 확인한다. */
@@ -128,10 +128,10 @@ public class InterviewAttendances {
 
     private Attendee attendee(InterviewSession session, InterviewerRole role, UUID memberId,
             Map<UUID, InterviewAttendance> byMember, Instant fresh, UUID viewer) {
-        InterviewAttendance entered = byMember.get(memberId);
+        InterviewAttendance ready = byMember.get(memberId);
         boolean online = live.connected(session.getStageId(), session.getApplicationId(), memberId)
-                || entered != null && entered.getLastSeenAt().isAfter(fresh);
-        return new Attendee(role, memberId, "", entered != null, online, memberId.equals(viewer));
+                || ready != null && ready.getLastSeenAt().isAfter(fresh);
+        return new Attendee(role, memberId, "", ready != null, online, memberId.equals(viewer));
     }
 
     private InterviewSession assigned(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {
@@ -140,7 +140,7 @@ public class InterviewAttendances {
                         "Interview session not found."));
         if (session.roleOf(memberId) == null) {
             throw new ApiException(HttpStatus.FORBIDDEN, "INTERVIEW_ACCESS_DENIED",
-                    "Only assigned interviewers can enter.");
+                    "Only assigned interviewers can open this interview.");
         }
         return session;
     }

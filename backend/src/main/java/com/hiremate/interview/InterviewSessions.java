@@ -110,43 +110,61 @@ public class InterviewSessions {
         return workspace(session, memberId);
     }
 
+    /**
+     * 면접관의 [준비 완료]. 배정된 두 면접관이 모두 준비 완료하고 접속 중이면 그 자리에서 면접을 시작한다.
+     * 질문이 시작할 수 있는 상태가 아니면 준비 완료를 받지 않는다 (시작할 수 없는 준비가 남지 않게 한다).
+     */
     @Transactional
-    public InterviewerWorkspace start(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {
+    public InterviewAttendances.Attendance ready(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {
         recruits.lockStage(companyId, stageId);
         InterviewSession session = lock(companyId, stageId, applicationId);
         requireAssigned(session, memberId);
         requireActive(companyId, stageId);
-        if (session.getStatus() == InterviewSessionStatus.ENDED) {
-            throw conflict("INTERVIEW_ENDED", "The interview has ended.");
-        }
         if (session.getStatus() == InterviewSessionStatus.SCHEDULED) {
-            if (interviews.preparing(companyId, stageId, applicationId)) {
-                throw conflict("QUESTIONS_PREPARING", "Wait for question preparation to finish.");
+            requireStartable(companyId, stageId, applicationId);
+            attendances.markReady(session, memberId);
+            if (attendances.ready(session)) {
+                session.start();
+                sessions.flush();
             }
-            List<InterviewQuestion> card = card(companyId, stageId, applicationId);
-            if (card.isEmpty() || card.stream().anyMatch(question -> question.getInterviewerRole() == null)) {
-                throw conflict("QUESTION_OWNER_REQUIRED", "Assign all question owners before starting.");
-            }
-            for (InterviewQuestion question : card) {
-                if (InterviewService.INTRO.equals(question.getText())
-                        && question.getInterviewerRole() != InterviewerRole.HR) {
-                    throw conflict("INTRO_OWNER", "HR records the common introduction.");
-                }
-                if (question.getParentQuestionId() != null && card.stream().anyMatch(parent ->
-                        parent.getId().equals(question.getParentQuestionId())
-                                && parent.getInterviewerRole() != question.getInterviewerRole())) {
-                    throw conflict("FOLLOW_UP_OWNER", "A follow-up must keep its parent's owner.");
-                }
-            }
-            // 배정된 면접관이 모두 면접 진행 화면에서 입장하고 접속 중이어야 시작한다
-            if (!attendances.ready(session)) {
-                throw conflict("INTERVIEWERS_NOT_READY", "Every assigned interviewer must enter first.");
-            }
-            session.start();
-            sessions.flush();
             changed(companyId, stageId, applicationId);
         }
-        return workspace(session, memberId);
+        return attendances.attendance(companyId, stageId, applicationId, memberId);
+    }
+
+    /** 시작 전에 [준비 완료]를 거둔다. 시작한 면접은 그대로 둔다. */
+    @Transactional
+    public InterviewAttendances.Attendance cancelReady(UUID companyId, UUID stageId, UUID applicationId,
+            UUID memberId) {
+        InterviewSession session = lock(companyId, stageId, applicationId);
+        requireAssigned(session, memberId);
+        if (session.getStatus() == InterviewSessionStatus.SCHEDULED) {
+            attendances.clearReady(session, memberId);
+            changed(companyId, stageId, applicationId);
+        }
+        return attendances.attendance(companyId, stageId, applicationId, memberId);
+    }
+
+    /** 면접을 시작할 수 있는 질문 구성인가: 생성이 끝났고, 모든 질문에 담당이 있고, 담당 규칙을 지킨다. */
+    private void requireStartable(UUID companyId, UUID stageId, UUID applicationId) {
+        if (interviews.preparing(companyId, stageId, applicationId)) {
+            throw conflict("QUESTIONS_PREPARING", "Wait for question preparation to finish.");
+        }
+        List<InterviewQuestion> card = card(companyId, stageId, applicationId);
+        if (card.isEmpty() || card.stream().anyMatch(question -> question.getInterviewerRole() == null)) {
+            throw conflict("QUESTION_OWNER_REQUIRED", "Assign all question owners before starting.");
+        }
+        for (InterviewQuestion question : card) {
+            if (InterviewService.INTRO.equals(question.getText())
+                    && question.getInterviewerRole() != InterviewerRole.HR) {
+                throw conflict("INTRO_OWNER", "HR records the common introduction.");
+            }
+            if (question.getParentQuestionId() != null && card.stream().anyMatch(parent ->
+                    parent.getId().equals(question.getParentQuestionId())
+                            && parent.getInterviewerRole() != question.getInterviewerRole())) {
+                throw conflict("FOLLOW_UP_OWNER", "A follow-up must keep its parent's owner.");
+            }
+        }
     }
 
     @Transactional

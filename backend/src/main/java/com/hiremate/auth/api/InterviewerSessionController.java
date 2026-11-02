@@ -53,16 +53,25 @@ public class InterviewerSessionController {
         this.directory = directory;
     }
 
-    /** 면접 대기실의 [면접 입장]. 배정된 면접관이 모두 입장하고 접속 중이어야 면접을 시작할 수 있다. */
-    @PostMapping("/{stageId}/{applicationId}/enter")
-    public InterviewAttendances.Attendance enterInterview(@PathVariable UUID stageId,
+    /** 면접 대기실의 [준비 완료]. 배정된 면접관이 모두 준비 완료하고 접속 중이면 면접이 바로 시작된다. */
+    @PostMapping("/{stageId}/{applicationId}/ready")
+    public InterviewAttendances.Attendance readyForInterview(@PathVariable UUID stageId,
             @PathVariable UUID applicationId) {
         var member = access.currentMember();
-        return named(member.companyId(), attendances.enter(member.companyId(), stageId, applicationId,
+        return named(member.companyId(), sessions.ready(member.companyId(), stageId, applicationId,
                 member.memberId()));
     }
 
-    /** 배정된 면접관의 입장 · 접속 현황과 전형 진행 여부. */
+    /** 시작 전에 [준비 완료]를 거둔다. */
+    @DeleteMapping("/{stageId}/{applicationId}/ready")
+    public InterviewAttendances.Attendance cancelInterviewReady(@PathVariable UUID stageId,
+            @PathVariable UUID applicationId) {
+        var member = access.currentMember();
+        return named(member.companyId(), sessions.cancelReady(member.companyId(), stageId, applicationId,
+                member.memberId()));
+    }
+
+    /** 배정된 면접관의 준비 · 접속 현황과 전형 진행 여부. */
     @GetMapping("/{stageId}/{applicationId}/attendance")
     public InterviewAttendances.Attendance interviewAttendance(@PathVariable UUID stageId,
             @PathVariable UUID applicationId) {
@@ -72,7 +81,7 @@ public class InterviewerSessionController {
     }
 
     /**
-     * 면접 진행 화면의 실시간 알림(SSE). 입장 · 시작 · 종료 · 질문 · 답변 · 의견이 바뀌면 changed 이벤트를 보낸다.
+     * 면접 진행 화면의 실시간 알림(SSE). 준비 · 시작 · 종료 · 질문 · 답변 · 의견이 바뀌면 changed 이벤트를 보낸다.
      * 연결이 열려 있는 동안을 접속 중으로 본다.
      */
     @GetMapping(path = "/{stageId}/{applicationId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -102,13 +111,6 @@ public class InterviewerSessionController {
             @PathVariable UUID applicationId) {
         var member = access.currentMember();
         return sessions.view(member.companyId(), stageId, applicationId, member.memberId());
-    }
-
-    @PostMapping("/{stageId}/{applicationId}/start")
-    public InterviewSessions.InterviewerWorkspace startInterviewSession(@PathVariable UUID stageId,
-            @PathVariable UUID applicationId) {
-        var member = access.currentMember();
-        return sessions.start(member.companyId(), stageId, applicationId, member.memberId());
     }
 
     @PostMapping("/{stageId}/{applicationId}/end")

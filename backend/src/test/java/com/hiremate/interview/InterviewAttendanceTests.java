@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
+import com.hiremate.interview.domain.InterviewAttendanceRepository;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashMap;
@@ -21,45 +22,79 @@ import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.JsonNode;
 
 /**
- * 면접관 입장과 실시간 알림. 배정된 면접관이 모두 [면접 입장]을 하고 접속 중이어야 면접을 시작한다.
- * 입장 · 시작 같은 변화는 SSE로 다른 면접관 화면과 HR 화면에 바로 알린다.
+ * 면접관 준비 완료와 실시간 알림. 배정된 면접관이 모두 [준비 완료]를 누르고 접속 중이면 면접이 바로 시작된다.
+ * 준비 · 시작 같은 변화는 SSE로 다른 면접관 화면과 HR 화면에 바로 알린다.
  */
 class InterviewAttendanceTests extends IntegrationTest {
 
     @Autowired
     private InterviewService interviews;
 
+    @Autowired
+    private InterviewAttendanceRepository attendance;
+
     @Test
-    @DisplayName("배정된 면접관이 모두 입장해야 시작할 수 있고, 입장 현황은 면접관과 HR에게 보인다")
-    void startWaitsForEveryInterviewer() throws Exception {
+    @DisplayName("두 면접관이 모두 준비 완료하면 바로 시작하고, 준비 현황은 HR에게 보인다")
+    void startsWhenEveryInterviewerIsReady() throws Exception {
         Room room = room();
 
         JsonNode before = json(expect(room.kim().get(room.session() + "/attendance"), 200));
         assertThat(before.path("stageActive").asBoolean()).isTrue();
         assertThat(before.path("attendees")).hasSize(2);
-        assertThat(before.path("attendees").get(0).path("entered").asBoolean()).isFalse();
-        assertThat(code(room.kim().post(room.session() + "/start", null), 409)).isEqualTo("INTERVIEWERS_NOT_READY");
+        assertThat(before.path("attendees").get(0).path("ready").asBoolean()).isFalse();
 
-        JsonNode entered = json(expect(room.kim().post(room.session() + "/enter", null), 200));
-        assertThat(attendee(entered, "PRACTICAL").path("entered").asBoolean()).isTrue();
-        assertThat(attendee(entered, "PRACTICAL").path("online").asBoolean()).isTrue();
-        assertThat(attendee(entered, "PRACTICAL").path("name").asString()).isEqualTo("김지민");
-        assertThat(code(room.kim().post(room.session() + "/start", null), 409)).isEqualTo("INTERVIEWERS_NOT_READY");
+        JsonNode ready = json(expect(room.kim().post(room.session() + "/ready", null), 200));
+        assertThat(attendee(ready, "PRACTICAL").path("ready").asBoolean()).isTrue();
+        assertThat(attendee(ready, "PRACTICAL").path("online").asBoolean()).isTrue();
+        assertThat(attendee(ready, "PRACTICAL").path("name").asString()).isEqualTo("김지민");
+        assertThat(attendee(ready, "HR").path("ready").asBoolean()).isFalse();
+        assertThat(status(room)).isEqualTo("SCHEDULED");
 
-        expect(room.people().post(room.session() + "/enter", null), 200);
-        JsonNode started = json(expect(room.kim().post(room.session() + "/start", null), 200));
-        assertThat(started.path("session").path("status").asString()).isEqualTo("IN_PROGRESS");
+        // 상대가 준비하기 전에는 준비 완료를 거둘 수 있다
+        JsonNode cancelled = json(expect(room.kim().delete(room.session() + "/ready"), 200));
+        assertThat(attendee(cancelled, "PRACTICAL").path("ready").asBoolean()).isFalse();
+        expect(room.people().post(room.session() + "/ready", null), 200);
+        assertThat(status(room)).isEqualTo("SCHEDULED");
+
+        expect(room.kim().post(room.session() + "/ready", null), 200);
+        assertThat(status(room)).isEqualTo("IN_PROGRESS");
+        // 시작한 뒤의 준비 취소는 면접을 되돌리지 않는다
+        expect(room.kim().delete(room.session() + "/ready"), 200);
+        assertThat(status(room)).isEqualTo("IN_PROGRESS");
 
         JsonNode hr = json(expect(room.interview().hr().get(room.interview().stage() + "/interview/sessions"), 200));
         assertThat(hr.get(0).path("applicationId").asString()).isEqualTo(room.interview().applicationId().toString());
         assertThat(hr.get(0).path("status").asString()).isEqualTo("IN_PROGRESS");
         assertThat(hr.get(0).path("attendees")).hasSize(2);
-        // 면접관은 HR 진행 현황 경로를 열 수 없다
+        assertThat(hr.get(0).path("attendees").get(0).path("ready").asBoolean()).isTrue();
+
+        // 면접관은 HR 진행 현황을 열 수 없다
         expect(room.kim().get(room.interview().stage() + "/interview/sessions"), 403);
     }
 
     @Test
-    @DisplayName("다른 면접관이 입장하면 열어 둔 면접관 화면과 HR 화면에 SSE로 바로 알린다")
+    @DisplayName("시작 전에 화면을 떠난 면접관의 준비 완료는 거두고, 시작한 면접의 기록은 남긴다")
+    void leavingBeforeStartReleasesReady() throws Exception {
+        Room room = room();
+        expect(room.kim().post(room.session() + "/ready", null), 200);
+
+        attendance.release(room.interview().stageId(), room.interview().applicationId(), room.kim().memberId(),
+                InterviewSessionStatus.SCHEDULED);
+        JsonNode released = json(expect(room.people().get(room.session() + "/attendance"), 200));
+        assertThat(attendee(released, "PRACTICAL").path("ready").asBoolean()).isFalse();
+        expect(room.people().post(room.session() + "/ready", null), 200);
+        assertThat(status(room)).isEqualTo("SCHEDULED");
+
+        expect(room.kim().post(room.session() + "/ready", null), 200);
+        assertThat(status(room)).isEqualTo("IN_PROGRESS");
+        attendance.release(room.interview().stageId(), room.interview().applicationId(), room.kim().memberId(),
+                InterviewSessionStatus.SCHEDULED);
+        JsonNode kept = json(expect(room.people().get(room.session() + "/attendance"), 200));
+        assertThat(attendee(kept, "PRACTICAL").path("ready").asBoolean()).isTrue();
+    }
+
+    @Test
+    @DisplayName("다른 면접관이 준비 완료하면 열어 둔 면접관 화면과 HR 화면에 SSE로 바로 알린다")
     void changesArePushedOverSse() throws Exception {
         Room room = room();
         HttpResponse<Stream<String>> hrStream = room.interview().hr()
@@ -74,7 +109,7 @@ class InterviewAttendanceTests extends IntegrationTest {
         assertThat(nextEvent(hrEvents)).isEqualTo("changed");
         assertThat(nextEvent(kimEvents)).isEqualTo("changed");
 
-        expect(room.people().post(room.session() + "/enter", null), 200);
+        expect(room.people().post(room.session() + "/ready", null), 200);
 
         assertThat(nextEvent(kimEvents)).isEqualTo("changed");
         assertThat(nextEvent(hrEvents)).isEqualTo("changed");
@@ -201,7 +236,7 @@ class InterviewAttendanceTests extends IntegrationTest {
         throw new AssertionError("No attendee " + role + ": " + attendance);
     }
 
-    private static String code(HttpResponse<String> response, int status) {
-        return json(expect(response, status)).path("code").asString();
+    private static String status(Room room) throws Exception {
+        return json(expect(room.kim().get(room.session()), 200)).path("session").path("status").asString();
     }
 }
