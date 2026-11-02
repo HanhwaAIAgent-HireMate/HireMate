@@ -19,4 +19,10 @@ public interface ReportAgent {
      * 돌려준다. AI 워커의 결과는 {@link ReportResults}가 reportId 리포트에 저장한다.
      */
     Optional<ComposedReport> compose(UUID reportId, ReportBundle bundle);
+
+    /**
+     * 서류 전형 분포 해설. 화면이 기다리는 요청이라 대기열을 거치지 않고 바로 부른다 (ai 서버 경로 /agents/report/explain).
+     * 지원자 개인 정보 없이 숫자와 항목 글만 보낸다.
+     */
+    DistributionNote explain(ReportDistribution.ForAi distribution);
 }

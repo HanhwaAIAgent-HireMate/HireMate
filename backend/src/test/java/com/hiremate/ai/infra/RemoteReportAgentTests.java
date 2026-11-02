@@ -40,7 +40,7 @@ class RemoteReportAgentTests {
                 stageId, "결제 플랫폼 백엔드 개발자", Instant.parse("2026-10-29T00:00:00Z"), "협업", false, List.of(),
                 List.of(), List.of("A-0001", "A-0002"), null, List.of(), List.of(), List.of(), List.of());
 
-        Optional<ComposedReport> report = new RemoteReportAgent(jobs).compose(reportId, bundle);
+        Optional<ComposedReport> report = new RemoteReportAgent(jobs, null).compose(reportId, bundle);
 
         assertThat(report).isEmpty();
         Job job = queued.getFirst();

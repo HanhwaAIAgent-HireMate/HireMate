@@ -107,6 +107,24 @@ class AgentReportTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("서류 전형 분포는 전형 지원자 전원을 바로 세고, 목표 인원은 요청마다 바꿔 저장하지 않는다")
+    void documentStageDistributionCountsEveryApplicant() throws Exception {
+        Stage stage = startDocumentStage(3);
+
+        JsonNode first = json(expect(stage.hr().get(stage.path() + "/reports/distribution"), 200));
+        assertThat(first.path("total").asInt()).isEqualTo(3);
+        assertThat(first.path("target").asInt()).isEqualTo(first.path("defaultTarget").asInt())
+                .isEqualTo(first.path("hireCount").asInt() * first.path("targetMultiplier").asInt());
+        assertThat(first.path("criteria")).isNotEmpty();
+        assertThat(first.path("groups").findValuesAsString("id")).contains("below-line");
+
+        JsonNode changed = json(expect(stage.hr().get(stage.path() + "/reports/distribution?target=1"), 200));
+        assertThat(changed.path("target").asInt()).isEqualTo(1);
+        JsonNode again = json(expect(stage.hr().get(stage.path() + "/reports/distribution"), 200));
+        assertThat(again.path("target").asInt()).isEqualTo(first.path("defaultTarget").asInt());
+    }
+
+    @Test
     @DisplayName("평가 전형 리포트 묶음은 평가 전형을 영역으로 넣어, 영역 점수 key와 총점 key를 함께 준다")
     void assessmentStageBundleHasAssessmentArea() throws Exception {
         Stage document = startDocumentStage(2, "전형은 서류, 직무역량 평가 순으로 해줘");

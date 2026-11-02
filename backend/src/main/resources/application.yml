@@ -71,6 +71,15 @@ hiremate:
     retry-interval: 1m
     # 분석 중인 지원서가 이 시간이 지나도록 대기열에 없으면(Redis를 비웠거나 넣지 못했으면) 다시 넣는다
     recover-after: 10m
+  report:
+    # 서류 전형 분포 리포트. 경계 기준은 팀과 정하기 전의 임시값이다
+    distribution:
+      # 서류 통과 목표 인원 기본값 = 공고 채용 인원 × 이 배수. 화면에서 바꿀 수 있고 저장하지 않는다
+      target-multiplier: 10
+      # 선 아래에서 다시 볼 사람: 충족하지 못했거나 확인이 필요한 필수 조건이 이 개수 이하
+      max-missing-required: 1
+      # 심층 분석 한 번에 보는 인원 (비교 리포트 최대 인원과 같다)
+      deep-size: 5
   dummy:
     # 평가 전형 결과 더미 (resources/dummy/assessment-results.csv, 데모 시드의 가상 지원자 30명).
     # 앞 전형을 종료해 평가 전형이 시작되면 넘어온 합격자 모두에게 넣는다. 표에 이메일이 있으면 그 값, 없으면 지원서 ID로 만든 점수.
