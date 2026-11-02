@@ -1062,8 +1062,6 @@ async def test_revise_fills_empty_lists_with_ncs_when_asked_to_write_the_whole_p
 
     assert result.suggestion is not None
     assert result.suggestion.changed_fields == [
-        "education",
-        "workHours",
         "salary",
         "duties",
         "qualifications",
@@ -1093,24 +1091,35 @@ async def test_revise_does_not_rewrite_filled_lists_for_a_whole_posting_request(
 
     assert result.suggestion is not None
     assert result.suggestion.content.qualifications == CONTENT.qualifications
-    assert result.suggestion.changed_fields == ["education", "workHours", "salary"]
+    assert result.suggestion.changed_fields == ["salary"]
     assert len(llm.calls) == 2
 
 
-async def test_revise_fills_blank_fields_with_neutral_defaults_for_a_whole_posting_request() -> None:
-    blank = CONTENT.model_copy(update={"employment_type": "", "career": "", "salary": "연봉 4,000만 원 이상"})
+async def test_revise_fills_only_the_salary_and_lists_fields_left_for_hr() -> None:
+    """누구를 어떻게 뽑을지는 회사만 알아 비워 두고, 급여만 거짓이 되지 않는 문구로 채운다."""
+    blank = CONTENT.model_copy(update={"employment_type": "", "career": ""})
     llm = FakeLlm(route("CONTENT", writes_posting=True), content(title="결제 플랫폼 백엔드 개발자 채용"))
 
     result = await revise_posting(llm, posting(content=blank), "", "백엔드 개발자 공고 작성해 줘")
 
     assert result.suggestion is not None
     filled = result.suggestion.content
-    assert (filled.career, filled.education, filled.work_hours) == ("경력 무관", "학력 무관", "회사 내규에 따름")
-    assert filled.salary == "연봉 4,000만 원 이상"
-    assert filled.employment_type == ""
-    assert "경력, 학력, 근무 요일 · 시간 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요." in result.reply
-    assert "고용 형태, 채용 인원 칸은 정해 주세요." in result.reply
+    assert (filled.employment_type, filled.career, filled.education, filled.work_hours) == ("", "", "", "")
+    assert filled.salary == "회사 내규에 따름"
+    assert "급여 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요." in result.reply
+    assert "고용 형태, 경력, 채용 인원, 학력, 근무 요일 · 시간 칸은 정해 주세요." in result.reply
     assert CAREER_UNSET_NOTE not in result.reply
+
+
+async def test_revise_keeps_the_salary_hr_wrote_for_a_whole_posting_request() -> None:
+    written = CONTENT.model_copy(update={"salary": "연봉 4,000만 원 이상"})
+    llm = FakeLlm(route("CONTENT", writes_posting=True), content(title="결제 플랫폼 백엔드 개발자 채용"))
+
+    result = await revise_posting(llm, posting(content=written), "", "백엔드 개발자 공고 작성해 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.salary == "연봉 4,000만 원 이상"
+    assert "기본 문구" not in result.reply
 
 
 async def test_revise_says_requirements_fit_juniors_when_career_was_left_blank() -> None:
@@ -1125,7 +1134,7 @@ async def test_revise_says_requirements_fit_juniors_when_career_was_left_blank()
     result = await revise_posting(llm, posting(content=blank), "", "백엔드 개발자 공고 작성해 줘")
 
     assert result.suggestion is not None
-    assert result.suggestion.content.career == "경력 무관"
+    assert result.suggestion.content.career == ""
     assert CAREER_UNSET_NOTE in result.reply
 
 
@@ -1144,7 +1153,7 @@ async def test_revise_writes_one_job_as_the_posting_body_even_if_routed_to_roles
     assert result.suggestion is not None
     assert result.suggestion.content.roles == []
     assert "roles" not in result.suggestion.changed_fields
-    assert {"qualifications", "preferred", "education", "salary"} <= set(result.suggestion.changed_fields)
+    assert {"qualifications", "preferred", "salary"} <= set(result.suggestion.changed_fields)
 
 
 async def test_revise_keeps_blank_fields_when_hr_asks_to_change_some_fields() -> None:
