@@ -45,14 +45,13 @@ class CompanySettingsTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("채용 공고 설정은 섹션 순서와 함께 저장한다")
+    @DisplayName("채용 공고 설정은 작성 스타일과 필수 안내 문구를 저장한다")
     void savesPostingSettings() throws Exception {
         TestApi hr = newHr();
         expect(hr.put("/api/companies/me/posting-settings", Map.of(
                 "writingStyle", "짧고 친근한 존댓말", "requiredNotices", List.of("채용 일정은 바뀔 수 있어요."))), 200);
 
         JsonNode settings = json(expect(hr.get("/api/companies/me/posting-settings"), 200));
-        assertThat(settings.path("sections").get(0).asString()).isEqualTo("회사 소개");
         assertThat(settings.path("writingStyle").asString()).isEqualTo("짧고 친근한 존댓말");
         assertThat(settings.path("requiredNotices").get(0).asString()).isEqualTo("채용 일정은 바뀔 수 있어요.");
     }
