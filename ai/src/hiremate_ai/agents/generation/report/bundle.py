@@ -8,6 +8,8 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
+from pydantic import Field
+
 from hiremate_ai.contract import ContractModel, StageType
 
 
@@ -17,6 +19,16 @@ class ReportKind(StrEnum):
     STAGE = "STAGE"
     COMPARE = "COMPARE"
     FINAL = "FINAL"
+
+
+class Strength(StrEnum):
+    """근거 원문의 강도. QUANT는 성과를 숫자와 단위로 적은 문장, CLAIM은 한 일만 적은 문장이다 (strength.py)."""
+
+    QUANT = "QUANT"
+    CLAIM = "CLAIM"
+
+
+_STRENGTH_LABELS = {Strength.QUANT: "정량", Strength.CLAIM: "서술"}
 
 
 class BundleStage(ContractModel):
@@ -72,6 +84,9 @@ class Evidence(ContractModel):
 
     agent는 그 근거를 만든 분석 Agent, source는 원문의 출처(이력서 등)다.
     label은 근거가 받치는 항목 이름(서류 평가 항목, 강점 · 확인할 점), verdict는 그 항목의 판정 코드다.
+    strength는 원문의 강도(정량 · 서술)이고, 원문이 없으면 비어 있다.
+    detail · role은 서류 분석의 판정 세부(충족한 부분 · 못 채운 부분 · 확인 필요한 부분 · 역할)로, 모델에게만 보여 주고
+    backend로 돌려보내지 않는다 (exclude). 판정이 갈린 이유를 쓰고 서류 Agent에게 확인을 맡길 근거를 고르는 데 쓴다.
     """
 
     id: str
@@ -83,12 +98,17 @@ class Evidence(ContractModel):
     quote: str | None = None
     label: str | None = None
     verdict: str | None = None
+    strength: Strength | None = None
+    detail: str | None = Field(default=None, exclude=True)
+    role: str | None = Field(default=None, exclude=True)  # SELF · TEAM · UNCLEAR (서류 분석의 Actor)
 
     def line(self) -> str:
-        """모델에게 보여 줄 한 줄. 판단과 원문을 나눠 적는다."""
+        """모델에게 보여 줄 한 줄. 판단과 원문을 나눠 적고, 원문에 정량 · 서술을, 끝에 판정 세부를 붙인다."""
         label = f"{self.label}: " if self.label else ""
-        quote = f' / 원문: "{self.quote}"' if self.quote else ""
-        return f"{label}{self.text}{quote} (출처: {self.source})"
+        kind = f"({_STRENGTH_LABELS[self.strength]})" if self.strength else ""
+        quote = f' / 원문{kind}: "{self.quote}"' if self.quote else ""
+        detail = f" / 세부: {self.detail}" if self.detail else ""
+        return f"{label}{self.text}{quote}{detail} (출처: {self.source})"
 
 
 class Area(ContractModel):

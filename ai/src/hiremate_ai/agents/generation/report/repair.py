@@ -1,31 +1,42 @@
 """모델 설계서의 기계적인 규칙 위반을 코드가 고친다. 검사(check) 전에 한다.
 
 모델에게 다시 쓰게 하면 하나를 고치며 다른 곳을 깨기 쉽다. 그릴 값이 정해진 부분(영역 점수 표, 관점 묶음,
-빈 칸이 있는 막대, 같은 자료를 다시 그린 부품, 섹션당 부품 수)은 코드가 고치고, 문장 문제만 모델에게 돌려준다.
-모델이 쓴 문장 · 근거는 바꾸지 않는다.
+빈 칸이 있는 막대, 같은 자료를 다시 그린 부품, 섹션당 부품 수, 근거 부품에서 빠진 비교 대상)은 코드가 고치고,
+문장 문제만 모델에게 돌려준다. 모델이 쓴 문장 · 근거는 바꾸지 않는다. 다만 마지막 시도에서도 읽을 점을 그림
+설명으로 쓰면, 기본 구성으로 떨어지지 않게 그 한 문장만 코드가 판정에서 읽은 사실로 바꾼다.
 """
 
 import logging
 
-from hiremate_ai.agents.generation.report.bundle import ReportBundle, ReportKind
+from hiremate_ai.agents.generation.report.bundle import ReportBundle, ReportKind, Strength
 from hiremate_ai.agents.generation.report.check import (
     DATA_FIELDS,
+    DESCRIBING,
     MAX_SECTION_BLOCKS,
     MAX_SECTIONS,
     rings_problems,
 )
-from hiremate_ai.agents.generation.report.derive import ring_percent, score_view
-from hiremate_ai.agents.generation.report.fallback import MAX_VIEWS, evidence_block, perspective_rings, score_rings
+from hiremate_ai.agents.generation.report.derive import ring_percent, score_view, split_keys
+from hiremate_ai.agents.generation.report.fallback import (
+    MAX_SPLITS,
+    MAX_VIEWS,
+    code_split,
+    evidence_block,
+    perspective_rings,
+    score_rings,
+)
 from hiremate_ai.agents.generation.report.spec import (
     VISUAL_TYPES,
     BarBlock,
     Block,
     EvidenceBlock,
+    EvidenceItem,
     RadarBlock,
     ReportSpec,
     RingsBlock,
     RingView,
     Section,
+    Split,
     StackedBlock,
 )
 
@@ -38,22 +49,147 @@ EVIDENCE_TAKEAWAY = "대상끼리 판정이 갈린 항목의 근거예요."
 """코드가 넣은 근거 섹션의 읽을 점."""
 
 
-def repair(spec: ReportSpec, bundle: ReportBundle, *, group_by_code: bool = True) -> ReportSpec:
+def repair(
+    spec: ReportSpec, bundle: ReportBundle, *, group_by_code: bool = True, notes: list[str] | None = None
+) -> ReportSpec:
     """고친 설계서. 고칠 것이 없으면 같은 내용이다.
 
     group_by_code가 false면 모델이 관점을 묶지 않았을 때 코드가 대신 묶지 않는다. 관점 이름은 항목 내용을 보고
     지어야 하므로, 다시 쓸 기회가 남았으면 모델에게 돌려준다.
+    notes를 주면 코드가 고친 것을 화면의 AI 작업 과정에 보일 한 줄로 더한다.
     """
+    done = notes if notes is not None else []
+
+    def step(before: list[Section], after: list[Section], note: str) -> list[Section]:
+        if after != before:
+            done.append(note)
+        return after
+
     sections = [
         section.model_copy(update={"blocks": _complete_rows(section.blocks, bundle)}) for section in spec.sections
     ]
-    if bundle.kind is ReportKind.COMPARE and not bundle.brief:
-        sections = _compare_rings(sections, bundle, spec.perspectives, group_by_code=group_by_code)
+    compare = bundle.kind is ReportKind.COMPARE and not bundle.brief
+    if compare:
+        sections = step(
+            sections,
+            _compare_rings(sections, bundle, spec.perspectives, group_by_code=group_by_code),
+            "관점 표를 규칙에 맞게 다시 묶음",
+        )
     sections = _without_repeats(sections)
     sections = [section for section in sections if section.blocks]
-    if bundle.kind is ReportKind.COMPARE and not bundle.brief and group_by_code:
-        sections = _with_evidence(sections, bundle)
-    return spec.model_copy(update={"sections": sections})
+    sections = step(sections, _quantified_first(sections, bundle), "정량 근거를 근거 맨 앞으로 옮김")
+    splits = _valid_splits(spec.splits, bundle) if compare else []
+    if compare:
+        sections = step(sections, _cite_everyone(sections, bundle), "근거에서 빠진 지원자의 근거를 채움")
+        if group_by_code:
+            sections = step(sections, _with_evidence(sections, bundle), "근거 섹션을 더함")
+            sections = step(sections, _read_takeaways(sections, bundle), "그림 설명 문장을 판정 사실로 바꿈")
+            written = {split.key for split in splits}
+            added = [code_split(bundle, key) for key in split_keys(bundle) if key not in written]
+            if added := added[: max(0, MAX_SPLITS - len(splits))]:
+                done.append(f"갈린 이유 {len(added)}건을 판정으로 채움")
+                splits = [*splits, *added]
+    return spec.model_copy(update={"sections": sections, "splits": splits})
+
+
+def _valid_splits(splits: list[Split], bundle: ReportBundle) -> list[Split]:
+    """판정이 갈린 항목이 아니거나 비교 대상 밖 근거를 든 갈린 이유는 뺀다. 같은 항목은 처음 것만 둔다."""
+    keys = set(split_keys(bundle))
+    owners = {item.id: item.applicant for item in bundle.evidence}
+    kept: list[Split] = []
+    for split in splits:
+        if split.key not in keys or any(split.key == other.key for other in kept):
+            continue
+        evidence = [id_ for id_ in split.evidence if owners.get(id_) in bundle.targets]
+        kept.append(split.model_copy(update={"evidence": evidence}))
+    return kept[:MAX_SPLITS]
+
+
+def _quantified_first(sections: list[Section], bundle: ReportBundle) -> list[Section]:
+    """근거 항목마다 그 지원자의 정량 근거(성과를 숫자로 적은 원문)를 맨 앞에 둔다. 모델이 빠뜨렸으면 코드가 더한다.
+
+    정량 근거가 서술 근거보다 강하다는 위계를 모델에게만 맡기지 않는다.
+    근거가 없다고 쓴 항목(근거 id 없음)은 그대로 둔다.
+    """
+    quantified: dict[str, list[str]] = {}
+    for item in bundle.evidence:
+        if item.strength is Strength.QUANT:
+            quantified.setdefault(item.applicant, []).append(item.id)
+    if not quantified:
+        return sections
+
+    def reorder(item: EvidenceItem) -> EvidenceItem:
+        mine = quantified.get(item.applicant, [])
+        if not item.evidence or not mine:
+            return item
+        ordered = [*mine, *(evidence for evidence in item.evidence if evidence not in mine)]
+        return item if ordered == item.evidence else item.model_copy(update={"evidence": ordered})
+
+    fixed = []
+    for section in sections:
+        blocks: list[Block] = [
+            block.model_copy(update={"items": [reorder(item) for item in block.items]})
+            if isinstance(block, EvidenceBlock)
+            else block
+            for block in section.blocks
+        ]
+        fixed.append(section.model_copy(update={"blocks": blocks}))
+    return fixed
+
+
+def _cite_everyone(sections: list[Section], bundle: ReportBundle) -> list[Section]:
+    """근거 부품에서 빠진 비교 대상의 근거를 코드가 골라 첫 근거 부품에 더한다. 키워드는 항목 이름, 근거는 id만 쓴다."""
+    blocks = [block for section in sections for block in section.blocks if isinstance(block, EvidenceBlock)]
+    if not blocks:
+        return sections
+    cited = {item.applicant for block in blocks for item in block.items}
+    have = {item.applicant for item in bundle.evidence}
+    missing = [number for number in bundle.targets if number in have and number not in cited]
+    # 판정이 갈린 항목은 비교 대상 전체를 보고 고르므로 전체로 만들고 빠진 사람 것만 쓴다
+    chosen = evidence_block(bundle, bundle.targets) if missing else None
+    added = [item for item in (chosen.items if chosen else []) if item.applicant in missing]
+    if not added:
+        return sections
+    logger.info("근거 부품에 빠진 비교 대상의 근거를 코드가 더한다: %d명", len(added))
+    first = blocks[0]
+    fixed = first.model_copy(update={"items": [*first.items, *added]})
+    return [
+        section.model_copy(update={"blocks": [fixed if block is first else block for block in section.blocks]})
+        for section in sections
+    ]
+
+
+def _read_takeaways(sections: list[Section], bundle: ReportBundle) -> list[Section]:
+    """그림 설명으로 쓴 읽을 점을 마지막 시도에서 코드가 읽은 사실로 바꾼다. 영역 섹션은 판정이 갈린 항목을 적는다."""
+    fixed = []
+    for section in sections:
+        if DESCRIBING.search(section.takeaway):
+            takeaway = _area_takeaway(section, bundle) or (
+                EVIDENCE_TAKEAWAY
+                if any(isinstance(block, EvidenceBlock) for block in section.blocks)
+                else OVERVIEW_TAKEAWAY
+            )
+            logger.info("그림 설명으로 쓴 읽을 점을 코드가 바꾼다")
+            section = section.model_copy(update={"takeaway": takeaway})
+        fixed.append(section)
+    return fixed
+
+
+def _area_takeaway(section: Section, bundle: ReportBundle) -> str | None:
+    """영역 섹션의 읽을 점. 비교 대상끼리 판정이 갈린 항목 코드를 두 개까지 적는다. 숫자는 쓰지 않는다."""
+    area = next((area for area in bundle.areas if area.id == section.area), None)
+    if area is None:
+        return None
+    verdicts = {(fact.applicant, fact.key): fact.value for fact in bundle.facts}
+    split = [
+        key.rsplit(".", 1)[-1]
+        for key in area.keys
+        if len({verdicts.get((number, key)) for number in bundle.targets} - {None}) > 1
+    ]
+    if not split:
+        return f"{area.label} 항목은 비교 대상의 판정이 모두 같아요."
+    more = " 등" if len(split) > 2 else ""
+    return f"{area.label} 항목 중 {' · '.join(split[:2])}{more}에서 판정이 갈렸어요."
 
 
 def _with_evidence(sections: list[Section], bundle: ReportBundle) -> list[Section]:

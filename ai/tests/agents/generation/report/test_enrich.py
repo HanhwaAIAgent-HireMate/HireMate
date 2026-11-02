@@ -2,7 +2,13 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, CriterionResult, Quote
-from hiremate_ai.agents.generation.report.bundle import BundleApplicant, BundleStage, ReportBundle, ReportKind
+from hiremate_ai.agents.generation.report.bundle import (
+    BundleApplicant,
+    BundleStage,
+    ReportBundle,
+    ReportKind,
+    Strength,
+)
 from hiremate_ai.agents.generation.report.enrich import StageItem, enrich
 from hiremate_ai.contract import CriterionCategory, CriterionType, DocumentType, StageType, Verdict
 
@@ -82,7 +88,26 @@ async def test_enrich_adds_document_verdicts_and_evidence_from_the_ai_store() ->
     assert met.source == "자기소개서" and met.quote == "팀 PR 리뷰 규칙을 만들었다"
     assert "원문" not in met.text  # 판단과 원문을 섞지 않는다
     assert (met.label, met.verdict) == ("Git 코드 리뷰 · 협업", "MET")
-    assert unknown.source == "서류 전체"
+    assert met.strength is Strength.CLAIM
+    assert unknown.source == "서류 전체" and unknown.strength is None
+
+
+async def test_enrich_prefers_a_quantified_quote_over_the_first_one() -> None:
+    claim = Quote(document=DocumentType.RESUME, sentence="MySQL 예약 테이블을 설계했습니다")
+    quant = Quote(document=DocumentType.PORTFOLIO, sentence="조회 응답 시간을 800ms에서 120ms로 줄였습니다")
+    review = ApplicationReview(
+        version="v1",
+        input_hash="h",
+        application_id=APPLICATION,
+        readable=True,
+        criteria=[criterion("Q-03", Verdict.MET, [claim, quant])],
+    )
+
+    (evidence,) = (await enrich(bundle(), Reviews({APPLICATION: review}))).evidence
+
+    assert (evidence.quote, evidence.source) == (quant.sentence, "포트폴리오")
+    assert evidence.strength is Strength.QUANT
+    assert '원문(정량): "조회 응답 시간' in evidence.line()
 
 
 async def test_enrich_leaves_bundles_without_a_document_stage() -> None:

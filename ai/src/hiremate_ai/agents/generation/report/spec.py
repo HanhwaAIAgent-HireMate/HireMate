@@ -242,6 +242,19 @@ class Section(SpecModel):
     blocks: list[Block] = Field(description="부품 1~3개")
 
 
+class Split(SpecModel):
+    """비교 대상끼리 판정이 갈린 항목 하나와 그 이유."""
+
+    key: str = Field(
+        description="판정이 갈린 항목 판정 key (예: document.criterion.Q-03). get_overview의 '판정이 갈린 항목'만"
+    )
+    text: str = Field(
+        description="갈린 이유 한 문장. 근거의 세부(충족한 부분 · 못 채운 부분 · 확인 필요한 부분 · 역할)로 "
+        "누가 무엇이 달랐는지 쓴다. 지원자는 지원자번호, 항목은 짧은 이름으로 쓴다"
+    )
+    evidence: list[str] = Field(description="그 문장의 근거 id. get_evidence로 받은 것만")
+
+
 class ReportSpec(SpecModel):
     """리포트 설계서. summary는 두세 문장 요약이고, 지원자는 지원자번호로만 쓴다."""
 
@@ -254,6 +267,11 @@ class ReportSpec(SpecModel):
         description="비교 리포트만 채운다. 항목 판정 key를 관점 3~6개로 묶고, 관점마다 항목 2~3개를 넣는다. "
         "이름은 항목 내용을 보고 짧게 짓는다 (예: 협업, 연동 · API, 품질 · 테스트, 데이터 설계). "
         "sections에 관점 rings가 없으면 코드가 이 묶음으로 관점별 항목 충족 표를 만든다. 전형 · 최종 리포트는 []",
+    )
+    splits: list[Split] = Field(
+        default=[],
+        description="비교 리포트만 채운다. 판정이 갈린 항목마다 하나씩 갈린 이유를 쓴다 (최대 6개). "
+        "전형 · 최종 리포트는 []",
     )
 
     def all_blocks(self) -> list[Block]:

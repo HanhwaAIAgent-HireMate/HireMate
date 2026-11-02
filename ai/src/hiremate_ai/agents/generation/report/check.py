@@ -16,6 +16,7 @@ from hiremate_ai.agents.generation.report.derive import (
     scope_of,
     score_view,
     share_percents,
+    split_keys,
     tally,
     top_percent,
     values_of,
@@ -85,7 +86,7 @@ _RANKING = re.compile(
     r"추천(?:해요|합니다|한다|드려요)|합격시키|채용하(?:세요|길)"
 )
 """순위나 채용 추천 표현. 'AI 추천'(선발 인원 10배수)은 화면 용어라 막지 않는다."""
-_DESCRIBING = re.compile(r"보여\s*(?:줘요|드려요|줍니다)|정리했어요|비교해요|나타내요")
+DESCRIBING = re.compile(r"보여\s*(?:줘요|드려요|줍니다)|정리했어요|비교해요|나타내요")
 """그림이 무엇인지 설명하는 말. takeaway는 설명이 아니라 그림에서 읽은 사실이다."""
 _REFERENCE_WORD = re.compile(r"점선|기준선")
 """기준선을 말하는 caption. 그 부품에 reference가 있어야 한다."""
@@ -120,7 +121,7 @@ def problems(spec: ReportSpec, bundle: ReportBundle) -> list[str]:
         where = f"sections[{section_index}]"
         if not section.takeaway.strip():
             found.append(f"{where}: 읽을 점(takeaway) 한 문장이 없다")
-        elif describing := _DESCRIBING.search(section.takeaway):
+        elif describing := DESCRIBING.search(section.takeaway):
             found.append(
                 f"{where}: takeaway가 그림 설명이다({describing.group()}). 그림에서 읽은 사실 · 차이를 한 문장으로 쓴다"
             )
@@ -158,6 +159,7 @@ def problems(spec: ReportSpec, bundle: ReportBundle) -> list[str]:
         have = {item.applicant for item in bundle.evidence}
         if evidence and (uncited := [n for n in bundle.targets if n in have and n not in cited]):
             found.append(f"근거 부품에 빠진 비교 대상이 있다: {', '.join(uncited)}")
+        found += _split_problems(spec, bundle)
     found += _text_problems(spec, bundle)
     return found
 
@@ -488,27 +490,50 @@ def _evidence_problems(ids: list[str], bundle: ReportBundle, applicant: str | No
 
 
 def _text_problems(spec: ReportSpec, bundle: ReportBundle) -> list[str]:
-    allowed_numbers = numbers_in(bundle) | _drawn_numbers(spec, bundle)
+    allowed_numbers = numbers_in(bundle) | _drawn_numbers(spec, bundle) | _counted_numbers(bundle)
     known = {applicant.number for applicant in bundle.applicants}
     found = []
     for label, text in _texts(spec):
-        if attribute := blocked_attribute(_CODE.sub("", text)):
-            found.append(f"{label}에 채용 판단에 쓰면 안 되는 조건이 있다: {attribute}")
-        if ranking := _RANKING.search(text):
-            found.append(f"{label}에 순위나 추천 표현이 있다: {ranking.group()}")
-        if code := _VERDICT_CODE.search(text):
-            found.append(
-                f"{label}에 판정 코드가 그대로 있다: {code.group()}. 충족 · 부분 · 미충족 · 보류처럼 화면 말로 쓴다"
-            )
+        found += sentence_problems(label, text, allowed_numbers)
         vague = _VAGUE.search(text) if label.endswith(("summary", "takeaway")) else None
         if vague and not _NUMBER.search(_CODE.sub("", text)):
             found.append(f"{label}의 '{vague.group()}'는 count_values로 센 개수나 비율을 같이 쓴다")
-        if formal := _FORMAL.search(text):
-            found.append(f"{label}는 해요체(~어요 · ~예요)로 쓴다: {formal.group()}")
         if unknown := sorted(set(_APPLICANT.findall(text)) - known):
             found.append(f"{label}에 범위 밖 지원자번호가 있다: {', '.join(unknown)}")
-        if unknown := sorted(set(_NUMBER.findall(_CODE.sub("", text))) - allowed_numbers):
-            found.append(f"{label}에 묶음에 없는 숫자가 있다: {', '.join(unknown)}")
+    return found
+
+
+def sentence_problems(label: str, text: str, allowed_numbers: set[str]) -> list[str]:
+    """리포트 문장 하나의 공통 검사. 차별 조건, 순위 · 추천 표현, 판정 코드, 합니다체, 자료에 없는 숫자를 찾는다.
+    설계서 문장과 분포 해설이 같이 쓴다."""
+    found = []
+    if attribute := blocked_attribute(_CODE.sub("", text)):
+        found.append(f"{label}에 채용 판단에 쓰면 안 되는 조건이 있다: {attribute}")
+    if ranking := _RANKING.search(text):
+        found.append(f"{label}에 순위나 추천 표현이 있다: {ranking.group()}")
+    if code := _VERDICT_CODE.search(text):
+        found.append(
+            f"{label}에 판정 코드가 그대로 있다: {code.group()}. 충족 · 부분 · 미충족 · 보류처럼 화면 말로 쓴다"
+        )
+    if formal := _FORMAL.search(text):
+        found.append(f"{label}는 해요체(~어요 · ~예요)로 쓴다: {formal.group()}")
+    if unknown := sorted(set(_NUMBER.findall(_CODE.sub("", text))) - allowed_numbers):
+        found.append(f"{label}에 묶음에 없는 숫자가 있다: {', '.join(unknown)}")
+    return found
+
+
+def _split_problems(spec: ReportSpec, bundle: ReportBundle) -> list[str]:
+    """갈린 이유는 판정이 갈린 항목에만, 비교 대상의 근거 id로 쓴다."""
+    keys = set(split_keys(bundle))
+    owners = {item.id: item.applicant for item in bundle.evidence}
+    found = []
+    for index, split in enumerate(spec.splits):
+        if split.key not in keys:
+            found.append(
+                f"splits[{index}]: {split.key}는 판정이 갈린 항목이 아니다. 갈린 항목: {', '.join(sorted(keys))}"
+            )
+        if unknown := [id_ for id_ in split.evidence if owners.get(id_) not in bundle.targets]:
+            found.append(f"splits[{index}]: 없는 근거 id: {', '.join(unknown)}")
     return found
 
 
@@ -528,6 +553,8 @@ def _texts(spec: ReportSpec) -> Iterable[tuple[str, str]]:
             if isinstance(block, EvidenceBlock):
                 for item_index, item in enumerate(block.items):
                     yield f"{where}.blocks[{index}].items[{item_index}]", " ".join([*item.keywords, item.text])
+    for split_index, split in enumerate(spec.splits):
+        yield f"splits[{split_index}]", split.text
 
 
 def numbers_in(bundle: ReportBundle) -> set[str]:
@@ -567,6 +594,16 @@ def _drawn_numbers(spec: ReportSpec, bundle: ReportBundle) -> set[str]:
             case PositionBlock():
                 for key in block.keys:
                     values += [p for n in block.applicants if (p := top_percent(bundle, key, n)) is not None]
+    return {text for value in values for text in _spellings(value)}
+
+
+def _counted_numbers(bundle: ReportBundle) -> set[str]:
+    """count_values가 판정 key마다 세어 주는 인원과 충족 비율. 모델이 도구로 읽은 숫자라 문장에 써도 된다."""
+    people = scope_of(bundle)
+    values: list[float] = []
+    for key in dict.fromkeys(fact.key for fact in bundle.facts if isinstance(fact.value, str)):
+        counts, rate = tally(bundle, key, people)
+        values += [*counts.values(), rate]
     return {text for value in values for text in _spellings(value)}
 
 

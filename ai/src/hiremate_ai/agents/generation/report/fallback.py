@@ -7,9 +7,9 @@
 import re
 from collections import Counter
 
-from hiremate_ai.agents.generation.report.bundle import Area, Evidence, Fact, ReportBundle, ReportKind
+from hiremate_ai.agents.generation.report.bundle import Area, Evidence, Fact, ReportBundle, ReportKind, Strength
 from hiremate_ai.agents.generation.report.check import MAX_SECTION_BLOCKS, MIN_PERSPECTIVES
-from hiremate_ai.agents.generation.report.derive import HAVE, POSITIVE, drawable, score_view
+from hiremate_ai.agents.generation.report.derive import HAVE, POSITIVE, drawable, score_view, split_keys
 from hiremate_ai.agents.generation.report.enrich import criterion_key, stage_prefix
 from hiremate_ai.agents.generation.report.spec import (
     BarBlock,
@@ -28,6 +28,7 @@ from hiremate_ai.agents.generation.report.spec import (
     RingView,
     Section,
     ShareBlock,
+    Split,
     StackedBlock,
     TableBlock,
     TallyBlock,
@@ -47,6 +48,9 @@ FINAL_METRICS = ("m-applicants", "m-finalists", "m-final-rate")
 _ITEM_CODE = re.compile(r"[A-Z]{1,3}-\d+")
 MAX_VIEW_NAME = 14
 MAX_VIEWS = 6
+MAX_SPLITS = 6
+"""비교 리포트의 '판정이 갈린 이유' 수."""
+_VERDICT_WORDS = {"MET": "충족", "PARTIAL": "부분 충족", "NOT_MET": "미충족", "UNKNOWN": "확인 필요"}
 MAX_EVIDENCE = 3
 """비교 리포트 근거에서 대상마다 고르는 근거 수."""
 _DANGLING = {"·", "또는", "및", "등", "와", "과"}
@@ -109,7 +113,22 @@ def fallback_spec(bundle: ReportBundle) -> ReportSpec:
                 ],
             )
         )
-    return ReportSpec(title=bundle.title, summary=NO_SUMMARY, sections=sections)
+    splits = [code_split(bundle, key) for key in split_keys(bundle)][:MAX_SPLITS] if compare else []
+    return ReportSpec(title=bundle.title, summary=NO_SUMMARY, sections=sections, splits=splits)
+
+
+def code_split(bundle: ReportBundle, key: str) -> Split:
+    """판정이 갈린 항목 하나를 판정으로만 적는다. 모델이 이유를 쓰지 못했을 때 쓰고, 해석은 붙이지 않는다."""
+    verdicts = {fact.applicant: fact.value for fact in bundle.facts if fact.key == key}
+    groups: dict[str, list[str]] = {}
+    for number in bundle.targets:
+        if isinstance(value := verdicts.get(number), str):
+            groups.setdefault(value, []).append(number)
+    parts = [f"{' · '.join(numbers)} {_VERDICT_WORDS.get(value, value)}" for value, numbers in groups.items()]
+    criterion = key.rsplit(".", 1)[-1]
+    ids = {item.id for item in bundle.evidence}
+    evidence = [id_ for number in bundle.targets if (id_ := f"e-{number}-{criterion}") in ids]
+    return Split(key=key, text=f"판정이 갈렸어요 ({' · '.join(parts)}).", evidence=evidence)
 
 
 def _overview(bundle: ReportBundle, people: list[str], numeric: list[str], current: list[Fact]) -> list[Block]:
@@ -172,20 +191,21 @@ def _finalists(bundle: ReportBundle) -> list[str]:
 
 
 def evidence_block(bundle: ReportBundle, people: list[str]) -> EvidenceBlock | None:
-    """대상마다 근거 한 항목. 대상끼리 판정이 갈린 항목, 부분 · 미충족 항목 순으로 근거를 세 개까지 고르고,
-    키워드는 그 근거가 받치는 항목 이름으로 쓴다. 근거가 없는 대상은 확인 필요로 둔다."""
+    """대상마다 근거 한 항목. 정량 원문, 대상끼리 판정이 갈린 항목, 부분 · 미충족 항목 순으로 근거를 세 개까지
+    고르고, 키워드는 그 근거가 받치는 항목 이름으로 쓴다. 근거가 없는 대상은 확인 필요로 둔다."""
     verdicts = {(fact.applicant, fact.key): fact.value for fact in bundle.facts}
     labels = {(fact.applicant, fact.key): fact.label for fact in bundle.facts}
     items = []
     for number in people:
         mine = [item for item in bundle.evidence if item.applicant == number]
 
-        def rank(item: Evidence) -> tuple[int, int]:
+        def rank(item: Evidence) -> tuple[int, int, int]:
             key = criterion_key(item.id.removeprefix(f"e-{item.applicant}-"))
             values = {verdicts.get((other, key)) for other in people}
             mixed = len(values - {None}) > 1
+            quant = item.strength is Strength.QUANT
             weak = item.verdict not in POSITIVE
-            return (0 if mixed else 1, 0 if weak else 1)
+            return (0 if quant else 1, 0 if mixed else 1, 0 if weak else 1)
 
         chosen = sorted(mine, key=rank)[:MAX_EVIDENCE]
         if not chosen:
