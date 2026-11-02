@@ -6,11 +6,8 @@ from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 from root_context import form_call
 
-from hiremate_ai.agents.generation.posting.poster import PosterContext
 from hiremate_ai.agents.root.memory import get_saver
-from hiremate_ai.agents.root.poster import PosterRootReply
 from hiremate_ai.agents.root.toolkit import default_toolkit, get_toolkit
-from hiremate_ai.contract import CompanyProfile, PostingContent
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.main import app
@@ -149,21 +146,3 @@ def test_plan_without_thread_does_not_remember() -> None:
     assert [(item["applicationId"], item["status"]) for item in done["items"]] == [(None, "OK")]
     assert done["sources"] == ["전형 결과"]
     assert saver.storage == {}
-
-
-def test_design_endpoint_keeps_posting_path(sample_company: CompanyProfile, sample_posting: PostingContent) -> None:
-    # backend PosterAgent는 공고 Agent 경로로 부르고, 공고 디자인 화면의 Root가 답한다
-    context = PosterContext(company=sample_company, posting=sample_posting, design=None, brand_color=None)
-    app.dependency_overrides[get_llm] = lambda: FakeLlm(
-        PosterRootReply(kind="CONVERSATION", reply="원하는 분위기를 알려 주세요.", result=None)
-    )
-    try:
-        response = TestClient(app).post(
-            "/agents/posting/design",
-            json={"context": context.model_dump(mode="json", by_alias=True), "request": "디자인은 어떻게 바꿔?"},
-        )
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 200
-    assert response.json() == {"reply": "원하는 분위기를 알려 주세요.", "recommendations": []}

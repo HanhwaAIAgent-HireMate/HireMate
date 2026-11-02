@@ -49,6 +49,9 @@ AI 서버 주소가 기본값과 다르면 `HIREMATE_AI_BASE_URL`도 지정한�
 Windows에서 `--reload` 없이 AI 서버를 실행할 때 psycopg 이벤트 루프 오류가 나면
 `--loop asyncio:SelectorEventLoop`를 지정한다.
 
+포스터 디자인과 대화 처리는 공고 Agent의 `generation/posting` 모듈에 있다.
+`/agents/posting/design`은 해당 모듈을 직접 호출하며 전형 Root를 거치지 않는다.
+
 포스터의 이전 추천은 현재 공고의 최근 12개 대화 턴과 디자인 식별자로 참조한다.
 본문·전형·포스터의 미저장 편집과 포스터 대화는 같은 탭의 `sessionStorage`에 임시 보관한다.
 새로고침과 화면 이동 후 같은 공고를 열면 복구하며, 서버 내용이 바뀌었거나 게시한 공고에는 복구본을 적용하지 않는다.
