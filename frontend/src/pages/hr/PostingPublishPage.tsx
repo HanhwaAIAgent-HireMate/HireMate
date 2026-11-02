@@ -58,6 +58,8 @@ function defaultPeriod() {
 }
 
 function PublishForm({ posting }: { posting: Posting }) {
+  const posterOnly = Boolean(posting.poster?.enabled)
+  const formatLabel = posterOnly ? '포스터 공고' : '글 공고'
   const navigate = useNavigate()
   const publish = usePublishPosting(posting.recruitmentId)
   const [initial] = useState(defaultPeriod)
@@ -105,11 +107,15 @@ function PublishForm({ posting }: { posting: Posting }) {
 
   return (
     <div className="flex h-full flex-col">
-      <PostingStepHeader title="공고 게시">
+      <PostingStepHeader title="공고 게시" caption={formatLabel}>
         <Button
           variant="outline"
           className="min-w-20"
-          onClick={() => void navigate(`/hr/recruitments/${posting.recruitmentId}/posting/poster`)}
+          onClick={() =>
+            void navigate(
+              `/hr/recruitments/${posting.recruitmentId}/posting${posterOnly ? '/poster' : ''}`,
+            )
+          }
         >
           <ArrowLeft />
           이전
@@ -119,7 +125,7 @@ function PublishForm({ posting }: { posting: Posting }) {
           onClick={() => setConfirming(true)}
           disabled={!valid || posting.status !== 'DRAFT'}
         >
-          게시하기
+          {formatLabel} 게시
         </Button>
       </PostingStepHeader>
       <div className="flex min-h-0 flex-1">
@@ -240,6 +246,7 @@ function PublishForm({ posting }: { posting: Posting }) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <dl className="divide-y border-y text-sm">
+            <ConfirmRow label="게시 형식" value={formatLabel} />
             <ConfirmRow label="공고명" value={posting.content.title} />
             <ConfirmRow
               label="공고 기간"

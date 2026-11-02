@@ -1,6 +1,6 @@
 import { ArrowRight, FileText, Lock, Settings, X } from 'lucide-react'
 import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -102,6 +102,7 @@ export function PostingEditor({
   setFocus,
   writtenFor,
   setWrittenFor,
+  onNext,
 }: {
   posting: Posting
   /** 저장 · 적용으로 편집 상태를 새로 열어도 대화와 고른 줄은 남도록 화면이 들고 있다 */
@@ -112,8 +113,8 @@ export function PostingEditor({
   /** 경력을 바꾸기 전, 지금 자격 요건 · 우대 사항이 쓰인 기준. 바꾸지 않았거나 안내를 닫으면 null이다 */
   writtenFor: CareerLevel | null
   setWrittenFor: Dispatch<SetStateAction<CareerLevel | null>>
+  onNext: () => void
 }) {
-  const navigate = useNavigate()
   const id = posting.recruitmentId
   const contentRecovery = usePostingRecovery(
     `${id}:content`,
@@ -306,7 +307,7 @@ export function PostingEditor({
   }
 
   const goPublish = async () => {
-    if (await saveDraft(true)) await navigate(`/hr/recruitments/${id}/posting/poster`)
+    if (await saveDraft(true)) onNext()
   }
 
   /**
@@ -361,7 +362,7 @@ export function PostingEditor({
                 <Button
                   className="min-w-20"
                   onClick={() => void goPublish()}
-                  disabled={Boolean(suggestion)}
+                  disabled={Boolean(suggestion) || saving}
                 >
                   다음
                   <ArrowRight />
