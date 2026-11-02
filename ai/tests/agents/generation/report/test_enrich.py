@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, CriterionResult, Quote
 from hiremate_ai.agents.generation.report.bundle import (
     BundleApplicant,
@@ -9,8 +11,16 @@ from hiremate_ai.agents.generation.report.bundle import (
     ReportKind,
     Strength,
 )
-from hiremate_ai.agents.generation.report.enrich import StageItem, enrich
+from hiremate_ai.agents.generation.report.enrich import DbStageItems, StageItem, enrich
 from hiremate_ai.contract import CriterionCategory, CriterionType, DocumentType, StageType, Verdict
+from hiremate_ai.db.profile import (
+    CandidateProfile,
+    ItemAgent,
+    ItemCategory,
+    ProfileItem,
+    ProfileStatus,
+    Verification,
+)
 
 COMPANY, RECRUITMENT, STAGE, APPLICATION = uuid4(), uuid4(), uuid4(), uuid4()
 
@@ -161,3 +171,35 @@ async def test_enrich_adds_interview_strengths_checks_and_evidence_per_stage() -
     first_evidence = enriched.evidence[0]
     assert first_evidence.quote == "제가 설계를 맡았습니다" and "원문" not in first_evidence.text
     assert first_evidence.label in ("강점", "확인할 점")
+
+
+async def test_stage_items_reads_only_interview_items_from_profile(db_session: AsyncSession) -> None:
+    # 평가 분석(Assessment Agent)은 쓰지 않으므로, 프로필에 남은 평가 항목은 리포트 근거로 읽지 않는다
+    assessment_stage, interview_stage = uuid4(), uuid4()
+    profile = CandidateProfile(
+        application_id=APPLICATION, company_id=COMPANY, recruitment_id=RECRUITMENT, status=ProfileStatus.DONE
+    )
+    profile.items = [
+        ProfileItem(
+            category=ItemCategory.STRENGTH,
+            agent=agent,
+            content=content,
+            evidence=None,
+            verification=Verification.CONFIRMED,
+            source=source,
+            stage_id=stage_id,
+        )
+        for agent, content, source, stage_id in [
+            (ItemAgent.ASSESSMENT, "과제 구조가 깔끔하다", "평가 결과", assessment_stage),
+            (ItemAgent.INTERVIEW, "장애 대응 경험을 구체적으로 설명했다", "면접 답변", interview_stage),
+        ]
+    ]
+    db_session.add(profile)
+    await db_session.flush()
+    sessions = async_sessionmaker(bind=db_session.bind, join_transaction_mode="create_savepoint")
+
+    found = await DbStageItems(sessions).stage_items(
+        company_id=COMPANY, recruitment_id=RECRUITMENT, application_ids=[APPLICATION]
+    )
+
+    assert [(item.stage_id, item.agent) for item in found[APPLICATION]] == [(interview_stage, ItemAgent.INTERVIEW)]

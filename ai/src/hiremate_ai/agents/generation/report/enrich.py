@@ -62,7 +62,10 @@ class StageItems(Protocol):
 
 
 class DbStageItems:
-    """지원자 프로필에서 평가 · 면접 항목을 읽는다. 기업 · 채용 범위로만 읽는다 (아키텍처 규칙 4)."""
+    """지원자 프로필에서 면접 항목을 읽는다. 기업 · 채용 범위로만 읽는다 (아키텍처 규칙 4).
+
+    평가 분석(Assessment Agent)은 쓰지 않으므로, 프로필에 남은 평가 항목은 읽지 않는다. 평가 전형은 점수 · 등급만 본다.
+    """
 
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
@@ -84,7 +87,7 @@ class DbStageItems:
                 profile.application_id: [
                     StageItem(item.stage_id, item.agent, item.category, item.content, item.evidence, item.source)
                     for item in profile.items
-                    if item.agent in (ItemAgent.ASSESSMENT, ItemAgent.INTERVIEW) and item.stage_id is not None
+                    if item.agent == ItemAgent.INTERVIEW and item.stage_id is not None
                 ]
                 for profile in profiles
             }

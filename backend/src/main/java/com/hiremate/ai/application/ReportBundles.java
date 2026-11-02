@@ -218,6 +218,9 @@ public class ReportBundles {
             facts.number(number, stageId, prefix + ".total", "평가 총점", result.total(), null);
             result.areas().forEach((area, score) -> facts.number(number, stageId, prefix + ".area." + area, area,
                     score, AREA_MAX));
+            if (result.grade() != null) {
+                facts.verdict(number, stageId, prefix + ".grade", "평가 등급", result.grade());
+            }
         });
     }
 

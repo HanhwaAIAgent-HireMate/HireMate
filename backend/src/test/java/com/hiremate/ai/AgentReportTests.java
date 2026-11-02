@@ -125,7 +125,7 @@ class AgentReportTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("평가 전형 리포트 묶음은 평가 전형을 영역으로 넣어, 영역 점수 key와 총점 key를 함께 준다")
+    @DisplayName("평가 전형 리포트 묶음은 평가 전형을 영역으로 넣어, 영역 점수 key와 총점 key, 등급을 함께 준다")
     void assessmentStageBundleHasAssessmentArea() throws Exception {
         Stage document = startDocumentStage(2, "전형은 서류, 직무역량 평가 순으로 해줘");
         TestApi hr = document.hr();
@@ -138,7 +138,7 @@ class AgentReportTests extends IntegrationTest {
         Stage assessment = new Stage(hr, stageId, document.ids());
         for (String applicationId : assessment.ids()) {
             expect(hr.put(assessment.path() + "/assessment/results/" + applicationId,
-                    Map.of("total", 80, "areas", Map.of("의사소통능력", 70, "문제해결능력", 90))), 200);
+                    Map.of("total", 80, "areas", Map.of("의사소통능력", 70, "문제해결능력", 90), "grade", "B")), 200);
         }
 
         JsonNode requested = json(expect(hr.post(assessment.path() + "/reports/compare",
@@ -153,6 +153,7 @@ class AgentReportTests extends IntegrationTest {
         assertThat(areas.get(0).path("scoreKey").asString()).isEqualTo("assessment.total");
         assertThat(areas.get(0).path("keys").toString())
                 .contains("assessment.area.의사소통능력", "assessment.area.문제해결능력");
+        assertThat(bundle.path("facts").findValuesAsString("key")).contains("assessment.grade");
     }
 
     @Test

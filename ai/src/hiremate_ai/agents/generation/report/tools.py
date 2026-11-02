@@ -39,14 +39,14 @@ class ReportScope:
 
 
 class Specialist(StrEnum):
+    """근거 확인을 맡길 분석 Agent. 평가 분석(Assessment Agent)은 쓰지 않아 평가 전형은 점수 · 등급만 본다."""
+
     APPLICATION = "application"
-    ASSESSMENT = "assessment"
     INTERVIEW = "interview"
 
 
 SPECIALIST_ROLES = {
     Specialist.APPLICATION: "Application Agent. 서류(이력서 · 자기소개서 · 포트폴리오) 분석 근거를 확인한다",
-    Specialist.ASSESSMENT: "Assessment Agent. 평가 결과 · 과제 제출물 분석 근거를 확인한다",
     Specialist.INTERVIEW: "Interview Agent. 면접 답변 기록 분석 근거를 확인한다",
 }
 
