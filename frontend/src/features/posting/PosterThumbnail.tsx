@@ -3,17 +3,19 @@ import { useEffect, useRef, useState } from 'react'
 import type { PosterDesign } from '@/features/posting/poster-design'
 import { PostingPoster, type PosterPosting } from '@/features/posting/PostingPoster'
 
-/** 긴 공고도 상단만 잘라 보이지 않도록 포스터 전체를 썸네일 안에 맞춘다. */
+/** 고정 영역 안에 포스터 전체를 맞춘다. fill은 카드의 바깥 여백만 없앤다. */
 export function PosterThumbnail({
   posting,
   design,
   logoUrl,
   compact = false,
+  fill = false,
 }: {
   posting: PosterPosting
   design: PosterDesign
   logoUrl?: string
   compact?: boolean
+  fill?: boolean
 }) {
   const host = useRef<HTMLDivElement>(null)
   const paper = useRef<HTMLDivElement>(null)
@@ -42,26 +44,25 @@ export function PosterThumbnail({
     const paperElement = paper.current
     if (!hostElement || !paperElement) return
     const observer = new ResizeObserver(() => {
-      setScale(
-        Math.min(
-          (hostElement.clientWidth - 16) / 600,
-          (hostElement.clientHeight - 16) / Math.max(1, paperElement.offsetHeight),
-        ),
-      )
+      const padding = fill ? 0 : 16
+      const widthScale = (hostElement.clientWidth - padding) / 600
+      const heightScale =
+        (hostElement.clientHeight - padding) / Math.max(1, paperElement.offsetHeight)
+      setScale(Math.min(widthScale, heightScale))
     })
     observer.observe(hostElement)
     observer.observe(paperElement)
     return () => observer.disconnect()
-  }, [])
+  }, [fill])
   return (
     <div
       ref={host}
-      className={`pointer-events-none relative overflow-hidden bg-surface ${compact ? 'h-24' : 'h-48'}`}
+      className={`pointer-events-none relative w-full shrink-0 overflow-hidden ${fill ? 'bg-background' : 'bg-surface'} ${compact ? 'h-24' : 'h-48'}`}
       aria-hidden="true"
     >
       <div
         ref={paper}
-        className="absolute top-2 left-1/2 w-[600px] origin-top"
+        className={`absolute left-1/2 w-[600px] origin-top ${fill ? 'top-0' : 'top-2'}`}
         style={{ transform: `translateX(-50%) scale(${scale})` }}
       >
         <PostingPoster posting={thumbnailPosting} design={design} logoUrl={logoUrl} />
