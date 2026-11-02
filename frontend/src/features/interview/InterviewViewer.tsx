@@ -27,6 +27,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   useInterview,
   useInterviewActions,
+  useStageSchedules,
   useInterviewPreparing,
   useStageHistory,
   type Interview,
@@ -37,11 +38,12 @@ import { CandidateInterviewProgress } from '@/features/interview/CandidateInterv
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import { QuestionReason } from '@/features/interview/QuestionReason'
 import { RoleTag } from '@/features/interview/RoleTag'
+import { interviewSlots } from '@/features/interview/slots'
 import { STAGE_TYPE_LABELS } from '@/features/recruit/labels'
 import type { CandidateDetail } from '@/features/screening/api'
 import { DocumentViewer } from '@/features/screening/DocumentViewer'
 import { errorMessage } from '@/lib/api/client'
-import { formatMonthDay, toLocalInput } from '@/lib/format'
+import { formatDateTime, formatMonthDay, toLocalInput } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 type Tab = 'questions' | 'documents' | 'results'
@@ -502,8 +504,13 @@ function ScheduleButton({
   disabled: boolean
 }) {
   const actions = useInterviewActions(stageId, applicationId)
+  const schedules = useStageSchedules(stageId)
   const [open, setOpen] = useState(false)
   const [at, setAt] = useState('')
+  // 이 전형에 이미 정한 면접 시간. 같은 시간을 고르면 그 시간 면접자와 한 면접으로 함께 본다
+  const taken = interviewSlots(schedules.data ?? [], (row) => row.scheduledAt).filter(
+    (slot) => slot.scheduledAt,
+  )
   return (
     <Popover
       open={open}
@@ -525,7 +532,32 @@ function ScheduleButton({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 space-y-2">
-        <p className="text-xs text-muted-foreground">면접 일정은 HR이 직접 입력해요.</p>
+        <p className="text-xs text-muted-foreground">
+          같은 일시를 고른 지원자는 한 면접으로 함께 봐요.
+        </p>
+        {taken.length > 0 && (
+          <div role="group" aria-label="정해 둔 면접 시간" className="flex flex-wrap gap-1.5">
+            {taken.map((slot) => {
+              const value = toLocalInput(new Date(slot.scheduledAt ?? ''))
+              return (
+                <button
+                  key={slot.key}
+                  type="button"
+                  aria-pressed={at === value}
+                  onClick={() => setAt(value)}
+                  className={cn(
+                    'rounded-full border px-2 py-0.5 text-xs',
+                    at === value
+                      ? 'border-foreground bg-foreground text-background'
+                      : 'hover:bg-muted',
+                  )}
+                >
+                  {formatDateTime(slot.scheduledAt ?? '')} · {slot.items.length}명
+                </button>
+              )
+            })}
+          </div>
+        )}
         <input
           type="datetime-local"
           aria-label="면접 일시"

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { fireEvent, render as renderBase, screen } from '@testing-library/react'
+import { fireEvent, render as renderBase, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { InterviewViewer } from './InterviewViewer'
@@ -20,6 +20,8 @@ const state = vi.hoisted(() => ({
   add: vi.fn(),
   schedule: vi.fn(),
   previous: [] as unknown[],
+  // 이 전형에 이미 정해 둔 면접 시간
+  schedules: [] as { applicationId: string; scheduledAt: string }[],
 }))
 
 // 공통 면접관은 전형 상단에 두고 이 카드에서는 진행 현황만 읽는다
@@ -42,6 +44,7 @@ vi.mock('@/features/interview/api', () => ({
     data: { questions: state.questions, previous: state.previous, schedule: null },
   }),
   useInterviewPreparing: () => ({ isPending: true, data: undefined }),
+  useStageSchedules: () => ({ data: state.schedules }),
   useInterviewActions: () => ({
     regenerate: { isPending: false },
     assignRole: { isPending: false, mutate: state.assign },
@@ -268,6 +271,10 @@ it('지난 면접 기록의 꼬리질문은 기본으로 접어 두고 펼칠 �
 })
 
 it('지원자 카드에서는 면접관을 배정하지 않고 일정만 수정한다', () => {
+  state.schedules = [
+    { applicationId: 'lee', scheduledAt: new Date('2026-11-03T14:00').toISOString() },
+    { applicationId: 'park', scheduledAt: new Date('2026-11-03T14:00').toISOString() },
+  ]
   const { unmount } = renderWith('HR')
   expect(screen.getByText('지원자 면접 진행 현황')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /면접관 배정|면접관 변경/ })).not.toBeInTheDocument()
@@ -280,5 +287,16 @@ it('지원자 카드에서는 면접관을 배정하지 않고 일정만 수정�
     { scheduledAt: new Date('2026-11-02T10:00').toISOString(), interviewers: '' },
     expect.any(Object),
   )
+  // 이미 정해 둔 시간을 고르면 그 시간 면접자와 같은 일시가 들어가 한 면접으로 묶인다
+  const slot = within(screen.getByRole('group', { name: '정해 둔 면접 시간' })).getByRole(
+    'button',
+    {
+      name: /2명/,
+    },
+  )
+  fireEvent.click(slot)
+  expect(slot).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByLabelText('면접 일시')).toHaveValue('2026-11-03T14:00')
   unmount()
+  state.schedules = []
 })

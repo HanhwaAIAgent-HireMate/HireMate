@@ -1,5 +1,6 @@
 import { useStageInterviewProgress } from '@/features/interview/live'
 import { INTERVIEW_STATUS_LABELS, INTERVIEW_STATUS_STYLES } from '@/features/interview/sessions'
+import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /** 지원자별로 달라지는 면접 진행과 면접관 준비 현황. 면접관 구성은 전형 상단에서만 바꾼다. */
@@ -27,6 +28,9 @@ export function CandidateInterviewProgress({
         )}
       >
         면접 {INTERVIEW_STATUS_LABELS[current.status]}
+      </span>
+      <span className="text-muted-foreground">
+        {current.scheduledAt ? formatDateTime(current.scheduledAt) : '일정 미정'}
       </span>
       <ul aria-label="면접관 준비 상태" className="flex flex-wrap gap-x-4 gap-y-1">
         {current.attendees.map((attendee) => (

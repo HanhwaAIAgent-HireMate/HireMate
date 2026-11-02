@@ -1,4 +1,4 @@
-import { ListChecks, ListFilter, Search } from 'lucide-react'
+import { CalendarClock, CalendarX, ListChecks, ListFilter, Search } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -18,7 +18,9 @@ import {
   useStageInterviewProgress,
   type SessionProgress,
 } from '@/features/interview/live'
+import { useStageSchedules } from '@/features/interview/api'
 import { INTERVIEW_STATUS_LABELS, INTERVIEW_STATUS_STYLES } from '@/features/interview/sessions'
+import { interviewSlots, slotStatus, type InterviewSlot } from '@/features/interview/slots'
 import { OpinionBadges } from '@/features/interview/OpinionBadges'
 import { useStageOpinions } from '@/features/interview/opinions'
 import {
@@ -35,6 +37,7 @@ import { CandidateTile } from '@/features/screening/CandidateTile'
 import { useStageUi } from '@/features/screening/store'
 import { GROUP_LABELS, useCandidateTable } from '@/features/screening/table'
 import { errorMessage } from '@/lib/api/client'
+import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 type Filter = 'ALL' | 'PENDING' | 'PASS' | 'FAIL'
@@ -85,6 +88,11 @@ export function CandidateList({
   useInterviewStageLive(stageId, interviewStage)
   const progressByApplication = new Map(
     (progress.data ?? []).map((row) => [row.applicationId, row.status]),
+  )
+  // 면접 전형은 면접 시간별로 나눈다. 같은 시간의 지원자는 한 면접으로 함께 본다
+  const schedules = useStageSchedules(stageId, interviewStage)
+  const scheduleByApplication = new Map(
+    (schedules.data ?? []).map((row) => [row.applicationId, row.scheduledAt]),
   )
 
   useEffect(() => {
@@ -140,6 +148,35 @@ export function CandidateList({
         label={`${row.name} 선택 지원자에 넣기`}
         disabled={row.decision !== 'PENDING'}
         onClick={() => actions.add.mutate([row.applicationId], { onError: fail })}
+      />
+    )
+  }
+
+  const tile = (row: CandidateRow) => {
+    const status = progressByApplication.get(row.applicationId)
+    return (
+      <CandidateTile
+        key={row.applicationId}
+        row={row}
+        documentStage={documentStage}
+        scoreStage={overview.type === 'ASSESSMENT'}
+        active={openId === row.applicationId}
+        action={action(row)}
+        note={
+          interviewStage ? (
+            <div className="space-y-0.5">
+              {/* 면접 상태는 시간 칸 머리글에 한 번 보이고, 카드에는 그 시간에서 빠진 불참만 붙인다 */}
+              {status === 'ABSENT' && <InterviewProgressBadge status={status} />}
+              {/* 의견은 면접을 마친 뒤에 내므로 종료된 지원자에게만 보인다 */}
+              {status === 'ENDED' && (
+                <OpinionBadges
+                  row={opinions.data?.find((item) => item.applicationId === row.applicationId)}
+                />
+              )}
+            </div>
+          ) : undefined
+        }
+        onOpen={() => open({ applicationId: row.applicationId, name: row.name })}
       />
     )
   }
@@ -219,42 +256,33 @@ export function CandidateList({
               {debounced ? '조건에 맞는 지원자가 없어요.' : '아직 지원자가 없어요.'}
             </p>
           )}
-          {rows.map((row, index) => (
-            <Fragment key={row.applicationId}>
-              {index === firstBelow && (
-                <p className="col-span-3 mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <span className="h-px flex-1 bg-border" />
-                  필수 조건 미충족 {below}명
-                  <span className="h-px flex-1 bg-border" />
-                </p>
-              )}
-              <CandidateTile
-                row={row}
-                documentStage={documentStage}
-                scoreStage={overview.type === 'ASSESSMENT'}
-                active={openId === row.applicationId}
-                action={action(row)}
-                note={
-                  interviewStage ? (
-                    <div className="space-y-0.5">
-                      <InterviewProgressBadge
-                        status={progressByApplication.get(row.applicationId)}
-                      />
-                      {/* 의견은 면접을 마친 뒤에 내므로 종료된 지원자에게만 보인다 */}
-                      {progressByApplication.get(row.applicationId) === 'ENDED' && (
-                        <OpinionBadges
-                          row={opinions.data?.find(
-                            (item) => item.applicationId === row.applicationId,
-                          )}
-                        />
-                      )}
-                    </div>
-                  ) : undefined
-                }
-                onOpen={() => open({ applicationId: row.applicationId, name: row.name })}
-              />
-            </Fragment>
-          ))}
+          {interviewStage
+            ? interviewSlots(rows, (row) => scheduleByApplication.get(row.applicationId)).map(
+                (slot) => (
+                  <Fragment key={slot.key}>
+                    <SlotHeader
+                      slot={slot}
+                      statuses={slot.items.flatMap((row) => {
+                        const status = progressByApplication.get(row.applicationId)
+                        return status ? [status] : []
+                      })}
+                    />
+                    {slot.items.map(tile)}
+                  </Fragment>
+                ),
+              )
+            : rows.map((row, index) => (
+                <Fragment key={row.applicationId}>
+                  {index === firstBelow && (
+                    <p className="col-span-3 mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span className="h-px flex-1 bg-border" />
+                      필수 조건 미충족 {below}명
+                      <span className="h-px flex-1 bg-border" />
+                    </p>
+                  )}
+                  {tile(row)}
+                </Fragment>
+              ))}
         </div>
         <div ref={sentinel} className="h-4" />
       </div>
@@ -316,6 +344,49 @@ function RequirementsMenu({ stageId, editable }: { stageId: string; editable: bo
         })}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** 면접 시간 칸의 머리글: 일시 · 인원 · 그 시간 면접의 상태. 일정 미정 칸은 회색으로 두어 정할 일이 남았음을 보인다 */
+function SlotHeader({
+  slot,
+  statuses,
+}: {
+  slot: InterviewSlot<CandidateRow>
+  statuses: SessionProgress['status'][]
+}) {
+  const status = statuses.length > 0 ? slotStatus(statuses) : null
+  return (
+    <div
+      role="heading"
+      aria-level={3}
+      className={cn(
+        'col-span-3 mt-3 flex items-center gap-1.5 px-1 text-xs font-semibold first:mt-0',
+        !slot.scheduledAt && 'text-muted-foreground',
+      )}
+    >
+      {slot.scheduledAt ? (
+        <CalendarClock className="size-3.5" />
+      ) : (
+        <CalendarX className="size-3.5" />
+      )}
+      <span>
+        {slot.scheduledAt ? formatDateTime(slot.scheduledAt) : '일정 미정'} · {slot.items.length}명
+      </span>
+      {slot.scheduledAt && status && (
+        <span
+          className={cn(
+            'ml-auto rounded px-1 text-[11px] font-semibold',
+            INTERVIEW_STATUS_STYLES[status],
+          )}
+        >
+          면접 {INTERVIEW_STATUS_LABELS[status]}
+        </span>
+      )}
+      {!slot.scheduledAt && (
+        <span className="ml-auto font-normal">카드를 열어 면접 일정을 정해 주세요</span>
+      )}
+    </div>
   )
 }
 

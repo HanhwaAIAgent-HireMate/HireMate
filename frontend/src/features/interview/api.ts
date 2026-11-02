@@ -204,9 +204,28 @@ export function useInterviewActions(stageId: string, applicationId: string) {
             body,
           }),
         ),
-      onSuccess,
+      onSuccess: (data) => {
+        onSuccess(data)
+        // 함께 면접 볼 사람이 바뀌니 시간별 목록과 면접 진행 현황도 다시 읽는다
+        void queryClient.invalidateQueries({ queryKey: scheduleKey(stageId) })
+        void queryClient.invalidateQueries({ queryKey: ['interview', 'progress', stageId] })
+      },
     }),
   }
+}
+
+const scheduleKey = (stageId: string) => [...stageKeys.all(stageId), 'interview', 'schedules']
+
+/** 전형의 면접 일시 (일시를 정한 지원자만). 같은 일시의 지원자는 한 면접으로 함께 본다 */
+export function useStageSchedules(stageId: string, enabled = true) {
+  return useQuery({
+    queryKey: scheduleKey(stageId),
+    enabled,
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/stages/{stageId}/interview/schedules', { params: { path: { stageId } } }),
+      ),
+  })
 }
 
 /** 면접 일정 한 줄. 예: 10.31 (금) 14:00 · 면접관 2명 */
