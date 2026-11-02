@@ -19,7 +19,8 @@ export function CandidateInterviewProgress({
   return (
     <section
       aria-label="지원자 면접 진행 현황"
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-muted/40 px-3 py-2 text-xs"
+      aria-live="polite"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-muted/40 py-2 text-xs"
     >
       <span
         className={cn(
@@ -34,13 +35,13 @@ export function CandidateInterviewProgress({
       </span>
       <ul aria-label="면접관 준비 상태" className="flex flex-wrap gap-x-4 gap-y-1">
         {current.attendees.map((attendee) => (
-          <li key={attendee.memberId} className="flex items-center gap-1.5">
-            <span>
+          <li key={attendee.memberId} className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="font-medium break-words">
               {attendee.role === 'HR' ? '인사' : '실무'} {attendee.name}
             </span>
             <span
               className={cn(
-                'flex items-center gap-1 text-muted-foreground',
+                'flex shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground',
                 attendee.ready && attendee.online && 'text-emerald-700',
                 attendee.ready && !attendee.online && 'text-amber-800',
               )}

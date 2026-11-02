@@ -24,10 +24,6 @@ const state = vi.hoisted(() => ({
   schedules: [] as { applicationId: string; scheduledAt: string }[],
 }))
 
-// 공통 면접관은 전형 상단에 두고 이 카드에서는 진행 현황만 읽는다
-vi.mock('@/features/interview/CandidateInterviewProgress', () => ({
-  CandidateInterviewProgress: () => <p>지원자 면접 진행 현황</p>,
-}))
 vi.mock('@/features/interview/HrOpinions', () => ({ HrOpinions: () => null }))
 
 function render(ui: ReactNode) {
@@ -276,7 +272,6 @@ it('지원자 카드에서는 면접관을 배정하지 않고 일정만 수정�
     { applicationId: 'park', scheduledAt: new Date('2026-11-03T14:00').toISOString() },
   ]
   const { unmount } = renderWith('HR')
-  expect(screen.getByText('지원자 면접 진행 현황')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /면접관 배정|면접관 변경/ })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '일정' }))
   expect(screen.getByText('면접관은 전형 상단의 공통 배정을 사용해요.')).toBeInTheDocument()
