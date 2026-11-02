@@ -36,6 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class PostingService {
 
     static final String DEFAULT_TITLE = "새 채용";
+    /** 근무지 칸 길이. PostingContentRequest, job_postings 테이블과 같다. */
+    private static final int MAX_LOCATION = 100;
     static final List<StageDraft> DEFAULT_STAGES = List.of(new StageDraft("서류 전형", StageType.DOCUMENT));
     /** 수정안의 changedFields에서 전형 절차와 필수 제출 서류의 이름. 나머지는 PostingContent의 JSON 이름이다. */
     static final String STAGES_FIELD = "stages";
@@ -68,12 +70,18 @@ public class PostingService {
         CompanyProfile profile = companies.profile(companyId);
         RecruitmentInfo recruitment = recruits.create(companyId, DEFAULT_TITLE, DEFAULT_STAGES);
         JobPosting posting = postings.save(new JobPosting(recruitment.id(), companyId, DEFAULT_TITLE,
-                profile.intro(), profile.benefits(), companies.postingSettings(companyId).requiredNotices()));
+                defaultLocation(profile.address()), profile.intro(), profile.benefits(),
+                companies.postingSettings(companyId).requiredNotices()));
         PosterBrand brand = companies.posterBrand(companyId);
         posting.changeDesign(new PosterDesign(PosterDesign.Template.valueOf(brand.template()),
                 PosterDesign.Mood.valueOf(brand.mood()), brand.color(), brand.decoration(), false,
                 brand.logoFileId() != null, brand.logoFileId()));
         return toView(posting, recruitment, profile.name());
+    }
+
+    /** 새 공고의 근무지는 회사 주소로 채운다. 근무지 칸(100자)에 들어가지 않으면 비워 둔다. */
+    private static String defaultLocation(String address) {
+        return address.length() <= MAX_LOCATION ? address : "";
     }
 
     @Transactional(readOnly = true)
