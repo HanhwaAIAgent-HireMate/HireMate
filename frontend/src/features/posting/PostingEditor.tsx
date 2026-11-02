@@ -1,4 +1,4 @@
-import { ArrowRight, FileText, Lock, Settings } from 'lucide-react'
+import { ArrowRight, FileText, Lock, Settings, X } from 'lucide-react'
 import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
@@ -41,10 +41,12 @@ import {
   CAREER_KINDS,
   EMPLOYMENT_TYPES,
   MAX_CAREER_YEARS,
+  careerLevel,
   formatCareer,
   parseCareer,
   toCareerYears,
   type CareerKind,
+  type CareerLevel,
   MAX_HEADCOUNT,
   toHeadcount,
   WORK_FIELDS,
@@ -77,6 +79,9 @@ const LISTS: { key: ListKey; label: string }[] = [
   { key: 'preferred', label: '우대 사항' },
 ]
 
+/** 경력을 바꾼 뒤 [다시 쓰기]로 AI에게 보내는 요청. '다시'가 있어 지금 줄 뒤에 더하지 않고 목록을 새로 쓴다 */
+const REWRITE_REQUEST = '자격 요건과 우대 사항을 다시 써 줘'
+
 /** 수정안을 한 덩어리로 처리하는 기본 정보 칸 */
 const BASIC_FIELDS = [
   'title',
@@ -95,6 +100,8 @@ export function PostingEditor({
   setMessages,
   focus,
   setFocus,
+  writtenFor,
+  setWrittenFor,
 }: {
   posting: Posting
   /** 저장 · 적용으로 편집 상태를 새로 열어도 대화와 고른 줄은 남도록 화면이 들고 있다 */
@@ -102,6 +109,9 @@ export function PostingEditor({
   setMessages: Dispatch<SetStateAction<AiMessage[]>>
   focus: LineFocus | null
   setFocus: Dispatch<SetStateAction<LineFocus | null>>
+  /** 경력을 바꾸기 전, 지금 자격 요건 · 우대 사항이 쓰인 기준. 바꾸지 않았거나 안내를 닫으면 null이다 */
+  writtenFor: CareerLevel | null
+  setWrittenFor: Dispatch<SetStateAction<CareerLevel | null>>
 }) {
   const navigate = useNavigate()
   const id = posting.recruitmentId
@@ -146,6 +156,20 @@ export function PostingEditor({
   const update = (patch: Partial<PostingContent>) => {
     setDraft((current) => ({ ...current, ...patch }))
   }
+
+  /** 경력을 바꾸면 처음 바꾸기 전의 기준을 기억해 둔다. 기준이 달라지면 자격 요건 · 우대 사항을 다시 쓸지 묻는다 */
+  const changeCareer = (career: string) => {
+    if (writtenFor === null) setWrittenFor(careerLevel(draft.career))
+    update({ career })
+  }
+  const hasLists = [...draft.qualifications, ...draft.preferred].some((line) => line.trim())
+  const careerNudge =
+    editable &&
+    writtenFor !== null &&
+    careerLevel(draft.career) !== writtenFor &&
+    hasLists &&
+    !changed.has('qualifications') &&
+    !changed.has('preferred')
 
   /** 줄 앞의 ·을 누르면 그 줄을 고르고, 고른 줄을 다시 누르면 푼다 */
   const toggleFocus = (next: LineFocus) =>
@@ -251,6 +275,12 @@ export function PostingEditor({
     ;(accept ? apply : discard).mutate(fields && [...targets], {
       onSuccess: (updated) => {
         setDraft({ ...draft, ...pick(updated.content, targets) })
+        // AI가 경력만 바꿨으면 화면에서 바꾼 것처럼 기준을 기억한다. 목록도 함께 썼으면 바뀐 경력에 맞춰 쓴 것이다
+        if (accept && REQUIRED_KEYS.some((key) => targets.has(key))) {
+          setWrittenFor(null)
+        } else if (accept && targets.has('career') && writtenFor === null) {
+          setWrittenFor(careerLevel(draft.career))
+        }
         // AI가 새로 쓴 줄은 필수 표시가 빠진다. 꺼진 표시가 있으면 다시 켤 수 있게 알린다
         const lists = REQUIRED_KEYS.filter((key) => targets.has(key))
         const dropped = lists.reduce(
@@ -313,7 +343,7 @@ export function PostingEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <PostingStepHeader title={isDraft ? '공고 작성' : '게시한 공고'} caption="기본 Template">
+      <PostingStepHeader title={isDraft ? '공고 작성' : '게시한 공고'}>
         {editable && (
           <Button
             variant="outline"
@@ -419,7 +449,7 @@ export function PostingEditor({
                       position={shown.position}
                       disabled={locked(tag.key)}
                       changed={changed.has(tag.key) || changed.has('position')}
-                      onChange={(career) => update({ career })}
+                      onChange={changeCareer}
                       onPositionChange={(position) => update({ position })}
                     />
                   ) : (
@@ -522,6 +552,16 @@ export function PostingEditor({
             </Section>
             {LISTS.map((list) => (
               <Section key={list.key} title={list.label} highlighted={changed.has(list.key)}>
+                {list.key === 'qualifications' && careerNudge && (
+                  <CareerNudge
+                    disabled={ai.isPending || saving}
+                    onRewrite={() => {
+                      setWrittenFor(null)
+                      void sendRequest(REWRITE_REQUEST)
+                    }}
+                    onClose={() => setWrittenFor(null)}
+                  />
+                )}
                 <BulletListField
                   label={list.label}
                   items={shown[list.key]}
@@ -816,6 +856,39 @@ function CareerField({
           className="h-7 rounded-md bg-muted px-2 text-xs outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
         />
       )}
+    </div>
+  )
+}
+
+/** 경력을 바꿔 자격 요건 · 우대 사항을 쓰는 기준이 달라졌을 때, 다시 쓸지 묻는 안내 */
+function CareerNudge({
+  disabled,
+  onRewrite,
+  onClose,
+}: {
+  disabled: boolean
+  onRewrite: () => void
+  onClose: () => void
+}) {
+  return (
+    <div
+      role="status"
+      className="mb-2 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs"
+    >
+      <span className="flex-1">
+        경력이 바뀌었어요. 자격 요건 · 우대 사항을 경력에 맞게 다시 쓸까요?
+      </span>
+      <Button size="sm" variant="outline" className="h-7" disabled={disabled} onClick={onRewrite}>
+        다시 쓰기
+      </Button>
+      <button
+        type="button"
+        aria-label="안내 닫기"
+        onClick={onClose}
+        className="text-muted-foreground hover:text-foreground"
+      >
+        <X className="size-3.5" />
+      </button>
     </div>
   )
 }

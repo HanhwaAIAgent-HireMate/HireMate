@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PostingContent } from './api'
 import {
+  careerLevel,
   conditionRows,
   formatCareer,
   parseCareer,
@@ -74,5 +75,16 @@ describe('근무 조건', () => {
       { label: '근무지', value: '서울 강남구' },
       { label: '급여', value: '회사 내규에 따름' },
     ])
+  })
+})
+
+describe('careerLevel', () => {
+  it('신입도 지원할 수 있는 경력과 경력직 경력을 나눈다', () => {
+    for (const career of ['신입', '경력 무관', '', '신입 · 경력']) {
+      expect(careerLevel(career)).toBe('entry')
+    }
+    for (const career of ['경력', '경력 3년 이상']) {
+      expect(careerLevel(career)).toBe('experienced')
+    }
   })
 })
