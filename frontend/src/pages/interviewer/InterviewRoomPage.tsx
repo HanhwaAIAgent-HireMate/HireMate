@@ -18,6 +18,7 @@ import {
 import { usePendingAnswerSaves } from '@/features/interview/pending-saves'
 import {
   INTERVIEW_STATUS_LABELS,
+  INTERVIEW_STATUS_STYLES,
   useInterviewerTab,
   useMyInterviews,
   useWorkspace,
@@ -131,9 +132,7 @@ function CandidateColumn({
                 <span
                   className={cn(
                     'rounded-full px-1.5 py-0.5 text-[11px] font-semibold',
-                    row.status === 'IN_PROGRESS'
-                      ? 'bg-amber-100 text-amber-800'
-                      : 'bg-muted text-muted-foreground',
+                    INTERVIEW_STATUS_STYLES[row.status],
                   )}
                 >
                   {INTERVIEW_STATUS_LABELS[row.status]}

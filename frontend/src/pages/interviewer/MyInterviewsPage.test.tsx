@@ -56,7 +56,7 @@ describe('MyInterviewsPage', () => {
     expect(card).toHaveTextContent('지원자 3명')
     expect(card).toHaveTextContent('진행 중 1')
     expect(card).toHaveTextContent('예정 1')
-    expect(card).toHaveTextContent('끝남 1')
+    expect(card).toHaveTextContent('종료 1')
     expect(card).toHaveTextContent(/다음 면접 \d/)
     expect(screen.getByLabelText('1차 기술 면접 내 담당: 실무')).toBeInTheDocument()
     expect(card).not.toHaveTextContent('김하늘')
