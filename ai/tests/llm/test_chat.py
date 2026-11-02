@@ -10,7 +10,7 @@ from pydantic import BaseModel, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from hiremate_ai.config import settings
+from hiremate_ai.config import Settings, settings
 from hiremate_ai.db.llm_call import LlmCallLog
 from hiremate_ai.llm import chat, client
 from hiremate_ai.llm.call_log import CallRecord, DbCallLog
@@ -565,6 +565,29 @@ def test_get_llm_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(client.LlmNotConfiguredError, match="LLM_API_KEY"):
         client.get_llm()
+
+
+@pytest.mark.parametrize(("value", "expected"), [("none", None), ("None", None), ("", 0), ("0.3", 0.3)])
+def test_temperature_setting_can_be_turned_off(value: str, expected: float | None) -> None:
+    # temperature를 받지 않는 모델은 LLM_TEMPERATURE=none으로 끈다. 빈 값은 예전처럼 기본값 0이다
+    assert Settings(_env_file=None, llm_temperature=value).llm_temperature == expected
+
+
+def test_get_llm_does_not_send_temperature_when_turned_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "llm_model", "test-model")
+    monkeypatch.setattr(settings, "llm_api_key", SecretStr("test"))
+    monkeypatch.setattr(settings, "llm_temperature", None)
+    client.get_llm.cache_clear()
+
+    try:
+        llm = client.get_llm()
+        assert isinstance(llm, ChatLlm)
+        model = llm._model
+        assert isinstance(model, ChatOpenAI)
+        assert model.temperature is None
+        assert "temperature" not in model._default_params
+    finally:
+        client.get_llm.cache_clear()
 
 
 @pytest.mark.parametrize("effort", [None, "none", "low"])
