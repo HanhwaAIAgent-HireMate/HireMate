@@ -1,5 +1,8 @@
 import type { PostingContent } from '@/features/posting/api'
 
+/** 고용 형태는 이 넷 중에서만 고른다. backend PostingContentRequest, ai reviser와 같다 */
+export const EMPLOYMENT_TYPES = ['정규직', '계약직', '인턴', '파견직'] as const
+
 export type ConditionKey = 'headcount' | 'position' | 'education' | 'workHours' | 'salary'
 
 /** 모집 조건 칸. 길이는 backend job_postings 테이블과 같다. 채용 인원은 숫자만 받는다 */

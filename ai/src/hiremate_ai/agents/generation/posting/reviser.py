@@ -145,6 +145,8 @@ TEXT_FIELDS = (
 NCS_FIELDS: tuple[tuple[str, ContentLabel], ...] = (("qualifications", "자격 요건"), ("preferred", "우대 사항"))
 MAX_HEADCOUNT = 9999
 """채용 인원 한도. backend PostingContentRequest와 같다."""
+EMPLOYMENT_TYPES = ("정규직", "계약직", "인턴", "파견직")
+"""고를 수 있는 고용 형태. backend PostingContentRequest, frontend EMPLOYMENT_TYPES와 같다."""
 
 EXTRA_WORDS = {DocumentType.PORTFOLIO: ("포트폴리오",), DocumentType.CERTIFICATE: ("자격증",)}
 """필수 서류는 요청에 그 서류가 나올 때만 넣고 뺀다. 작은 모델이 요청하지 않은 서류를 더하곤 한다."""
@@ -331,6 +333,8 @@ CONTENT_STEP = (
     "글 칸(채용명, 직무, 고용 형태, 경력, 근무지, 채용 인원, 직급, 학력, 근무 일시, 급여, 회사 소개)은 text에 "
     "새 내용을, 목록 칸(주요 업무, 자격 요건, 우대 사항, 복지)은 items에 그대로 둘 항목까지 넣은 바꾼 뒤 목록 전체를 "
     "쓰고, 다른 하나는 null로 둔다. 채용 인원은 숫자만 쓴다(예: 3). "
+    "고용 형태는 정규직, 계약직, 인턴, 파견직 중 하나만 그대로 쓴다. "
+    "넷에 없는 형태를 요청하면 고용 형태는 바꾸지 않는다. "
     "text에는 현재 값을 복사하지 않고 요청한 새 값을 쓴다. "
     "예: 현재 근무지가 서울이고 '근무지만 부산으로 바꿔줘'라는 요청이면 field='근무지', text='부산'이다. "
     "경력 조건을 바꾸면 자격 요건과 우대 사항에 같은 이전 경력 조건이 있는지 확인하고 함께 맞춘다. "
@@ -814,6 +818,7 @@ def _apply(content: PostingContent, changes: list[FieldChange]) -> tuple[Posting
 
     빈 값은 칸을 지우라는 뜻으로 보지 않는다. 작은 모델이 바꾸지 않을 칸을 빈 값으로 채우기 때문이다.
     채용 인원은 글에서 숫자를 읽고, 숫자가 없거나 한도를 넘으면 바꾸지 않는다.
+    고용 형태는 EMPLOYMENT_TYPES 중 하나일 때만 바꾼다.
     """
     updates: dict[str, str | list[str] | int] = {}
     for change in changes:
@@ -822,6 +827,11 @@ def _apply(content: PostingContent, changes: list[FieldChange]) -> tuple[Posting
             count = _headcount(change.text)
             if count is not None and count != content.headcount:
                 updates[name] = count
+            continue
+        if name == "employment_type":
+            employment = _tidy(change.text or "")
+            if employment in EMPLOYMENT_TYPES and employment != content.employment_type:
+                updates[name] = employment
             continue
         value: str | list[str] | None = change.text if name in TEXT_FIELDS else change.items
         if value is None:
