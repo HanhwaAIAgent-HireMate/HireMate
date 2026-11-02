@@ -114,6 +114,12 @@ export function ChatPanel({
         name: row.name,
         detail: careerLabel(row),
       }))
+  // 키보드로 고를 후보. 찾는 이름이 바뀌면 첫 후보로 돌아간다
+  const [cursor, setCursor] = useState({ query: '', index: 0 })
+  const active = cursor.query === mentionQuery ? Math.min(cursor.index, suggestions.length - 1) : 0
+  // Esc로 닫은 입력. 글자를 더 치면 다시 연다
+  const [closedAt, setClosedAt] = useState<string | null>(null)
+  const suggesting = mentionQuery !== undefined && suggestions.length > 0 && closedAt !== text
 
   // 기록을 받는 동안에는 보내지 않는다. 받은 기록이 화면의 대화를 바꾸므로 그 사이에 보낸 질문이 사라진다
   const loading = history.isFetching
@@ -215,20 +221,28 @@ export function ChatPanel({
         <div ref={bottom} />
       </div>
       <div className="relative m-3">
-        {mentionQuery !== undefined && suggestions.length > 0 && (
+        {suggesting && (
           <ul
+            id="chat-mentions"
             role="listbox"
             aria-label="지원자 고르기"
             className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border bg-popover p-1 shadow-lg"
           >
-            {suggestions.map((row) => (
+            {suggestions.map((row, index) => (
               <li key={row.applicationId}>
                 <button
+                  id={`chat-mention-${index}`}
+                  type="button"
                   role="option"
-                  aria-selected={false}
+                  aria-selected={index === active}
+                  tabIndex={-1}
                   onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setCursor({ query: mentionQuery ?? '', index })}
                   onClick={() => pickMention(row.applicationId, row.name)}
-                  className="w-full rounded-lg px-3 py-1.5 text-left hover:bg-muted"
+                  className={cn(
+                    'w-full rounded-lg px-3 py-1.5 text-left',
+                    index === active && 'bg-muted',
+                  )}
                 >
                   <div className="text-sm font-semibold">{row.name}</div>
                   {row.detail && <div className="text-xs text-muted-foreground">{row.detail}</div>}
@@ -265,11 +279,35 @@ export function ChatPanel({
               ref={input}
               value={text}
               aria-label="AI Chat 입력"
+              aria-controls={suggesting ? 'chat-mentions' : undefined}
+              aria-activedescendant={suggesting ? `chat-mention-${active}` : undefined}
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && event.nativeEvent.isComposing) {
                   event.preventDefault()
                   return
+                }
+                if (suggesting) {
+                  // 한글을 조합하는 중에도 위아래로 옮길 수 있다. 고르기와 닫기는 조합을 마친 뒤에 한다
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault()
+                    const count = suggestions.length
+                    const move = event.key === 'ArrowDown' ? 1 : -1
+                    setCursor({ query: mentionQuery, index: (active + move + count) % count })
+                    return
+                  }
+                  if (event.nativeEvent.isComposing) return
+                  if (event.key === 'Enter' || event.key === 'Tab') {
+                    event.preventDefault()
+                    const row = suggestions[active]
+                    pickMention(row.applicationId, row.name)
+                    return
+                  }
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    setClosedAt(text)
+                    return
+                  }
                 }
                 if (event.key === 'Backspace' && text === '' && mentions.length > 0) {
                   removeMention(mentions[mentions.length - 1].applicationId)
