@@ -45,8 +45,8 @@ public class ReportBundles {
     static final double AREA_MAX = 100;
 
     private static final int PAGE = 200;
-    private static final int[][] CAREER_BANDS = {{0, 0}, {1, 2}, {3, 4}, {5, 6}, {7, Integer.MAX_VALUE}};
-    private static final String[] CAREER_LABELS = {"신입", "1~2년", "3~4년", "5~6년", "7년 이상"};
+    static final int[][] CAREER_BANDS = {{0, 0}, {1, 2}, {3, 4}, {5, 6}, {7, Integer.MAX_VALUE}};
+    static final String[] CAREER_LABELS = {"신입", "1~2년", "3~4년", "5~6년", "7년 이상"};
 
     private final RecruitService recruits;
     private final ScreeningService screening;
@@ -279,7 +279,7 @@ public class ReportBundles {
      * 필수 조건 판정 하나로 줄인다. 모두 충족이면 MET, 하나라도 미충족 · 부분 충족이면 NOT_MET,
      * 나머지(확인 필요만 남음, 분석 전)는 UNKNOWN이다. 부분 충족은 선 위에 오르지 못하므로 미충족에 센다.
      */
-    private static CriterionMark required(CandidateRow row, ApplicantInfo info) {
+    static CriterionMark required(CandidateRow row, ApplicantInfo info) {
         if (info.analysisStatus() != AnalysisStatus.DONE) {
             return CriterionMark.UNKNOWN;
         }

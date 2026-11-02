@@ -1,10 +1,14 @@
 package com.hiremate.ai.api;
 
+import com.hiremate.ai.application.DistributionNote;
 import com.hiremate.ai.application.ReportComposer;
 import com.hiremate.ai.application.ReportComposer.ReportPayload;
 import com.hiremate.ai.application.ReportComposer.ReportSummary;
+import com.hiremate.ai.application.ReportDistribution;
+import com.hiremate.ai.application.ReportDistributions;
 import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.report.AgentReportKind;
+import com.hiremate.screening.CandidateSort;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
@@ -24,9 +28,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ReportAiController {
 
     private final ReportComposer composer;
+    private final ReportDistributions distributions;
 
-    public ReportAiController(ReportComposer composer) {
+    public ReportAiController(ReportComposer composer, ReportDistributions distributions) {
         this.composer = composer;
+        this.distributions = distributions;
     }
 
     /**
@@ -53,6 +59,31 @@ public class ReportAiController {
             @Valid @RequestBody CompareRequest request) {
         return new Requested(composer.request(member.companyId(), stageId, AgentReportKind.COMPARE,
                 request.applicationIds(), request.focus(), request.brief(), member.memberId()));
+    }
+
+    /**
+     * 서류 전형 분포 리포트. 코드가 바로 세므로 기다리지 않는다. 목표 인원은 저장하지 않는다.
+     *
+     * @param target 서류 통과 목표 인원. 없으면 공고 채용 인원 × 배수다
+     */
+    @GetMapping("/api/stages/{stageId}/reports/distribution")
+    public ReportDistribution distribution(AuthenticatedMember member, @PathVariable UUID stageId,
+            @RequestParam(required = false) Integer target,
+            @RequestParam(defaultValue = "BASIC") CandidateSort sort) {
+        ReportDistribution distribution = distributions.build(member.companyId(), stageId, target, sort);
+        return member.hr() ? distribution : distribution.hideDecision();
+    }
+
+    /**
+     * 서류 전형 분포 해설. Report Agent가 분포 숫자를 읽고 먼저 볼 점을 두세 문장으로 쓴다. 분포와 같은 목표 인원 · 정렬로 센
+     * 숫자를 쓰고, 지원자 이름은 보내지 않는다. 만들지 못하면 빈 목록이다.
+     */
+    @GetMapping("/api/stages/{stageId}/reports/distribution/note")
+    public DistributionNote distributionNote(AuthenticatedMember member, @PathVariable UUID stageId,
+            @RequestParam(required = false) Integer target,
+            @RequestParam(defaultValue = "BASIC") CandidateSort sort) {
+        ReportDistribution distribution = distributions.build(member.companyId(), stageId, target, sort);
+        return distributions.note(member.hr() ? distribution : distribution.hideDecision());
     }
 
     /** 전형 결과 리포트를 연다. 저장된 것이 있으면 그 ID를, 없으면 결과를 확정한 전형만 새로 만든다. */
