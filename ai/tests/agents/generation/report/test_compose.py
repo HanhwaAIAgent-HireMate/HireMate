@@ -12,11 +12,12 @@ from hiremate_ai.agents.generation.report.bundle import (
     Metric,
     ReportBundle,
     ReportKind,
+    Strength,
 )
 from hiremate_ai.agents.generation.report.check import problems
 from hiremate_ai.agents.generation.report.compose import compose_report, hints, recommended_skills, request
 from hiremate_ai.agents.generation.report.derive import top_percent
-from hiremate_ai.agents.generation.report.fallback import NO_SUMMARY, fallback_spec
+from hiremate_ai.agents.generation.report.fallback import NO_SUMMARY, evidence_block, fallback_spec
 from hiremate_ai.agents.generation.report.repair import repair
 from hiremate_ai.agents.generation.report.skills import all_skills, catalog, parse
 from hiremate_ai.agents.generation.report.spec import (
@@ -36,11 +37,12 @@ from hiremate_ai.agents.generation.report.spec import (
     RingView,
     Section,
     ShareBlock,
+    Split,
     StackedBlock,
     TallyBlock,
     TextBlock,
 )
-from hiremate_ai.agents.generation.report.tools import SpecialistAnswer, SpecialistFinding
+from hiremate_ai.agents.generation.report.tools import SpecialistAnswer, SpecialistFinding, check_candidates
 from hiremate_ai.config import settings
 from hiremate_ai.contract import StageType
 from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
@@ -476,6 +478,143 @@ def test_repair_adds_evidence_on_the_last_attempt_only() -> None:
     assert [p for p in problems(fixed, bundle()) if "근거" in p] == []
 
 
+def test_code_picked_evidence_puts_quantified_quotes_first() -> None:
+    base = bundle()
+    first = base.targets[0]
+    extra = [
+        Evidence(
+            id=f"e-{first}-{kind}",
+            applicant=first,
+            stage_id=STAGE,
+            agent="application",
+            text="판단",
+            source="이력서",
+            quote=quote,
+            strength=strength,
+        )
+        for kind, quote, strength in [
+            ("claim", "예약 테이블을 설계했습니다", Strength.CLAIM),
+            ("quant", "조회 시간을 70% 줄였습니다", Strength.QUANT),
+        ]
+    ]
+    picked = evidence_block(base.model_copy(update={"evidence": [*extra, *base.evidence]}), base.targets)
+
+    assert picked is not None
+    assert picked.items[0].evidence[0] == f"e-{first}-quant"
+
+
+def test_repair_puts_quantified_evidence_first_even_when_the_model_left_it_out() -> None:
+    base = bundle()
+    first = base.targets[0]
+    quant = Evidence(
+        id=f"e-{first}-quant",
+        applicant=first,
+        stage_id=STAGE,
+        agent="application",
+        text="판단",
+        source="이력서",
+        quote="조회 시간을 70% 줄였습니다",
+        strength=Strength.QUANT,
+    )
+    with_quant = base.model_copy(update={"evidence": [quant, *base.evidence]})
+
+    fixed = repair(good_spec(), with_quant, group_by_code=False)
+
+    block = fixed.sections[-1].blocks[0]
+    assert isinstance(block, EvidenceBlock)
+    assert block.items[0].evidence == [f"e-{first}-quant", f"e-{first}"]  # 모델이 고른 근거는 그 뒤에 둔다
+    assert block.items[1].evidence == [f"e-{base.targets[1]}"]  # 정량 근거가 없는 지원자는 그대로다
+    assert not [p for p in problems(fixed, with_quant) if "근거" in p]
+
+
+def test_repair_keeps_only_splits_on_split_items_and_fills_the_rest_on_the_last_attempt() -> None:
+    spec = good_spec().model_copy(
+        update={
+            "splits": [
+                Split(key="document.criterion.Q-05", text="A-0012만 부분 충족이에요.", evidence=["e-A-0012", "e-x"]),
+                Split(key="document.skill.spring", text="모두 있어요.", evidence=[]),
+            ]
+        }
+    )
+    notes: list[str] = []
+
+    kept = repair(spec, bundle(), group_by_code=False, notes=notes)
+    assert [(split.key, split.evidence) for split in kept.splits] == [("document.criterion.Q-05", ["e-A-0012"])]
+
+    filled = repair(spec, bundle(), notes=notes)
+    assert [split.key for split in filled.splits] == ["document.criterion.Q-05", "document.criterion.Q-01"]
+    assert filled.splits[1].text == "판정이 갈렸어요 (A-0012 · A-0007 충족 · A-0021 확인 필요)."
+    assert "갈린 이유 1건을 판정으로 채움" in notes
+    assert not [p for p in problems(filled, bundle()) if p.startswith("splits")]
+
+
+def test_splits_must_be_on_split_items() -> None:
+    spec = good_spec().model_copy(
+        update={"splits": [Split(key="document.skill.spring", text="모두 있어요.", evidence=["e-nope"])]}
+    )
+    found = [p for p in problems(spec, bundle()) if p.startswith("splits")]
+    assert any("판정이 갈린 항목이 아니다" in p for p in found)
+    assert any("없는 근거 id: e-nope" in p for p in found)
+
+
+def test_weak_strengths_on_split_items_go_to_the_document_agent() -> None:
+    base = bundle()
+
+    def evidence(number: str, verdict: str, strength: Strength, role: str | None) -> Evidence:
+        return Evidence(
+            id=f"e-{number}-Q-05",
+            applicant=number,
+            stage_id=STAGE,
+            agent="application",
+            text="판단",
+            source="이력서",
+            quote="원문",
+            verdict=verdict,
+            strength=strength,
+            role=role,
+        )
+
+    items = [
+        evidence("A-0012", "PARTIAL", Strength.CLAIM, "SELF"),
+        evidence("A-0007", "NOT_MET", Strength.CLAIM, "TEAM"),  # 미충족은 강점이 아니라 맡기지 않는다
+        evidence("A-0021", "MET", Strength.QUANT, "TEAM"),  # 숫자가 있어도 팀 성과면 맡긴다
+    ]
+    picked = check_candidates(base.model_copy(update={"evidence": items}))
+    assert [item.id for item in picked] == ["e-A-0021-Q-05", "e-A-0012-Q-05"]
+
+
+def test_compare_fallback_lists_split_items_by_verdict() -> None:
+    spec = fallback_spec(bundle())
+    assert [split.key for split in spec.splits] == ["document.criterion.Q-01", "document.criterion.Q-05"]
+
+
+def test_repair_cites_targets_the_model_left_out_of_the_evidence() -> None:
+    spec = good_spec()
+    block = spec.sections[-1].blocks[0]
+    assert isinstance(block, EvidenceBlock)
+    block.items = block.items[:1]
+
+    fixed = repair(spec, bundle(), group_by_code=False)
+
+    fixed_block = fixed.sections[-1].blocks[0]
+    assert isinstance(fixed_block, EvidenceBlock)
+    assert [item.applicant for item in fixed_block.items] == list(SCORES)
+    assert fixed_block.items[0] == block.items[0]  # 모델이 쓴 항목은 그대로 둔다
+    assert not any("근거 부품에 빠진 비교 대상" in p for p in problems(fixed, bundle()))
+
+
+def test_repair_turns_a_describing_takeaway_into_a_finding_on_the_last_attempt_only() -> None:
+    spec = good_spec()
+    spec.sections[1].takeaway = "자격요건 판정을 비교해요."
+    assert any("그림 설명" in p for p in problems(repair(spec, bundle(), group_by_code=False), bundle()))
+
+    fixed = repair(spec, bundle())
+
+    assert fixed.sections[1].takeaway.startswith("자격요건 항목")
+    assert fixed.sections[2].takeaway == spec.sections[2].takeaway  # 그림 설명이 아닌 문장은 그대로 둔다
+    assert not any("그림 설명" in p for p in problems(fixed, bundle()))
+
+
 @pytest.mark.parametrize("kind", [ReportKind.COMPARE, ReportKind.STAGE])
 def test_fallback_passes_check(kind: ReportKind) -> None:
     spec = fallback_spec(bundle(kind))
@@ -636,6 +775,11 @@ async def test_agent_loads_skills_reads_tools_and_asks_specialist() -> None:
     assert "A-0012-t · A-0012 · document.total (총점) = 85/100" in final.user
     assert "코드 리뷰를 주도했어요. (근거: e-A-0012)" in final.user
     assert "지어낸 근거" not in final.user
+    # 화면의 AI 작업 과정: 읽은 지침, 도구로 읽은 자료, 맡긴 확인, 검사 결과
+    assert composed.steps[0].startswith("지침 3개를 읽음")
+    assert "판정 · 값 30개를 읽음 (3명)" in composed.steps
+    assert "Application Agent에게 A-0012 근거 확인을 맡김 → 1건 확인" in composed.steps
+    assert "설계서 검사 1번째에 통과" in composed.steps
 
 
 async def test_agent_rewrites_twice_then_falls_back() -> None:
@@ -789,6 +933,17 @@ def test_request_lists_drawable_data() -> None:
     assert "career-all(2조각)" in found
 
 
+def test_compare_request_without_scores_asks_for_verdict_charts_only() -> None:
+    assert "점수 없이 항목 판정만" not in request(bundle())  # 이 묶음은 서류 점수가 있다
+    verdicts_only = bundle().model_copy(
+        update={
+            "total_key": None,
+            "areas": [area.model_copy(update={"score_key": None}) for area in bundle().areas],
+        }
+    )
+    assert "점수 없이 항목 판정만 있는 전형이다. rings(관점) · matrix · tally" in request(verdicts_only)
+
+
 def test_stage_report_must_draw_the_data_it_has() -> None:
     spec = stage_spec()
     spec.sections[0].blocks = spec.sections[0].blocks[:1]
@@ -821,6 +976,14 @@ def test_tally_rates_can_be_written() -> None:
         by="key",
     )
     assert problems(spec, bundle()) == []
+
+
+def test_rates_read_with_count_values_can_be_written_without_a_tally() -> None:
+    # count_values가 비교 대상으로 세어 준 비율은 그림이 없어도 요약에 쓸 수 있다. 세지 않은 비율은 막는다
+    spec = good_spec().model_copy(update={"summary": "Q-01은 67%, Q-05는 33%가 충족이에요."})
+    assert problems(spec, bundle()) == []
+    made_up = good_spec().model_copy(update={"summary": "Q-01은 81%가 충족이에요."})
+    assert any("묶음에 없는 숫자가 있다: 81" in p for p in problems(made_up, bundle()))
 
 
 def test_compare_needs_rings_and_rings_need_drawable_views() -> None:

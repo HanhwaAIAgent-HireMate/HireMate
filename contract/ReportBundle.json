@@ -149,7 +149,8 @@
       "source": "자기소개서",
       "quote": "팀 PR 리뷰 규칙을 만들고 주 2회 리뷰를 이끌었어요",
       "label": "Git 코드 리뷰 · 협업",
-      "verdict": "MET"
+      "verdict": "MET",
+      "strength": "QUANT"
     }
   ]
 }

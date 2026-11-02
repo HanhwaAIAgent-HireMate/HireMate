@@ -3,10 +3,14 @@
 from hiremate_ai.agents.generation.report.bundle import ReportBundle
 from hiremate_ai.agents.generation.report.compose import ComposedReport, compose_report
 from hiremate_ai.agents.generation.report.enrich import enrich
+from hiremate_ai.agents.generation.report.explain import DistributionFacts, DistributionNote, explain_distribution
 
 __all__ = [
     "ComposedReport",
+    "DistributionFacts",
+    "DistributionNote",
     "ReportBundle",
     "compose_report",
     "enrich",
+    "explain_distribution",
 ]

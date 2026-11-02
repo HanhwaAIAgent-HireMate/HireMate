@@ -11,8 +11,8 @@ from typing import Any
 from langchain.tools import ToolRuntime, tool
 from pydantic import BaseModel, Field
 
-from hiremate_ai.agents.generation.report.bundle import ReportBundle
-from hiremate_ai.agents.generation.report.derive import scope_of, tally
+from hiremate_ai.agents.generation.report.bundle import Evidence, ReportBundle, Strength
+from hiremate_ai.agents.generation.report.derive import scope_of, split_keys, tally
 from hiremate_ai.agents.generation.report.skills import all_skills
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
@@ -22,13 +22,20 @@ NO_SUCH_APPLICANT = "범위 밖 지원자번호예요. get_overview의 지원자
 
 @dataclass
 class ReportScope:
-    """도구의 조회 범위와 기록. skills · specialists는 읽은 스킬과 맡긴 분석 Agent로, 진행 표시와 실행 기록에 쓴다."""
+    """도구의 조회 범위와 기록. skills · specialists는 읽은 스킬과 맡긴 분석 Agent로, 진행 표시와 실행 기록에 쓴다.
+
+    log는 화면의 AI 작업 과정에 보일 도구 사용 기록, read는 근거를 읽은 지원자별 근거 수,
+    checks는 분석 Agent가 지원자별로 확인해 준 점이다 (get_evidence가 함께 보여 준다).
+    """
 
     bundle: ReportBundle
     # LlmClient. Protocol은 도구 스키마가 isinstance로 검사하지 못해 Any로 둔다
     llm: Any
     skills: list[str] = field(default_factory=list)
     specialists: list[str] = field(default_factory=list)
+    log: list[str] = field(default_factory=list)
+    read: dict[str, int] = field(default_factory=dict)
+    checks: dict[str, list[str]] = field(default_factory=dict)
 
 
 class Specialist(StrEnum):
@@ -68,6 +75,7 @@ async def load_skill(name: str, runtime: ToolRuntime[ReportScope]) -> str:
 async def get_overview(runtime: ToolRuntime[ReportScope]) -> str:
     """리포트 범위의 전형, 지원자, 지표(id · 값), 값 key 목록(key · 이름 · 종류 · 값이 있는 지원자 수)을 본다."""
     bundle = runtime.context.bundle
+    runtime.context.log.append("리포트 범위 · 지표 · 항목 목록을 읽음")
     lines = [f"리포트: {bundle.kind} · {bundle.title} · 기준 {bundle.as_of:%Y-%m-%d %H:%M}"]
     if bundle.focus:
         lines.append(f"요청 관점: {bundle.focus}")
@@ -82,6 +90,8 @@ async def get_overview(runtime: ToolRuntime[ReportScope]) -> str:
         lines.append(f"- {applicant.number} · {career if applicant.career_years is not None else '경력 확인 필요'}")
     if bundle.targets:
         lines.append(f"비교 대상: {', '.join(bundle.targets)}")
+    if splits := split_keys(bundle):
+        lines.append(f"판정이 갈린 항목 (splits에 이유를 쓴다): {', '.join(splits)}")
     if bundle.total_key:
         lines.append(f"총점 key: {bundle.total_key}")
     if bundle.areas:
@@ -122,6 +132,7 @@ async def get_values(keys: list[str], applicants: list[str], runtime: ToolRuntim
     ]
     if not rows:
         return "그 key의 값이 없어요."
+    runtime.context.log.append(f"판정 · 값 {len(rows)}개를 읽음 ({len({fact.applicant for fact in rows})}명)")
     lines = []
     for fact in rows:
         value = f"{fact.value:g}" if isinstance(fact.value, float | int) else fact.value
@@ -150,6 +161,7 @@ async def count_values(keys: list[str], runtime: ToolRuntime[ReportScope]) -> st
     if not wanted:
         return "그 판정 key가 없어요."
     people = scope_of(bundle)
+    runtime.context.log.append(f"항목 {len(wanted)}개의 판정 인원을 셈")
     lines = []
     for key in wanted:
         counts, rate = tally(bundle, key, people)
@@ -171,10 +183,12 @@ async def get_evidence(applicant: str, runtime: ToolRuntime[ReportScope]) -> str
     items = [item for item in bundle.evidence if item.applicant == applicant]
     if not items:
         return "근거 문장이 없어요."
+    runtime.context.read[applicant] = len(items)
     lines = []
     for item in items:
         stage = bundle.stage(item.stage_id)
         lines.append(f"{item.id} · [{stage.name if stage else '?'} · {item.agent}] {item.line()}")
+    lines += [f"분석 Agent 확인: {check}" for check in runtime.context.checks.get(applicant, [])]
     return data_block("evidence", "\n".join(lines), applicant=applicant)
 
 
@@ -186,10 +200,14 @@ async def ask_specialist(
 
     분석 Agent는 자기 전형의 근거 문장만 읽고 확인한 점과 근거 id를 돌려준다.
     """
-    scope = runtime.context
-    bundle = scope.bundle
-    if applicant not in {item.number for item in bundle.applicants}:
+    if applicant not in {item.number for item in runtime.context.bundle.applicants}:
         return NO_SUCH_APPLICANT
+    return await consult(runtime.context, specialist, applicant, question)
+
+
+async def consult(scope: ReportScope, specialist: Specialist, applicant: str, question: str) -> str:
+    """분석 Agent에게 지원자 한 명의 근거 확인을 맡긴다. 모델의 ask_specialist와 코드의 사전 확인이 같이 쓴다."""
+    bundle = scope.bundle
     items = [item for item in bundle.evidence if item.applicant == applicant and item.agent == specialist.value]
     label = SPECIALIST_ROLES[specialist].split(".")[0]
     if label not in scope.specialists:
@@ -210,9 +228,30 @@ async def ask_specialist(
         return f"{label}: 확인하지 못했어요."
     ids = {item.id for item in items}
     findings = [finding for finding in answer.findings if finding.evidence and set(finding.evidence) <= ids]
+    scope.log.append(f"{label}에게 {applicant} 근거 확인을 맡김 → {len(findings)}건 확인")
     if not findings:
         return f"{label}: 질문 관점의 근거를 찾지 못했어요."
     return "\n".join(f"- {finding.text} (근거: {', '.join(finding.evidence)})" for finding in findings)
+
+
+MAX_CHECKS = 2
+"""비교 리포트에서 코드가 미리 분석 Agent에게 확인을 맡기는 근거 수."""
+
+
+def check_candidates(bundle: ReportBundle) -> list[Evidence]:
+    """분석 Agent에게 다시 확인할 근거. 판정이 갈린 항목에서 충족 · 부분 충족인데 정량 원문이 없거나 본인 역할이
+    불분명한 근거다. 강점이 서술로만 받쳐질 때만 확인을 맡기고, 역할이 불분명한 근거를 먼저 고른다."""
+    found = []
+    for key in split_keys(bundle):
+        criterion = key.rsplit(".", 1)[-1]
+        for number in bundle.targets:
+            item = next((item for item in bundle.evidence if item.id == f"e-{number}-{criterion}"), None)
+            if item is None or item.verdict not in ("MET", "PARTIAL"):
+                continue
+            if item.role in ("TEAM", "UNCLEAR") or item.strength is not Strength.QUANT:
+                found.append(item)
+    found.sort(key=lambda item: 0 if item.role in ("TEAM", "UNCLEAR") else 1)
+    return found[:MAX_CHECKS]
 
 
 TOOLS = [load_skill, get_overview, get_values, count_values, get_evidence, ask_specialist]
