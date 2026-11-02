@@ -76,9 +76,10 @@ export function verdictMark(condition: boolean, verdict: CriterionLine['verdict'
 const ANALYSIS_STALE_MS = 5 * 60 * 1000
 
 /** 표 보기의 열 (자격요건 · 우대사항 · 인재상). 열 이름 키워드는 ai 서버가 한 번 만들고 다시 쓴다 */
-export function useCandidateTable(stageId: string) {
+export function useCandidateTable(stageId: string, enabled = true) {
   return useQuery({
     queryKey: ['stage', stageId, 'table'] as const,
+    enabled,
     queryFn: () =>
       unwrap(api.GET('/api/stages/{stageId}/table', { params: { path: { stageId } } })),
     staleTime: ANALYSIS_STALE_MS,

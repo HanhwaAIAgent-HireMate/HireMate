@@ -11,6 +11,7 @@ import { useHeaderCrumb } from '@/app/header-store'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChatPanel } from '@/features/chat/ChatPanel'
+import { useStageSuggestions } from '@/features/chat/suggestions'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import {
   stageKeys,
@@ -148,7 +149,7 @@ export function StagePage() {
                   collapsedSize={0}
                   groupResizeBehavior="preserve-pixel-size"
                 >
-                  <ChatPanel overview={data} tabId={tab.id} />
+                  <StageChat overview={data} tabId={tab.id} />
                 </ResizablePanel>
               </ResizablePanelGroup>
             </>
@@ -209,4 +210,10 @@ function Workspace({
       <DecisionBar stageId={overview.stageId} tabId={tab.id} editable={editable} names={names} />
     </section>
   )
+}
+
+/** 전형 화면의 AI Chat. 빈 대화의 추천 질문을 전형 상황(상태, 결정 현황, 공고 기준, 고른 지원자)에 맞춘다 */
+function StageChat({ overview, tabId }: { overview: StageOverview; tabId: string }) {
+  const examples = useStageSuggestions(overview)
+  return <ChatPanel overview={overview} tabId={tabId} examples={examples} />
 }
