@@ -103,12 +103,19 @@ public class PostingService {
         return dummyRubric.of(companyId, recruitmentId);
     }
 
-    /** 본문은 게시 전에만 고칠 수 있다(requireDraft). 채용명이 바뀌면 채용 이름도 함께 바꾼다. */
+    /**
+     * 본문과 서류 필수 조건을 함께 저장한다. 게시 전에만 고칠 수 있다(requireDraft). 채용명이 바뀌면 채용 이름도 함께 바꾼다.
+     * required가 null이면 표시는 그대로 두고, 본문에서 빠진 줄의 표시만 뺀다.
+     */
     @Transactional
-    public PostingView updateContent(UUID companyId, UUID recruitmentId, PostingContent content) {
+    public PostingView updateContent(UUID companyId, UUID recruitmentId, PostingContent content,
+            RequiredCriteria required) {
         JobPosting posting = posting(companyId, recruitmentId);
         requireDraft(recruits.get(companyId, recruitmentId));
         posting.update(content);
+        if (required != null) {
+            posting.markRequired(required);
+        }
         recruits.rename(companyId, recruitmentId, content.title());
         return view(companyId, recruitmentId);
     }
@@ -412,6 +419,6 @@ public class PostingService {
         return new PostingView(posting.getId(), recruitment.id(), companyName, recruitment.status(),
                 posting.content(), List.copyOf(posting.getNotices()), stages, documents(requiredExtras(posting)),
                 posting.getOpenAt(), posting.getCloseAt(), posting.getPublishedAt(), posting.getClosedAt(),
-                suggestionView, posting.design());
+                suggestionView, posting.design(), posting.required());
     }
 }

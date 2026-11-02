@@ -253,6 +253,7 @@ function PublishForm({ posting }: { posting: Posting }) {
               value={posting.stages.map((stage) => stage.name).join(' → ')}
             />
           </dl>
+          <RequiredSummary required={posting.required} />
           {emptyGuides.length > 0 && (
             <div className="space-y-1 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
               <p className="font-semibold">전형별 안내에 비어 있는 칸이 있어요</p>
@@ -292,6 +293,45 @@ function PublishForm({ posting }: { posting: Posting }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  )
+}
+
+/**
+ * 서류 필수 조건. 공고 작성 화면에서 '필수'로 표시한 줄을 보여 주기만 한다(바꾸려면 [이전]으로 돌아가 고친다).
+ * 지원자에게는 보이지 않는다
+ */
+function RequiredSummary({ required }: { required: Posting['required'] }) {
+  const groups = [
+    { label: '자격 요건', lines: required.qualifications },
+    { label: '우대 사항', lines: required.preferred },
+  ].filter((group) => group.lines.length > 0)
+  const count = required.qualifications.length + required.preferred.length
+  return (
+    <div className="space-y-1.5 rounded-lg bg-muted p-3 text-sm">
+      <p className="font-semibold">
+        서류 필수 조건 {count}개
+        <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+          지원자에게는 보이지 않아요
+        </span>
+      </p>
+      {count === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          필수로 표시한 줄이 없어요. 공고 작성에서 자격 요건 · 우대 사항 줄 끝의 [필수]로 표시할 수
+          있어요.
+        </p>
+      ) : (
+        groups.map((group) => (
+          <div key={group.label}>
+            <p className="text-xs text-muted-foreground">{group.label}</p>
+            <ul className="space-y-0.5">
+              {group.lines.map((line) => (
+                <li key={line}>· {line}</li>
+              ))}
+            </ul>
+          </div>
+        ))
+      )}
     </div>
   )
 }

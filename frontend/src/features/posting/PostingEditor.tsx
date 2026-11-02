@@ -29,6 +29,12 @@ import { focusLabel, hasLine, toServerFocus, type LineFocus } from '@/features/p
 import { StageEditor } from '@/features/posting/StageEditor'
 import { StageFlow } from '@/features/posting/StageFlow'
 import { PostingStepHeader } from '@/features/posting/PostingStepHeader'
+import {
+  followLines,
+  isRequiredKey,
+  REQUIRED_KEYS,
+  type RequiredKey,
+} from '@/features/posting/required'
 import { usePostingRecovery } from '@/features/posting/usePostingRecovery'
 import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/stages'
 import {
@@ -112,6 +118,13 @@ export function PostingEditor({
     posting.status === 'DRAFT',
   )
   const { value: stages, setValue: setStages, dirty: stagesDirty } = stageRecovery
+  // 서류 필수 조건. 지원자에게 보이지 않는 표시라 본문과 따로 들고, 저장할 때 함께 보낸다
+  const requiredRecovery = usePostingRecovery(
+    `${id}:required`,
+    posting.required,
+    posting.status === 'DRAFT',
+  )
+  const { value: required, setValue: setRequired, dirty: requiredDirty } = requiredRecovery
   const [stagesError, setStagesError] = useState<string | null>(null)
   const save = useSavePosting(id)
   const saveStages = useSaveStages(id)
@@ -141,7 +154,24 @@ export function PostingEditor({
   /** 고른 칸에서 줄을 더하거나 지우면 줄 순서가 바뀌어 고르기를 푼다 */
   const changeList = (key: ListKey, items: string[]) => {
     if (focus?.field === key && items.length !== draft[key].length) setFocus(null)
+    if (key === 'qualifications' || key === 'preferred') {
+      setRequired((current) => ({
+        ...current,
+        [key]: followLines(current[key], draft[key], items),
+      }))
+    }
     update({ [key]: items })
+  }
+
+  /** 줄 끝의 [필수]를 누르면 그 줄을 서류 필수 조건으로 켜거나 끈다 */
+  const toggleRequired = (key: RequiredKey, index: number) => {
+    const line = draft[key][index]
+    setRequired((current) => ({
+      ...current,
+      [key]: current[key].includes(line)
+        ? current[key].filter((item) => item !== line)
+        : [...current[key], line],
+    }))
   }
 
   const changeStages = (next: StageForm[]) => {
@@ -150,7 +180,7 @@ export function PostingEditor({
   }
 
   const saveDraft = async (silent = false) => {
-    if (!dirty && !stagesDirty) return true
+    if (!dirty && !stagesDirty && !requiredDirty) return true
     if (dirty && !draft.title.trim()) {
       toast.error('채용명을 입력해 주세요.')
       return false
@@ -173,8 +203,8 @@ export function PostingEditor({
         )
         setStages(toStageForms(saved.stages))
       }
-      if (dirty) {
-        await save.mutateAsync({ ...draft, title: draft.title.trim() })
+      if (dirty || requiredDirty) {
+        await save.mutateAsync({ content: { ...draft, title: draft.title.trim() }, required })
       }
       if (!silent) toast.success('저장했어요.')
       return true
@@ -221,6 +251,22 @@ export function PostingEditor({
     ;(accept ? apply : discard).mutate(fields && [...targets], {
       onSuccess: (updated) => {
         setDraft({ ...draft, ...pick(updated.content, targets) })
+        // AI가 새로 쓴 줄은 필수 표시가 빠진다. 꺼진 표시가 있으면 다시 켤 수 있게 알린다
+        const lists = REQUIRED_KEYS.filter((key) => targets.has(key))
+        const dropped = lists.reduce(
+          (count, key) =>
+            count + required[key].filter((line) => !updated.required[key].includes(line)).length,
+          0,
+        )
+        if (lists.length) {
+          setRequired({
+            ...required,
+            ...Object.fromEntries(lists.map((key) => [key, updated.required[key]])),
+          })
+        }
+        if (accept && dropped) {
+          toast.info(`AI가 바꾼 줄의 필수 표시 ${dropped}개가 꺼졌어요. 필요하면 다시 켜 주세요.`)
+        }
         if (accept && targets.has('stages')) {
           setStages(toStageForms(updated.stages))
         }
@@ -273,7 +319,7 @@ export function PostingEditor({
             variant="outline"
             className="min-w-20"
             onClick={() => void saveDraft()}
-            disabled={!(dirty || stagesDirty) || saving}
+            disabled={!(dirty || stagesDirty || requiredDirty) || saving}
           >
             {isDraft ? '임시 저장' : '저장'}
           </Button>
@@ -307,7 +353,7 @@ export function PostingEditor({
           </>
         )}
       </PostingStepHeader>
-      {editable && (dirty || stagesDirty) && (
+      {editable && (dirty || stagesDirty || requiredDirty) && (
         <p role="status" className="border-b bg-muted px-6 py-2 text-xs text-muted-foreground">
           {contentRecovery.restored || stageRecovery.restored
             ? '저장하지 않은 편집을 복구했어요. '
@@ -486,6 +532,12 @@ export function PostingEditor({
                   onChange={(items) => changeList(list.key, items)}
                   selected={picked?.field === list.key ? picked.index : undefined}
                   onSelect={(index) => toggleFocus({ field: list.key, index })}
+                  marked={isRequiredKey(list.key) ? new Set(required[list.key]) : undefined}
+                  onMark={
+                    isRequiredKey(list.key) && editable
+                      ? (index) => toggleRequired(list.key as RequiredKey, index)
+                      : undefined
+                  }
                 />
                 {actions(list.key)}
               </Section>

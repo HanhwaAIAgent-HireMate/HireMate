@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
  * 한 줄에 한 항목을 쓰는 목록 입력. Enter로 줄을 나누고 빈 줄에서 Backspace로 지운다.
  * highlight에 있는 줄은 AI 수정안으로 바뀐 줄로 표시한다.
  * onSelect가 있으면 줄 앞의 ·을 눌러 AI에게 맡길 줄을 고른다. 빈 줄은 고를 수 없다.
+ * onMark가 있으면 줄 끝의 [필수]로 서류 필수 조건을 켜고 끈다. marked에 있는 줄이 켜진 줄이다.
  */
 export function BulletListField({
   label,
@@ -16,6 +17,8 @@ export function BulletListField({
   placeholder = '내용을 입력해 주세요',
   selected,
   onSelect,
+  marked,
+  onMark,
 }: {
   label: string
   items: string[]
@@ -25,6 +28,8 @@ export function BulletListField({
   placeholder?: string
   selected?: number
   onSelect?: (index: number) => void
+  marked?: Set<string>
+  onMark?: (index: number) => void
 }) {
   const container = useRef<HTMLDivElement>(null)
   const rows = items.length === 0 ? [''] : items
@@ -74,6 +79,14 @@ export function BulletListField({
             }}
             className="min-w-0 flex-1 bg-transparent py-1 outline-none placeholder:text-muted-foreground disabled:cursor-default"
           />
+          {onMark && row.trim() && (
+            <RequiredToggle
+              label={`${label} ${index + 1}번`}
+              on={marked?.has(row) ?? false}
+              disabled={disabled}
+              onToggle={() => onMark(index)}
+            />
+          )}
         </div>
       ))}
     </div>
@@ -104,6 +117,41 @@ export function LineBullet({
       )}
     >
       ·
+    </button>
+  )
+}
+
+/** 서류 필수 조건 표시. 모든 줄에 보이고, 켜진 줄은 검은 바탕으로 구분한다 */
+function RequiredToggle({
+  label,
+  on,
+  disabled,
+  onToggle,
+}: {
+  label: string
+  on: boolean
+  disabled?: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={`${label} 서류 필수 조건`}
+      title={
+        on ? '서류 필수 조건이에요. 지원자에게는 보이지 않아요' : '서류 필수 조건으로 표시해요'
+      }
+      disabled={disabled}
+      onClick={onToggle}
+      className={cn(
+        'shrink-0 self-center rounded px-1.5 py-0.5 text-[11px] font-medium',
+        on
+          ? 'bg-foreground text-background'
+          : 'border text-muted-foreground hover:bg-muted hover:text-foreground',
+        disabled && 'cursor-default',
+      )}
+    >
+      필수
     </button>
   )
 }

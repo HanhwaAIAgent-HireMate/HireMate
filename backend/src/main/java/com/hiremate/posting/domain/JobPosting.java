@@ -5,6 +5,7 @@ import com.hiremate.global.StringListConverter;
 import com.hiremate.posting.PosterDesign;
 import com.hiremate.posting.PostingContent;
 import com.hiremate.posting.PostingRole;
+import com.hiremate.posting.RequiredCriteria;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -66,6 +67,16 @@ public class JobPosting {
     @Convert(converter = StringListConverter.class)
     @Column(nullable = false)
     private List<String> benefits = new ArrayList<>();
+
+    /** 서류 필수 조건으로 표시한 자격 요건 줄. 지원자에게 보여 주지 않는다. */
+    @Convert(converter = StringListConverter.class)
+    @Column(nullable = false)
+    private List<String> requiredQualifications = new ArrayList<>();
+
+    /** 서류 필수 조건으로 표시한 우대 사항 줄. 지원자에게 보여 주지 않는다. */
+    @Convert(converter = StringListConverter.class)
+    @Column(nullable = false)
+    private List<String> requiredPreferred = new ArrayList<>();
 
     /** 모집 조건. 채용 인원은 정하지 않았으면 null이다. */
     private Integer headcount;
@@ -160,6 +171,18 @@ public class JobPosting {
         this.workHours = content.workHours();
         this.salary = content.salary();
         this.roleContent = JsonText.write(new Roles(content.roles()));
+        markRequired(required());
+    }
+
+    /** 서류 필수 조건. 공고에 있는 줄만 남긴다 (RequiredCriteria#within). */
+    public RequiredCriteria required() {
+        return new RequiredCriteria(requiredQualifications, requiredPreferred);
+    }
+
+    public void markRequired(RequiredCriteria required) {
+        RequiredCriteria kept = required.within(content());
+        this.requiredQualifications = new ArrayList<>(kept.qualifications());
+        this.requiredPreferred = new ArrayList<>(kept.preferred());
         this.updatedAt = Instant.now();
     }
 

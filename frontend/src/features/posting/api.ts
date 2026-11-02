@@ -7,6 +7,8 @@ export type PostingContent = Schemas['PostingContent']
 export type PostingFocus = Schemas['PostingFocus']
 export type PublicPosting = Schemas['PublicPostingView']
 export type RequiredDocument = Schemas['RequiredDocument']
+/** 서류 필수 조건. HR이 공고 작성 화면에서 '필수'로 표시한 줄이다. 지원자에게는 보내지 않는다 */
+export type RequiredCriteria = Schemas['RequiredCriteria']
 
 export const postingKeys = {
   posting: (recruitmentId: string) => ['posting', recruitmentId] as const,
@@ -46,14 +48,21 @@ function usePostingMutation<T>(recruitmentId: string, request: (variables: T) =>
   })
 }
 
+/** 본문과 서류 필수 조건을 함께 저장한다. required가 null이면 저장된 표시를 그대로 둔다 */
 export function useSavePosting(recruitmentId: string) {
-  return usePostingMutation(recruitmentId, (body: PostingContent) =>
-    unwrap(
-      api.PUT('/api/recruitments/{recruitmentId}/posting', {
-        params: { path: { recruitmentId } },
-        body,
-      }),
-    ),
+  return usePostingMutation(
+    recruitmentId,
+    ({ content, required }: { content: PostingContent; required: RequiredCriteria | null }) =>
+      unwrap(
+        api.PUT('/api/recruitments/{recruitmentId}/posting', {
+          params: { path: { recruitmentId } },
+          body: {
+            ...content,
+            requiredQualifications: required?.qualifications ?? null,
+            requiredPreferred: required?.preferred ?? null,
+          },
+        }),
+      ),
   )
 }
 
