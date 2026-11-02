@@ -203,6 +203,12 @@ function PosterEditor({ posting }: { posting: Posting }) {
       pending={ai.isPending}
       disabled={busy}
       onSend={(message) => void request(message)}
+      onReset={() => {
+        if (busy) return
+        recommended.current = true
+        setMessages([])
+        setHistory([])
+      }}
     />
   )
   return (
