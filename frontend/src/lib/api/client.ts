@@ -71,6 +71,12 @@ const MESSAGES: Record<string, string> = {
   UPDATE_CONFLICT: '기록이 변경됐어요. 최신 내용을 확인해 주세요.',
   ANSWER_VERSION_REQUIRED: '최신 질문을 다시 불러온 뒤 저장해 주세요.',
   INTERVIEW_ACCESS_DENIED: '배정된 면접관만 본인 담당 질문을 수정할 수 있어요.',
+  INTERVIEW_SCHEDULE_FAILED: '면접 일정을 배정하지 못했어요. 날짜를 확인한 뒤 다시 시도해 주세요.',
+  INTERVIEW_SCHEDULE_DATE_REQUIRED: '공고의 전형별 안내에서 면접 날짜를 설정해 주세요.',
+  INTERVIEW_SCHEDULE_PAST: '면접 시작일이 지났어요. 다음 전형의 면접 시작일을 다시 선택해 주세요.',
+  INTERVIEW_SCHEDULE_CAPACITY:
+    '다음 전형 시작 전까지 배정할 시간이 부족해요. 전형 안내 날짜를 조정해 주세요.',
+  INTERVIEW_SCHEDULE_CLOSED: '이미 결과를 확정한 면접에는 일정을 자동 배정할 수 없어요.',
   INTERVIEW_ASSIGNMENT_CONFLICT:
     '기존 지원자별 면접관 배정이 서로 달라요. 면접 기록을 확인한 뒤 전형 공통 면접관을 설정해 주세요.',
   STAGE_NOT_ACTIVE: '진행 중인 전형에서만 바꿀 수 있어요.',

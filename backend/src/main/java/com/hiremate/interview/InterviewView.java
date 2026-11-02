@@ -14,7 +14,7 @@ public record InterviewView(UUID applicationId, @Schema(nullable = true) Schedul
         this(applicationId, schedule, questions, previous, false);
     }
 
-    /** 면접 일정은 HR이 직접 입력한다 (자동 일정 조율은 MVP 제외). */
+    /** 합격 안내를 보낼 때 자동 배정하며, HR이 직접 변경할 수 있다. */
     public record Schedule(@Schema(nullable = true) Instant scheduledAt, String interviewers) {
     }
 

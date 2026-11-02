@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import { useHeaderCrumb } from '@/app/header-store'
 import { Button } from '@/components/ui/button'
+import { InterviewSchedulingStatus } from '@/features/interview/InterviewSchedulingStatus'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   needsDraft,
@@ -151,6 +152,12 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
             badge={step > 2 ? <Badge done>완료</Badge> : <Badge active>진행 중</Badge>}
           >
             <div className="space-y-2.5">
+              {next?.type === 'INTERVIEW' && counts.pass > 0 && (
+                <InterviewSchedulingStatus
+                  stageId={overview.stageId}
+                  guidesPath={`/hr/recruitments/${overview.recruitmentId}/posting#stage-guides`}
+                />
+              )}
               {!notices && <Skeleton className="h-20 w-full" />}
               {notices?.map((notice) => (
                 <div
