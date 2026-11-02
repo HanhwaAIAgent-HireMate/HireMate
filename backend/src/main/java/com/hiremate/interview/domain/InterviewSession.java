@@ -52,6 +52,12 @@ public class InterviewSession {
     @Column(nullable = false, columnDefinition = "text")
     private String practicalMemo = "";
 
+    @Column(nullable = false)
+    private long hrMemoVersion;
+
+    @Column(nullable = false)
+    private long practicalMemoVersion;
+
     @Version
     private long version;
 
@@ -91,9 +97,15 @@ public class InterviewSession {
     public void memo(InterviewerRole role, String text) {
         if (role == InterviewerRole.HR) {
             hrMemo = text;
+            hrMemoVersion++;
         } else {
             practicalMemo = text;
+            practicalMemoVersion++;
         }
+    }
+
+    public long memoVersion(InterviewerRole role) {
+        return role == InterviewerRole.HR ? hrMemoVersion : practicalMemoVersion;
     }
 
     public record Key(UUID stageId, UUID applicationId) implements Serializable {

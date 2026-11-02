@@ -171,7 +171,7 @@ export function CareersPosting({
         <h2 className="font-semibold">{content.title}</h2>
         <dl className="mt-4 space-y-3 text-sm">
           <Row label="고용 형태" value={content.employmentType} />
-          <Row label="경력" value={content.career.replace(/^경력\s*/, '')} />
+          <Row label="경력" value={content.career.replace(/^경력 (?=\d)/, '')} />
           <Row label="근무지" value={content.location} />
           <Row label="접수 마감" value={formatDateTime(posting.closeAt)} />
         </dl>

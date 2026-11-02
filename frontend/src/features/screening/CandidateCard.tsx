@@ -193,6 +193,7 @@ function MemoButton({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 space-y-2">
+        <h4 className="text-sm font-semibold">채용 담당자 공용 메모</h4>
         <Textarea
           aria-label="메모"
           rows={5}

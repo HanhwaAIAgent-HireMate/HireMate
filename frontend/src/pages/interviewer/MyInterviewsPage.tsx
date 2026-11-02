@@ -1,18 +1,16 @@
+import { ChevronRight } from 'lucide-react'
 import { Link } from 'react-router'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { RoleTag } from '@/features/interview/RoleTag'
-import { useMyInterviews, type AssignedInterview } from '@/features/interview/sessions'
+import {
+  INTERVIEW_STATUS_LABELS,
+  useMyInterviews,
+  type AssignedInterview,
+} from '@/features/interview/sessions'
 import { formatDateTime } from '@/lib/format'
-import { cn } from '@/lib/utils'
 
-const STATUS_LABELS: Record<AssignedInterview['status'], string> = {
-  SCHEDULED: '예정',
-  IN_PROGRESS: '진행 중',
-  ENDED: '끝남',
-}
-
-/** 면접관 모드의 첫 화면: 내가 배정된 면접. 채용 · 전형별로 묶고 면접 시간순으로 둔다 */
+/** 면접관 모드의 첫 화면: 내가 배정된 면접 전형. 면접관은 전형에 배정되므로 전형 하나를 카드 하나로 두고, 지원자는 들어가서 넘겨 본다 */
 export function MyInterviewsPage() {
   const interviews = useMyInterviews()
   const groups = new Map<string, AssignedInterview[]>()
@@ -27,13 +25,13 @@ export function MyInterviewsPage() {
         <Skeleton className="h-28 w-full max-w-xl" />
       ) : groups.size === 0 ? (
         <p className="max-w-xl rounded-xl border border-dashed bg-background p-6 text-sm text-muted-foreground">
-          아직 배정된 면접이 없어요. 채용 담당자가 지원자 카드에서 면접관으로 배정하면 여기에
+          아직 배정된 면접이 없어요. 채용 담당자가 면접 전형에 면접관을 지정하면 그 전형이 여기에
           보여요.
         </p>
       ) : (
         <div className="grid max-w-5xl gap-4 lg:grid-cols-2">
           {[...groups.values()].map((items) => (
-            <StageGroup key={items[0].stageId} items={items} />
+            <StageCard key={items[0].stageId} items={items} />
           ))}
         </div>
       )}
@@ -41,46 +39,43 @@ export function MyInterviewsPage() {
   )
 }
 
-function StageGroup({ items }: { items: AssignedInterview[] }) {
-  const sorted = [...items].sort((a, b) =>
-    (a.schedule?.scheduledAt ?? '9999').localeCompare(b.schedule?.scheduledAt ?? '9999'),
-  )
-  const first = sorted[0]
+/** 면접 전형 하나. 누르면 그 전형의 면접 진행 화면으로 들어간다 */
+function StageCard({ items }: { items: AssignedInterview[] }) {
+  const first = items[0]
+  const count = (status: AssignedInterview['status']) =>
+    items.filter((item) => item.status === status).length
+  // 다음 면접: 아직 시작하지 않은 면접 중 가장 이른 일정
+  const next = items
+    .filter((item) => item.status === 'SCHEDULED' && item.schedule?.scheduledAt)
+    .map((item) => item.schedule?.scheduledAt ?? '')
+    .sort()[0]
+
   return (
-    <section
-      aria-label={`${first.recruitmentTitle} ${first.stageName}`}
-      className="rounded-xl border bg-background p-4"
+    <Link
+      to={`/interviewer/stages/${first.stageId}`}
+      className="group flex items-center gap-4 rounded-xl border bg-background p-4 transition-colors hover:border-foreground/30"
     >
-      <p className="truncate text-xs text-muted-foreground">{first.recruitmentTitle}</p>
-      <h2 className="mt-0.5 mb-3 text-base font-bold">{first.stageName}</h2>
-      <ul className="divide-y">
-        {sorted.map((item) => (
-          <li key={item.applicationId}>
-            <Link
-              to={`/interviewer/stages/${item.stageId}?candidate=${item.applicationId}`}
-              className="flex items-center gap-2 py-2 text-sm hover:bg-muted/40"
-            >
-              <RoleTag role={item.myRole} questionText={`${item.applicantName} 내 담당`} />
-              <b>{item.applicantName}</b>
-              <span className="text-xs text-muted-foreground">
-                {item.schedule?.scheduledAt
-                  ? formatDateTime(item.schedule.scheduledAt)
-                  : '일정 미정'}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs text-muted-foreground">{first.recruitmentTitle}</p>
+        <h2 className="mt-0.5 flex items-center gap-2 text-base font-bold">
+          {first.stageName}
+          <RoleTag role={first.myRole} questionText={`${first.stageName} 내`} />
+        </h2>
+        <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          <span>
+            지원자 <b className="text-foreground">{items.length}</b>명
+          </span>
+          {(['IN_PROGRESS', 'SCHEDULED', 'ENDED'] as const)
+            .filter((status) => count(status) > 0)
+            .map((status) => (
+              <span key={status}>
+                {INTERVIEW_STATUS_LABELS[status]} <b className="text-foreground">{count(status)}</b>
               </span>
-              <span
-                className={cn(
-                  'ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold',
-                  item.status === 'IN_PROGRESS'
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-muted text-muted-foreground',
-                )}
-              >
-                {STATUS_LABELS[item.status]}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
+            ))}
+          {next && <span>다음 면접 {formatDateTime(next)}</span>}
+        </p>
+      </div>
+      <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+    </Link>
   )
 }

@@ -247,6 +247,34 @@ describe('면접 실시간 알림', () => {
     client.clear()
   })
 
+  it('지원자가 없는 전형도 공통 면접관 변경 알림으로 설정을 다시 읽는다', async () => {
+    const streams: ReturnType<typeof connection>[] = []
+    vi.stubGlobal('fetch', (request: Request) => {
+      const stream = connection(request)
+      streams.push(stream)
+      return Promise.resolve(stream.response)
+    })
+    const { client, wrapper } = setup()
+    const hook = renderHook(() => useInterviewStageLive('stage'), { wrapper })
+    await waitFor(() => expect(streams).toHaveLength(1))
+    streams[0].send('connected')
+    await waitFor(() => expect(hook.result.current.connected).toBe(true))
+    const key = sessionKeys.stageAssignment('stage')
+    client.setQueryData(key, {
+      stageId: 'stage',
+      hrMemberId: 'hr',
+      practicalMemberId: 'practical',
+      version: 0,
+      locked: false,
+    })
+    client.setQueryData(sessionKeys.stageAssignment('other'), {})
+    streams[0].send('changed', '{}')
+    await waitFor(() => expect(client.getQueryState(key)?.isInvalidated).toBe(true))
+    expect(client.getQueryState(sessionKeys.stageAssignment('other'))?.isInvalidated).toBe(false)
+    hook.unmount()
+    client.clear()
+  })
+
   it('HR 연결 성공 시에는 놓친 변경을 위해 모든 지원자의 캐시를 갱신한다', async () => {
     const streams: ReturnType<typeof connection>[] = []
     vi.stubGlobal('fetch', (request: Request) => {

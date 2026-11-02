@@ -14,6 +14,8 @@ import com.hiremate.auth.domain.MemberRepository;
 import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewerRole;
+import com.hiremate.recruit.RecruitService;
+import com.hiremate.recruit.StageType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +42,9 @@ class InterviewerSessionTests extends IntegrationTest {
     @Autowired
     private InterviewService interviews;
 
+    @Autowired
+    private RecruitService recruits;
+
     @Test
     @DisplayName("배정·질문 우선 정렬·개인 메모·담당별 입력 제한과 종료 후 잠금을 HTTP로 검증한다")
     void assignedInterviewersHaveScopedPermissions() throws Exception {
@@ -58,6 +63,10 @@ class InterviewerSessionTests extends IntegrationTest {
         JsonNode scheduled = json(expect(f.people().api().get(f.workspace()), 200));
         assertThat(scheduled.path("session").path("status").asString()).isEqualTo("SCHEDULED");
         assertThat(scheduled.path("questions").get(0).path("canAnswer").asBoolean()).isFalse();
+        expect(f.people().api().put(f.workspace() + "/memo",
+                Map.of("text", "시작 전 메모", "expectedVersion", 0)), 409);
+        expect(f.unassigned().api().put(f.workspace() + "/memo",
+                Map.of("text", "미배정 메모", "expectedVersion", 0)), 403);
         enter(f);
         JsonNode started = json(expect(f.people().api().post(f.workspace() + "/start", null), 200));
         assertThat(started.path("session").path("status").asString()).isEqualTo("IN_PROGRESS");
@@ -94,12 +103,14 @@ class InterviewerSessionTests extends IntegrationTest {
         JsonNode current = json(expect(f.people().api().get(f.workspace()), 200));
         JsonNode noted = json(expect(f.people().api().put(f.workspace() + "/memo",
                 Map.of("text", "PRIVATE-HR-NOTE", "expectedVersion",
-                        current.path("session").path("version").asLong())), 200));
+                        current.path("personalMemoVersion").asLong())), 200));
         assertThat(noted.path("personalMemo").asString()).isEqualTo("PRIVATE-HR-NOTE");
         String other = expect(f.practical().api().get(f.workspace()), 200).body();
         assertThat(other).doesNotContain("PRIVATE-HR-NOTE", "hrMemo", "practicalMemo");
         JsonNode ended = json(expect(f.practical().api().post(f.workspace() + "/end", null), 200));
         assertThat(ended.path("session").path("status").asString()).isEqualTo("ENDED");
+        expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "종료 후 메모",
+                "expectedVersion", noted.path("personalMemoVersion").asLong())), 409);
         assertThat(ended.path("questions").valueStream().allMatch(row -> !row.path("canAnswer").asBoolean()))
                 .isTrue();
         expect(f.practical().api().put(answerPath(f, jobId),
@@ -136,7 +147,7 @@ class InterviewerSessionTests extends IntegrationTest {
                 Map.of("interviewerRole", "PRACTICAL")), 200);
         expect(f.people().api().post(f.workspace() + "/start", null), 200);
         assertThat(assigned.path("hrMemberId").asString()).isEqualTo(f.people().id().toString());
-        expect(f.hr().put(f.legacy() + "/candidates/" + f.applicationId() + "/interview/session",
+        expect(f.hr().put(f.legacy() + "/interview/assignment",
                 Map.of("hrMemberId", f.practical().id(), "practicalMemberId", f.people().id(),
                         "expectedVersion", assigned.path("version").asLong())), 409);
     }
@@ -222,21 +233,159 @@ class InterviewerSessionTests extends IntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("전형에서 한 번 배정하면 지원자 전원에게 적용되고 지원자별 배정은 허용하지 않는다")
+    void stageAssignmentAppliesToEveryCandidate() throws Exception {
+        Fixture f = fixture(2, false);
+        JsonNode assigned = json(expect(f.hr().put(f.legacy() + "/interview/assignment", assignment(f)), 200));
+        assertThat(assigned.path("stageId").asString()).isEqualTo(f.stageId());
+        assertThat(assigned.path("locked").asBoolean()).isFalse();
+        JsonNode listed = json(expect(f.practical().api().get("/api/interviewer/sessions"), 200));
+        assertThat(listed.path("items")).hasSize(2);
+        assertThat(listed.path("items").valueStream().map(item -> item.path("stageId").asString()))
+                .containsOnly(f.stageId());
+        expect(f.hr().put(f.legacy() + "/candidates/" + f.applicationId() + "/interview/session",
+                assignment(f)), 405);
+        enter(f);
+        expect(f.people().api().post(f.workspace() + "/start", null), 200);
+        JsonNode locked = json(expect(f.hr().get(f.legacy() + "/interview/assignment"), 200));
+        assertThat(locked.path("locked").asBoolean()).isTrue();
+        expect(f.hr().put(f.legacy() + "/interview/assignment", Map.of(
+                "hrMemberId", f.practical().id(), "practicalMemberId", f.people().id(),
+                "expectedVersion", assigned.path("version").asLong())), 409);
+    }
+
+    @Test
+    @DisplayName("전형 배정을 바꾸면 지원자 전원의 담당이 바뀌고 이전 버전은 거절한다")
+    void stageReassignmentUpdatesEveryCandidateAndChecksVersion() throws Exception {
+        Fixture f = fixture(2, false);
+        JsonNode first = json(expect(f.hr().put(f.admin(), assignment(f)), 200));
+        JsonNode changed = json(expect(f.hr().put(f.admin(), Map.of(
+                "hrMemberId", f.practical().id(), "practicalMemberId", f.people().id(),
+                "expectedVersion", first.path("version").asLong())), 200));
+        assertThat(changed.path("version").asLong()).isGreaterThan(first.path("version").asLong());
+        JsonNode listed = json(expect(f.people().api().get("/api/interviewer/sessions"), 200));
+        assertThat(listed.path("items")).hasSize(2);
+        assertThat(listed.path("items").valueStream().map(item -> item.path("myRole").asString()))
+                .containsOnly("PRACTICAL");
+        expect(f.hr().put(f.admin(), Map.of("hrMemberId", f.people().id(),
+                "practicalMemberId", f.practical().id(), "expectedVersion", first.path("version").asLong())), 409);
+        expect(newHr().get(f.admin()), 404);
+        String documentStage = recruits.getByStage(f.hr().companyId(), UUID.fromString(f.stageId()))
+                .stages().getFirst().id().toString();
+        expect(f.hr().put("/api/stages/" + documentStage + "/interview/assignment", assignment(f)), 409);
+    }
+
+    @Test
+    @DisplayName("지원자가 없는 예정 전형에 배정한 면접관은 전형이 열리면 모든 지원자를 맡는다")
+    void assignmentBeforeCandidatesArriveIsAppliedOnStageOpening() throws Exception {
+        Fixture f = fixture(2, true);
+        JsonNode assigned = json(expect(f.hr().get(f.legacy() + "/interview/assignment"), 200));
+        assertThat(assigned.path("hrMemberId").asString()).isEqualTo(f.people().id().toString());
+        JsonNode listed = json(expect(f.people().api().get("/api/interviewer/sessions"), 200));
+        assertThat(listed.path("items")).hasSize(2);
+        expect(f.practical().api().get(f.workspace()), 200);
+    }
+
+    @Test
+    @DisplayName("인사와 실무 개인 메모는 같은 초기 버전으로 동시에 저장해도 모두 성공한다")
+    void personalMemoVersionsAreIndependent() throws Exception {
+        Fixture f = fixture();
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        enter(f);
+        JsonNode started = json(expect(f.people().api().post(f.workspace() + "/start", null), 200));
+        long version = started.path("personalMemoVersion").asLong();
+        assertThat(version).isZero();
+        assertThat(started.path("session").path("version").asLong()).isGreaterThan(version);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<Integer> hr = executor.submit(() -> f.people().api().put(f.workspace() + "/memo",
+                    Map.of("text", "PRIVATE-HR-MEMO", "expectedVersion", version)).statusCode());
+            Future<Integer> practical = executor.submit(() -> f.practical().api().put(f.workspace() + "/memo",
+                    Map.of("text", "PRIVATE-PRACTICAL-MEMO", "expectedVersion", version)).statusCode());
+            assertThat(List.of(hr.get(), practical.get())).containsExactly(200, 200);
+        }
+        JsonNode hr = json(expect(f.people().api().get(f.workspace()), 200));
+        JsonNode practical = json(expect(f.practical().api().get(f.workspace()), 200));
+        assertThat(hr.path("personalMemo").asString()).isEqualTo("PRIVATE-HR-MEMO");
+        assertThat(practical.path("personalMemo").asString()).isEqualTo("PRIVATE-PRACTICAL-MEMO");
+        assertThat(hr.path("personalMemoVersion").asLong()).isEqualTo(version + 1);
+        assertThat(practical.path("personalMemoVersion").asLong()).isEqualTo(version + 1);
+        assertThat(hr.toString()).doesNotContain("PRIVATE-PRACTICAL-MEMO", "practicalMemoVersion");
+        assertThat(practical.toString()).doesNotContain("PRIVATE-HR-MEMO", "hrMemoVersion");
+        expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "인사 수정",
+                "expectedVersion", hr.path("personalMemoVersion").asLong())), 200);
+        expect(f.practical().api().put(f.workspace() + "/memo", Map.of("text", "실무 수정",
+                "expectedVersion", practical.path("personalMemoVersion").asLong())), 200);
+    }
+
+    @Test
+    @DisplayName("같은 개인 메모를 동일 버전으로 동시에 저장하면 하나만 성공하고 나머지는 충돌이다")
+    void concurrentPersonalMemoWritesCannotOverwriteEachOther() throws Exception {
+        Fixture f = fixture();
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        enter(f);
+        JsonNode started = json(expect(f.people().api().post(f.workspace() + "/start", null), 200));
+        long version = started.path("personalMemoVersion").asLong();
+        JsonNode wrongVersion = json(expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "세션 버전 오용",
+                "expectedVersion", started.path("session").path("version").asLong())), 409));
+        assertThat(wrongVersion.path("code").asString()).isEqualTo("MEMO_CONFLICT");
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<Integer> one = executor.submit(() -> f.people().api().put(f.workspace() + "/memo",
+                    Map.of("text", "첫 번째 인사 메모", "expectedVersion", version)).statusCode());
+            Future<Integer> two = executor.submit(() -> f.people().api().put(f.workspace() + "/memo",
+                    Map.of("text", "두 번째 인사 메모", "expectedVersion", version)).statusCode());
+            assertThat(List.of(one.get(), two.get())).containsExactlyInAnyOrder(200, 409);
+        }
+        JsonNode current = json(expect(f.people().api().get(f.workspace()), 200));
+        assertThat(current.path("personalMemo").asString()).isIn("첫 번째 인사 메모", "두 번째 인사 메모");
+        assertThat(current.path("personalMemoVersion").asLong()).isEqualTo(version + 1);
+        expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "최신 인사 메모",
+                "expectedVersion", current.path("personalMemoVersion").asLong())), 200);
+    }
+
+    @Test
+    @DisplayName("공유 기록 API만 제거하고 개인 메모는 계속 제공한다")
+    void sharedNotesAreRemovedWhilePersonalMemosRemain() throws Exception {
+        Fixture f = fixture();
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        String notes = f.workspace() + "/shared-notes";
+        assertThat(f.people().api().get(notes).statusCode()).isIn(404, 405);
+        assertThat(f.people().api().put(notes + "/me", Map.of("text", "옛 공유 기록", "expectedVersion", 0))
+                .statusCode()).isIn(404, 405);
+        assertThat(f.hr().get(f.legacy() + "/candidates/" + f.applicationId()
+                + "/interview/shared-notes").statusCode()).isIn(404, 405);
+        assertThat(json(expect(f.people().api().get(f.workspace()), 200)).has("personalMemo")).isTrue();
+    }
+
     private Fixture fixture() throws Exception {
+        return fixture(1, false);
+    }
+
+    private Fixture fixture(int count, boolean assignBeforeOpening) throws Exception {
         TestApi hr = newHr();
         Account people = account(hr.companyId(), MemberRole.INTERVIEWER);
         Account practical = account(hr.companyId(), MemberRole.INTERVIEWER);
         Account unassigned = account(hr.companyId(), MemberRole.HR);
         TestFixtures.Posting posting = TestFixtures.publish(hr, false);
-        expect(anonymous().multipart(posting.applyPath(), TestFixtures.form("candidate@example.com", false)), 201);
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());
+        if (assignBeforeOpening) {
+            UUID stage = recruits.get(hr.companyId(), recruitmentId).stages().stream()
+                    .filter(item -> item.type() == StageType.INTERVIEW).findFirst().orElseThrow().id();
+            String assignmentPath = "/api/stages/" + stage + "/interview/assignment";
+            expect(hr.put(assignmentPath, Map.of("hrMemberId", people.id(), "practicalMemberId", practical.id())), 200);
+            assertThat(json(expect(people.api().get("/api/interviewer/sessions"), 200)).path("items")).isEmpty();
+        }
+        for (int i = 0; i < count; i++) {
+            expect(anonymous().multipart(posting.applyPath(),
+                    TestFixtures.form("candidate" + i + "@example.com", false)), 201);
+        }
         Instant deadline = Instant.now().plusSeconds(15);
         UUID applicationId = null;
         while (Instant.now().isBefore(deadline)) {
             var found = applications.applicants(hr.companyId(), recruitmentId).stream()
-                    .filter(applicant -> applicant.documentScore() != null).findFirst();
-            if (found.isPresent()) {
-                applicationId = found.get().applicationId();
+                    .filter(applicant -> applicant.documentScore() != null).toList();
+            if (found.size() == count) {
+                applicationId = found.getFirst().applicationId();
                 break;
             }
             Thread.sleep(100);
@@ -245,7 +394,8 @@ class InterviewerSessionTests extends IntegrationTest {
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         String document = "/api/stages/" + closed.path("stages").get(0).path("id").asString();
         expect(hr.post(document + "/decisions",
-                Map.of("applicationIds", List.of(applicationId), "decision", "PASS")), 204);
+                Map.of("applicationIds", applications.applicants(hr.companyId(), recruitmentId).stream()
+                        .map(com.hiremate.apply.ApplicantInfo::applicationId).toList(), "decision", "PASS")), 204);
         expect(hr.post(document + "/confirm", null), 200);
         expect(hr.post(document + "/notices/prepare", null), 200);
         expect(hr.post(document + "/notices/PASS/send", null), 200);
@@ -305,7 +455,7 @@ class InterviewerSessionTests extends IntegrationTest {
         }
 
         String admin() {
-            return legacy() + "/candidates/" + applicationId + "/interview/session";
+            return legacy() + "/interview/assignment";
         }
 
         String workspace() {

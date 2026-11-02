@@ -8,18 +8,20 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /**
  * 모집 조건(headcount부터)의 길이는 job_postings 테이블과 같다. 채용 인원은 정하지 않았으면 null이다.
- * 모집 조건을 빼고 보내면 빈 칸으로 저장한다.
+ * 모집 조건을 빼고 보내면 빈 칸으로 저장한다. 고용 형태는 정규직 · 계약직 · 인턴 · 파견직 중 하나이고,
+ * 경력은 신입 · 경력 · 경력 무관 · 경력 N년 이상(1~99) 중 하나다. 정하지 않았으면 빈 칸이다.
  */
 public record PostingContentRequest(
         @NotBlank @Size(max = 200) String title,
         @NotNull @Size(max = 100) String jobCategory,
-        @NotNull @Size(max = 50) String employmentType,
-        @NotNull @Size(max = 50) String career,
+        @NotNull @Pattern(regexp = EMPLOYMENT_TYPES) String employmentType,
+        @NotNull @Pattern(regexp = CAREERS) String career,
         @NotNull @Size(max = 100) String location,
         @NotNull @Size(max = 5000) String intro,
         @NotNull @Size(max = 30) List<@NotNull @Size(max = 300) String> duties,
@@ -33,6 +35,12 @@ public record PostingContentRequest(
         @Schema(nullable = true) @Size(max = 100) String salary,
         @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED)
         @Size(max = 10) List<@NotNull @Valid PostingRole> roles) {
+
+    /** 고를 수 있는 고용 형태. frontend EMPLOYMENT_TYPES, ai reviser와 같다. */
+    static final String EMPLOYMENT_TYPES = "^(|정규직|계약직|인턴|파견직)$";
+
+    /** 고를 수 있는 경력. frontend CAREER_KINDS, ai reviser와 같다. */
+    static final String CAREERS = "^(|신입|경력|경력 무관|경력 [1-9][0-9]?년 이상)$";
 
     PostingContent toContent() {
         return new PostingContent(title.trim(), jobCategory.trim(), employmentType.trim(), career.trim(),

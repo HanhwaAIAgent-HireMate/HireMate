@@ -41,6 +41,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -72,11 +73,13 @@ public class ScreeningService {
     private final ActivityService activity;
     private final StageRequirementRepository requirements;
     private final CompanyService companies;
+    private final ApplicationEventPublisher events;
 
     public ScreeningService(StageCandidateRepository candidates, SelectionSnapshotRepository snapshots,
             StageTabRepository tabRepository, TabSelectionRepository selections, StageTabService tabs,
             RecruitService recruits, ApplicationService applications, PostingService postings,
-            ActivityService activity, StageRequirementRepository requirements, CompanyService companies) {
+            ActivityService activity, StageRequirementRepository requirements, CompanyService companies,
+            ApplicationEventPublisher events) {
         this.candidates = candidates;
         this.snapshots = snapshots;
         this.tabRepository = tabRepository;
@@ -88,6 +91,7 @@ public class ScreeningService {
         this.activity = activity;
         this.requirements = requirements;
         this.companies = companies;
+        this.events = events;
     }
 
     /** 전형을 시작하며 대상 지원자를 넣고 첫 탭을 만든다. 첫 전형은 지원자 전원, 이후 전형은 앞 전형 합격자다. */
@@ -103,6 +107,15 @@ public class ScreeningService {
         if (!tabRepository.existsByStageId(stageId)) {
             tabRepository.save(new StageTab(companyId, stageId, 1));
         }
+        events.publishEvent(new StageCandidatesStarted(companyId, stageId, List.copyOf(applicationIds)));
+    }
+
+    /** 전형 전체 지원자 ID. 면접처럼 공통 설정을 적용하는 업무 모듈이 사용한다. */
+    @Transactional(readOnly = true)
+    public List<UUID> applicationIds(UUID companyId, UUID stageId) {
+        recruits.getByStage(companyId, stageId);
+        return candidates.findByStageIdAndCompanyId(stageId, companyId).stream()
+                .map(StageCandidate::getApplicationId).toList();
     }
 
     @Transactional(readOnly = true)

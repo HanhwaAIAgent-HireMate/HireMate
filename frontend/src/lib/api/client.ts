@@ -71,6 +71,8 @@ const MESSAGES: Record<string, string> = {
   UPDATE_CONFLICT: '기록이 변경됐어요. 최신 내용을 확인해 주세요.',
   ANSWER_VERSION_REQUIRED: '최신 질문을 다시 불러온 뒤 저장해 주세요.',
   INTERVIEW_ACCESS_DENIED: '배정된 면접관만 본인 담당 질문을 수정할 수 있어요.',
+  INTERVIEW_ASSIGNMENT_CONFLICT:
+    '기존 지원자별 면접관 배정이 서로 달라요. 면접 기록을 확인한 뒤 전형 공통 면접관을 설정해 주세요.',
   INTERVIEWERS_NOT_READY: '배정된 면접관이 모두 입장하고 접속 중인지 확인해 주세요.',
   STAGE_NOT_ACTIVE: '진행 중인 전형에서만 바꿀 수 있어요.',
   QUESTIONS_PREPARING: '질문 준비가 끝나면 면접을 시작할 수 있어요.',
@@ -79,6 +81,8 @@ const MESSAGES: Record<string, string> = {
   INTERVIEW_IN_PROGRESS: '진행 중인 면접을 모두 종료한 뒤 전형 결과를 확정해 주세요.',
   QUESTION_ANSWERED: '답변이 기록된 질문의 담당 변경이나 삭제는 할 수 없어요.',
   SESSION_CONFLICT: '면접 정보가 변경됐어요. 최신 내용을 확인해 주세요.',
+  MEMO_CONFLICT:
+    '본인의 메모가 다른 화면에서 변경됐어요. 작성한 내용을 보관하고 최신 메모를 확인해 주세요.',
   QUESTION_OWNER_REQUIRED: '질문의 인사·실무 담당을 먼저 지정해 주세요.',
   INVALID_INTERVIEWER: '같은 기업의 계정만 면접관으로 배정할 수 있어요.',
   DISTINCT_INTERVIEWERS: '인사 면접관과 실무 면접관은 서로 다른 계정으로 배정해 주세요.',

@@ -97,7 +97,7 @@ class InterviewOpinionTests extends IntegrationTest {
         body.put("hrMemberId", people.memberId().toString());
         body.put("practicalMemberId", kim.memberId().toString());
         body.put("expectedVersion", null);
-        expect(interview.hr().put(interview.candidate() + "/interview/session", body), 200);
+        expect(interview.hr().put(interview.stage() + "/interview/assignment", body), 200);
         return new Room(interview, kim, people);
     }
 

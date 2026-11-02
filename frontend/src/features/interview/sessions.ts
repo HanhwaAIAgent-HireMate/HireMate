@@ -4,6 +4,7 @@ import type { AnswerActions } from '@/features/interview/AnswerBox'
 import { api, ApiError, unwrap, type Schemas } from '@/lib/api/client'
 
 export type InterviewAssignment = Schemas['InterviewAssignment']
+export type StageInterviewAssignment = Schemas['StageInterviewAssignment']
 export type InterviewMember = Schemas['InterviewMemberChoice']
 export type AssignedInterview = Schemas['AssignedInterview']
 export type InterviewerWorkspace = Schemas['InterviewerWorkspace']
@@ -22,6 +23,7 @@ export const sessionKeys = {
   members: ['interview', 'members'] as const,
   assignment: (stageId: string, applicationId: string) =>
     ['interview', 'session', stageId, applicationId] as const,
+  stageAssignment: (stageId: string) => ['interview', 'assignment', stageId] as const,
   mine: ['interviewer', 'sessions'] as const,
   attendance: (stageId: string, applicationId: string) =>
     ['interviewer', 'attendance', stageId, applicationId] as const,
@@ -57,19 +59,42 @@ export function useInterviewAssignment(stageId: string, applicationId: string) {
   })
 }
 
-/** 인사, 실무 면접관을 배정한다. 바꿀 때는 조회한 version을 보내고, 시작 뒤에는 서버가 거절한다 */
-export function useAssignInterview(stageId: string, applicationId: string) {
+/** 전형의 공통 면접관. 지원자가 없어도 미리 설정할 수 있다. */
+export function useStageInterviewAssignment(stageId: string) {
+  return useQuery({
+    queryKey: sessionKeys.stageAssignment(stageId),
+    queryFn: async (): Promise<StageInterviewAssignment | null> => {
+      try {
+        return await unwrap(
+          api.GET('/api/stages/{stageId}/interview/assignment', {
+            params: { path: { stageId } },
+          }),
+        )
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null
+        throw error
+      }
+    },
+  })
+}
+
+/** 한 번 저장한 배정을 이 전형의 모든 지원자가 함께 쓴다. */
+export function useAssignStageInterview(stageId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (body: Schemas['InterviewAssignmentRequest']) =>
       unwrap(
-        api.PUT('/api/stages/{stageId}/candidates/{applicationId}/interview/session', {
-          params: { path: { stageId, applicationId } },
+        api.PUT('/api/stages/{stageId}/interview/assignment', {
+          params: { path: { stageId } },
           body,
         }),
       ),
     onSuccess: (saved) => {
-      queryClient.setQueryData(sessionKeys.assignment(stageId, applicationId), saved)
+      queryClient.setQueryData(sessionKeys.stageAssignment(stageId), saved)
+      void queryClient.invalidateQueries({ queryKey: ['interview', 'session', stageId] })
+      void queryClient.invalidateQueries({ queryKey: ['interviewer', 'workspace', stageId] })
+      void queryClient.invalidateQueries({ queryKey: ['interviewer', 'attendance', stageId] })
+      void queryClient.invalidateQueries({ queryKey: ['interview', 'opinions', stageId] })
       void queryClient.invalidateQueries({ queryKey: sessionKeys.progress(stageId) })
       void queryClient.invalidateQueries({ queryKey: sessionKeys.mine })
     },
@@ -80,8 +105,22 @@ export function useAssignInterview(stageId: string, applicationId: string) {
 export function useMyInterviews() {
   return useQuery({
     queryKey: sessionKeys.mine,
-    queryFn: () =>
-      unwrap(api.GET('/api/interviewer/sessions', { params: { query: { page: 0, size: 50 } } })),
+    queryFn: async () => {
+      const page = (index: number) =>
+        unwrap(
+          api.GET('/api/interviewer/sessions', {
+            params: { query: { page: index, size: 50 } },
+          }),
+        )
+      const first = await page(0)
+      const rest = await Promise.all(
+        Array.from({ length: Math.max(0, Math.ceil(first.total / 50) - 1) }, (_, index) =>
+          page(index + 1),
+        ),
+      )
+      const items = [...first.items, ...rest.flatMap((result) => result.items)]
+      return { ...first, items, size: items.length }
+    },
     refetchInterval: LIVE_POLL_MS,
   })
 }

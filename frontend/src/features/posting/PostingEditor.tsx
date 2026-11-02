@@ -4,6 +4,13 @@ import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { StageGuides } from '@/features/notice/StageGuides'
@@ -26,7 +33,14 @@ import { usePostingRecovery } from '@/features/posting/usePostingRecovery'
 import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/stages'
 import {
   CONDITION_FIELDS,
+  CAREER_KINDS,
   CONDITION_KEYS,
+  EMPLOYMENT_TYPES,
+  MAX_CAREER_YEARS,
+  formatCareer,
+  parseCareer,
+  toCareerYears,
+  type CareerKind,
   MAX_HEADCOUNT,
   toHeadcount,
 } from '@/features/posting/conditions'
@@ -335,23 +349,41 @@ export function PostingEditor({
                 <span className="shrink-0">채용</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {TAGS.map((tag) => (
-                  <input
-                    key={tag.key}
-                    aria-label={tag.placeholder}
-                    value={shown[tag.key]}
-                    placeholder={tag.placeholder}
-                    disabled={locked(tag.key)}
-                    onChange={(event) => update({ [tag.key]: event.target.value })}
-                    style={{
-                      width: `calc(${textWidth(shown[tag.key] || tag.placeholder)}em + 1.25rem)`,
-                    }}
-                    className={cn(
-                      'h-7 rounded-md bg-muted px-2 text-xs outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring',
-                      changed.has(tag.key) && 'bg-pass',
-                    )}
-                  />
-                ))}
+                {TAGS.map((tag) =>
+                  tag.key === 'employmentType' ? (
+                    <EmploymentTypeSelect
+                      key={tag.key}
+                      value={shown.employmentType}
+                      disabled={locked(tag.key)}
+                      changed={changed.has(tag.key)}
+                      onChange={(employmentType) => update({ employmentType })}
+                    />
+                  ) : tag.key === 'career' ? (
+                    <CareerField
+                      key={tag.key}
+                      value={shown.career}
+                      disabled={locked(tag.key)}
+                      changed={changed.has(tag.key)}
+                      onChange={(career) => update({ career })}
+                    />
+                  ) : (
+                    <input
+                      key={tag.key}
+                      aria-label={tag.placeholder}
+                      value={shown[tag.key]}
+                      placeholder={tag.placeholder}
+                      disabled={locked(tag.key)}
+                      onChange={(event) => update({ [tag.key]: event.target.value })}
+                      style={{
+                        width: `calc(${textWidth(shown[tag.key] || tag.placeholder)}em + 1.25rem)`,
+                      }}
+                      className={cn(
+                        'h-7 rounded-md bg-muted px-2 text-xs outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring',
+                        changed.has(tag.key) && 'bg-pass',
+                      )}
+                    />
+                  ),
+                )}
               </div>
               {actions('title')}
             </div>
@@ -591,6 +623,115 @@ function SuggestionActions({ onApply, onDiscard }: { onApply: () => void; onDisc
       <Button size="sm" variant="outline" onClick={onDiscard}>
         되돌리기
       </Button>
+    </div>
+  )
+}
+
+/**
+ * 고용 형태는 정해 둔 넷 중에서 고른다. 예전에 글로 적은 값은 지우지 않고 목록 끝에 보여 주어,
+ * HR이 넷 중 하나로 바꿀 때까지 그대로 둔다
+ */
+function EmploymentTypeSelect({
+  value,
+  disabled,
+  changed,
+  onChange,
+}: {
+  value: string
+  disabled: boolean
+  changed: boolean
+  onChange: (value: string) => void
+}) {
+  const options: string[] = [...EMPLOYMENT_TYPES]
+  if (value && !options.includes(value)) options.push(value)
+  return (
+    <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger
+        size="sm"
+        aria-label="고용 형태"
+        className={cn(
+          'h-7 gap-1 border-0 bg-muted px-2 text-xs focus-visible:ring-1',
+          changed && 'bg-pass',
+        )}
+      >
+        <SelectValue placeholder="고용 형태" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={option} value={option} className="text-xs">
+            {option}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+/**
+ * 경력은 신입 · 경력 · 경력 무관 중에서 고르고, 경력이면 "N년 이상" 연차를 적을 수 있다(비우면 "경력").
+ * 예전에 글로 적은 값은 지우지 않고 목록 끝에 보여 준다
+ */
+function CareerField({
+  value,
+  disabled,
+  changed,
+  onChange,
+}: {
+  value: string
+  disabled: boolean
+  changed: boolean
+  onChange: (value: string) => void
+}) {
+  const { kind, years } = parseCareer(value)
+  const options: string[] = [...CAREER_KINDS]
+  if (value && !kind) options.push(value)
+  return (
+    <div className={cn('flex items-center gap-1 rounded-md', changed && 'bg-pass')}>
+      <Select
+        value={(kind ?? value) || undefined}
+        onValueChange={(next) =>
+          onChange(
+            CAREER_KINDS.includes(next as CareerKind)
+              ? formatCareer(next as CareerKind, years)
+              : next,
+          )
+        }
+        disabled={disabled}
+      >
+        <SelectTrigger
+          size="sm"
+          aria-label="경력"
+          className={cn(
+            'h-7 gap-1 border-0 bg-muted px-2 text-xs focus-visible:ring-1',
+            changed && 'bg-pass',
+          )}
+        >
+          <SelectValue placeholder="경력" />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option} value={option} className="text-xs">
+              {option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {kind === '경력' && (
+        <label className="flex items-center gap-1 text-xs">
+          <input
+            aria-label="경력 연차"
+            type="number"
+            min={1}
+            max={MAX_CAREER_YEARS}
+            value={years ?? ''}
+            placeholder="0"
+            disabled={disabled}
+            onChange={(event) => onChange(formatCareer('경력', toCareerYears(event.target.value)))}
+            className="h-7 w-12 rounded-md bg-muted px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+          />
+          년 이상
+        </label>
+      )}
     </div>
   )
 }

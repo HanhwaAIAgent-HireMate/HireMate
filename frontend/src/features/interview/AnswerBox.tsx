@@ -1,6 +1,7 @@
 import { Loader2Icon, MessageSquarePlus, PenLine, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FocusEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +13,7 @@ import {
 } from '@/features/interview/api'
 import type { RegisterAnswerSave } from '@/features/interview/pending-saves'
 import { ApiError, errorMessage } from '@/lib/api/client'
+import { clearDraft, readDraft, useInterviewDraftKey, writeDraft } from './drafts'
 
 /** 💾 타이핑을 멈추고 이만큼 지나면 DB에만 자동 저장한다 (분석은 하지 않는다) */
 export const AUTOSAVE_MS = 2_000
@@ -84,15 +86,30 @@ export function AnswerBox({
   registerSave?: RegisterAnswerSave
 }) {
   const stageActions = useStageAnswerActions(stageId, applicationId)
+  const queryClient = useQueryClient()
+  const draftKey = useInterviewDraftKey(stageId, applicationId, `answer:${question.questionId}`)
+  const [draft] = useState(() => readDraft(draftKey))
+  const initial = draft?.text ?? question.answer
+  const [compare, setCompare] = useState(
+    Boolean(draft && draft.version !== question.version && draft.text !== question.answer),
+  )
+  const [recovered, setRecovered] = useState(Boolean(draft && draft.text !== question.answer))
+  const [durable, setDurable] = useState(true)
   const actions = answerActions ?? stageActions
   const card = useRef<HTMLDivElement>(null)
-  const [value, setValue] = useState(question.answer)
+  const [value, setValue] = useState(initial)
   const [saved, setSaved] = useState(question.answer) // 서버가 저장했다고 알려 준 마지막 답
   const [status, setStatus] = useState<SaveStatus>('idle')
-  const latest = useRef(question.answer) // 지금 칸에 적힌 답 (타이머 · 정리 함수가 읽는다)
+  const [serverAnswer, setServerAnswer] = useState(question.answer)
+  if (serverAnswer !== question.answer && value === saved && status !== 'saving') {
+    setServerAnswer(question.answer)
+    setValue(question.answer)
+    setSaved(question.answer)
+  }
+  const latest = useRef(initial) // 지금 칸에 적힌 답 (타이머 · 정리 함수가 읽는다)
   const sent = useRef<string | null>(question.answer) // 서버에 마지막으로 보낸 답. 실패하면 null로 두어 다시 보낸다
-  const version = useRef(question.version)
-  const conflicted = useRef(false)
+  const version = useRef(draft && draft.text !== question.answer ? draft.version : question.version)
+  const conflicted = useRef(compare)
   const saveError = useRef<Error | null>(null)
   const pending = useRef(false) // 자동 저장만 하고 아직 분석에 넘기지 않은 답이 있음
   const timer = useRef<number | undefined>(undefined)
@@ -128,6 +145,8 @@ export function AnswerBox({
           (questions) => {
             const stored = questions.find((item) => item.questionId === question.questionId)
             if (stored) version.current = stored.version
+            clearDraft(draftKey, answer)
+            if (latest.current !== answer) writeDraft(draftKey, latest.current, version.current)
             saveError.current = null
             if (sent.current !== answer) return // 그 사이 새 저장이 나갔다
             setSaved(answer)
@@ -138,8 +157,10 @@ export function AnswerBox({
             if (
               error instanceof ApiError &&
               ['ANSWER_CONFLICT', 'UPDATE_CONFLICT'].includes(error.code)
-            )
+            ) {
               conflicted.current = true
+              setCompare(true)
+            }
             sent.current = null
             pending.current = wasPending
             setStatus('error')
@@ -148,7 +169,7 @@ export function AnswerBox({
         )
       return queue.current
     },
-    [question.questionId],
+    [question.questionId, draftKey],
   )
 
   const flushSave = useCallback(async () => {
@@ -162,9 +183,19 @@ export function AnswerBox({
 
   // 담당 태그만 바뀌고 답변은 같다면 최신 버전을 쓴다. 다른 답변이 들어오면 기존 초안으로 덮어쓰지 않는다.
   useEffect(() => {
+    clearDraft(draftKey, question.answer)
+    if (
+      !conflicted.current &&
+      value === saved &&
+      value === question.answer &&
+      status !== 'saving'
+    ) {
+      latest.current = question.answer
+      sent.current = question.answer
+    }
     if (!conflicted.current && question.answer === latest.current)
       version.current = question.version
-  }, [question.answer, question.version])
+  }, [question.answer, question.version, value, saved, status, draftKey])
 
   // 카드가 사라질 때(다른 지원자로 넘어감) 저장 안 된 답이나 분석에 안 넘긴 답이 있으면 보낸다
   useEffect(
@@ -194,6 +225,7 @@ export function AnswerBox({
         onChange={(event) => {
           setValue(event.target.value)
           latest.current = event.target.value
+          setDurable(writeDraft(draftKey, event.target.value, version.current))
           window.clearTimeout(timer.current)
           timer.current = window.setTimeout(() => void save(false), AUTOSAVE_MS)
         }}
@@ -205,6 +237,67 @@ export function AnswerBox({
         }}
         className="min-h-0 resize-none"
       />
+      {recovered && (
+        <p role="status" className="text-xs text-muted-foreground">
+          저장되지 않은 답변을 이 브라우저에서 복구했어요.
+        </p>
+      )}
+      {!durable && (
+        <p role="alert" className="text-xs text-destructive">
+          이 브라우저에 임시저장할 수 없어요. 이동 전에 내용을 복사해 주세요.
+        </p>
+      )}
+      {editable && compare && (
+        <div role="alert" className="space-y-2 rounded-lg border p-3 text-sm">
+          <p>다른 화면에서 답변이 변경됐어요. 작성한 초안은 보관돼 있어요.</p>
+          <Button variant="outline" size="sm" onClick={() => void queryClient.invalidateQueries()}>
+            최신 답변 불러오기
+          </Button>
+          <p className="whitespace-pre-wrap">서버 답변: {question.answer || '(빈 답변)'}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              latest.current = question.answer
+              sent.current = question.answer
+              version.current = question.version
+              conflicted.current = false
+              saveError.current = null
+              pending.current = false
+              clearDraft(draftKey, value)
+              setValue(question.answer)
+              setSaved(question.answer)
+              setCompare(false)
+              setRecovered(false)
+              setStatus('idle')
+            }}
+          >
+            초안 버리고 서버 답변 사용
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              version.current = question.version
+              conflicted.current = false
+              sent.current = null
+              setCompare(false)
+              void save(false)
+            }}
+          >
+            현재 초안으로 다시 저장
+          </Button>
+        </div>
+      )}
+      {editable && !compare && (recovered || status === 'error') && value !== saved && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={status === 'saving'}
+          onClick={() => void save(false)}
+        >
+          답변 저장 다시 시도
+        </Button>
+      )}
       {editable && (
         <FollowUpArea
           question={question}

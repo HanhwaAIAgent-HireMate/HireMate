@@ -9,6 +9,7 @@ import com.hiremate.interview.InterviewSessions;
 import com.hiremate.interview.InterviewView;
 import com.hiremate.interview.InterviewerRole;
 import com.hiremate.interview.QuestionSource;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -178,6 +179,7 @@ public class InterviewerSessionController {
     }
 
     public record PersonalInterviewMemo(@NotNull @Size(max = 5000) String text,
+            @Schema(description = "Workspace personalMemoVersion, not session.version")
             @NotNull @PositiveOrZero Long expectedVersion) {
     }
 }

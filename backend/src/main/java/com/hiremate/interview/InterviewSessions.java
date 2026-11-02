@@ -48,36 +48,6 @@ public class InterviewSessions {
         this.applications = applications;
     }
 
-    /** 인증 모듈이 두 계정의 기업 소속을 확인한 뒤 HR 관리 경로에서만 호출한다. */
-    @Transactional
-    public InterviewAssignment assign(UUID companyId, UUID stageId, UUID applicationId, UUID hrMemberId,
-            UUID practicalMemberId, Long expectedVersion) {
-        recruits.lockStage(companyId, stageId);
-        InterviewView view = interviews.preparationView(companyId, stageId, applicationId);
-        StageStatus stageStatus = recruits.getByStage(companyId, stageId).stage(stageId).orElseThrow().status();
-        if (stageStatus != StageStatus.PENDING && stageStatus != StageStatus.ACTIVE) {
-            throw conflict("STAGE_CLOSED", "The interview stage is closed.");
-        }
-        if (hrMemberId.equals(practicalMemberId)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "DISTINCT_INTERVIEWERS", "Assign two different members.");
-        }
-        InterviewSession session = sessions.lock(companyId, stageId, applicationId).orElse(null);
-        if (session == null) {
-            session = new InterviewSession(companyId, stageId, applicationId, hrMemberId, practicalMemberId);
-        } else {
-            if (session.getStatus() != InterviewSessionStatus.SCHEDULED
-                    || view.questions().stream().anyMatch(question -> !question.answer().isBlank())) {
-                throw conflict("INTERVIEW_STARTED", "Interviewer assignments are locked after recording starts.");
-            }
-            if (expectedVersion == null || expectedVersion != session.getVersion()) {
-                throw conflict("SESSION_CONFLICT", "Reload the latest interview assignment.");
-            }
-            session.assign(hrMemberId, practicalMemberId);
-        }
-        changed(companyId, stageId, applicationId);
-        return toAssignment(sessions.saveAndFlush(session));
-    }
-
     @Transactional(readOnly = true)
     public InterviewAssignment assignment(UUID companyId, UUID stageId, UUID applicationId) {
         interviews.preparationView(companyId, stageId, applicationId);
@@ -215,8 +185,8 @@ public class InterviewSessions {
         InterviewerRole role = requireAssigned(session, memberId);
         requireRunning(session);
         requireActive(companyId, stageId);
-        if (session.getVersion() != expectedVersion) {
-            throw conflict("SESSION_CONFLICT", "Reload the latest personal memo before saving.");
+        if (session.memoVersion(role) != expectedVersion) {
+            throw conflict("MEMO_CONFLICT", "Reload the latest personal memo before saving.");
         }
         session.memo(role, memo);
         sessions.flush();
@@ -227,6 +197,7 @@ public class InterviewSessions {
     @Transactional
     public InterviewView answer(UUID companyId, UUID stageId, UUID questionId, UUID memberId, String answer,
             boolean analyze, Long expectedVersion, boolean assignmentRequired) {
+        recruits.lockStage(companyId, stageId);
         InterviewQuestion question = question(companyId, stageId, questionId);
         InterviewSession session = writeAccess(companyId, stageId, question, memberId, assignmentRequired);
         if (session != null && expectedVersion == null) {
@@ -335,8 +306,8 @@ public class InterviewSessions {
                     return new InterviewerQuestionAccess(question, reason == null, canFollowUp,
                             reason == null && !answeredView(question, view.questions()), reason);
                 }).toList();
-        return new InterviewerWorkspace(toAssignment(session), role, session.memo(role), questions,
-                view.previous(), view.schedule());
+        return new InterviewerWorkspace(toAssignment(session), role, session.memo(role), session.memoVersion(role),
+                questions, view.previous(), view.schedule());
     }
 
     private static boolean answeredView(InterviewView.Question question, List<InterviewView.Question> card) {
@@ -436,6 +407,7 @@ public class InterviewSessions {
     }
 
     public record InterviewerWorkspace(InterviewAssignment session, InterviewerRole myRole, String personalMemo,
+            long personalMemoVersion,
             List<InterviewerQuestionAccess> questions,
             List<InterviewView.PreviousInterview> previous,
             @Schema(nullable = true) InterviewView.Schedule schedule) {

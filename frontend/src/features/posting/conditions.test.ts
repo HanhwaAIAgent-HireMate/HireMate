@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { PostingContent } from './api'
-import { conditionRows, toHeadcount } from './conditions'
+import { conditionRows, formatCareer, parseCareer, toCareerYears, toHeadcount } from './conditions'
 
 const content: PostingContent = {
   roles: [],
@@ -38,5 +38,25 @@ describe('모집 조건', () => {
       { label: '급여', value: '회사 내규에 따름' },
     ])
     expect(conditionRows({ ...content, headcount: null, education: '', salary: '' })).toEqual([])
+  })
+})
+
+describe('경력', () => {
+  it('종류와 연차로 나누고 다시 합친다', () => {
+    expect(parseCareer('경력 3년 이상')).toEqual({ kind: '경력', years: 3 })
+    expect(parseCareer('신입')).toEqual({ kind: '신입', years: null })
+    expect(parseCareer('경력 무관')).toEqual({ kind: '경력 무관', years: null })
+    expect(parseCareer('3년 차 이상')).toEqual({ kind: null, years: null })
+    expect(formatCareer('경력', 5)).toBe('경력 5년 이상')
+    expect(formatCareer('경력', null)).toBe('경력')
+    expect(formatCareer('신입', 5)).toBe('신입')
+  })
+
+  it('연차 칸은 1~99만 받는다', () => {
+    expect(toCareerYears('3')).toBe(3)
+    expect(toCareerYears('')).toBeNull()
+    expect(toCareerYears('0')).toBeNull()
+    expect(toCareerYears('100')).toBeNull()
+    expect(toCareerYears('2.5')).toBeNull()
   })
 })

@@ -92,6 +92,7 @@ export function useInterviewStageLive(stageId: string, enabled = true) {
   const refresh = useCallback(
     (event?: SseEvent) => {
       const applicationId = changedApplication(event?.data)
+      void client.invalidateQueries({ queryKey: sessionKeys.stageAssignment(stageId) })
       void client.invalidateQueries({ queryKey: sessionKeys.progress(stageId) })
       void client.invalidateQueries({
         queryKey: applicationId
