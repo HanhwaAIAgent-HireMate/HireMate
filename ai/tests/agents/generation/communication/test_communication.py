@@ -192,6 +192,15 @@ def test_problems_finds_later_notice_promise_not_in_source() -> None:
     found = problems("다음 전형은 1차 면접입니다. 일정은 별도로 안내드리겠습니다.", source="쓸 내용: 결과만 알린다")
 
     assert found == ["쓸 내용에 없는 나중 안내 약속을 썼다: 별도로 안내"]
+    for sentence, promise in [
+        ("향후 구체적인 일정과 장소 정보는 별도의 안내를 통해 알려드리겠습니다.", "별도의 안내"),
+        ("면접 일정은 추후에 안내드리겠습니다.", "추후에 안내"),
+        ("일정이 확정되는 대로 알려드리겠습니다.", "확정되는 대로 알려"),
+        ("자세한 내용은 개별적으로 연락드리겠습니다.", "개별적으로 연락"),
+    ]:
+        assert problems(sentence, source="쓸 내용: 결과만 알린다") == [
+            f"쓸 내용에 없는 나중 안내 약속을 썼다: {promise}"
+        ]
     request = "HR 요청: 처우는 따로 안내드린다고 한 문장 넣어 줘"
     assert problems("처우는 담당자가 따로 안내드릴 예정입니다.", source=request) == []
 
