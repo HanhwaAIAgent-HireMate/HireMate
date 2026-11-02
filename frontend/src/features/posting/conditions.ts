@@ -21,6 +21,17 @@ export function formatCareer(kind: CareerKind, years: number | null): string {
   return kind === '경력' && years ? `경력 ${years}년 이상` : kind
 }
 
+/**
+ * 자격 요건 · 우대 사항을 쓰는 기준. 신입 · 경력 무관 · 빈 칸은 신입도 지원할 수 있는 수준(entry)으로,
+ * 경력 · 경력 N년 이상은 경력 수준(experienced)으로 쓴다. ai entry_level과 같은 기준이다
+ */
+export type CareerLevel = 'entry' | 'experienced'
+
+export function careerLevel(career: string): CareerLevel {
+  const entry = career === '경력 무관' || career.includes('신입') || !career.startsWith('경력')
+  return entry ? 'entry' : 'experienced'
+}
+
 /** 연차 칸 글을 1~MAX_CAREER_YEARS 숫자로 바꾼다. 비우거나 범위 밖이면 null이다 */
 export function toCareerYears(value: string): number | null {
   const years = Number(value)
