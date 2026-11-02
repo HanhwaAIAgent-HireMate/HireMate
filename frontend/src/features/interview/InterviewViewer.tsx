@@ -32,7 +32,6 @@ import {
   type Interview,
   type InterviewQuestion,
 } from '@/features/interview/api'
-import { AnswerBox } from '@/features/interview/AnswerBox'
 import { HrOpinions } from '@/features/interview/HrOpinions'
 import { CandidateInterviewProgress } from '@/features/interview/CandidateInterviewProgress'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
@@ -149,8 +148,6 @@ function Questions({
       else next.delete(rootId)
       return next
     })
-  // 🎤 이미 꼬리질문이 딸린 질문 (질문마다 꼬리질문은 하나)
-  const parents = new Set(interview.questions.map((question) => question.parentQuestionId))
 
   return (
     <div className="space-y-3">
@@ -298,17 +295,16 @@ function Questions({
               </button>
             )}
           </div>
-          <AnswerBox
-            stageId={stageId}
-            applicationId={applicationId}
-            question={question}
-            editable={editable}
-            // 🎤 꼬리질문은 2단계까지, 질문마다 하나. 2단계 질문에는 버튼이 없고 남은 점은 다음 면접으로 넘긴다
-            canFollowUp={
-              (depths.get(question.questionId) ?? 0) < MAX_FOLLOW_UP_DEPTH &&
-              !parents.has(question.questionId)
-            }
-          />
+          {/* 답변은 면접관이 면접관 모드에서 기록한다. HR 카드에서는 읽기만 한다 */}
+          <p
+            aria-label={`${question.text} 답변`}
+            className={cn(
+              'rounded-lg border border-dashed px-3 py-2 text-sm whitespace-pre-wrap',
+              !question.answer.trim() && 'text-muted-foreground',
+            )}
+          >
+            {question.answer.trim() || '면접관 기록 전'}
+          </p>
           {followUps.has(question.questionId) && (
             <FollowUpToggle
               followUps={followUps.get(question.questionId) ?? []}

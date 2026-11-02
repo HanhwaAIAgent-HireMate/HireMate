@@ -145,23 +145,18 @@ it('확정된 전형에서는 담당 태그를 누를 수 없다', () => {
   state.questions = []
 })
 
-// 🎤 꼬리질문은 원래 질문 아래에 들여 쓰고, 2단계 질문과 이미 꼬리질문이 딸린 질문에는 받기 버튼이 없다
-it('꼬리질문은 2단계까지만 받기 버튼을 보여 준다', () => {
-  const question = (questionId: string, parentQuestionId: string | null) => ({
+it('HR 카드에서는 면접관이 기록한 답변을 읽기만 하고 직접 쓸 수 없다', () => {
+  Element.prototype.scrollIntoView = vi.fn()
+  const question = (questionId: string, answer: string) => ({
     questionId,
     text: `${questionId} 질문`,
     source: 'AI',
-    answer: `${questionId} 답변`,
+    answer,
     reason: null,
     interviewerRole: 'PRACTICAL' as const,
-    parentQuestionId,
+    parentQuestionId: null,
   })
-  state.questions = [
-    question('q1', null),
-    question('f1', 'q1'),
-    question('f2', 'f1'),
-    question('q2', null),
-  ]
+  state.questions = [question('q1', '결제 원장을 직접 설계했다'), question('q2', '')]
   const { unmount } = render(
     <InterviewViewer
       stageId="stage"
@@ -170,8 +165,11 @@ it('꼬리질문은 2단계까지만 받기 버튼을 보여 준다', () => {
       editable
     />,
   )
-  // q1 · f1은 이미 꼬리질문이 있고, f2는 2단계라 버튼이 없다. q2만 받을 수 있다
-  expect(screen.getAllByRole('button', { name: '꼬리질문 받기' })).toHaveLength(1)
+  expect(screen.getByLabelText('q1 질문 답변')).toHaveTextContent('결제 원장을 직접 설계했다')
+  expect(screen.getByLabelText('q2 질문 답변')).toHaveTextContent('면접관 기록 전')
+  expect(screen.queryByRole('textbox', { name: /답변/ })).not.toBeInTheDocument()
+  // 꼬리질문은 면접 중에 면접관이 답변을 보고 받는다
+  expect(screen.queryByRole('button', { name: '꼬리질문 받기' })).not.toBeInTheDocument()
   unmount()
   state.questions = []
 })
