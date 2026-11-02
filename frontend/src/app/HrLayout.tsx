@@ -44,7 +44,8 @@ function HrHeader({ member }: { member: Member }) {
   const company = useCompanyProfile()
   const crumb = useHeaderStore((state) => state.crumb)
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b px-5">
+    // 알림 카드를 오른쪽으로 밀어 닫을 때 화면 밖으로 나간 부분이 가로 스크롤을 만들지 않게 가로만 자른다
+    <header className="flex h-14 shrink-0 items-center gap-3 overflow-x-clip border-b px-5">
       <Link to="/hr" className="flex items-center gap-2.5 font-semibold">
         <LogoMark />
         <span>{company.data?.name ?? ''}</span>
