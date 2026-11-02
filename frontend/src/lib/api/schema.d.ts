@@ -1953,6 +1953,8 @@ export interface components {
             failedCount: number;
             /** Format: date-time */
             sentAt: string | null;
+            /** Format: uuid */
+            nextStageId: string | null;
         };
         OnboardingGuide: {
             startDate: string;
@@ -2058,8 +2060,7 @@ export interface components {
             name: string;
             guide: components["schemas"]["StageGuide"];
             missing: string[];
-            /** Format: int32 */
-            notifiedCount: number;
+            locked: boolean;
         };
         MemoRequest: {
             memo: string;
@@ -2837,26 +2838,26 @@ export interface components {
             null: boolean;
             object: boolean;
             float: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            string: boolean;
-            integralNumber: boolean;
-            pojo: boolean;
-            floatingPointNumber: boolean;
-            short: boolean;
-            int: boolean;
-            long: boolean;
+            number: boolean;
             double: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
+            int: boolean;
             /** @deprecated */
             textual: boolean;
-            boolean: boolean;
+            pojo: boolean;
             binary: boolean;
-            valueNode: boolean;
-            container: boolean;
+            boolean: boolean;
+            string: boolean;
+            short: boolean;
+            long: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            integralNumber: boolean;
+            bigDecimal: boolean;
             missingNode: boolean;
-            number: boolean;
+            floatingPointNumber: boolean;
+            container: boolean;
+            valueNode: boolean;
+            bigInteger: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {

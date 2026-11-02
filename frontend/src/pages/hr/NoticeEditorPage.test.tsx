@@ -37,6 +37,19 @@ function notice(content: string): Notice {
     sentCount: 0,
     failedCount: 0,
     sentAt: null,
+    nextStageId: null,
+  }
+}
+
+/** 다음 전형(1차 면접)의 안내. locked면 앞 전형의 합격 안내를 이미 보낸 것이다 */
+function interviewGuide(locked = false) {
+  return {
+    stageId: 's2',
+    seq: 2,
+    name: '1차 면접',
+    guide: { schedule: null, method: null, place: '', preparation: '', note: '' },
+    missing: ['일정', '진행 방식', '장소·접속 링크', '준비 사항'],
+    locked,
   }
 }
 
@@ -135,5 +148,52 @@ describe('안내 초안 화면', () => {
     fireEvent.click(await screen.findByRole('button', { name: '3명에게 발송' }))
     expect(await screen.findByText('메일을 보내고 있어요')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '보내는 중…' })).toBeDisabled()
+  })
+
+  it('다음 전형 안내는 이 화면에서 채우고, 보내기 전에 저장한다', async () => {
+    const sending = pending()
+    const saved: unknown[] = []
+    const fetch = mockServer(
+      { ...notice('서류 전형에 합격하셨습니다.'), nextStageId: 's2' },
+      {
+        'GET /api/recruitments/r1/stage-guides': () =>
+          Promise.resolve(Response.json([interviewGuide()])),
+        'PUT /api/stages/s2/guide': () => Promise.resolve(Response.json(interviewGuide())),
+        'POST /api/stages/s1/notices/PASS/send': () => sending.promise,
+      },
+    )
+    renderEditor()
+
+    fireEvent.change(await screen.findByLabelText('1차 면접 준비 사항'), {
+      target: { value: '신분증' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '3명에게 발송' }))
+    // 일정 같은 칸이 비어 있어 묻는다. 채운 준비 사항은 빈 칸으로 치지 않는다
+    expect(
+      await screen.findByText(/비어 있는 칸: 일정, 진행 방식, 장소·접속 링크\./),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '그대로 보내기' }))
+
+    expect(await screen.findByText('메일을 보내고 있어요')).toBeInTheDocument()
+    for (const [input] of fetch.mock.calls) {
+      if (input instanceof Request && input.method === 'PUT') saved.push(await input.clone().json())
+    }
+    expect(saved).toEqual([
+      { schedule: null, method: null, place: '', preparation: '신분증', note: '' },
+    ])
+  })
+
+  it('다음 전형 안내를 이미 보냈으면 안내를 고칠 수 없다', async () => {
+    mockServer(
+      { ...notice('서류 전형에 합격하셨습니다.'), nextStageId: 's2' },
+      {
+        'GET /api/recruitments/r1/stage-guides': () =>
+          Promise.resolve(Response.json([interviewGuide(true)])),
+      },
+    )
+    renderEditor()
+
+    expect(await screen.findByLabelText('안내 내용')).toBeInTheDocument()
+    expect(screen.queryByLabelText('1차 면접 준비 사항')).not.toBeInTheDocument()
   })
 })

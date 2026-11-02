@@ -437,14 +437,14 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("다음 전형 안내에는 보내는 때의 다음 전형 안내가 붙고, 공고 화면은 안내를 받은 지원자 수를 알려 준다")
+    @DisplayName("다음 전형 안내에는 보내는 때의 다음 전형 안내가 붙고, 메일을 보내면 그 안내는 잠긴다")
     void nextStageNoticeCarriesStageGuide() throws Exception {
         Stage stage = startDocumentStage(2);
         TestApi hr = stage.hr();
         String recruitment = json(expect(hr.get(stage.path()), 200)).path("recruitmentId").asString();
         String guides = "/api/recruitments/" + recruitment + "/stage-guides";
-        String guidePath = "/api/stages/"
-                + json(expect(hr.get(guides), 200)).get(0).path("stageId").asString() + "/guide";
+        String nextStageId = json(expect(hr.get(guides), 200)).get(0).path("stageId").asString();
+        String guidePath = "/api/stages/" + nextStageId + "/guide";
         LocalDate first = LocalDate.now().plusDays(10);
         String firstText = first.format(DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN));
         expect(hr.put(guidePath, Map.of("schedule", first.toString(), "method", "ONLINE", "place", "",
@@ -467,8 +467,10 @@ class ScreeningTests extends IntegrationTest {
                 ※ 11월 1일까지 참석 여부를 알려 주세요.
                 ※ 건물 주차는 지원되지 않습니다.""".formatted(firstText));
         assertThat(notices.get(0).path("guideMissing").toString()).isEqualTo("[\"장소·접속 링크\"]");
+        assertThat(notices.get(0).path("nextStageId").asString()).isEqualTo(nextStageId);
         assertThat(notices.get(1).path("guide").asString()).isEmpty();
         assertThat(notices.get(1).path("guideMissing").size()).isZero();
+        assertThat(notices.get(1).path("nextStageId").isNull()).isTrue();
         JsonNode preview = json(expect(hr.get(stage.path() + "/notices/PASS/preview"), 200));
         assertThat(preview.path("html").asString()).containsSubsequence("홍길동님", ">1차 면접 안내</td>", ">일정</td>",
                 ">" + firstText + "</td>", "※ 건물 주차는 지원되지 않습니다.");
@@ -483,7 +485,10 @@ class ScreeningTests extends IntegrationTest {
                 .doesNotContain("신분증"));
         assertThat(mail.html).anySatisfy(html -> assertThat(html)
                 .containsSubsequence("지원자1님", ">1차 면접 안내</td>", ">" + secondText + "</td>"));
-        assertThat(json(expect(hr.get(guides), 200)).get(0).path("notifiedCount").asInt()).isEqualTo(1);
+        assertThat(json(expect(hr.get(guides), 200)).get(0).path("locked").asBoolean()).isTrue();
+        // 실패한 지원자에게 다시 보낼 때도 같은 안내가 붙도록, 보낸 뒤에는 안내를 고칠 수 없다
+        expect(hr.put(guidePath, Map.of("schedule", second.plusDays(1).toString(), "place", "", "preparation", "",
+                "note", "")), 409);
     }
 
     @Test

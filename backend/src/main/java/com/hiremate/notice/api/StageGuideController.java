@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 공고 작성 화면의 전형별 안내. 다음 전형 안내 메일에 붙는다. */
+/** 전형별 안내. 다음 전형 안내 메일 화면에서 보내기 전에 고치고, 그 메일 아래에 붙는다. */
 @RestController
 public class StageGuideController {
 
