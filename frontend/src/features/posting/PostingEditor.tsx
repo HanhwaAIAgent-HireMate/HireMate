@@ -430,7 +430,6 @@ export function PostingEditor({
                   style={{ width: `calc(${textWidth(shown.title || '채용명') * 0.92}em + 2px)` }}
                   className="max-w-full min-w-0 bg-transparent outline-none"
                 />
-                <span className="shrink-0">채용</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {TAGS.map((tag) =>
