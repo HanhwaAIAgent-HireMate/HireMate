@@ -12,17 +12,18 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 면접관의 준비 완료. 배정된 면접관이 면접 진행 화면에서 [준비 완료]를 누르면 준비로 세고, 화면을 열어 둔 동안(SSE 연결)
- * 접속 중으로 본다. 배정된 면접관이 모두 준비 완료하고 접속 중이면 면접이 바로 시작된다 ({@link InterviewSessions#ready}).
- * 시작 전에 화면을 떠나면 준비 완료가 풀린다 ({@link InterviewLive}).
+ * 면접관의 준비 완료. 면접은 같은 시간 면접자 묶음({@link InterviewGroups}) 단위로 연다. 배정된 면접관이 면접 진행
+ * 화면에서 [준비 완료]를 누르면 그 시간 면접자 모두에 대해 준비로 세고, 이 전형의 면접 화면을 열어 둔 동안(SSE 연결)
+ * 접속 중으로 본다. 배정된 면접관이 모두 준비 완료하고 접속 중이면 그 시간 면접이 함께 시작된다
+ * ({@link InterviewSessions#ready}). 시작 전에 화면을 떠나면 준비 완료가 풀린다 ({@link InterviewLive}).
  */
 @Service
 public class InterviewAttendances {
@@ -32,13 +33,15 @@ public class InterviewAttendances {
 
     private final InterviewAttendanceRepository attendance;
     private final InterviewSessionRepository sessions;
+    private final InterviewGroups groups;
     private final RecruitService recruits;
     private final InterviewLive live;
 
     public InterviewAttendances(InterviewAttendanceRepository attendance, InterviewSessionRepository sessions,
-            RecruitService recruits, InterviewLive live) {
+            InterviewGroups groups, RecruitService recruits, InterviewLive live) {
         this.attendance = attendance;
         this.sessions = sessions;
+        this.groups = groups;
         this.recruits = recruits;
         this.live = live;
     }
@@ -52,55 +55,64 @@ public class InterviewAttendances {
         }
     }
 
-    /** 지원자 한 명의 준비 현황. stageActive가 false면 결과를 확정한 전형이라 의견도 읽기만 한다. */
+    /** 지원자 한 명이 속한 시간 면접의 준비 현황. stageActive가 false면 결과를 확정한 전형이라 의견도 읽기만 한다. */
     public record Attendance(boolean stageActive, List<Attendee> attendees) {
     }
 
-    /** HR 화면의 진행 현황 한 줄: 지원자별 면접 상태와 면접관 준비 현황. */
+    /** HR 화면의 진행 현황 한 줄: 지원자별 면접 일시 · 상태와 그 시간 면접의 면접관 준비 현황. */
     public record SessionProgress(UUID applicationId, InterviewSessionStatus status,
-            @Schema(nullable = true) Instant startedAt, @Schema(nullable = true) Instant endedAt,
-            List<Attendee> attendees) {
+            @Schema(nullable = true) Instant scheduledAt, @Schema(nullable = true) Instant startedAt,
+            @Schema(nullable = true) Instant endedAt, List<Attendee> attendees) {
     }
 
-    /** 준비 완료를 남긴다. 상태와 권한은 {@link InterviewSessions#ready}가 면접을 잠근 뒤 확인한다. */
-    void markReady(InterviewSession session, UUID memberId) {
-        attendance.findById(new InterviewAttendance.Key(session.getStageId(), session.getApplicationId(), memberId))
-                .ifPresentOrElse(InterviewAttendance::seen, () -> attendance.save(new InterviewAttendance(
-                        session.getStageId(), session.getApplicationId(), memberId, session.getCompanyId())));
+    /** 같은 시간 면접자 모두에 대해 준비 완료를 남긴다. 상태와 권한은 {@link InterviewSessions#ready}가 확인한다. */
+    void markReady(List<InterviewSession> present, UUID memberId) {
+        for (InterviewSession session : present) {
+            attendance.findById(new InterviewAttendance.Key(session.getStageId(), session.getApplicationId(),
+                    memberId)).ifPresentOrElse(InterviewAttendance::seen, () -> attendance.save(new InterviewAttendance(
+                            session.getStageId(), session.getApplicationId(), memberId, session.getCompanyId())));
+        }
         attendance.flush();
     }
 
-    /** 준비 완료를 거둔다. */
-    void clearReady(InterviewSession session, UUID memberId) {
-        attendance.findById(new InterviewAttendance.Key(session.getStageId(), session.getApplicationId(), memberId))
-                .ifPresent(attendance::delete);
+    /** 같은 시간 면접자 모두에 대해 준비 완료를 거둔다. */
+    void clearReady(List<InterviewSession> members, UUID memberId) {
+        for (InterviewSession session : members) {
+            attendance.findById(new InterviewAttendance.Key(session.getStageId(), session.getApplicationId(),
+                    memberId)).ifPresent(attendance::delete);
+        }
         attendance.flush();
     }
 
     /** 면접관이 보는 준비 현황. 배정된 면접관만 연다. */
     @Transactional(readOnly = true)
     public Attendance attendance(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {
-        return view(companyId, assigned(companyId, stageId, applicationId, memberId), memberId);
+        InterviewSession session = assigned(companyId, stageId, applicationId, memberId);
+        boolean active = recruits.getByStage(companyId, stageId).stage(stageId).orElseThrow().status()
+                == StageStatus.ACTIVE;
+        return new Attendance(active, attendees(session, groups.members(session),
+                attendance.findByStageIdAndCompanyId(stageId, companyId), memberId));
     }
 
     /** HR 화면의 전형 진행 현황: 면접관을 배정한 지원자마다. */
     @Transactional(readOnly = true)
     public List<SessionProgress> stage(UUID companyId, UUID stageId) {
         recruits.getByStage(companyId, stageId);
-        Map<UUID, List<InterviewAttendance>> entered = attendance.findByStageIdAndCompanyId(stageId, companyId)
-                .stream().collect(Collectors.groupingBy(InterviewAttendance::getApplicationId));
-        return sessions.findByStageIdAndCompanyId(stageId, companyId).stream()
+        List<InterviewAttendance> rows = attendance.findByStageIdAndCompanyId(stageId, companyId);
+        List<InterviewSession> all = sessions.findByStageIdAndCompanyId(stageId, companyId);
+        Map<UUID, Instant> at = groups.stageSchedule(companyId, stageId);
+        Map<UUID, List<InterviewSession>> slots = InterviewGroups.byApplication(all, at);
+        return all.stream()
                 .map(session -> new SessionProgress(session.getApplicationId(), session.getStatus(),
-                        session.getStartedAt(), session.getEndedAt(),
-                        attendees(session, entered.getOrDefault(session.getApplicationId(), List.of()), null)))
+                        at.get(session.getApplicationId()), session.getStartedAt(), session.getEndedAt(),
+                        attendees(session, slots.get(session.getApplicationId()), rows, null)))
                 .toList();
     }
 
-    /** 배정된 면접관이 모두 준비 완료했고 지금 접속 중인가. */
-    boolean ready(InterviewSession session) {
-        return attendees(session, attendance.findByStageIdAndApplicationIdAndCompanyId(session.getStageId(),
-                session.getApplicationId(), session.getCompanyId()), null).stream()
-                .allMatch(attendee -> attendee.ready() && attendee.online());
+    /** 같은 시간 면접에 배정된 면접관이 모두 준비 완료했고 지금 접속 중인가. */
+    boolean ready(InterviewSession session, List<InterviewSession> members) {
+        return attendees(session, members, attendance.findByStageIdAndCompanyId(session.getStageId(),
+                session.getCompanyId()), null).stream().allMatch(attendee -> attendee.ready() && attendee.online());
     }
 
     /** 면접관의 SSE 구독 전에 배정을 확인한다. */
@@ -109,29 +121,28 @@ public class InterviewAttendances {
         assigned(companyId, stageId, applicationId, memberId);
     }
 
-    private Attendance view(UUID companyId, InterviewSession session, UUID viewer) {
-        boolean active = recruits.getByStage(companyId, session.getStageId()).stage(session.getStageId())
-                .orElseThrow().status() == StageStatus.ACTIVE;
-        return new Attendance(active, attendees(session, attendance.findByStageIdAndApplicationIdAndCompanyId(
-                session.getStageId(), session.getApplicationId(), companyId), viewer));
-    }
-
-    /** 인사 · 실무 순서의 배정된 면접관. */
-    private List<Attendee> attendees(InterviewSession session, List<InterviewAttendance> found, UUID viewer) {
-        Map<UUID, InterviewAttendance> byMember = found.stream()
-                .collect(Collectors.toMap(InterviewAttendance::getMemberId, Function.identity()));
+    /** 인사 · 실무 순서의 배정된 면접관. 준비 완료는 같은 시간 면접에서 불참을 뺀 지원자 모두에 남겼을 때다. */
+    private List<Attendee> attendees(InterviewSession session, List<InterviewSession> members,
+            List<InterviewAttendance> rows, UUID viewer) {
+        Set<UUID> present = InterviewGroups.present(members).stream().map(InterviewSession::getApplicationId)
+                .collect(Collectors.toSet());
         Instant fresh = Instant.now().minus(ONLINE);
         return List.of(
-                attendee(session, InterviewerRole.HR, session.getHrMemberId(), byMember, fresh, viewer),
-                attendee(session, InterviewerRole.PRACTICAL, session.getPracticalMemberId(), byMember, fresh, viewer));
+                attendee(session, InterviewerRole.HR, session.getHrMemberId(), present, rows, fresh, viewer),
+                attendee(session, InterviewerRole.PRACTICAL, session.getPracticalMemberId(), present, rows, fresh,
+                        viewer));
     }
 
-    private Attendee attendee(InterviewSession session, InterviewerRole role, UUID memberId,
-            Map<UUID, InterviewAttendance> byMember, Instant fresh, UUID viewer) {
-        InterviewAttendance ready = byMember.get(memberId);
-        boolean online = live.connected(session.getStageId(), session.getApplicationId(), memberId)
-                || ready != null && ready.getLastSeenAt().isAfter(fresh);
-        return new Attendee(role, memberId, "", ready != null, online, memberId.equals(viewer));
+    private Attendee attendee(InterviewSession session, InterviewerRole role, UUID memberId, Set<UUID> present,
+            List<InterviewAttendance> rows, Instant fresh, UUID viewer) {
+        List<InterviewAttendance> mine = rows.stream()
+                .filter(row -> row.getMemberId().equals(memberId) && present.contains(row.getApplicationId()))
+                .toList();
+        boolean ready = !present.isEmpty() && mine.stream().map(InterviewAttendance::getApplicationId)
+                .collect(Collectors.toSet()).containsAll(present);
+        boolean online = live.connected(session.getStageId(), memberId)
+                || mine.stream().anyMatch(row -> row.getLastSeenAt().isAfter(fresh));
+        return new Attendee(role, memberId, "", ready, online, memberId.equals(viewer));
     }
 
     private InterviewSession assigned(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {

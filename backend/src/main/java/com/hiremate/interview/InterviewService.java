@@ -2,12 +2,14 @@ package com.hiremate.interview;
 
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.global.ApiException;
+import com.hiremate.interview.domain.InterviewAttendanceRepository;
 import com.hiremate.interview.domain.InterviewPreparation;
 import com.hiremate.interview.domain.InterviewPreparationRepository;
 import com.hiremate.interview.domain.InterviewQuestion;
 import com.hiremate.interview.domain.InterviewQuestionRepository;
 import com.hiremate.interview.domain.InterviewSchedule;
 import com.hiremate.interview.domain.InterviewScheduleRepository;
+import com.hiremate.interview.domain.InterviewSession;
 import com.hiremate.interview.domain.InterviewSessionRepository;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
@@ -21,6 +23,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -51,11 +54,13 @@ public class InterviewService {
     private final ScreeningService screening;
     private final ApplicationEventPublisher events;
     private final ApplicationService applications;
+    private final InterviewAttendanceRepository attendance;
 
     public InterviewService(InterviewQuestionRepository questions, InterviewScheduleRepository schedules,
             RecruitService recruits, ScreeningService screening, ApplicationEventPublisher events,
             ApplicationService applications, InterviewPreparationRepository preparations,
-            InterviewSessionRepository sessions) {
+            InterviewSessionRepository sessions, InterviewAttendanceRepository attendance) {
+        this.attendance = attendance;
         this.questions = questions;
         this.schedules = schedules;
         this.recruits = recruits;
@@ -424,14 +429,65 @@ public class InterviewService {
         }
     }
 
+    /**
+     * 면접 일시를 정한다. 같은 일시의 지원자는 한 면접으로 함께 시작하므로, 시작했거나 끝난 면접은 옮길 수 없고 이미 시작한
+     * 시간으로 넣을 수도 없다. 시간을 옮기면 그 지원자에 대한 준비 완료는 거둔다 (함께 면접 볼 사람이 바뀐다).
+     * 불참한 지원자를 새 시간으로 옮기면 그 시간의 예정 면접자로 돌아온다.
+     */
     @Transactional
     public InterviewView schedule(UUID companyId, UUID stageId, UUID applicationId, Instant scheduledAt,
             String interviewers) {
         interviewStage(companyId, stageId, applicationId);
+        recruits.lockStage(companyId, stageId);
         InterviewSchedule schedule = schedules.findById(new InterviewSchedule.Key(stageId, applicationId))
                 .orElseGet(() -> schedules.save(new InterviewSchedule(stageId, applicationId, companyId)));
+        if (!Objects.equals(schedule.getScheduledAt(), scheduledAt)) {
+            Optional<InterviewSession> session = sessions.lock(companyId, stageId, applicationId);
+            if (session.map(InterviewSession::getStatus).filter(status -> status == InterviewSessionStatus.IN_PROGRESS
+                    || status == InterviewSessionStatus.ENDED).isPresent()) {
+                throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_STARTED",
+                        "Started interviews cannot be rescheduled.");
+            }
+            if (scheduledAt != null && slotStarted(companyId, stageId, applicationId, scheduledAt)) {
+                throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_SLOT_STARTED",
+                        "That interview time has already started.");
+            }
+            session.filter(found -> found.getStatus() == InterviewSessionStatus.ABSENT)
+                    .ifPresent(found -> found.rejoin(InterviewSessionStatus.SCHEDULED, null));
+            attendance.clear(stageId, applicationId);
+            // 함께 면접 볼 사람이 바뀌었으니 이 전형의 모든 면접 화면에 알린다
+            events.publishEvent(new InterviewSessionChanged(companyId, stageId, null));
+        }
         schedule.change(scheduledAt, interviewers == null ? "" : interviewers.strip());
         return view(companyId, stageId, applicationId);
+    }
+
+    /** HR 전형 화면의 면접 일시 목록: 일시를 정한 지원자만. 지원자 목록을 시간별로 나누고 같은 시간을 고를 때 쓴다 */
+    @Transactional(readOnly = true)
+    public List<StageSchedule> schedules(UUID companyId, UUID stageId) {
+        StageInfo stage = recruits.getByStage(companyId, stageId).stage(stageId).orElseThrow();
+        if (stage.type() != StageType.INTERVIEW) {
+            throw new ApiException(HttpStatus.CONFLICT, "NOT_INTERVIEW_STAGE", "Only interview stages have schedules.");
+        }
+        return schedules.findByStageIdAndCompanyId(stageId, companyId).stream()
+                .filter(schedule -> schedule.getScheduledAt() != null)
+                .map(schedule -> new StageSchedule(schedule.getApplicationId(), schedule.getScheduledAt()))
+                .toList();
+    }
+
+    /** 지원자 한 명의 면접 일시 */
+    public record StageSchedule(UUID applicationId, Instant scheduledAt) {
+    }
+
+    /** 이 일시에 이미 시작했거나 끝난 면접이 있나 (같은 시간 면접에 나중에 끼워 넣을 수 없다) */
+    private boolean slotStarted(UUID companyId, UUID stageId, UUID applicationId, Instant at) {
+        Set<UUID> same = schedules.findByStageIdAndCompanyId(stageId, companyId).stream()
+                .filter(other -> at.equals(other.getScheduledAt()) && !other.getApplicationId().equals(applicationId))
+                .map(InterviewSchedule::getApplicationId).collect(Collectors.toSet());
+        return sessions.findByStageIdAndCompanyId(stageId, companyId).stream()
+                .anyMatch(other -> same.contains(other.getApplicationId())
+                        && (other.getStatus() == InterviewSessionStatus.IN_PROGRESS
+                        || other.getStatus() == InterviewSessionStatus.ENDED));
     }
 
     /** 종료할 때 자동 저장만 된 답변도 한 번의 분석 이벤트로 넘긴다. */

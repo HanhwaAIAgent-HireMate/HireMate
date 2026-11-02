@@ -131,7 +131,9 @@ public class InterviewAssignments {
             return true;
         }
         boolean recorded = sessions.findByStageIdAndCompanyId(stageId, companyId).stream()
-                .anyMatch(session -> session.getStatus() != InterviewSessionStatus.SCHEDULED
+                // 불참은 면접을 하지 않은 것이라 배정을 잠그지 않는다
+                .anyMatch(session -> session.getStatus() == InterviewSessionStatus.IN_PROGRESS
+                        || session.getStatus() == InterviewSessionStatus.ENDED
                         || !session.getHrMemo().isBlank() || !session.getPracticalMemo().isBlank());
         return recorded || questions.findByStageIdAndCompanyId(stageId, companyId).stream()
                 .anyMatch(question -> !question.getAnswer().isBlank());

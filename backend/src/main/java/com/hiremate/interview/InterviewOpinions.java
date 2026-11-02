@@ -88,9 +88,11 @@ public class InterviewOpinions {
         recruits.getByStage(companyId, stageId);
         Map<UUID, List<InterviewOpinion>> byApplication = opinions.findByStageIdAndCompanyId(stageId, companyId)
                 .stream().collect(Collectors.groupingBy(InterviewOpinion::getApplicationId));
+        // 불참한 지원자는 면접을 보지 않았으니 받을 의견도 없다
         return sessions.findByStageIdAndCompanyId(stageId, companyId).stream()
-                .map(session -> new CandidateOpinions(session.getApplicationId(), views(session,
-                        byApplication.getOrDefault(session.getApplicationId(), List.of()), null, true)))
+                .map(session -> new CandidateOpinions(session.getApplicationId(),
+                        session.getStatus() == InterviewSessionStatus.ABSENT ? List.of() : views(session,
+                                byApplication.getOrDefault(session.getApplicationId(), List.of()), null, true)))
                 .toList();
     }
 

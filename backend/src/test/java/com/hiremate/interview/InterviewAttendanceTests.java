@@ -70,10 +70,10 @@ class InterviewAttendanceTests extends IntegrationTest {
 
         JsonNode started = json(expect(room.interview().hr().get("/api/companies/current/interviews/started"), 200));
         assertThat(started).hasSize(1);
-        assertThat(started.get(0).path("applicationId").asString())
-                .isEqualTo(room.interview().applicationId().toString());
         assertThat(started.get(0).path("stageId").asString()).isEqualTo(room.interview().stageId().toString());
-        assertThat(started.get(0).path("applicantName").asString()).isNotBlank();
+        assertThat(started.get(0).path("applicantNames")).hasSize(1);
+        assertThat(started.get(0).path("applicantNames").get(0).asString()).isNotBlank();
+        assertThat(started.get(0).path("scheduledAt").asString()).isNotBlank();
         assertThat(started.get(0).path("stageName").asString()).isNotBlank();
         assertThat(started.get(0).path("startedAt").asString()).isNotBlank();
         // 면접관은 HR 진행 현황과 HR 알림을 열 수 없다
@@ -87,8 +87,7 @@ class InterviewAttendanceTests extends IntegrationTest {
         Room room = room();
         expect(room.kim().post(room.session() + "/ready", null), 200);
 
-        attendance.release(room.interview().stageId(), room.interview().applicationId(), room.kim().memberId(),
-                InterviewSessionStatus.SCHEDULED);
+        attendance.release(room.interview().stageId(), room.kim().memberId(), InterviewSessionStatus.SCHEDULED);
         JsonNode released = json(expect(room.people().get(room.session() + "/attendance"), 200));
         assertThat(attendee(released, "PRACTICAL").path("ready").asBoolean()).isFalse();
         expect(room.people().post(room.session() + "/ready", null), 200);
@@ -96,8 +95,7 @@ class InterviewAttendanceTests extends IntegrationTest {
 
         expect(room.kim().post(room.session() + "/ready", null), 200);
         assertThat(status(room)).isEqualTo("IN_PROGRESS");
-        attendance.release(room.interview().stageId(), room.interview().applicationId(), room.kim().memberId(),
-                InterviewSessionStatus.SCHEDULED);
+        attendance.release(room.interview().stageId(), room.kim().memberId(), InterviewSessionStatus.SCHEDULED);
         JsonNode kept = json(expect(room.people().get(room.session() + "/attendance"), 200));
         assertThat(attendee(kept, "PRACTICAL").path("ready").asBoolean()).isTrue();
     }
@@ -226,6 +224,11 @@ class InterviewAttendanceTests extends IntegrationTest {
         body.put("practicalMemberId", kim.memberId().toString());
         body.put("expectedVersion", null);
         expect(interview.hr().put(interview.stage() + "/interview/assignment", body), 200);
+        // 면접은 일시가 정해져야 시작할 수 있다
+        Map<String, Object> schedule = new HashMap<>();
+        schedule.put("scheduledAt", "2026-11-20T05:00:00Z");
+        schedule.put("interviewers", "");
+        expect(interview.hr().put(interview.candidate() + "/interview/schedule", schedule), 200);
         // 앞 전형 확정 때 AI가 미리 만드는 질문이 다 들어온 뒤에 시작한다 (만드는 중이면 시작할 수 없다)
         long deadline = System.currentTimeMillis() + 15_000;
         while (System.currentTimeMillis() < deadline && (json(expect(interview.hr().get(interview.candidate()

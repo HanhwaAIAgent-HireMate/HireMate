@@ -54,7 +54,7 @@ public class InterviewAssignmentController {
                 InterviewMemberDirectory.InterviewMemberChoice::name));
         return attendances.stage(companyId, stageId).stream()
                 .map(row -> new InterviewAttendances.SessionProgress(row.applicationId(), row.status(),
-                        row.startedAt(), row.endedAt(), row.attendees().stream()
+                        row.scheduledAt(), row.startedAt(), row.endedAt(), row.attendees().stream()
                                 .map(attendee -> attendee.named(names.getOrDefault(attendee.memberId(), "")))
                                 .toList()))
                 .toList();

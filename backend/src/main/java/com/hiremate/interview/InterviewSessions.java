@@ -1,7 +1,9 @@
 package com.hiremate.interview;
 
+import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.global.ApiException;
+import com.hiremate.interview.domain.InterviewAttendanceRepository;
 import com.hiremate.interview.domain.InterviewQuestion;
 import com.hiremate.interview.domain.InterviewQuestionRepository;
 import com.hiremate.interview.domain.InterviewSession;
@@ -13,11 +15,13 @@ import com.hiremate.recruit.StageStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.PageRequest;
@@ -35,12 +39,17 @@ public class InterviewSessions {
     private final RecruitService recruits;
     private final ApplicationService applications;
     private final InterviewAttendances attendances;
+    private final InterviewGroups groups;
+    private final InterviewAttendanceRepository attendance;
     private final ApplicationEventPublisher events;
 
     public InterviewSessions(InterviewSessionRepository sessions, InterviewQuestionRepository questions,
             InterviewService interviews, RecruitService recruits, ApplicationService applications,
-            InterviewAttendances attendances, ApplicationEventPublisher events) {
+            InterviewAttendances attendances, InterviewGroups groups, InterviewAttendanceRepository attendance,
+            ApplicationEventPublisher events) {
         this.attendances = attendances;
+        this.groups = groups;
+        this.attendance = attendance;
         this.events = events;
         this.sessions = sessions;
         this.questions = questions;
@@ -112,8 +121,9 @@ public class InterviewSessions {
     }
 
     /**
-     * 면접관의 [준비 완료]. 배정된 두 면접관이 모두 준비 완료하고 접속 중이면 그 자리에서 면접을 시작한다.
-     * 질문이 시작할 수 있는 상태가 아니면 준비 완료를 받지 않는다 (시작할 수 없는 준비가 남지 않게 한다).
+     * 면접관의 [준비 완료]. 면접은 같은 시간 면접자 묶음 단위로 연다. 그 시간 면접자(불참 제외) 모두에 대해 준비로 세고,
+     * 배정된 두 면접관이 모두 준비 완료하고 접속 중이면 그 시간 면접자를 한꺼번에 시작한다.
+     * 일정이 없거나, 질문이 시작할 수 있는 상태가 아닌 지원자가 있으면 준비 완료를 받지 않는다.
      */
     @Transactional
     public InterviewAttendances.Attendance ready(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {
@@ -121,79 +131,160 @@ public class InterviewSessions {
         InterviewSession session = lock(companyId, stageId, applicationId);
         requireAssigned(session, memberId);
         requireActive(companyId, stageId);
-        if (session.getStatus() == InterviewSessionStatus.SCHEDULED) {
-            requireStartable(companyId, stageId, applicationId);
-            attendances.markReady(session, memberId);
-            if (attendances.ready(session)) {
-                session.start();
+        if (groups.scheduledAt(stageId, applicationId) == null) {
+            throw conflict("INTERVIEW_NOT_SCHEDULED", "Set the interview time first.");
+        }
+        List<InterviewSession> members = groups.members(session);
+        List<InterviewSession> present = InterviewGroups.present(members);
+        if (InterviewGroups.status(members) == InterviewSessionStatus.SCHEDULED) {
+            for (InterviewSession member : present) {
+                StartProblem problem = startProblem(companyId, stageId, member.getApplicationId());
+                if (problem != null) {
+                    throw conflict(problem.code(), problem.message());
+                }
+            }
+            attendances.markReady(present, memberId);
+            if (attendances.ready(session, members)) {
+                Instant now = Instant.now();
+                present.forEach(member -> member.start(now));
                 sessions.flush();
             }
-            changed(companyId, stageId, applicationId);
+            members.forEach(member -> changed(companyId, stageId, member.getApplicationId()));
         }
         return attendances.attendance(companyId, stageId, applicationId, memberId);
     }
 
-    /** 시작 전에 [준비 완료]를 거둔다. 시작한 면접은 그대로 둔다. */
+    /** 시작 전에 [준비 완료]를 거둔다. 그 시간 면접자 모두에 대해 거두고, 시작한 면접은 그대로 둔다. */
     @Transactional
     public InterviewAttendances.Attendance cancelReady(UUID companyId, UUID stageId, UUID applicationId,
             UUID memberId) {
+        recruits.lockStage(companyId, stageId);
         InterviewSession session = lock(companyId, stageId, applicationId);
         requireAssigned(session, memberId);
-        if (session.getStatus() == InterviewSessionStatus.SCHEDULED) {
-            attendances.clearReady(session, memberId);
-            changed(companyId, stageId, applicationId);
+        List<InterviewSession> members = groups.members(session);
+        if (InterviewGroups.status(members) == InterviewSessionStatus.SCHEDULED) {
+            attendances.clearReady(members, memberId);
+            members.forEach(member -> changed(companyId, stageId, member.getApplicationId()));
         }
         return attendances.attendance(companyId, stageId, applicationId, memberId);
     }
 
-    /** HR 알림: 최근 7일 안에 시작한 면접, 최근 것부터 20개. */
+    /**
+     * 면접 시간에 오지 않은 지원자를 불참으로 두거나 되돌린다. 불참한 지원자는 같은 시간 면접의 준비 · 시작 · 종료에서 빠진다.
+     * 답변을 기록한 지원자는 불참으로 둘 수 없고, 끝난 면접의 불참은 되돌릴 수 없다.
+     */
+    @Transactional
+    public InterviewerWorkspace absent(UUID companyId, UUID stageId, UUID applicationId, UUID memberId,
+            boolean absent) {
+        recruits.lockStage(companyId, stageId);
+        InterviewSession session = lock(companyId, stageId, applicationId);
+        requireAssigned(session, memberId);
+        requireActive(companyId, stageId);
+        List<InterviewSession> members = groups.members(session);
+        if (absent && session.getStatus() != InterviewSessionStatus.ABSENT) {
+            if (session.getStatus() == InterviewSessionStatus.ENDED) {
+                throw conflict("INTERVIEW_ENDED", "The interview has ended.");
+            }
+            if (card(companyId, stageId, applicationId).stream().anyMatch(q -> !q.getAnswer().isBlank())) {
+                throw conflict("INTERVIEW_ANSWERED", "Applicants with recorded answers cannot be marked absent.");
+            }
+            session.markAbsent();
+            attendance.clear(stageId, applicationId);
+        } else if (!absent && session.getStatus() == InterviewSessionStatus.ABSENT) {
+            List<InterviewSession> others = members.stream().filter(member -> member != session).toList();
+            InterviewSessionStatus back = InterviewGroups.status(others);
+            if (back == InterviewSessionStatus.ENDED) {
+                throw conflict("INTERVIEW_ENDED", "The interview has ended.");
+            }
+            session.rejoin(back == InterviewSessionStatus.IN_PROGRESS ? back : InterviewSessionStatus.SCHEDULED,
+                    InterviewGroups.startedAt(others));
+            // 다시 들어온 지원자에 대해서는 아무도 준비하지 않았으니 시작 전이면 준비를 처음부터 받는다
+            if (back != InterviewSessionStatus.IN_PROGRESS) {
+                members.forEach(member -> attendance.clear(stageId, member.getApplicationId()));
+            }
+        }
+        sessions.flush();
+        members.forEach(member -> changed(companyId, stageId, member.getApplicationId()));
+        return workspace(session, memberId);
+    }
+
+    /** HR 알림: 최근 7일 안에 시작한 면접. 같은 시간에 함께 시작한 지원자를 한 줄로 묶어 최근 것부터 20개. */
     @Transactional(readOnly = true)
     public List<StartedInterview> recentStarts(UUID companyId) {
         Instant since = Instant.now().minus(Duration.ofDays(7));
-        return sessions.startedSince(companyId, since, PageRequest.of(0, 20)).stream().map(session -> {
-            RecruitmentInfo recruit = recruits.getByStage(companyId, session.getStageId());
-            String name = applications.applicants(companyId, List.of(session.getApplicationId())).getFirst().name();
-            return new StartedInterview(session.getStageId(), session.getApplicationId(), recruit.id(),
-                    recruit.title(), recruit.stage(session.getStageId()).orElseThrow().name(), name,
-                    session.getStartedAt());
+        Map<List<Object>, List<InterviewSession>> started = new LinkedHashMap<>();
+        sessions.startedSince(companyId, since, PageRequest.of(0, 200)).forEach(session -> started.computeIfAbsent(
+                List.of(session.getStageId(), session.getStartedAt()), key -> new ArrayList<>()).add(session));
+        return started.values().stream().limit(20).map(together -> {
+            InterviewSession first = together.getFirst();
+            RecruitmentInfo recruit = recruits.getByStage(companyId, first.getStageId());
+            List<UUID> ids = together.stream().map(InterviewSession::getApplicationId).toList();
+            Map<UUID, String> names = applications.applicants(companyId, ids).stream()
+                    .collect(Collectors.toMap(ApplicantInfo::applicationId, ApplicantInfo::name));
+            return new StartedInterview(first.getStageId(), recruit.id(), recruit.title(),
+                    recruit.stage(first.getStageId()).orElseThrow().name(),
+                    groups.scheduledAt(first.getStageId(), first.getApplicationId()),
+                    ids.stream().map(id -> names.getOrDefault(id, "")).toList(), first.getStartedAt());
         }).toList();
     }
 
+    /** 면접을 시작할 수 없게 막는 질문 구성. code · message는 API 오류, label은 면접관 화면에 보이는 말이다 */
+    private record StartProblem(String code, String message, String label) {
+    }
+
     /** 면접을 시작할 수 있는 질문 구성인가: 생성이 끝났고, 모든 질문에 담당이 있고, 담당 규칙을 지킨다. */
-    private void requireStartable(UUID companyId, UUID stageId, UUID applicationId) {
+    private StartProblem startProblem(UUID companyId, UUID stageId, UUID applicationId) {
         if (interviews.preparing(companyId, stageId, applicationId)) {
-            throw conflict("QUESTIONS_PREPARING", "Wait for question preparation to finish.");
+            return new StartProblem("QUESTIONS_PREPARING", "Wait for question preparation to finish.",
+                    "질문을 만드는 중이에요");
         }
         List<InterviewQuestion> card = card(companyId, stageId, applicationId);
-        if (card.isEmpty() || card.stream().anyMatch(question -> question.getInterviewerRole() == null)) {
-            throw conflict("QUESTION_OWNER_REQUIRED", "Assign all question owners before starting.");
+        if (card.isEmpty()) {
+            return new StartProblem("QUESTION_OWNER_REQUIRED", "Prepare questions before starting.", "질문이 없어요");
+        }
+        long unowned = card.stream().filter(question -> question.getInterviewerRole() == null).count();
+        if (unowned > 0) {
+            return new StartProblem("QUESTION_OWNER_REQUIRED", "Assign all question owners before starting.",
+                    "담당이 없는 질문 " + unowned + "개");
         }
         for (InterviewQuestion question : card) {
             if (InterviewService.INTRO.equals(question.getText())
                     && question.getInterviewerRole() != InterviewerRole.HR) {
-                throw conflict("INTRO_OWNER", "HR records the common introduction.");
+                return new StartProblem("INTRO_OWNER", "HR records the common introduction.",
+                        "자기소개는 인사 담당이어야 해요");
             }
             if (question.getParentQuestionId() != null && card.stream().anyMatch(parent ->
                     parent.getId().equals(question.getParentQuestionId())
                             && parent.getInterviewerRole() != question.getInterviewerRole())) {
-                throw conflict("FOLLOW_UP_OWNER", "A follow-up must keep its parent's owner.");
+                return new StartProblem("FOLLOW_UP_OWNER", "A follow-up must keep its parent's owner.",
+                        "꼬리질문 담당이 원래 질문과 달라요");
             }
         }
+        return null;
     }
 
+    /** [면접 종료]. 같은 시간 면접자 중 진행 중인 지원자를 모두 함께 끝낸다. */
     @Transactional
     public InterviewerWorkspace end(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {
+        recruits.lockStage(companyId, stageId);
         InterviewSession session = lock(companyId, stageId, applicationId);
         requireAssigned(session, memberId);
-        if (session.getStatus() == InterviewSessionStatus.SCHEDULED) {
+        List<InterviewSession> members = groups.members(session);
+        InterviewSessionStatus status = InterviewGroups.status(members);
+        if (status == InterviewSessionStatus.SCHEDULED) {
             throw conflict("INTERVIEW_NOT_STARTED", "Start the interview first.");
         }
-        if (session.getStatus() == InterviewSessionStatus.IN_PROGRESS) {
+        if (status == InterviewSessionStatus.IN_PROGRESS) {
             requireActive(companyId, stageId);
-            interviews.submitPendingAnswers(companyId, stageId, applicationId);
-            session.end();
+            Instant now = Instant.now();
+            for (InterviewSession member : members) {
+                if (member.getStatus() == InterviewSessionStatus.IN_PROGRESS) {
+                    interviews.submitPendingAnswers(companyId, stageId, member.getApplicationId());
+                    member.end(now);
+                }
+            }
             sessions.flush();
-            changed(companyId, stageId, applicationId);
+            members.forEach(member -> changed(companyId, stageId, member.getApplicationId()));
         }
         return workspace(session, memberId);
     }
@@ -332,14 +423,34 @@ public class InterviewSessions {
                             : question.interviewerRole() != role ? "다른 면접관 담당"
                             : !active ? "진행 중인 전형이 아님"
                             : session.getStatus() == InterviewSessionStatus.SCHEDULED ? "면접 시작 전"
-                            : session.getStatus() == InterviewSessionStatus.ENDED ? "면접 종료" : null;
+                            : session.getStatus() == InterviewSessionStatus.ENDED ? "면접 종료"
+                            : session.getStatus() == InterviewSessionStatus.ABSENT ? "불참" : null;
                     boolean canFollowUp = reason == null && !question.answer().isBlank()
                             && !hasChild(question, view.questions()) && depth(question, view.questions()) < 2;
                     return new InterviewerQuestionAccess(question, reason == null, canFollowUp,
                             reason == null && !answeredView(question, view.questions()), reason);
                 }).toList();
         return new InterviewerWorkspace(toAssignment(session), role, session.memo(role), session.memoVersion(role),
-                questions, view.previous(), view.schedule());
+                questions, view.previous(), view.schedule(), group(session));
+    }
+
+    /** 이 지원자와 같은 시간 면접자. 면접관 화면은 이것으로 함께 시작하고 끝낼 지원자와 막힌 이유를 보여 준다 */
+    private InterviewGroup group(InterviewSession session) {
+        UUID companyId = session.getCompanyId();
+        UUID stageId = session.getStageId();
+        List<InterviewSession> members = groups.members(session);
+        Map<UUID, String> names = applications.applicants(companyId,
+                members.stream().map(InterviewSession::getApplicationId).toList()).stream()
+                .collect(Collectors.toMap(ApplicantInfo::applicationId, ApplicantInfo::name));
+        return new InterviewGroup(groups.scheduledAt(stageId, session.getApplicationId()),
+                InterviewGroups.status(members), members.stream().map(member -> {
+                    UUID id = member.getApplicationId();
+                    StartProblem problem = member.getStatus() == InterviewSessionStatus.SCHEDULED
+                            ? startProblem(companyId, stageId, id) : null;
+                    return new GroupMember(id, names.getOrDefault(id, ""), member.getStatus(),
+                            card(companyId, stageId, id).stream().anyMatch(q -> !q.getAnswer().isBlank()),
+                            problem == null ? null : problem.label());
+                }).toList());
     }
 
     private static boolean answeredView(InterviewView.Question question, List<InterviewView.Question> card) {
@@ -442,7 +553,18 @@ public class InterviewSessions {
             long personalMemoVersion,
             List<InterviewerQuestionAccess> questions,
             List<InterviewView.PreviousInterview> previous,
-            @Schema(nullable = true) InterviewView.Schedule schedule) {
+            @Schema(nullable = true) InterviewView.Schedule schedule,
+            InterviewGroup group) {
+    }
+
+    /** 같은 시간 면접. 일정이 없으면 scheduledAt이 없고 지원자 한 명뿐이며 시작할 수 없다 */
+    public record InterviewGroup(@Schema(nullable = true) Instant scheduledAt, InterviewSessionStatus status,
+            List<GroupMember> members) {
+    }
+
+    /** 같은 시간 면접자 한 명. blocker는 면접을 시작할 수 없게 막는 이유다 (시작 전에만 있다) */
+    public record GroupMember(UUID applicationId, String applicantName, InterviewSessionStatus status,
+            boolean answered, @Schema(nullable = true) String blocker) {
     }
 
     public record AssignedInterview(UUID stageId, UUID applicationId, String recruitmentTitle, String stageName,
@@ -453,8 +575,8 @@ public class InterviewSessions {
     public record AssignedInterviews(List<AssignedInterview> items, long total, int page, int size) {
     }
 
-    /** HR 알림 한 줄: 시작한 면접. */
-    public record StartedInterview(UUID stageId, UUID applicationId, UUID recruitmentId, String recruitmentTitle,
-            String stageName, String applicantName, Instant startedAt) {
+    /** HR 알림 한 줄: 같은 시간에 함께 시작한 면접. */
+    public record StartedInterview(UUID stageId, UUID recruitmentId, String recruitmentTitle, String stageName,
+            @Schema(nullable = true) Instant scheduledAt, List<String> applicantNames, Instant startedAt) {
     }
 }

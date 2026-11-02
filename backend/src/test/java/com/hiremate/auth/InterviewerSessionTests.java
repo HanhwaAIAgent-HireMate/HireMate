@@ -16,7 +16,9 @@ import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewerRole;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.StageType;
+import java.net.http.HttpResponse;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -141,6 +143,7 @@ class InterviewerSessionTests extends IntegrationTest {
                 .findFirst().orElseThrow().path("questionId").asString();
         JsonNode assigned = json(expect(f.hr().put(f.admin(), assignment(f)), 200));
         expect(f.hr().put(f.admin(), assignment(f)), 409);
+        schedule(f, f.applicationId(), SLOT);
         // 담당이 없는 질문이 있으면 시작할 수 없으므로 준비 완료도 받지 않는다
         assertThat(json(expect(f.practical().api().post(f.workspace() + "/ready", null), 409)).path("code")
                 .asString()).isEqualTo("QUESTION_OWNER_REQUIRED");
@@ -214,6 +217,7 @@ class InterviewerSessionTests extends IntegrationTest {
     void concurrentStartAndConfirmationCannotBothSucceed() throws Exception {
         Fixture f = fixture();
         expect(f.hr().put(f.admin(), assignment(f)), 200);
+        schedule(f, f.applicationId(), SLOT);
         expect(f.practical().api().post(f.workspace() + "/ready", null), 200);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             // 두 번째 준비 완료가 면접을 시작한다
@@ -358,6 +362,127 @@ class InterviewerSessionTests extends IntegrationTest {
         assertThat(json(expect(f.people().api().get(f.workspace()), 200)).has("personalMemo")).isTrue();
     }
 
+    @Test
+    @DisplayName("같은 면접 일시의 지원자는 함께 준비 · 시작 · 종료하고, 일정이 없는 지원자는 시작할 수 없다")
+    void sameTimeApplicantsInterviewTogether() throws Exception {
+        Fixture f = fixture(3, false);
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        List<String> ids = applicants(f);
+        String a = ids.get(0);
+        String b = ids.get(1);
+        String unscheduled = ids.get(2);
+        schedule(f, a, SLOT);
+        schedule(f, b, SLOT);
+        // HR 전형 화면은 면접 일시 목록으로 지원자를 시간별로 나눈다 (일정이 없는 지원자는 없다)
+        JsonNode schedules = json(expect(f.hr().get(f.legacy() + "/interview/schedules"), 200));
+        assertThat(schedules.valueStream().map(row -> row.path("applicationId").asString()))
+                .containsExactlyInAnyOrder(a, b);
+        expect(f.practical().api().get(f.legacy() + "/interview/schedules"), 403);
+
+        assertThat(code(f.practical().api().post(room(f, unscheduled) + "/ready", null), 409))
+                .isEqualTo("INTERVIEW_NOT_SCHEDULED");
+        JsonNode group = json(expect(f.practical().api().get(room(f, a)), 200)).path("group");
+        assertThat(Instant.parse(group.path("scheduledAt").asString())).isEqualTo(SLOT);
+        assertThat(group.path("status").asString()).isEqualTo("SCHEDULED");
+        assertThat(group.path("members").valueStream().map(member -> member.path("applicationId").asString()))
+                .containsExactly(a, b);
+        assertThat(group.path("members").get(0).path("blocker").isNull()).isTrue();
+        assertThat(json(expect(f.practical().api().get(room(f, unscheduled)), 200)).path("group")
+                .path("scheduledAt").isNull()).isTrue();
+
+        // 한 지원자 화면에서 누른 준비 완료는 같은 시간 면접자 모두에 대한 준비다
+        expect(f.practical().api().post(room(f, a) + "/ready", null), 200);
+        JsonNode fromB = json(expect(f.people().api().get(room(f, b) + "/attendance"), 200));
+        assertThat(fromB.path("attendees").valueStream()
+                .filter(person -> person.path("role").asString().equals("PRACTICAL")).findFirst().orElseThrow()
+                .path("ready").asBoolean()).isTrue();
+        assertThat(status(f, a)).isEqualTo("SCHEDULED");
+        expect(f.people().api().post(room(f, b) + "/ready", null), 200);
+        assertThat(status(f, a)).isEqualTo("IN_PROGRESS");
+        assertThat(status(f, b)).isEqualTo("IN_PROGRESS");
+        assertThat(status(f, unscheduled)).isEqualTo("SCHEDULED");
+
+        JsonNode progress = json(expect(f.hr().get(f.legacy() + "/interview/sessions"), 200));
+        assertThat(progress.valueStream().filter(row -> !row.path("scheduledAt").isNull())
+                .map(row -> row.path("applicationId").asString())).containsExactlyInAnyOrder(a, b);
+        assertThat(progress.valueStream().filter(row -> !row.path("scheduledAt").isNull())
+                .map(row -> row.path("startedAt").asString()).distinct()).hasSize(1);
+        JsonNode started = json(expect(f.hr().get("/api/companies/current/interviews/started"), 200));
+        assertThat(started).hasSize(1);
+        assertThat(started.get(0).path("applicantNames")).hasSize(2);
+        assertThat(Instant.parse(started.get(0).path("scheduledAt").asString())).isEqualTo(SLOT);
+
+        // 시작한 시간에는 끼워 넣을 수 없고, 시작한 면접은 옮길 수 없다
+        assertThat(code(scheduleRequest(f, unscheduled, SLOT), 409)).isEqualTo("INTERVIEW_SLOT_STARTED");
+        assertThat(code(scheduleRequest(f, a, LATER), 409)).isEqualTo("INTERVIEW_STARTED");
+
+        // 한 지원자 화면에서 끝내면 같은 시간 면접자가 모두 끝난다
+        expect(f.people().api().post(room(f, b) + "/end", null), 200);
+        assertThat(status(f, a)).isEqualTo("ENDED");
+        assertThat(status(f, b)).isEqualTo("ENDED");
+    }
+
+    @Test
+    @DisplayName("불참한 지원자는 빼고 시작하고, 시작한 뒤 불참을 되돌리면 진행 중인 면접에 함께한다")
+    void absentApplicantsAreLeftOut() throws Exception {
+        Fixture f = fixture(2, false);
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        List<String> ids = applicants(f);
+        String a = ids.get(0);
+        String b = ids.get(1);
+        schedule(f, a, SLOT);
+        schedule(f, b, SLOT);
+
+        assertThat(json(expect(f.practical().api().post(room(f, b) + "/absent", null), 200))
+                .path("session").path("status").asString()).isEqualTo("ABSENT");
+        // 불참은 면접을 하지 않은 것이라 면접관 배정을 잠그지 않는다
+        assertThat(json(expect(f.hr().get(f.admin()), 200)).path("locked").asBoolean()).isFalse();
+        expect(f.practical().api().post(room(f, a) + "/ready", null), 200);
+        expect(f.people().api().post(room(f, a) + "/ready", null), 200);
+        assertThat(status(f, a)).isEqualTo("IN_PROGRESS");
+        assertThat(status(f, b)).isEqualTo("ABSENT");
+
+        JsonNode rejoined = json(expect(f.practical().api().delete(room(f, b) + "/absent"), 200));
+        assertThat(rejoined.path("session").path("status").asString()).isEqualTo("IN_PROGRESS");
+        assertThat(rejoined.path("session").path("startedAt").asString()).isEqualTo(
+                json(expect(f.people().api().get(room(f, a)), 200)).path("session").path("startedAt").asString());
+
+        // 답변을 기록한 지원자는 불참으로 둘 수 없다
+        JsonNode question = question(rejoined, "PRACTICAL");
+        expect(f.practical().api().put(answerPath(f, question.path("questionId").asString()),
+                answer(question, "결제 원장을 직접 설계했어요")), 200);
+        assertThat(code(f.practical().api().post(room(f, b) + "/absent", null), 409))
+                .isEqualTo("INTERVIEW_ANSWERED");
+
+        expect(f.people().api().post(room(f, a) + "/end", null), 200);
+        assertThat(status(f, b)).isEqualTo("ENDED");
+        assertThat(code(f.practical().api().post(room(f, b) + "/absent", null), 409)).isEqualTo("INTERVIEW_ENDED");
+    }
+
+    @Test
+    @DisplayName("불참한 지원자를 다른 시간으로 옮기면 그 시간의 예정 면접자로 돌아온다")
+    void reschedulingAnAbsentApplicantBringsThemBack() throws Exception {
+        Fixture f = fixture(2, false);
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        List<String> ids = applicants(f);
+        String a = ids.get(0);
+        String b = ids.get(1);
+        schedule(f, a, SLOT);
+        schedule(f, b, SLOT);
+        // 준비 완료한 뒤 함께 볼 사람이 바뀌면 그 지원자에 대한 준비는 거둔다
+        expect(f.practical().api().post(room(f, a) + "/ready", null), 200);
+        expect(f.practical().api().post(room(f, b) + "/absent", null), 200);
+        schedule(f, b, LATER);
+        assertThat(status(f, b)).isEqualTo("SCHEDULED");
+        assertThat(json(expect(f.practical().api().get(room(f, b)), 200)).path("group").path("members"))
+                .hasSize(1);
+
+        expect(f.people().api().post(room(f, a) + "/ready", null), 200);
+        assertThat(status(f, a)).isEqualTo("IN_PROGRESS");
+        assertThat(status(f, b)).isEqualTo("SCHEDULED");
+        assertThat(code(scheduleRequest(f, b, SLOT), 409)).isEqualTo("INTERVIEW_SLOT_STARTED");
+    }
+
     private Fixture fixture() throws Exception {
         return fixture(1, false);
     }
@@ -422,10 +547,55 @@ class InterviewerSessionTests extends IntegrationTest {
         return new Account(api, member.getId());
     }
 
-    /** 두 면접관이 [준비 완료]를 누른다. 배정된 면접관이 모두 준비 완료하면 면접이 바로 시작된다. */
+    /** 면접 일시를 정하고 두 면접관이 [준비 완료]를 누른다. 배정된 면접관이 모두 준비 완료하면 면접이 바로 시작된다. */
     private static void readyBoth(Fixture f) throws Exception {
+        schedule(f, f.applicationId(), SLOT);
         expect(f.practical().api().post(f.workspace() + "/ready", null), 200);
         expect(f.people().api().post(f.workspace() + "/ready", null), 200);
+    }
+
+    /** 테스트의 면접 시간. 같은 일시의 지원자는 한 면접으로 함께 시작하고 함께 끝낸다 */
+    private static final Instant SLOT = Instant.parse("2026-11-20T05:00:00Z");
+
+    private static final Instant LATER = Instant.parse("2026-11-20T07:00:00Z");
+
+    private static HttpResponse<String> scheduleRequest(Fixture f, Object applicationId, Instant at) throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("scheduledAt", at == null ? null : at.toString());
+        body.put("interviewers", "");
+        return f.hr().put(f.legacy() + "/candidates/" + applicationId + "/interview/schedule", body);
+    }
+
+    private static void schedule(Fixture f, Object applicationId, Instant at) throws Exception {
+        expect(scheduleRequest(f, applicationId, at), 200);
+    }
+
+    private static String room(Fixture f, String applicationId) {
+        return "/api/interviewer/sessions/" + f.stageId() + "/" + applicationId;
+    }
+
+    private static String status(Fixture f, String applicationId) throws Exception {
+        return json(expect(f.people().api().get(room(f, applicationId)), 200)).path("session").path("status")
+                .asString();
+    }
+
+    private static String code(HttpResponse<String> response, int status) {
+        return json(expect(response, status)).path("code").asString();
+    }
+
+    /** 전형의 지원자들. 앞 전형 확정 때 미리 만드는 면접 질문이 다 들어올 때까지 기다린다 */
+    private static List<String> applicants(Fixture f) throws Exception {
+        List<String> ids = json(expect(f.hr().get(f.legacy() + "/interview/sessions"), 200)).valueStream()
+                .map(row -> row.path("applicationId").asString()).sorted().toList();
+        for (String id : ids) {
+            Instant deadline = Instant.now().plusSeconds(15);
+            while (Instant.now().isBefore(deadline) && (json(expect(f.hr().get(f.legacy() + "/candidates/" + id
+                    + "/interview/preparing"), 200)).path("preparing").asBoolean() || json(expect(f.hr().get(
+                            f.legacy() + "/candidates/" + id + "/interview"), 200)).path("questions").isEmpty())) {
+                Thread.sleep(200);
+            }
+        }
+        return ids;
     }
 
     private static Map<String, Object> assignment(Fixture f) {

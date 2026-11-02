@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface InterviewScheduleRepository extends JpaRepository<InterviewSchedule, InterviewSchedule.Key> {
 
     List<InterviewSchedule> findByApplicationIdAndCompanyId(UUID applicationId, UUID companyId);
+
+    List<InterviewSchedule> findByStageIdAndCompanyId(UUID stageId, UUID companyId);
 }

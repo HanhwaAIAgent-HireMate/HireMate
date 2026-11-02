@@ -13,6 +13,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -48,6 +49,12 @@ public class InterviewController {
             @PathVariable UUID applicationId, @Valid @RequestBody QuestionRequest request) {
         return sessions.addQuestion(member.companyId(), stageId, applicationId, member.memberId(), request.text(),
                 request.interviewerRole(), false);
+    }
+
+    /** 전형의 면접 일시 목록. 같은 일시의 지원자는 한 면접으로 함께 본다 */
+    @GetMapping("/interview/schedules")
+    public List<InterviewService.StageSchedule> schedules(AuthenticatedMember member, @PathVariable UUID stageId) {
+        return interviews.schedules(member.companyId(), stageId);
     }
 
     @PutMapping("/candidates/{applicationId}/interview/schedule")
