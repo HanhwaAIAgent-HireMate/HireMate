@@ -580,6 +580,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/interview-scheduling/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/finish": {
         parameters: {
             query?: never;
@@ -1324,6 +1340,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["interviewEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stages/{stageId}/interview-scheduling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["status"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2497,6 +2529,12 @@ export interface components {
             text: string;
             check: string;
         };
+        Status: {
+            status: string;
+            /** Format: uuid */
+            nextStageId: string | null;
+            errorCode: string | null;
+        };
         FinishResponse: {
             /** Format: uuid */
             nextStageId: string | null;
@@ -2837,26 +2875,26 @@ export interface components {
             null: boolean;
             object: boolean;
             float: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            string: boolean;
-            integralNumber: boolean;
-            pojo: boolean;
-            floatingPointNumber: boolean;
-            short: boolean;
-            int: boolean;
-            long: boolean;
+            number: boolean;
+            boolean: boolean;
             double: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
+            binary: boolean;
+            string: boolean;
+            long: boolean;
+            int: boolean;
             /** @deprecated */
             textual: boolean;
-            boolean: boolean;
-            binary: boolean;
+            pojo: boolean;
+            short: boolean;
             valueNode: boolean;
-            container: boolean;
+            integralNumber: boolean;
+            bigInteger: boolean;
             missingNode: boolean;
-            number: boolean;
+            bigDecimal: boolean;
+            floatingPointNumber: boolean;
+            container: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -4454,6 +4492,28 @@ export interface operations {
             };
         };
     };
+    retry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Status"];
+                };
+            };
+        };
+    };
     finish: {
         parameters: {
             query?: never;
@@ -5837,6 +5897,28 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": components["schemas"]["SseEmitter"];
+                };
+            };
+        };
+    };
+    status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Status"];
                 };
             };
         };

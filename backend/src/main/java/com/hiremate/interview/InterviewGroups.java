@@ -45,7 +45,7 @@ class InterviewGroups {
         return found;
     }
 
-    /** 이 면접과 같은 시간 면접 (불참 포함, 지원서 순). 일정이 없으면 이 면접 하나다 */
+    /** 이 면접과 같은 시간 면접 (불참 포함, 지원서 ID 문자열 순). 일정이 없으면 이 면접 하나다 */
     List<InterviewSession> members(InterviewSession session) {
         return byApplication(sessions.findByStageIdAndCompanyId(session.getStageId(), session.getCompanyId()),
                 stageSchedule(session.getCompanyId(), session.getStageId())).get(session.getApplicationId());
@@ -53,8 +53,9 @@ class InterviewGroups {
 
     /** 전형의 면접마다 같은 시간 면접 (불참 포함). 일정이 없는 면접은 자기 하나다 */
     static Map<UUID, List<InterviewSession>> byApplication(List<InterviewSession> all, Map<UUID, Instant> at) {
-        Map<Instant, List<InterviewSession>> slots = all.stream().filter(session -> at.containsKey(
-                session.getApplicationId())).sorted(Comparator.comparing(InterviewSession::getApplicationId))
+        Map<Instant, List<InterviewSession>> slots = all.stream()
+                .filter(session -> at.containsKey(session.getApplicationId()))
+                .sorted(Comparator.comparing(session -> session.getApplicationId().toString()))
                 .collect(Collectors.groupingBy(session -> at.get(session.getApplicationId())));
         Map<UUID, List<InterviewSession>> groups = new HashMap<>();
         for (InterviewSession session : all) {
