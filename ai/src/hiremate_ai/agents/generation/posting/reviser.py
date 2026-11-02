@@ -95,10 +95,8 @@ NCS_ORDER_NOTE = (
 ADVANCED_LABEL = "수준이 높은 능력단위"
 """보여 준 능력단위 중 NCS 수준이 가장 높은 것을 능력단위 목록 뒤에 이 이름으로 적는다 (NCS_SYSTEM 규칙 3)."""
 
-JUNIOR_NOTE = "(신입이 지원하는 공고라서 이 능력단위의 능력은 우대 사항에만 쓴다)"
+JUNIOR_NOTE = "(신입도 지원할 수 있는 공고라서 이 능력단위의 능력은 우대 사항에만 쓴다)"
 """규칙 3의 '주요 업무에 꼭 필요하면 자격 요건'을 두면 모델이 신입 공고에도 어려운 능력을 필수로 넣는다."""
-_JUNIOR = re.compile(r"신입")
-"""경력 칸에 이 말이 있으면 신입이 지원하는 공고다 (예: 신입, 신입 · 경력)."""
 
 NCS_DETAIL_CHARS = 3000
 """두 번째 호출에 넣는 능력단위 정의와 수행준거의 글자 수 한도. 능력단위 하나에 평균 700자라 다 넣으면
@@ -180,6 +178,10 @@ WHOLE_POSTING_DEFAULTS = {
 }
 """공고 전체를 써 달라는 요청에서 비어 있는 칸에 코드가 넣는 기본 문구. 빈 칸이 거의 없게 하되, 회사가 정할 값을
 지어내지 않고 공고에서 흔히 쓰는 중립 문구만 쓴다. HR이 수정안을 보고 회사에 맞게 고친다."""
+CAREER_UNSET_NOTE = (
+    "경력을 정하지 않아 신입도 지원할 수 있는 수준으로 자격 요건 · 우대 사항을 썼어요. "
+    "경력으로 바꾸면 다시 쓸 수 있어요."
+)
 LEFT_FOR_HR = ("employment_type", "headcount")
 """공고 전체를 써 달라는 요청에서도 비워 두는 칸. 회사마다 달라 중립 문구가 없어,
 비어 있으면 답에서 정해 달라고 한다."""
@@ -609,7 +611,12 @@ async def _write(
                 NcsDraft,
                 agent=AGENT,
                 system=NCS_SYSTEM,
-                user=_with_reasons(_ncs_prompt(posting, writing_style, request, units, counts, adds), found),
+                user=_with_reasons(
+                    _ncs_prompt(
+                        posting, writing_style, request, units, counts, adds, _career_after(posting, changes, request)
+                    ),
+                    found,
+                ),
             )
             changes, cited, written, dropped = _apply_ncs(changes, ncs, units, counts, posting.content, adds)
             notes = _count_notes(plan, counts, written)
@@ -852,6 +859,8 @@ def _with_defaults(draft: _Draft, edit: _Edit) -> tuple[_Draft, _Edit]:
     if filled:
         labels = ", ".join(FIELD_LABELS[name] for name in filled)
         notes.append(f"{labels} 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요.")
+    if "career" in filled and {name for name, _ in NCS_FIELDS} & set(draft.changed):
+        notes.append(CAREER_UNSET_NOTE)
     if left := [FIELD_LABELS[name] for name in LEFT_FOR_HR if getattr(content, name) in ("", None)]:
         notes.append(f"{', '.join(left)} 칸은 정해 주세요.")
     return replace(draft, content=content, changed=changed), replace(edit, notes=notes)
@@ -1048,12 +1057,15 @@ def _ncs_prompt(
     units: list[NcsUnit],
     counts: dict[str, int],
     adds: set[str] | None = None,
+    career: str | None = None,
 ) -> str:
+    """career는 이번 요청으로 바뀐 뒤의 경력이다. 없으면 지금 공고의 경력이다."""
     content = posting.content
+    career = content.career if career is None else career
     lines = [
         f"채용명: {content.title or '(비어 있음)'}",
         f"직무: {content.job_category or '(비어 있음)'}",
-        f"경력: {content.career or '(비어 있음)'}",
+        f"경력: {career or '(비어 있음)'}",
     ]
     for name in ("duties", "qualifications", "preferred"):
         lines.append(f"지금 {FIELD_LABELS[name]}:")
@@ -1065,7 +1077,7 @@ def _ncs_prompt(
         f"NCS 능력단위 ({ncs_data().source}):",
         *([NCS_ORDER_NOTE] if sum(unit.code in ncs_data().surveys for unit in units) >= 2 else []),
         *_unit_lines(units),
-        *([_advanced_line(advanced, content.career)] if (advanced := _advanced_units(units)) else []),
+        *([_advanced_line(advanced, career)] if (advanced := _advanced_units(units)) else []),
         "",
         f"HR 요청: {request}",
         "",
@@ -1118,9 +1130,25 @@ def _criteria_within(unit: NcsUnit, budget: int) -> set[str]:
 
 
 def _advanced_line(units: list[NcsUnit], career: str) -> str:
-    """수준이 높은 능력단위 줄. 신입이 지원하는 공고면 그 능력은 우대 사항에만 쓰라고 덧붙인다."""
+    """수준이 높은 능력단위 줄. 신입도 지원할 수 있는 공고면 그 능력은 우대 사항에만 쓰라고 덧붙인다."""
     line = f"{ADVANCED_LABEL}: {', '.join(unit.name for unit in units)}"
-    return f"{line} {JUNIOR_NOTE}" if _JUNIOR.search(career) else line
+    return f"{line} {JUNIOR_NOTE}" if entry_level(career) else line
+
+
+def entry_level(career: str) -> bool:
+    """신입도 지원할 수 있는 경력인지. 신입 · 경력 무관 · 빈 칸이면 그렇고, 경력 · 경력 N년 이상이면 아니다.
+
+    예전에 글로 적은 "신입 · 경력"처럼 신입이 들어 있어도 그렇다. frontend careerLevel과 같은 기준이다.
+    """
+    return career == "경력 무관" or "신입" in career or not career.startswith("경력")
+
+
+def _career_after(posting: PostingDraftContext, changes: list[FieldChange], request: str) -> str:
+    """이번 요청으로 바뀐 뒤의 경력. 요청에서 말한 경력이 있으면 그것을, 없으면 지금 공고의 경력을 쓴다."""
+    for change in _requested_facts(changes, request):
+        if LABEL_FIELDS[change.field] == "career" and (career := _career(change.text)):
+            return career
+    return posting.content.career
 
 
 def _advanced_units(units: list[NcsUnit]) -> list[NcsUnit]:

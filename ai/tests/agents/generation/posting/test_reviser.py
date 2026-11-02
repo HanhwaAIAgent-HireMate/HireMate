@@ -7,6 +7,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
     ADVANCED_LABEL,
     ANSWER_ONLY_REPLY,
     BLOCKED_REPLY,
+    CAREER_UNSET_NOTE,
     CHECK_FAILED_REPLY,
     CONTENT_STEP,
     DEFAULT_ITEMS,
@@ -702,8 +703,8 @@ async def test_revise_names_the_highest_level_units() -> None:
 
 
 async def test_revise_tells_junior_postings_to_put_advanced_units_in_preferred() -> None:
-    """신입이 지원하는 공고는 '꼭 필요하면 자격 요건'이라는 여지 없이 어려운 능력을 우대 사항에만 쓰게 한다."""
-    for career in ("신입", "신입 · 경력"):
+    """신입도 지원할 수 있는 공고는 '꼭 필요하면 자격 요건'이라는 여지 없이 어려운 능력을 우대 사항에만 쓰게 한다."""
+    for career in ("신입", "신입 · 경력", "경력 무관", ""):
         junior = posting(content=CONTENT.model_copy(update={"career": career}))
         llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER, INTERFACE_DESIGN]), ncs_draft([]))
 
@@ -718,6 +719,21 @@ async def test_revise_does_not_add_the_junior_note_to_experienced_postings() -> 
     await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
 
     assert JUNIOR_NOTE not in llm.calls[2].user
+
+
+async def test_revise_writes_requirements_for_the_career_the_request_sets() -> None:
+    """요청에서 경력을 함께 정하면 저장된 경력이 아니라 바뀐 뒤의 경력 기준으로 쓴다."""
+    llm = FakeLlm(
+        route("CONTENT", "NCS_REQUIREMENTS"),
+        content(career="신입"),
+        NcsPick(ncs_codes=[SERVER, INTERFACE_DESIGN]),
+        ncs_draft(items(2)),
+    )
+
+    await revise_posting(llm, posting(), "", "신입으로 바꾸고 자격 요건 새로 써 줘")
+
+    assert "\n경력: 신입\n" in llm.calls[3].user
+    assert f"\n{ADVANCED_LABEL}: 인터페이스 설계 {JUNIOR_NOTE}\n" in llm.calls[3].user
 
 
 async def test_revise_names_no_advanced_unit_when_levels_are_equal() -> None:
@@ -1094,6 +1110,23 @@ async def test_revise_fills_blank_fields_with_neutral_defaults_for_a_whole_posti
     assert filled.employment_type == ""
     assert "경력, 학력, 근무 요일 · 시간 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요." in result.reply
     assert "고용 형태, 채용 인원 칸은 정해 주세요." in result.reply
+    assert CAREER_UNSET_NOTE not in result.reply
+
+
+async def test_revise_says_requirements_fit_juniors_when_career_was_left_blank() -> None:
+    blank = EMPTY_LISTS.model_copy(update={"career": ""})
+    llm = FakeLlm(
+        route("CONTENT", writes_posting=True),
+        content(title="백엔드 개발자 채용"),
+        NcsPick(ncs_codes=[SERVER]),
+        ncs_draft(items(5), preferred_items(5)),
+    )
+
+    result = await revise_posting(llm, posting(content=blank), "", "백엔드 개발자 공고 작성해 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.career == "경력 무관"
+    assert CAREER_UNSET_NOTE in result.reply
 
 
 async def test_revise_writes_one_job_as_the_posting_body_even_if_routed_to_roles() -> None:
