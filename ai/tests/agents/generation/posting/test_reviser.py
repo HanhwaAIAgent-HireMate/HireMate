@@ -798,14 +798,14 @@ def preferred_items(count: int) -> list[SourcedItem]:
 @pytest.mark.parametrize(
     ("current", "request_text", "task"),
     [
-        (EMPTY_LISTS, "NCS 기반으로 자격 요건과 우대 사항 써 줘", "자격 요건 5개, 우대 사항 5개를 쓴다."),
-        (CONTENT, "NCS 기반으로 다시 써 줘", "자격 요건 5개, 우대 사항 5개를 쓴다."),
+        (EMPTY_LISTS, "NCS 기반으로 자격 요건과 우대 사항 써 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
+        (CONTENT, "NCS 기반으로 다시 써 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
         (EMPTY_LISTS, "자격 요건 3개, 우대 사항 4개로 써 줘", "자격 요건 3개, 우대 사항 4개를 쓴다."),
         (EMPTY_LISTS, "자격 요건과 우대 사항을 각각 세 개씩 써 줘", "자격 요건 3개, 우대 사항 3개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건은 7개로 써 줘", "자격 요건 7개, 우대 사항 5개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건 만들어 줘", "자격 요건 5개, 우대 사항 5개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건은 7개로 써 줘", "자격 요건 7개, 우대 사항 10개를 쓴다."),
+        (EMPTY_LISTS, "자격 요건 만들어 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
         (CONTENT, "자격 요건은 7개로 써 줘", "자격 요건 7개를 쓴다. 우대 사항은 쓰지 않고 빈 목록으로 둔다."),
-        (EMPTY_LISTS, "우대 사항만 써 줘", "우대 사항 5개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다."),
+        (EMPTY_LISTS, "우대 사항만 써 줘", "우대 사항 10개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다."),
         (
             EMPTY_LISTS,
             "자격 요건은 그대로 두고 우대 사항 다섯 가지 써 줘",
@@ -821,7 +821,7 @@ def preferred_items(count: int) -> list[SourcedItem]:
 async def test_revise_tells_ncs_writer_which_lists_to_write_and_how_many(
     current: PostingContent, request_text: str, task: str
 ) -> None:
-    """말한 목록은 요청대로(개수가 없으면 5개까지), 말하지 않은 목록은 비어 있을 때만 쓴다."""
+    """말한 목록은 요청대로(개수가 없으면 10개까지), 말하지 않은 목록은 비어 있을 때만 쓴다."""
     llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft([]))
 
     await revise_posting(llm, posting(content=current), "", request_text)
@@ -1067,7 +1067,7 @@ async def test_revise_fills_empty_lists_with_ncs_when_asked_to_write_the_whole_p
         "qualifications",
         "preferred",
     ]
-    assert llm.calls[3].user.endswith("지금 할 일: 자격 요건 5개, 우대 사항 5개를 쓴다.")
+    assert llm.calls[3].user.endswith("지금 할 일: 자격 요건 10개, 우대 사항 10개를 쓴다.")
     assert "자격 요건은 근거를 찾을 수 있는 3개만 썼어요." in result.reply
 
 
@@ -1081,7 +1081,7 @@ async def test_revise_fills_only_the_empty_list_for_a_whole_posting_request() ->
 
     assert result.suggestion is not None
     assert result.suggestion.content.qualifications == CONTENT.qualifications
-    assert llm.calls[3].user.endswith("지금 할 일: 우대 사항 5개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.")
+    assert llm.calls[3].user.endswith("지금 할 일: 우대 사항 10개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.")
 
 
 async def test_revise_does_not_rewrite_filled_lists_for_a_whole_posting_request() -> None:
