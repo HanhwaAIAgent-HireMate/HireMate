@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { ChevronRight, Lock, X } from 'lucide-react'
+import { Lock, X } from 'lucide-react'
 import { useEffect } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
 import { toast } from 'sonner'
@@ -11,9 +11,6 @@ import { AddButton } from '@/features/company/CompanyProfileForm'
 import { SettingsRow, SettingsSection } from '@/features/company/SettingsSection'
 import { errorMessage } from '@/lib/api/client'
 
-// 공고에서 HR 요청으로만 바뀌는 고정 칸
-const FIXED_SECTIONS = new Set(['전형 절차', '필수 제출 서류', '유의사항'])
-
 const schema = z.object({
   writingStyle: z.string().max(1000),
   requiredNotices: z.array(z.object({ value: z.string().trim().min(1).max(200) })).max(10),
@@ -21,7 +18,7 @@ const schema = z.object({
 
 type Values = z.infer<typeof schema>
 
-// CMP-02. 새 공고는 이 Template 순서로 열리고, Posting Agent는 작성 스타일을 따른다
+// CMP-02. Posting Agent는 작성 스타일을 따르고, 모든 공고에 필수 안내 문구가 들어간다
 export function PostingSettingsForm() {
   const settings = usePostingSettings()
   const save = useSavePostingSettings()
@@ -56,19 +53,6 @@ export function PostingSettingsForm() {
 
   return (
     <SettingsSection title="채용 공고" saving={save.isPending} onSave={() => void onSave()}>
-      <SettingsRow label="공고 Template">
-        <div className="flex flex-wrap items-center gap-1.5 pt-1">
-          {(settings.data?.sections ?? []).map((section, index) => (
-            <span key={section} className="inline-flex items-center gap-1.5">
-              {index > 0 && <ChevronRight className="size-3 text-muted-foreground" />}
-              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                {FIXED_SECTIONS.has(section) && <Lock className="size-3" />}
-                {section}
-              </span>
-            </span>
-          ))}
-        </div>
-      </SettingsRow>
       <SettingsRow label="작성 스타일">
         <Textarea
           rows={2}

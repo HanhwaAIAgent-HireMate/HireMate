@@ -2269,7 +2269,6 @@ export interface components {
             requiredNotices: string[];
         };
         PostingSettings: {
-            sections: string[];
             writingStyle: string;
             requiredNotices: string[];
         };
@@ -2758,24 +2757,24 @@ export interface components {
             float: boolean;
             number: boolean;
             missingNode: boolean;
-            valueNode: boolean;
-            container: boolean;
-            floatingPointNumber: boolean;
-            bigInteger: boolean;
-            bigDecimal: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            integralNumber: boolean;
-            int: boolean;
-            double: boolean;
-            string: boolean;
-            pojo: boolean;
-            long: boolean;
+            binary: boolean;
             /** @deprecated */
             textual: boolean;
             boolean: boolean;
-            binary: boolean;
+            pojo: boolean;
+            string: boolean;
             short: boolean;
+            long: boolean;
+            double: boolean;
+            int: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            container: boolean;
+            bigInteger: boolean;
+            valueNode: boolean;
+            floatingPointNumber: boolean;
+            bigDecimal: boolean;
+            integralNumber: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3085,9 +3084,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            headerName: string;
             parameterName: string;
             token: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;

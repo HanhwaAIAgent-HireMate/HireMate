@@ -99,8 +99,7 @@ public class CompanyService {
     @Transactional(readOnly = true)
     public PostingSettings postingSettings(UUID companyId) {
         Company company = company(companyId);
-        return new PostingSettings(PostingSettings.SECTIONS, company.getWritingStyle(),
-                List.copyOf(company.getRequiredNotices()));
+        return new PostingSettings(company.getWritingStyle(), List.copyOf(company.getRequiredNotices()));
     }
 
     @Transactional
