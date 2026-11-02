@@ -63,3 +63,22 @@ uv run scripts/demo/seed.py --email demo-hr@example.com --password <12자 이상
 - 지원자를 누르면 AI 분석이 요약(점수 · 항목별 판정 칩 · 눈여겨볼 점 · 확인 필요 2개씩)으로 나온다. `자세히`를 누르면
   항목별 판정 · 획득 점수 / 배점 · 이유 · 충족 / 미충족 부분 · 확인 경력 · 출처 · 평가 기준 버전이 나온다. 공고 조건에 대한 서류 평가일 뿐 합격 여부가 아니다.
 - 한예린의 포트폴리오에 든 평가 조작 문장은 따르지 않는다.
+
+## 분포 리포트 데모 (지원자 수백 명)
+
+리포트 창의 `분포`를 보려면 지원자가 많아야 한다. 실제 모델로 수백 명을 분석하면 몇 시간이 걸리므로 backend를
+Application Agent stub(기본값, `HIREMATE_AI_AGENTS_APPLICATION`을 주지 않는다)으로 띄우고 `seed_many.py`를 쓴다.
+ai 서버 · 워커는 분포에는 필요 없고, 분포에서 `심층 분석`(비교 리포트)을 Report Agent로 쓰려면 띄운다.
+
+```bash
+# 1 · 4 · 5번은 위와 같다 (backend는 stub 그대로 ./gradlew bootRun)
+uv run scripts/demo/seed_many.py --count 300 --headcount 6 --email demo-hr@example.com --password <12자 이상>
+```
+
+- 지원자는 `applicants.json` 30명의 문서에서 줄을 지원자마다 다르게 뺀 가상 인물이다. 같은 `--seed`면 같은 지원자다.
+- stub은 평가 항목 글의 낱말이 문서에 나오는 비율로 항목마다 판정한다(60% 이상 충족, 복합 경험형 30% 이상 부분 충족,
+  조금이라도 나오면 확인 필요, 없으면 미충족). 분포 화면을 보려는 개발용 값이고 실제 판정은 ai 서버가 한다.
+- 공고 채용 인원(`--headcount`) × 10이 분포의 서류 통과 목표 기본값이다. 화면에서 바꿀 수 있고 저장하지 않는다.
+- 선택 지원자 칸의 `리포트 생성`을 아무도 체크하지 않고 누르면 분포가, 2~5명을 체크하고 누르면 심층 분석이 먼저 열린다.
+- 경계 기준(선 아래 다시 볼 사람의 필수 조건 개수, 심층 분석 인원, 목표 배수)은 `backend/src/main/resources/application.yml`의
+  `hiremate.report.distribution`에 있는 임시값이다.
