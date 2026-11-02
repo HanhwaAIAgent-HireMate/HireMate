@@ -270,6 +270,8 @@ class CompanyProfile(ContractModel):
     culture: str
     talents: list[Talent]
     benefits: list[str]
+    address: str = ""
+    """회사 주소. 채용 페이지에 보여 주는 값이고 AI는 쓰지 않는다."""
 
 
 class Condition(ContractModel):

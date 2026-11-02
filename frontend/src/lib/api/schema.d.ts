@@ -2237,6 +2237,7 @@ export interface components {
             culture: string;
             talents: components["schemas"]["TalentItem"][];
             benefits: string[];
+            address: string | null;
         };
         TalentItem: {
             title: string;
@@ -2250,6 +2251,7 @@ export interface components {
             culture: string;
             talents: components["schemas"]["Talent"][];
             benefits: string[];
+            address: string;
         };
         Talent: {
             title: string;
@@ -2748,25 +2750,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
+            boolean: boolean;
             pojo: boolean;
             int: boolean;
-            double: boolean;
-            boolean: boolean;
+            short: boolean;
             long: boolean;
             binary: boolean;
+            double: boolean;
             string: boolean;
-            short: boolean;
             /** @deprecated */
             textual: boolean;
-            bigInteger: boolean;
-            missingNode: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            container: boolean;
             floatingPointNumber: boolean;
-            integralNumber: boolean;
-            valueNode: boolean;
             bigDecimal: boolean;
+            bigInteger: boolean;
+            integralNumber: boolean;
+            container: boolean;
+            valueNode: boolean;
+            missingNode: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3033,6 +3035,7 @@ export interface components {
             /** @enum {string} */
             state: "UPCOMING" | "OPEN" | "CLOSED";
             poster: components["schemas"]["PosterDesign"] | null;
+            companyAddress: string;
         };
         PublicStage: {
             name: string;
