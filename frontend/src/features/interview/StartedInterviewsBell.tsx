@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Bell, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
 import { Button } from '@/components/ui/button'
@@ -68,12 +68,8 @@ export function StartedInterviewsBell({ memberId }: { memberId: string }) {
   const shownAfter = Math.max(baseline ?? Infinity, dismissed, seen)
   const arrived = items.filter((item) => Date.parse(item.startedAt) > shownAfter)
 
-  // 새 알림을 띄우면 잠시 뒤 내린다. 점은 알림 목록을 열어 볼 때까지 남는다
-  useEffect(() => {
-    if (arrived.length === 0) return
-    const timer = setTimeout(() => setDismissed(latest), PREVIEW_MS)
-    return () => clearTimeout(timer)
-  }, [arrived.length, latest])
+  // 띄운 알림만 내린다. 점은 알림 목록을 열어 볼 때까지 남는다
+  const dismiss = useCallback(() => setDismissed(latest), [latest])
 
   function markSeen() {
     if (latest > seen) {
@@ -137,52 +133,147 @@ export function StartedInterviewsBell({ memberId }: { memberId: string }) {
         </PopoverContent>
       </Popover>
       {arrived.length > 0 && (
-        <div
-          role="status"
-          aria-label="새 알림"
-          className="absolute top-full right-0 z-50 mt-2 w-80 animate-in overflow-hidden rounded-lg border bg-popover text-sm text-popover-foreground shadow-lg fade-in-0 slide-in-from-top-2"
-        >
-          <ul className="divide-y">
-            {arrived.slice(0, 3).map((item) => (
-              <li key={`${item.stageId}:${item.applicationId}`}>
-                <Link
-                  to={stagePath(item)}
-                  onClick={() => {
-                    setDismissed(latest)
-                    markSeen()
-                  }}
-                  className="flex items-start gap-2.5 px-4 py-3 pr-9 hover:bg-muted/60"
-                >
-                  <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800">
-                    <Bell className="size-3.5" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block font-medium">
-                      {item.applicantName} 면접이 시작됐어요
-                    </span>
-                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                      {item.recruitmentTitle} · {item.stageName}
-                    </span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          {arrived.length > 3 && (
-            <p className="border-t px-4 py-2 text-xs text-muted-foreground">
-              외 {arrived.length - 3}건은 알림에서 볼 수 있어요.
-            </p>
-          )}
-          <button
-            type="button"
-            aria-label="새 알림 닫기"
-            onClick={() => setDismissed(latest)}
-            className="absolute top-2 right-2 rounded-md p-1 text-muted-foreground hover:bg-muted"
-          >
-            <X className="size-3.5" />
-          </button>
-        </div>
+        <ArrivedPreview
+          key={latest}
+          items={arrived}
+          onDismiss={dismiss}
+          onOpen={() => {
+            dismiss()
+            markSeen()
+          }}
+        />
       )}
+    </div>
+  )
+}
+
+/** 오른쪽으로 이만큼 밀면 닫는다 */
+const SWIPE_PX = 80
+
+/**
+ * 새로 시작한 면접을 종 아래에 띄운 카드. 오른쪽으로 밀거나 ✕로 닫고, 그냥 두면 잠시 뒤 내려간다.
+ * 마우스를 올려 두거나 잡고 있는 동안에는 내리지 않는다.
+ */
+function ArrivedPreview({
+  items,
+  onDismiss,
+  onOpen,
+}: {
+  items: StartedInterview[]
+  onDismiss: () => void
+  onOpen: () => void
+}) {
+  const [offset, setOffset] = useState(0)
+  const [held, setHeld] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const drag = useRef<{ startX: number; moved: boolean } | null>(null)
+  // 밀어서 놓을 때 이어서 오는 click으로 링크가 열리지 않게 한다
+  const dragged = useRef(false)
+
+  useEffect(() => {
+    if (held) return
+    const timer = setTimeout(onDismiss, PREVIEW_MS)
+    return () => clearTimeout(timer)
+  }, [held, onDismiss])
+
+  useEffect(() => {
+    if (!leaving) return
+    const timer = setTimeout(onDismiss, 150)
+    return () => clearTimeout(timer)
+  }, [leaving, onDismiss])
+
+  function release(clientX: number | null) {
+    const current = drag.current
+    drag.current = null
+    if (!current?.moved) return
+    dragged.current = true
+    setDragging(false)
+    if (clientX !== null && clientX - current.startX > SWIPE_PX) {
+      setOffset(360)
+      setLeaving(true)
+    } else {
+      setOffset(0)
+      setHeld(false)
+    }
+  }
+
+  return (
+    <div
+      role="status"
+      aria-label="새 알림"
+      title="오른쪽으로 밀어서 닫을 수 있어요"
+      style={{ transform: `translateX(${offset}px)`, opacity: Math.max(0.2, 1 - offset / 240) }}
+      className={cn(
+        'absolute top-full right-0 z-50 mt-2 w-80 animate-in cursor-grab touch-pan-y overflow-hidden rounded-lg border bg-popover text-sm text-popover-foreground shadow-lg fade-in-0 select-none slide-in-from-top-2',
+        dragging ? 'cursor-grabbing' : 'transition-[transform,opacity] duration-150',
+      )}
+      onMouseEnter={() => setHeld(true)}
+      onMouseLeave={() => {
+        if (!dragging) setHeld(false)
+      }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        drag.current = { startX: event.clientX, moved: false }
+        dragged.current = false
+      }}
+      onPointerMove={(event) => {
+        const current = drag.current
+        if (!current) return
+        const dx = event.clientX - current.startX
+        if (!current.moved && Math.abs(dx) > 5) {
+          current.moved = true
+          setDragging(true)
+          setHeld(true)
+          event.currentTarget.setPointerCapture?.(event.pointerId)
+        }
+        if (current.moved) setOffset(Math.max(0, dx))
+      }}
+      onPointerUp={(event) => release(event.clientX)}
+      onPointerCancel={() => release(null)}
+      onClickCapture={(event) => {
+        if (dragged.current) {
+          dragged.current = false
+          event.preventDefault()
+          event.stopPropagation()
+        }
+      }}
+    >
+      <ul className="divide-y">
+        {items.slice(0, 3).map((item) => (
+          <li key={`${item.stageId}:${item.applicationId}`}>
+            <Link
+              to={stagePath(item)}
+              draggable={false}
+              onClick={onOpen}
+              className="flex items-start gap-2.5 px-4 py-3 pr-9 hover:bg-muted/60"
+            >
+              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800">
+                <Bell className="size-3.5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-medium">{item.applicantName} 면접이 시작됐어요</span>
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                  {item.recruitmentTitle} · {item.stageName}
+                </span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {items.length > 3 && (
+        <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+          외 {items.length - 3}건은 알림에서 볼 수 있어요.
+        </p>
+      )}
+      <button
+        type="button"
+        aria-label="새 알림 닫기"
+        onClick={onDismiss}
+        className="absolute top-2 right-2 rounded-md p-1 text-muted-foreground hover:bg-muted"
+      >
+        <X className="size-3.5" />
+      </button>
     </div>
   )
 }

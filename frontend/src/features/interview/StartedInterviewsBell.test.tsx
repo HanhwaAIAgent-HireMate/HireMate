@@ -6,6 +6,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createQueryClient } from '@/app/query-client'
 import { StartedInterviewsBell } from '@/features/interview/StartedInterviewsBell'
 
+// jsdom에는 PointerEvent가 없어 clientX를 실어 보낼 수 있게 MouseEvent로 채운다
+if (!('PointerEvent' in window)) {
+  class PointerEventShim extends MouseEvent {
+    pointerId: number
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init)
+      this.pointerId = init.pointerId ?? 1
+    }
+  }
+  Object.assign(window, { PointerEvent: PointerEventShim })
+}
+
 const started = (applicationId: string, applicantName: string, startedAt: string) => ({
   stageId: 's1',
   applicationId,
@@ -117,6 +129,38 @@ describe('HR 알림: 시작한 면접', () => {
     const preview = await screen.findByRole('status', { name: '새 알림' })
     expect(preview).toHaveTextContent('이도윤 면접이 시작됐어요')
     expect(preview).not.toHaveTextContent('박서준')
+  })
+
+  it('띄운 알림을 오른쪽으로 밀면 닫히고, 조금만 밀면 제자리로 돌아온다', async () => {
+    const { server, client } = renderBell([])
+    await vi.waitFor(() =>
+      expect(client.getQueryState(['interview', 'started'])?.status).toBe('success'),
+    )
+    server.items = [started('a2', '박서준', '2026-11-02T05:00:00Z')]
+    await act(() => client.refetchQueries())
+    const preview = await screen.findByRole('status', { name: '새 알림' })
+
+    fireEvent.pointerDown(preview, { clientX: 100, button: 0 })
+    fireEvent.pointerMove(preview, { clientX: 130 })
+    expect(preview.style.transform).toBe('translateX(30px)')
+    fireEvent.pointerUp(preview, { clientX: 130 })
+    expect(preview.style.transform).toBe('translateX(0px)')
+    expect(screen.getByRole('status', { name: '새 알림' })).toBeInTheDocument()
+
+    // 왼쪽으로는 움직이지 않는다
+    fireEvent.pointerDown(preview, { clientX: 100, button: 0 })
+    fireEvent.pointerMove(preview, { clientX: 40 })
+    expect(preview.style.transform).toBe('translateX(0px)')
+    fireEvent.pointerUp(preview, { clientX: 40 })
+
+    fireEvent.pointerDown(preview, { clientX: 100, button: 0 })
+    fireEvent.pointerMove(preview, { clientX: 220 })
+    fireEvent.pointerUp(preview, { clientX: 220 })
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('status', { name: '새 알림' })).not.toBeInTheDocument(),
+    )
+    // 밀어서 닫아도 알림 목록을 열어 보기 전까지 점은 남는다
+    expect(screen.getByRole('button', { name: '알림 1개' })).toBeInTheDocument()
   })
 
   it('시작한 면접이 없으면 새 알림이 없다고 알린다', async () => {
