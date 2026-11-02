@@ -139,7 +139,7 @@ function OtherOpinion({ opinion }: { opinion: OpinionView }) {
   if (!opinion.submitted)
     return (
       <p className="rounded-lg border border-dashed p-2.5 text-xs text-muted-foreground">
-        {who} — 아직 없음
+        {who} — 미제출
       </p>
     )
   if (!opinion.recommendation)
@@ -164,7 +164,7 @@ export function OpinionLine({
   if (!opinion.submitted || !opinion.recommendation)
     return (
       <p className="rounded-lg border border-dashed p-2.5 text-xs text-muted-foreground">
-        {who} — 아직 없음
+        {who} — 미제출
       </p>
     )
   return (

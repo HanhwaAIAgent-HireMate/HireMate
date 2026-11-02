@@ -3,7 +3,10 @@ import { cn } from '@/lib/utils'
 
 const ROLE_LABELS = { HR: '인사', PRACTICAL: '실무' } as const
 
-/** HR 지원자 목록의 면접관 의견 배지: 인사 추천 · 실무 아직. 면접관이 배정되지 않은 지원자는 아무것도 없다 */
+/**
+ * HR 지원자 목록의 면접관 의견 배지: 인사 추천 · 실무 미제출. 면접이 종료된 지원자에게만 붙인다 (CandidateList).
+ * 면접관이 배정되지 않은 지원자는 아무것도 없다
+ */
 export function OpinionBadges({ row }: { row: CandidateOpinions | undefined }) {
   const opinions = (row?.opinions ?? []).filter((opinion) => !opinion.unassigned)
   if (opinions.length === 0) return null
@@ -21,7 +24,7 @@ export function OpinionBadges({ row }: { row: CandidateOpinions | undefined }) {
           )}
         >
           {ROLE_LABELS[opinion.role]}{' '}
-          {opinion.recommendation ? RECOMMENDATION_LABELS[opinion.recommendation] : '아직'}
+          {opinion.recommendation ? RECOMMENDATION_LABELS[opinion.recommendation] : '미제출'}
         </span>
       ))}
     </div>
