@@ -120,7 +120,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
           )
           setMessages((current) => [
             ...current,
-            { role: 'ai', text: result.reply, agent: 'Root → Posting Agent' },
+            { role: 'ai', text: result.reply, agent: 'Posting Agent' },
           ])
         },
         onError: (error) =>
@@ -169,7 +169,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
       setPreview(null)
       setMessages((current) => [
         ...current,
-        { role: 'ai', text: result.reply, agent: 'Root → Posting Agent' },
+        { role: 'ai', text: result.reply, agent: 'Posting Agent' },
       ])
     } catch (error) {
       setMessages((current) => [...current, { role: 'ai', text: errorMessage(error) }])

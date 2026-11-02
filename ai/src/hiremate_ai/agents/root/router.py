@@ -2,7 +2,6 @@
 
 요청 본문은 Java 메서드의 매개변수 이름을 키로 한 JSON이다. 대화방은 체크포인터에 둔다 (기획 15절).
 plan만 SSE로 응답한다. 진행(status, item)을 낸 뒤 마지막 done 이벤트에 ChatPlan을 담는다.
-backend PosterAgent.design은 POST /agents/posting/design으로 공고 디자인 화면의 Root(poster.py)를 부른다.
 """
 
 from collections.abc import AsyncIterator
@@ -11,12 +10,9 @@ from uuid import UUID
 
 from fastapi import APIRouter
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from pydantic import Field
 
-from hiremate_ai.agents.generation.posting.poster import PosterContext, PosterProposal
 from hiremate_ai.agents.root.graph import RootThread, apply_plan, stream_plan
 from hiremate_ai.agents.root.memory import SaverDep, forget_thread
-from hiremate_ai.agents.root.poster import plan_poster
 from hiremate_ai.agents.root.title import make_title
 from hiremate_ai.agents.root.toolkit import ToolkitDep
 from hiremate_ai.agents.root.turns import Turn
@@ -25,8 +21,6 @@ from hiremate_ai.contract import ContractModel
 from hiremate_ai.llm.client import LlmDep
 
 router = APIRouter(prefix="/agents/root", tags=["root"])
-# backend는 공고 Agent 경로로 부르지만 처리는 Root가 한다. 공고 Agent가 Root를 import하지 않게 여기에 둔다.
-poster_router = APIRouter(prefix="/agents/posting", tags=["posting"])
 
 
 class PlanRequest(ContractModel):
@@ -107,16 +101,6 @@ async def forget(request: ThreadRequest, saver: SaverDep) -> Deleted:
 async def title(request: TitleRequest, llm: LlmDep) -> Title:
     """탭의 첫 대화로 탭 이름을 짓는다. 만들지 못하면 title이 null이다."""
     return Title(title=await make_title(llm, request.message, request.reply))
-
-
-class DesignRequest(ContractModel):
-    context: PosterContext
-    request: str = Field(min_length=1, max_length=1000)
-
-
-@poster_router.post("/design")
-async def design(body: DesignRequest, llm: LlmDep) -> PosterProposal:
-    return await plan_poster(llm, body.context, body.request)
 
 
 async def _turns(saver: Any, thread_id: str) -> list[Turn]:

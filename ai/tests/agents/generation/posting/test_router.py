@@ -3,6 +3,13 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hiremate_ai.agents.generation.posting.poster import (
+    PosterContext,
+    PosterDesign,
+    PosterEdits,
+    PosterRecommendation,
+)
+from hiremate_ai.agents.generation.posting.poster_chat import PosterChatReply
 from hiremate_ai.agents.generation.posting.reviser import (
     NOTHING_CHANGED_REPLY,
     ContentChanges,
@@ -11,8 +18,9 @@ from hiremate_ai.agents.generation.posting.reviser import (
     Route,
 )
 from hiremate_ai.agents.generation.posting.router import router
+from hiremate_ai.contract import CompanyProfile, PostingContent
 from hiremate_ai.llm.client import get_llm
-from hiremate_ai.llm.fake import FakeLlm
+from hiremate_ai.llm.fake import FakeLlm, ToolCall
 
 CONTENT = {
     "roles": [],
@@ -55,6 +63,45 @@ def client(llm: FakeLlm) -> TestClient:
     app.include_router(router)
     app.dependency_overrides[get_llm] = lambda: llm
     return TestClient(app)
+
+
+def test_design_keeps_existing_endpoint_and_runs_inside_posting_agent(sample_company: CompanyProfile) -> None:
+    design = PosterDesign(
+        template="CLASSIC",
+        mood="TRUST",
+        color="#2459a6",
+        decoration=1,
+        enabled=True,
+        show_logo=False,
+        logo_file_id=None,
+    )
+    llm = FakeLlm(
+        ToolCall("consult_posting_designer", {"request": "더 고급스럽게"}),
+        PosterEdits(
+            scope="DESIGN",
+            reply="디자인 수정안이에요.",
+            recommendations=[
+                PosterRecommendation(design=design.model_copy(update={"mood": "PREMIUM"}), reason="차분한 분위기"),
+            ],
+        ),
+        PosterChatReply(kind="DESIGN", reply="수정안을 확인해 주세요.", result=1),
+    )
+    context = PosterContext(
+        company=sample_company,
+        posting=PostingContent.model_validate(CONTENT),
+        design=design,
+        brand_color=None,
+    )
+    response = client(llm).post(
+        "/agents/posting/design",
+        json={
+            "context": context.model_dump(mode="json"),
+            "request": "더 고급스럽게",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["recommendations"][0]["design"]["mood"] == "PREMIUM"
+    assert [call.agent for call in llm.calls] == ["posting", "posting", "posting"]
 
 
 def test_revise_returns_backend_result_shape() -> None:
@@ -114,3 +161,16 @@ def test_revise_rejects_unknown_status() -> None:
 
     assert response.status_code == 422
     assert llm.calls == []
+
+
+def test_design_conversation_keeps_posting_path(sample_company: CompanyProfile) -> None:
+    context = PosterContext(
+        company=sample_company, posting=PostingContent.model_validate(CONTENT), design=None, brand_color=None
+    )
+    llm = FakeLlm(PosterChatReply(kind="CONVERSATION", reply="원하는 분위기를 알려 주세요.", result=None))
+    response = client(llm).post(
+        "/agents/posting/design",
+        json={"context": context.model_dump(mode="json", by_alias=True), "request": "디자인은 어떻게 바꿔?"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"reply": "원하는 분위기를 알려 주세요.", "recommendations": []}

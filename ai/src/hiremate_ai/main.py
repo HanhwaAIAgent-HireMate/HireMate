@@ -10,7 +10,6 @@ from hiremate_ai.api import assessment, communication, health, interview, profil
 app = FastAPI(title="HireMate AI")
 app.include_router(health.router)
 app.include_router(root.router)
-app.include_router(root.poster_router)
 app.include_router(communication.router)
 app.include_router(posting.router)
 app.include_router(report.router)

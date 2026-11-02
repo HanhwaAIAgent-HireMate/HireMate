@@ -1,6 +1,6 @@
-"""공고 디자인 화면의 Root 진입점. 전형 Root와 저장 상태를 공유하지 않는다.
+"""공고 Agent 내부의 포스터 대화 처리. 디자인 수정과 이전 추천 복원을 조율한다.
 
-한 ReAct 루프가 공고 Agent의 디자인 검토를 부르고 그 결과 번호만 선택한다.
+공고 Agent의 디자인 도구를 부르고 검증한 수정안만 선택한다.
 도구는 수정안을 만들 뿐 업무 데이터나 공고 게시 상태를 변경하지 않는다.
 """
 
@@ -12,8 +12,12 @@ from typing import Literal
 from langchain.tools import ToolRuntime, tool
 from pydantic import Field
 
-from hiremate_ai.agents.generation.posting import propose_poster
-from hiremate_ai.agents.generation.posting.poster import PosterContext, PosterProposal, PosterRecommendation
+from hiremate_ai.agents.generation.posting.poster import (
+    PosterContext,
+    PosterProposal,
+    PosterRecommendation,
+    propose_poster,
+)
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ContractModel
@@ -24,7 +28,7 @@ from hiremate_ai.llm.prompt import data_block
 logger = logging.getLogger(__name__)
 
 
-class PosterRootReply(ContractModel):
+class PosterChatReply(ContractModel):
     kind: Literal["DESIGN", "CONVERSATION", "CLARIFY"]
     reply: str = Field(min_length=1, max_length=500)
     result: int | None = Field(ge=1)
@@ -36,7 +40,7 @@ class PosterRun:
     proposals: list[PosterProposal] = field(default_factory=list)
 
 
-async def plan_poster(llm: LlmClient, context: PosterContext, message: str) -> PosterProposal:
+async def design_poster(llm: LlmClient, context: PosterContext, message: str) -> PosterProposal:
     if blocked_attribute(message):
         return PosterProposal(reply=BLOCKED_REPLY, recommendations=[])
     run = PosterRun(context)
@@ -78,7 +82,7 @@ async def plan_poster(llm: LlmClient, context: PosterContext, message: str) -> P
         runtime.context.proposals.append(proposal)
         return f"결과 번호: {len(runtime.context.proposals)}\n{proposal.model_dump_json()}"
 
-    async def validate(reply: PosterRootReply) -> str | None:
+    async def validate(reply: PosterChatReply) -> str | None:
         if reply.result is not None and not 1 <= reply.result <= len(run.proposals):
             return "이번 요청에서 공고 Agent가 반환한 결과 번호만 선택한다."
         if reply.kind == "DESIGN" and reply.result is None:
@@ -115,9 +119,9 @@ async def plan_poster(llm: LlmClient, context: PosterContext, message: str) -> P
         return f"결과 번호: {len(runtime.context.proposals)}\n{proposal.model_dump_json()}"
 
     agent = llm.tool_agent(
-        PosterRootReply,
-        agent="root",
-        system="""너는 공고 디자인 화면의 Root Agent다. 담당자 요청과 현재 디자인을 보고 필요한 도구를 고른다.
+        PosterChatReply,
+        agent="posting",
+        system="""너는 공고 Agent의 포스터 대화 처리기다. 담당자 요청과 현재 디자인을 보고 필요한 도구를 고른다.
 템플릿 추천이나 '더 고급스럽게', '물결을 줄여줘' 같은 디자인 수정은 consult_posting_designer로 위임한다.
 아이콘 변경과 '2번 글자가 안 보인다' 같은 항목별 가독성 수정도 디자인 수정이다.
 수정·추천 요청은 kind=DESIGN으로 내고 반드시 도구의 결과 번호를 선택한다. stage_icons 등의 코드나
@@ -148,7 +152,7 @@ history가 없거나 참조 대상이 불분명하면 result=null로 다시 추�
                 validate=validate,
             )
     except LlmOutputError as error:
-        logger.warning("포스터 Root 응답 실패 (reason=%s)", error.reason.value)
+        logger.warning("공고 Agent 포스터 응답 실패 (reason=%s)", error.reason.value)
         text = (
             "디자인 요청의 처리 한도에 도달했어요. 요청을 나눠 다시 말씀해 주세요."
             if error.reason == LlmFailureReason.BUDGET

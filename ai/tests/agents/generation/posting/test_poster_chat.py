@@ -3,6 +3,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from hiremate_ai.agents.generation.posting import design_poster
 from hiremate_ai.agents.generation.posting.poster import (
     PosterContext,
     PosterDesign,
@@ -10,13 +11,13 @@ from hiremate_ai.agents.generation.posting.poster import (
     PosterRecommendation,
     PosterTurn,
 )
-from hiremate_ai.agents.root.poster import PosterRootReply, plan_poster
+from hiremate_ai.agents.generation.posting.poster_chat import PosterChatReply
 from hiremate_ai.contract import CompanyProfile, PostingContent
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
 
 
 @pytest.mark.parametrize("premature", [False, True])
-async def test_root_delegates_design_and_preserves_logo_scope(
+async def test_poster_chat_delegates_design_and_preserves_logo_scope(
     sample_company: CompanyProfile, sample_posting: PostingContent, premature: bool
 ) -> None:
     logo = uuid4()
@@ -30,31 +31,31 @@ async def test_root_delegates_design_and_preserves_logo_scope(
         recommendations=[PosterRecommendation(design=proposed, reason="차분하고 절제된 디자인이에요.")],
     )
     llm = FakeLlm(
-        *([PosterRootReply(kind="DESIGN", reply="아이콘을 변경합니다.", result=None)] if premature else []),
+        *([PosterChatReply(kind="DESIGN", reply="아이콘을 변경합니다.", result=None)] if premature else []),
         ToolCall("consult_posting_designer", {"request": "더 고급스럽게 해줘"}),
         proposal,
-        PosterRootReply(kind="DESIGN", reply="제안을 확인해 주세요.", result=1),
+        PosterChatReply(kind="DESIGN", reply="제안을 확인해 주세요.", result=1),
     )
-    result = await plan_poster(
+    result = await design_poster(
         llm,
         PosterContext(company=sample_company, posting=sample_posting, design=current, brand_color=current.color),
         "우리는 더 고급스러운 느낌이 있어야 해",
     )
     assert result.recommendations[0].design.logo_file_id == logo
     assert result.recommendations[0].design.template == "PREMIUM"
-    assert [call.agent for call in llm.calls] == (["root"] if premature else []) + ["root", "posting", "root"]
+    assert [call.agent for call in llm.calls] == ["posting"] * (4 if premature else 3)
     assert "<data" in llm.calls[2 if premature else 1].user
     assert current.template == "CLASSIC"
 
 
-async def test_root_rejects_fabricated_result_number(
+async def test_poster_chat_rejects_fabricated_result_number(
     sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     llm = FakeLlm(
-        PosterRootReply(kind="CONVERSATION", reply="적용했어요", result=9),
-        PosterRootReply(kind="CONVERSATION", reply="디자인을 구체적으로 알려 주세요.", result=None),
+        PosterChatReply(kind="CONVERSATION", reply="적용했어요", result=9),
+        PosterChatReply(kind="CONVERSATION", reply="디자인을 구체적으로 알려 주세요.", result=None),
     )
-    result = await plan_poster(
+    result = await design_poster(
         llm, PosterContext(company=sample_company, posting=sample_posting, design=None, brand_color=None), "디자인 안내"
     )
     assert result.recommendations == []
@@ -111,9 +112,9 @@ async def test_recall_restores_exact_prior_design_or_asks_without_inventing(
     )
     llm = FakeLlm(
         ToolCall("recall_poster", {"reference": f"H2-R{index}"}),
-        PosterRootReply(kind="CONVERSATION", reply="확인해 주세요", result=1),
+        PosterChatReply(kind="CONVERSATION", reply="확인해 주세요", result=1),
     )
-    result = await plan_poster(llm, context, "두 번째 추천으로 해줘")
+    result = await design_poster(llm, context, "두 번째 추천으로 해줘")
     if index == 9:
         assert result.recommendations == []
         assert "찾지 못했어요" in result.reply

@@ -4,14 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from hiremate_ai.agents.generation.posting import PostingDraftContext, revise_posting
+from hiremate_ai.agents.generation.posting import PostingDraftContext, design_poster, revise_posting
 from hiremate_ai.agents.generation.posting.poster import (
     PosterContext,
     PosterDesign,
     PosterRecommendation,
     PosterTurn,
 )
-from hiremate_ai.agents.root.poster import plan_poster
 from hiremate_ai.config import settings
 from hiremate_ai.contract import CompanyProfile
 from hiremate_ai.llm.call_log import CallRecord
@@ -99,12 +98,12 @@ async def test_second_recommendation_is_restored_exactly(sample_company: Company
             ),
         ],
     )
-    result = await plan_poster(build_llm(MemoryLog()), context, "그중 두 번째 추천으로 해줘")
+    result = await design_poster(build_llm(MemoryLog()), context, "그중 두 번째 추천으로 해줘")
     assert len(result.recommendations) == 1
     assert result.recommendations[0].design == second
 
 
 async def test_missing_recommendation_history_asks_instead_of_inventing(sample_company: CompanyProfile) -> None:
     context = PosterContext(company=sample_company, posting=draft().content, design=None, brand_color=None)
-    result = await plan_poster(build_llm(MemoryLog()), context, "그중 두 번째 추천으로 해줘")
+    result = await design_poster(build_llm(MemoryLog()), context, "그중 두 번째 추천으로 해줘")
     assert result.recommendations == []
