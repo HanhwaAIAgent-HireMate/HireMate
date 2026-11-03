@@ -92,7 +92,6 @@ const report: ReportView = {
   },
   names: { 'A-0017': '정지호', 'A-0025': '김지우' },
   skills: ['compare'],
-  specialists: [],
   fallback: false,
   steps: [],
 }

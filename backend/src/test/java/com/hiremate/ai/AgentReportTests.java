@@ -168,7 +168,7 @@ class AgentReportTests extends IntegrationTest {
                 "", false, "{}");
         JsonNode composed = json.readTree("""
                 {"spec": {"title": "비교", "summary": "요약이에요.", "skills": [], "sections": []},
-                 "skills": ["compare"], "specialists": ["Application Agent"], "fallback": false,
+                 "skills": ["compare"], "fallback": false,
                  "bundle": null}""");
         push(new JobResult(UUID.randomUUID(), "report/compose", done.toString(), JobStatus.DONE, composed, null));
         push(new JobResult(UUID.randomUUID(), "report/compose", failed.toString(), JobStatus.FAILED, null, "시간 초과"));
@@ -181,7 +181,7 @@ class AgentReportTests extends IntegrationTest {
         }
         var saved = reports.view(stage.hr().companyId(), done);
         assertThat(saved.status().name()).isEqualTo("DONE");
-        assertThat(json.readTree(saved.result()).path("specialists").get(0).asString()).isEqualTo("Application Agent");
+        assertThat(json.readTree(saved.result()).path("skills").get(0).asString()).isEqualTo("compare");
         assertThat(reports.view(stage.hr().companyId(), failed).status().name()).isEqualTo("FAILED");
     }
 

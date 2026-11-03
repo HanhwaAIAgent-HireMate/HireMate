@@ -47,14 +47,6 @@ export function ReportModal({
                         스킬 · {skill}
                       </span>
                     ))}
-                    {report.specialists.map((agent) => (
-                      <span
-                        key={agent}
-                        className="rounded-md bg-secondary px-2 py-0.5 text-[11.5px] font-semibold"
-                      >
-                        {agent}
-                      </span>
-                    ))}
                     {report.fallback && (
                       <span className="rounded-md bg-fail px-2 py-0.5 text-[11.5px] font-semibold text-fail-foreground">
                         기본 구성

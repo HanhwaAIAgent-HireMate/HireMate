@@ -159,7 +159,6 @@ export function toReportView(payload: ReportPayload): ReportView | null {
     spec: payload.report.spec as unknown as ReportSpec,
     names: payload.names,
     skills: payload.report.skills,
-    specialists: payload.report.specialists,
     fallback: payload.report.fallback,
     steps: payload.report.steps ?? [],
   }

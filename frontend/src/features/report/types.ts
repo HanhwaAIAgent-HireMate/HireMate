@@ -139,8 +139,7 @@ export interface ReportView {
   spec: ReportSpec
   names: Record<string, string>
   skills: string[]
-  specialists: string[]
   fallback: boolean
-  /** AI 작업 과정 (읽은 자료, 맡긴 확인, 검사 횟수, 코드가 고친 것). 예전 리포트는 비어 있다 */
+  /** AI 작업 과정 (읽은 자료, 검사 횟수, 코드가 고친 것). 예전 리포트는 비어 있다 */
   steps: string[]
 }

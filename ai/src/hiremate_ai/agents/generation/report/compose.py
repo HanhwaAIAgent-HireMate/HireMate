@@ -1,4 +1,4 @@
-"""Report Agent 도구 루프. 스킬을 골라 읽고, 묶음을 조회하고, 필요하면 분석 Agent에게 근거 확인을 맡긴 뒤 설계서를 낸다.
+"""Report Agent 도구 루프. 스킬을 골라 읽고, 묶음을 조회한 뒤 설계서를 낸다. 다른 Agent는 부르지 않는다.
 
 설계서는 check.problems로 검사해 한 번 고쳐 쓰게 하고, 끝내 통과하지 못하면 기본 구성을 쓴다.
 """
@@ -14,7 +14,7 @@ from hiremate_ai.agents.generation.report.fallback import fallback_spec
 from hiremate_ai.agents.generation.report.repair import repair
 from hiremate_ai.agents.generation.report.skills import catalog
 from hiremate_ai.agents.generation.report.spec import ReportSpec
-from hiremate_ai.agents.generation.report.tools import TOOLS, ReportScope, Specialist, check_candidates, consult
+from hiremate_ai.agents.generation.report.tools import TOOLS, ReportScope
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ContractModel, StageType
 from hiremate_ai.llm.chat import LlmOutputError
@@ -64,14 +64,13 @@ _STAGE_SKILL = {
 class ComposedReport(ContractModel):
     """Report Agent 결과 (contract/ComposedReport.json). fallback이면 모델 설계서 대신 기본 구성을 썼다.
 
-    skills · specialists는 읽은 스킬과 근거 확인을 맡긴 분석 Agent로, 화면의 실행 기록 칩에 쓴다.
-    steps는 화면의 'AI 작업 과정'에 보일 한 줄씩이다 (읽은 자료, 맡긴 확인, 검사 횟수, 코드가 고친 것).
+    skills는 읽은 스킬로, 화면의 실행 기록 칩에 쓴다.
+    steps는 화면의 'AI 작업 과정'에 보일 한 줄씩이다 (읽은 자료, 검사 횟수, 코드가 고친 것).
     bundle은 Agent가 실제로 읽은 묶음이다 (ai가 분석 판정 · 근거를 붙인 뒤). 화면은 이 묶음으로 그린다.
     """
 
     spec: ReportSpec
     skills: list[str]
-    specialists: list[str]
     fallback: bool
     bundle: ReportBundle
     steps: list[str] = []
@@ -79,7 +78,7 @@ class ComposedReport(ContractModel):
 
 async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport:
     """묶음으로 리포트 설계서를 만든다. 채용 상태는 바꾸지 않는다."""
-    scope = ReportScope(bundle=bundle, llm=llm)
+    scope = ReportScope(bundle=bundle)
     agent = llm.tool_agent(
         ReportSpec,
         agent=AGENT,
@@ -91,8 +90,6 @@ async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport
 
     repaired: list[ReportSpec] = []
     notes: list[str] = []
-    if bundle.kind is ReportKind.COMPARE and not bundle.brief:
-        await _check_weak_evidence(scope)
 
     async def validate(spec: ReportSpec) -> str | None:
         # 기계적인 규칙 위반은 코드가 먼저 고치고, 고친 설계서를 검사한다
@@ -122,7 +119,6 @@ async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport
         return ComposedReport(
             spec=fallback_spec(bundle),
             skills=scope.skills,
-            specialists=scope.specialists,
             fallback=True,
             bundle=bundle,
             steps=steps(scope, [tried or "설계서를 받지 못해 코드가 기본 구성을 만듦"]),
@@ -133,29 +129,14 @@ async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport
     return ComposedReport(
         spec=spec.model_copy(update={"skills": scope.skills}),
         skills=scope.skills,
-        specialists=scope.specialists,
         fallback=False,
         bundle=bundle,
         steps=steps(scope, finished),
     )
 
 
-async def _check_weak_evidence(scope: ReportScope) -> None:
-    """판정이 갈렸는데 서술 근거뿐이거나 본인 역할이 불분명한 강점을 서류 Agent에게 다시 확인한다.
-
-    필요한 근거가 있을 때만, MAX_CHECKS건까지 맡긴다. 확인한 점은 get_evidence가 근거와 함께 모델에게 보여 준다.
-    """
-    for item in check_candidates(scope.bundle):
-        question = (
-            f"'{item.label}' 항목: {item.applicant}가 직접 한 일인지, "
-            "수행 범위와 규모가 서류에 드러나는지 확인해 주세요."
-        )
-        answer = await consult(scope, Specialist.APPLICATION, item.applicant, question)
-        scope.checks.setdefault(item.applicant, []).append(f"[{item.label}] {answer}")
-
-
 def steps(scope: ReportScope, finished: list[str]) -> list[str]:
-    """화면의 AI 작업 과정. 읽은 스킬, 도구로 읽은 자료, 분석 Agent에게 맡긴 확인, 검사 · 보완 순서다."""
+    """화면의 AI 작업 과정. 읽은 스킬, 도구로 읽은 자료, 검사 · 보완 순서다."""
     lines = [f"지침 {len(scope.skills)}개를 읽음 ({', '.join(scope.skills)})"] if scope.skills else []
     lines += list(dict.fromkeys(scope.log))
     if scope.read:
