@@ -313,7 +313,6 @@
 }
 .posting-poster[data-template='EDITORIAL'] .poster-block-intro,
 .posting-poster[data-template='EDITORIAL'] .poster-block-stages,
-.posting-poster[data-template='EDITORIAL'] .poster-block-benefits,
 .posting-poster[data-template='EDITORIAL'] .poster-block-notices {
   grid-column: 1 / -1;
 }
@@ -328,11 +327,8 @@
   font-family: Georgia, serif;
   font-style: italic;
 }
-.posting-poster[data-template='EDITORIAL'] .poster-block-benefits {
-  padding: 22px;
-  background: var(--poster-soft);
-  border-radius: 38px 3px 3px 3px;
-  border: 0;
+.posting-poster[data-template='EDITORIAL'] .poster-block-benefits .poster-section-title svg {
+  display: none;
 }
 .posting-poster[data-template='BOLD'] .poster-hero h2 {
   font-weight: 850;
@@ -683,11 +679,6 @@
 .posting-poster[data-template='EDITORIAL'] .poster-section-title h3 {
   font-size: 18px;
   font-weight: 500;
-}
-.posting-poster[data-template='EDITORIAL'] .poster-block-benefits ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 24px;
 }
 .posting-poster[data-template='BOLD'] .poster-hero {
   padding-bottom: 38px;
