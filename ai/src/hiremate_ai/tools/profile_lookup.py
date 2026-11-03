@@ -85,7 +85,7 @@ def profile_text(profile: CandidateProfile) -> str:
     예)
     분석 상태: 분석 완료
     요약: 카드 결제 승인 · 정산 4년
-    경력 4년 · 마지막 회사 한빛카드 · 서류 점수 88 · AI 기준 통과
+    경력 4년 · 마지막 회사 한빛카드
     [도메인] 금융 (카드 결제 · 정산) — 근거: "한빛카드 결제플랫폼팀 2022.03 ~ 현재" (이력서)
     [확인 필요] 대용량 트래픽 수치 확인 필요 — 근거 문장 없음 (이력서)
     """
@@ -119,7 +119,7 @@ def profile_tool(sessions: Sessions, *, resolve: ResolveRef) -> BaseTool:
     # runtime은 모델이 채우는 인자가 아니다. ToolAgent.run(context=...)으로 코드가 넣은 조회 범위가 들어온다.
     @tool
     async def get_candidate_profile(candidate: str, runtime: ToolRuntime[ToolScope]) -> str:
-        """지원자 프로필을 읽는다. 분석 Agent들이 정리한 경력, 서류 점수, 경험 · 역량 항목과 근거 문장 · 출처가 있다.
+        """지원자 프로필을 읽는다. 분석 Agent들이 정리한 경력, 경험 · 역량 항목과 근거 문장 · 출처가 있다.
 
         candidate는 지원자 번호(예: C1)다.
         """
@@ -157,9 +157,6 @@ def _front_values(profile: CandidateProfile) -> list[str]:
     values = [career]
     if profile.last_company:
         values.append(f"마지막 회사 {profile.last_company}")
-    values.append(f"서류 점수 {profile.document_score:g}" if profile.document_score is not None else "서류 점수 없음")
-    passed = {True: "AI 기준 통과", False: "AI 기준 미달", None: "AI 기준 판단 없음"}[profile.passed]
-    values.append(passed)
     return values
 
 

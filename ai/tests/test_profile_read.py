@@ -31,8 +31,6 @@ async def save_jung(session: AsyncSession) -> UUID:
             status=ProfileStatus.DONE,
             career_years=4,
             last_company="한빛카드",
-            document_score=88,
-            passed=True,
             summary="카드 결제 승인 · 정산 4년",
         ),
         items=[

@@ -2,9 +2,7 @@
 
 import re
 from collections.abc import Sequence
-from decimal import ROUND_HALF_UP, Decimal
 
-from hiremate_ai.agents.analysis.application.score import allotted, zeroed_scores
 from hiremate_ai.agents.analysis.application.types import (
     Actor,
     ApplicationAnalysis,
@@ -22,7 +20,6 @@ from hiremate_ai.contract import (
     CriterionLine,
     Evidence,
     Finding,
-    QualificationStatus,
     SummarySection,
     Verdict,
 )
@@ -45,29 +42,17 @@ _LABEL_STOP = {"경험", "있으신", "있는", "이상", "관련", "기반", "�
 
 
 def to_analysis(review: ApplicationReview) -> ApplicationAnalysis:
-    zeroed = zeroed_scores(review.criteria)
     return ApplicationAnalysis(
         career_years=review.career_years if review.readable else None,
         last_company=review.last_company,
         criteria_version=review.criteria_version or None,
-        qualification_status=review.qualification_status,
-        qualification_rate=review.qualification_rate,
-        qualification_score=review.qualification_score,
-        qualification_max=review.qualification_max,
-        preference_score=review.preference_score,
-        preference_max=review.preference_max,
-        document_score=None if review.held else review.document_score,
-        document_score_low=zeroed.total,
-        qualification_score_low=zeroed.qualification_score,
-        passed=review.passed,
-        held=review.held,
         shortfalls=shortfalls(review),
         criterion_marks={result.criterion_id: result.verdict for result in review.criteria},
     )
 
 
 def shortfalls(review: ApplicationReview) -> list[str]:
-    """미충족 · 확인 필요 자격요건의 짧은 표시. 점수가 높아도 숨기지 않는다."""
+    """미충족 · 확인 필요 자격요건의 짧은 표시."""
     return [result.shortfall for result in review.qualifications if result.shortfall and result.verdict != Verdict.MET]
 
 
@@ -85,24 +70,12 @@ def to_candidate_analysis(review: ApplicationReview, documents: Sequence[Applica
     highlights = verified_evidence(
         dict.fromkeys(Evidence(document=quote.document, sentence=quote.sentence) for quote in quotes), list(documents)
     )
-    zeroed = zeroed_scores(review.criteria)
     return CandidateAnalysis(
         conditions=conditions,
         notable=notable[:NOTABLE_LIMIT],
         checks=[Finding(text=note.text, source=note.source) for note in review.checks],
         holds=[Finding(text=note.text, source=note.source) for note in review.holds],
         criteria_version=review.criteria_version or None,
-        score_status=review.score_status,
-        document_score=None if review.held else review.document_score,
-        document_score_low=zeroed.total,
-        qualification_status=review.qualification_status,
-        qualification_rate=review.qualification_rate,
-        qualification_score=review.qualification_score,
-        qualification_score_low=zeroed.qualification_score,
-        qualification_max=review.qualification_max,
-        preference_score=review.preference_score,
-        preference_score_low=zeroed.preference_score,
-        preference_max=review.preference_max,
         criteria=criterion_lines(review),
         summaries=[
             SummarySection(
@@ -121,13 +94,11 @@ def to_candidate_analysis(review: ApplicationReview, documents: Sequence[Applica
 
 
 def criterion_lines(review: ApplicationReview) -> list[CriterionLine]:
-    """항목별 판정: 충족도 · 배점 · 획득 점수 · 이유 · 충족 / 미충족 / 확인되지 않은 부분 · 근거 · 재확인 횟수."""
+    """항목별 판정: 이유 · 충족 / 미충족 / 확인되지 않은 부분 · 근거 · 재확인 횟수 · 정량 지표. 점수는 매기지 않는다."""
     if not review.readable:
         return []
     lines = []
     for result in review.criteria:
-        share = allotted(result, review.criteria)
-        fulfillment = result.fulfillment
         lines.append(
             CriterionLine(
                 criterion_id=result.criterion_id,
@@ -136,9 +107,6 @@ def criterion_lines(review: ApplicationReview) -> list[CriterionLine]:
                 important=result.important,
                 criterion_type=result.criterion_type,
                 verdict=result.verdict,
-                fulfillment=fulfillment,
-                allotted=_one(share),
-                earned=None if fulfillment is None else _one(share * Decimal(str(fulfillment))),
                 reason=result.reason,
                 satisfied_parts=result.satisfied_parts,
                 unsatisfied_parts=result.unsatisfied_parts,
@@ -147,25 +115,24 @@ def criterion_lines(review: ApplicationReview) -> list[CriterionLine]:
                 recheck_count=result.recheck_count,
                 career_years=None if result.career_months is None else result.career_months // 12,
                 certificate_status=result.certificate_status,
+                metric=result.metric,
             )
         )
     return lines
 
 
 def to_profile(review: ApplicationReview) -> tuple[ProfileFields, list[NewItem]]:
-    """지원자 프로필(db.profile)에 넣을 요약 값과 항목. passed는 75% 통과 판단이고 판단 보류면 None이다."""
-    if review.held:
-        summary = "서류 점수 보류"
-    elif review.document_score is not None:
-        summary = f"서류 평가 {review.document_score:g}점"
+    """지원자 프로필(db.profile)에 넣을 요약 값과 항목. 확인 필요가 남으면 확인 상태로 둔다. 점수는 매기지 않는다."""
+    if not review.readable:
+        summary = "서류를 읽지 못함"
+    elif review.holds:
+        summary = f"서류 분석 · 확인 필요 {len(review.holds)}건"
     else:
-        summary = "서류 점수 없음"
+        summary = "서류 분석 완료"
     fields = ProfileFields(
-        status=ProfileStatus.DONE if review.readable and not review.held else ProfileStatus.CHECK,
+        status=ProfileStatus.DONE if review.readable and not review.holds else ProfileStatus.CHECK,
         career_years=review.career_years if review.readable else None,
         last_company=review.last_company,
-        document_score=None if review.held else review.document_score,
-        passed=None if review.qualification_status == QualificationStatus.UNDETERMINED else review.passed,
         summary=summary,
     )
     items = [
@@ -206,7 +173,3 @@ def label(text: str) -> str:
     """조건 칩 이름. 앞쪽 낱말 두 개를 가운뎃점으로 잇는다."""
     words = [word for word in _LABEL_WORD.findall(text) if word not in _LABEL_STOP][:2]
     return "·".join(words) if words else text[:12]
-
-
-def _one(value: Decimal) -> float:
-    return float(value.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))

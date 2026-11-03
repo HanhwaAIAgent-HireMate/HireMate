@@ -31,7 +31,7 @@ from hiremate_ai.contract import (
     CriterionType,
     DocumentType,
     PostingContent,
-    QualificationStatus,
+    Verdict,
 )
 from hiremate_ai.llm.call_log import CallRecord
 from hiremate_ai.llm.client import build_llm
@@ -147,21 +147,20 @@ CRITERIA = [
     for criterion_id, text, kind, met, partial, unmet in ROWS
 ]
 
-P, F, U = QualificationStatus.PASSED, QualificationStatus.FAILED, QualificationStatus.UNDETERMINED
-# 이름 → (75% 통과 판단, 미충족 · 확인 필요 표시가 있는가). 결과가 규칙으로 분명한 지원자만 둔다.
-# 양시우(테스트 코드 근거 없음 + RDBMS 쿼리 튜닝만)는 RDBMS가 충족 · 부분 충족 경계라 70 ~ 80%를 오가서 뺐다.
-# 점수 보류는 근거가 애매한 정도에 따라 생기는 결과라 기대값에 두지 않고, 이유를 출력해 사람이 본다.
-EXPECTED: dict[str, tuple[QualificationStatus, bool]] = {
-    "김도현": (P, False),
-    "이서윤": (P, False),
-    "이도윤": (F, True),  # 신입 · Git 협업 없음
-    "서민재": (F, True),  # 프론트엔드
-    "최지우": (F, True),  # 데이터 분석
-    "윤태오": (U, False),  # 글자 없는 PDF
-    "한예린": (P, False),
+# 이름 → (서류를 읽었는가, 미충족 · 확인 필요 자격요건 표시가 있는가). 결과가 규칙으로 분명한 지원자만 둔다.
+# 양시우(테스트 코드 근거 없음 + RDBMS 쿼리 튜닝만)는 RDBMS가 충족 · 부분 충족 경계라 뺐다.
+# 확인 필요는 근거가 애매한 정도에 따라 생기는 결과라 기대값에 두지 않고, 이유를 출력해 사람이 본다.
+EXPECTED: dict[str, tuple[bool, bool]] = {
+    "김도현": (True, False),
+    "이서윤": (True, False),
+    "이도윤": (True, True),  # 신입 · Git 협업 없음
+    "서민재": (True, True),  # 프론트엔드
+    "최지우": (True, True),  # 데이터 분석
+    "윤태오": (False, False),  # 글자 없는 PDF
+    "한예린": (True, False),
 }
-# 총점의 순서: (높아야 하는 지원자, 낮아야 하는 지원자)
-HIGHER = [("김도현", "안소율"), ("이서윤", "백승호"), ("김도현", "한예린")]
+# 충족 항목 수의 순서: (많아야 하는 지원자, 적어야 하는 지원자)
+HIGHER = [("김도현", "안소율"), ("이서윤", "백승호")]
 
 
 class MemoryCallLog:
@@ -192,8 +191,6 @@ def applicant_of(index: int, raw: dict[str, Any]) -> ApplicantDetail:
         email=raw["email"],
         career_years=None,
         last_company=None,
-        document_score=None,
-        passed=False,
         analysis_status=AnalysisStatus.PENDING,
         submitted_at="2026-10-21T00:00:00Z",
     )
@@ -236,23 +233,21 @@ async def test_demo_applicants_match_expected_outcomes(sample_posting: PostingCo
     for name, expected in EXPECTED.items():
         review = reviews[name]
         shortfalls = [result.shortfall for result in review.qualifications if result.shortfall]
-        actual = (review.qualification_status, bool(shortfalls))
+        actual = (review.readable, bool(shortfalls))
         hits += actual == expected
         mark = "OK" if actual == expected else "NG"
         verdicts = " · ".join(f"{r.criterion_id} {VERDICT_LABEL[r.verdict]}" for r in review.criteria)
         print(f"{mark} {name}: 기대 {expected} 결과 {actual}")
-        print(
-            f"   총점 {review.document_score} (자격 {review.qualification_score} · 우대 {review.preference_score})"
-            f" 충족률 {review.qualification_rate} 표시 {shortfalls}"
-        )
+        print(f"   표시 {shortfalls}")
         print(f"   {verdicts}")
         for note in review.holds:
             print(f"   보류: {note.text}")
+    met = {name: sum(result.verdict == Verdict.MET for result in review.criteria) for name, review in reviews.items()}
     for high, low in HIGHER:
-        print(f"순서 {high} {reviews[high].document_score} > {low} {reviews[low].document_score}")
-        assert (reviews[high].document_score or 0) > (reviews[low].document_score or 0)
+        print(f"충족 {high} {met[high]} > {low} {met[low]}")
+        assert met[high] > met[low]
 
-    assert reviews["윤태오"].held  # 글자를 읽지 못한 서류는 반드시 보류다
+    assert reviews["윤태오"].holds  # 글자를 읽지 못한 서류는 반드시 확인 필요다
     accuracy = hits / len(EXPECTED)
     print(f"정확도 {accuracy:.0%}")
     assert accuracy >= MIN_ACCURACY

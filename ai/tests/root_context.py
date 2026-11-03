@@ -150,7 +150,6 @@ def make_context(
         stages=stages,
         candidates=rows,
         documents={applicant.info.application_id: applicant.documents for applicant in applicants.values()},
-        document_scores={},
         interviews=dict(interviews or {}),
         mentions=pick(mentions),
         checked=pick(checked),

@@ -4,8 +4,9 @@
 인재상은 접수 분석에 없으므로, 저장된 분석의 경험(Fact)과 자기소개서 요약만 읽고 판정한다. 코드가 하는 것:
 - 키워드: 개수가 다르거나 너무 긴 답은 쓰지 않고 문장을 잘라 만든다. 같은 문장 묶음은 프로세스 안에서 한 번만 묻는다.
 - 인재상 요소: 회사 소개 · 조직 문화 글에 실제로 있는 문장을 근거로 든 요소만 남긴다. 같은 글은 한 번만 묻는다.
-- 판정: 고른 근거가 목록에 없거나 검토를 통과하지 못한 경험이면 확인 필요로 돌린다. 본인이 직접 한 경험이 아니면
-  '상'을 주지 않는다. 결과는 저장된 분석 · 인재상이 같으면 다시 쓴다 (analysis_artifacts, kind=talent_fit).
+- 판정: 고른 근거가 목록에 없거나 검토를 통과하지 못한 경험이면 확인 필요로 돌린다. '상'은 본인이 직접 한 경험에
+  정량 지표(숫자로 된 성과 · 규모)가 함께 있을 때만 준다. 지표는 근거 문장에 실제로 있어야 한다.
+  결과는 저장된 분석 · 인재상이 같으면 다시 쓴다 (analysis_artifacts, kind=talent_fit).
 """
 
 import asyncio
@@ -41,11 +42,13 @@ LABELS_SYSTEM = f"""채용 표의 열 이름을 만든다. 문장마다 그 문�
 '고객 신뢰를 최우선으로' → '고객 신뢰'"""
 
 TALENT_SYSTEM = """지원자 서류에서 뽑은 경험 목록만 보고 회사 인재상마다 맞는 정도를 판정한다.
-- HIGH(상): 본인이 직접 한 구체 경험이 인재상을 보여 준다. 근거는 F 번호여야 한다.
-- MID(중): 관련 경험이 있지만 팀 성과이거나 본인 역할 · 결과가 분명하지 않다.
-- LOW(하): 관련 언급은 있지만 구체 경험이 없다 (다짐 · 자기 평가만 있다).
-- UNKNOWN(확인 필요): 관련 근거가 없다. 근거가 없다고 LOW를 주지 않는다.
-- source는 근거 번호 하나(F3, S1). UNKNOWN이면 비운다. 목록에 없는 번호를 지어내지 않는다.
+정량 지표(숫자로 된 성과 · 규모)가 있는 경험을 경험만 있는 것보다 훨씬 높게 친다.
+- HIGH(상): 본인이 직접 한 경험이 인재상을 보여 주고, 그 경험에 정량 지표가 있다. 근거는 F 번호여야 하고
+  metric에 지표 부분을 근거 문장의 글자 그대로 옮긴다 (예: '응답 시간을 40% 줄였다', '신규 입사자 5명 온보딩').
+- MID(중): 관련 경험은 있지만 정량 지표가 없거나, 팀 성과이거나 본인 역할이 분명하지 않다.
+- LOW(하): 서류에서 관련 경험이 확인되지 않는다 (다짐 · 자기 평가만 있거나 관련 근거가 없다).
+- 기간 · 연도 · 버전 숫자(3년, 2021년, Java 17)는 정량 지표가 아니다.
+- source는 근거 번호 하나(F3, S1). LOW에서 근거가 없으면 비운다. 목록에 없는 번호를 지어내지 않는다.
 - evidence는 지원자가 무엇을 했는지 24자 이내로 쓴다. 예: '타 팀 API 명세 조율', '장애 원인 분석 · 재발 방지'.
 - reason은 판정 이유 한 문장이다. 성별 · 나이 · 출신 같은 개인 특성으로 판단하지 않는다."""
 
@@ -81,6 +84,7 @@ class _Judgment(BaseModel):
     level: TalentLevel
     source: str = ""
     evidence: str = ""
+    metric: str = Field(default="", description="HIGH의 정량 지표. 근거 문장의 글자 그대로")
     reason: str
 
 
@@ -189,17 +193,25 @@ def check_talents(review: ApplicationReview, talents: list[Talent], judgments: l
     items: list[TalentFitItem] = []
     for number, talent in enumerate(talents, start=1):
         judgment = by_number.get(number)
-        if judgment is None or judgment.level is TalentLevel.UNKNOWN:
-            items.append(_unknown(talent, judgment.reason if judgment else "관련 근거를 찾지 못했어요."))
+        if judgment is None:
+            items.append(_unknown(talent, "관련 근거를 찾지 못했어요."))
             continue
         source = _source(review, judgment.source.strip().upper())
+        if judgment.level in (TalentLevel.LOW, TalentLevel.UNKNOWN) and source is None:
+            # 경험이 확인되지 않으면 하다
+            reason = judgment.reason.strip() or "서류에서 관련 경험이 확인되지 않아요."
+            items.append(
+                TalentFitItem(title=talent.title, level=TalentLevel.LOW, evidence="", reason=reason, quote=None)
+            )
+            continue
         if source is None:
             items.append(_unknown(talent, "판정의 근거를 서류에서 확인하지 못했어요."))
             continue
         statement, quote, actor = source
-        level = judgment.level
-        # 본인이 직접 한 경험(F)이 아니면 상을 주지 않는다
-        if level is TalentLevel.HIGH and actor is not Actor.SELF:
+        level = TalentLevel.LOW if judgment.level is TalentLevel.UNKNOWN else judgment.level
+        metric = _metric(judgment.metric, [statement, quote or ""])
+        # 본인이 직접 한 경험(F)에 정량 지표가 함께 있어야 상이다
+        if level is TalentLevel.HIGH and (actor is not Actor.SELF or not metric):
             level = TalentLevel.MID
         evidence = " ".join(judgment.evidence.split()) or statement
         items.append(
@@ -209,9 +221,19 @@ def check_talents(review: ApplicationReview, talents: list[Talent], judgments: l
                 evidence=_clip(evidence, MAX_EVIDENCE),
                 reason=judgment.reason.strip(),
                 quote=quote,
+                metric=metric if level is TalentLevel.HIGH else "",
             )
         )
     return items
+
+
+def _metric(text: str, sources: list[str]) -> str:
+    """모델이 옮긴 정량 지표. 숫자가 없거나 근거 문장에 없으면 버린다."""
+    metric = " ".join(text.split())
+    if not re.search(r"\d", metric):
+        return ""
+    compact = re.sub(r"\s+", "", metric)
+    return metric if any(compact in re.sub(r"\s+", "", source) for source in sources) else ""
 
 
 def talent_recipe(llm: LlmClient) -> str | None:

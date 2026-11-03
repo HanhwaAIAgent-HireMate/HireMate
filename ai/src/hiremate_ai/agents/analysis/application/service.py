@@ -70,7 +70,7 @@ async def analyze_application(
     """지원서를 분석하고 결과 원본을 돌려준다. 같은 입력의 저장 결과가 있으면 모델을 부르지 않는다.
 
     분석이 budget_seconds 안에 끝나지 않으면 TimeoutError다. 재확인은 남은 시간을 보고 줄인다.
-    모델 · DB 오류는 그대로 올려 backend가 분석 실패(근거 부족에 따른 점수 보류와 다르다)로 남기게 한다.
+    모델 · DB 오류는 그대로 올려 backend가 분석 실패(근거 부족에 따른 확인 필요와 다르다)로 남기게 한다.
     """
     if rubric.recruitment_id != applicant.info.recruitment_id:
         raise RubricScopeError("평가 기준과 지원서의 채용이 다르다")

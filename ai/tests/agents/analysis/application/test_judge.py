@@ -1,13 +1,22 @@
+from dataclasses import replace
+
 import pytest
 from application_context import TODAY, YUMIN_API, verdict
 
+from hiremate_ai.agents.analysis.application.extract import locate
 from hiremate_ai.agents.analysis.application.judge import (
     CriteriaJudgement,
     Evidence,
     judge_criteria,
     recheck_criterion,
 )
-from hiremate_ai.agents.analysis.application.types import Criterion, CriterionResult, EvaluationRules
+from hiremate_ai.agents.analysis.application.types import (
+    Actor,
+    Criterion,
+    CriterionResult,
+    EvaluationRules,
+    Fact,
+)
 from hiremate_ai.contract import ApplicantDetail, CriterionCategory, CriterionType, Verdict
 from hiremate_ai.llm.fake import FakeLlm
 
@@ -142,3 +151,57 @@ async def test_recheck_does_not_pick_the_first_conflicting_answer(criterion: Cri
         1,
     )
     assert result is not None and result.verdict == Verdict.UNKNOWN and "서로 달라" in result.reason
+
+
+YUMIN_LATENCY = "하루 120만 건 승인 트랜잭션을 처리하는 승인 서버의 응답 시간을 180ms에서 90ms로 줄였습니다."
+
+
+@pytest.mark.parametrize(
+    ("metric", "kept"),
+    [
+        ("응답 시간을 180ms에서 90ms로 줄였습니다", "응답 시간을 180ms에서 90ms로 줄였습니다"),
+        # 숫자가 없거나 원문에 없는 지표는 남기지 않는다 (화면에서 상이 아니라 중이다)
+        ("응답 시간을 크게 줄였습니다", ""),
+        ("응답 시간을 50ms로 줄였습니다", ""),
+    ],
+)
+async def test_metric_is_kept_only_when_it_is_in_the_documents(
+    criterion: Criterion, evidence: Evidence, metric: str, kept: str
+) -> None:
+    answer = verdict("Q-01", "MET", YUMIN_LATENCY).model_copy(update={"metric": metric})
+    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [criterion], evidence, 8000)
+    assert result.verdict == Verdict.MET
+    assert result.metric == kept
+
+
+async def test_condition_items_carry_no_metric(criterion: Criterion, evidence: Evidence) -> None:
+    condition = criterion.model_copy(update={"criterion_type": CriterionType.CONDITION})
+    answer = verdict("Q-01", "MET", YUMIN_LATENCY).model_copy(update={"metric": "하루 120만 건"})
+    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [condition], evidence, 8000)
+    assert result.metric == ""
+
+
+def _self_fact(evidence: Evidence, sentence: str, actor: Actor = Actor.SELF) -> Fact:
+    quote = locate(sentence, list(evidence.documents))
+    assert quote is not None
+    return Fact(kind="EXPERIENCE", statement="Java API를 직접 개발했다.", actor=actor, quotes=[quote])
+
+
+@pytest.mark.parametrize(("fact_actor", "expected"), [(Actor.SELF, Verdict.MET), (Actor.TEAM, Verdict.UNKNOWN)])
+async def test_unclear_role_follows_the_fact_extracted_from_the_same_sentence(
+    criterion: Criterion,
+    evidence: Evidence,
+    fact_actor: Actor,
+    expected: Verdict,
+) -> None:
+    with_fact = replace(evidence, facts=[_self_fact(evidence, YUMIN_API, fact_actor)])
+    answer = verdict("Q-01", "MET", YUMIN_API, role="UNCLEAR")
+    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [criterion], with_fact, 8000)
+    assert result.verdict == expected
+
+
+async def test_team_answer_is_not_overridden_by_a_self_fact(criterion: Criterion, evidence: Evidence) -> None:
+    with_fact = replace(evidence, facts=[_self_fact(evidence, YUMIN_API)])
+    answer = verdict("Q-01", "MET", YUMIN_API, role="TEAM")
+    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [criterion], with_fact, 8000)
+    assert result.verdict == Verdict.UNKNOWN

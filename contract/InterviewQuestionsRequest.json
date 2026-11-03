@@ -8,17 +8,7 @@
       "email": "yumin@example.com",
       "careerYears": 4,
       "lastCompany": "한빛카드",
-      "documentScore": 73.2,
-      "documentScoreLow": 73.2,
-      "passed": true,
-      "held": false,
       "shortfalls": [],
-      "qualificationStatus": "PASSED",
-      "qualificationScore": 38.9,
-      "qualificationScoreLow": 38.9,
-      "qualificationMax": 50,
-      "preferenceScore": 34.3,
-      "preferenceMax": 50,
       "analysisStatus": "DONE",
       "submittedAt": "2026-10-01T09:00:00Z"
     },
@@ -98,17 +88,6 @@
     ],
     "holds": [],
     "criteriaVersion": "dummy-2026-10-22",
-    "scoreStatus": "CONFIRMED",
-    "documentScore": 73.3,
-    "documentScoreLow": 73.3,
-    "qualificationStatus": "PASSED",
-    "qualificationRate": 75.0,
-    "qualificationScore": 33.3,
-    "qualificationScoreLow": 33.3,
-    "qualificationMax": 50,
-    "preferenceScore": 40.0,
-    "preferenceScoreLow": 40.0,
-    "preferenceMax": 50,
     "criteria": [
       {
         "criterionId": "Q-01",
@@ -117,9 +96,6 @@
         "important": true,
         "criterionType": "CONDITION",
         "verdict": "NOT_MET",
-        "fulfillment": 0.0,
-        "allotted": 16.7,
-        "earned": 0.0,
         "reason": "요건과 관련된 재직 경력이 0년이에요 (요건 3년 이상).",
         "satisfiedParts": [],
         "unsatisfiedParts": [
@@ -129,7 +105,8 @@
         "evidence": [],
         "recheckCount": 0,
         "careerYears": 0,
-        "certificateStatus": null
+        "certificateStatus": null,
+        "metric": ""
       },
       {
         "criterionId": "P-01",
@@ -138,9 +115,6 @@
         "important": false,
         "criterionType": "COMPOSITE",
         "verdict": "PARTIAL",
-        "fulfillment": 0.5,
-        "allotted": 12.5,
-        "earned": 6.3,
         "reason": "연동 API는 직접 구현했지만 오류 처리는 드러나지 않아요.",
         "satisfiedParts": [
           "카드사 승인 API 연동 구현"
@@ -157,7 +131,8 @@
         ],
         "recheckCount": 1,
         "careerYears": null,
-        "certificateStatus": null
+        "certificateStatus": null,
+        "metric": ""
       },
       {
         "criterionId": "P-02",
@@ -166,9 +141,6 @@
         "important": false,
         "criterionType": "CONDITION",
         "verdict": "MET",
-        "fulfillment": 1.0,
-        "allotted": 12.5,
-        "earned": 12.5,
         "reason": "자격증 칸에 'SQLD'를 적었어요 (본인 기재, 미검증).",
         "satisfiedParts": [],
         "unsatisfiedParts": [],
@@ -176,7 +148,8 @@
         "evidence": [],
         "recheckCount": 0,
         "careerYears": null,
-        "certificateStatus": "SELF_REPORTED"
+        "certificateStatus": "SELF_REPORTED",
+        "metric": ""
       }
     ],
     "summaries": [

@@ -8,8 +8,6 @@
       "email": "applicant1@example.com",
       "careerYears": null,
       "lastCompany": null,
-      "documentScore": null,
-      "passed": false,
       "analysisStatus": "PENDING",
       "submittedAt": "2026-10-01T09:00:00Z"
     },
@@ -41,8 +39,6 @@
       "email": "applicant2@example.com",
       "careerYears": null,
       "lastCompany": null,
-      "documentScore": null,
-      "passed": false,
       "analysisStatus": "PENDING",
       "submittedAt": "2026-10-02T09:00:00Z"
     },
@@ -74,8 +70,6 @@
       "email": "applicant3@example.com",
       "careerYears": null,
       "lastCompany": null,
-      "documentScore": null,
-      "passed": false,
       "analysisStatus": "PENDING",
       "submittedAt": "2026-10-03T09:00:00Z"
     },
@@ -107,8 +101,6 @@
       "email": "applicant4@example.com",
       "careerYears": null,
       "lastCompany": null,
-      "documentScore": null,
-      "passed": false,
       "analysisStatus": "PENDING",
       "submittedAt": "2026-10-04T09:00:00Z"
     },
@@ -140,8 +132,6 @@
       "email": "applicant5@example.com",
       "careerYears": null,
       "lastCompany": null,
-      "documentScore": null,
-      "passed": false,
       "analysisStatus": "PENDING",
       "submittedAt": "2026-10-05T09:00:00Z"
     },
@@ -173,8 +163,6 @@
       "email": "applicant6@example.com",
       "careerYears": null,
       "lastCompany": null,
-      "documentScore": null,
-      "passed": false,
       "analysisStatus": "PENDING",
       "submittedAt": "2026-10-06T09:00:00Z"
     },
@@ -213,8 +201,6 @@
       "email": "applicant7@example.com",
       "careerYears": null,
       "lastCompany": null,
-      "documentScore": null,
-      "passed": false,
       "analysisStatus": "PENDING",
       "submittedAt": "2026-10-07T09:00:00Z"
     },
@@ -246,8 +232,6 @@
       "email": "applicant8@example.com",
       "careerYears": null,
       "lastCompany": null,
-      "documentScore": null,
-      "passed": false,
       "analysisStatus": "PENDING",
       "submittedAt": "2026-10-08T09:00:00Z"
     },
