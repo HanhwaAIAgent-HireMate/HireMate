@@ -145,7 +145,7 @@ async def find_sources(
     except NcsUnavailable as error:
         logger.warning("NCS 검색 실패: %s", error)
         return None, NCS_UNAVAILABLE
-    items = {}
+    items: dict[str, tuple[NcsTask, str]] = {}
     for task in found:
         for sentence in task.sentences:
             items[f"S{len(items) + 1}"] = (task, sentence)
