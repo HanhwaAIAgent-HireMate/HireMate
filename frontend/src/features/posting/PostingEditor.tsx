@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { StageGuides } from '@/features/notice/StageGuides'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
 import {
   useApplySuggestion,
@@ -147,7 +146,7 @@ export function PostingEditor({
   const suggestion = posting.suggestion
   const changed = new Set(suggestion?.changedFields ?? [])
   const isDraft = posting.status === 'DRAFT'
-  // 게시한 공고는 모든 지원자가 같은 공고를 보도록 바꿀 수 없다. 전형별 안내(일정 · 장소)만 고칠 수 있다
+  // 게시한 공고는 모든 지원자가 같은 공고를 보도록 바꿀 수 없다. 전형별 안내(일정 · 장소)는 전형 결과 화면에서 정한다
   const editable = isDraft
   const shown = suggestion ? { ...draft, ...pick(suggestion.content, changed) } : draft
   const locked = (field: string) => !editable || changed.has(field)
@@ -398,8 +397,8 @@ export function PostingEditor({
             {!isDraft && (
               <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
                 <Lock className="size-4 shrink-0" />
-                게시한 공고는 바꿀 수 없어요. 전형 일정 · 장소는 아래 전형별 안내에서 고칠 수
-                있어요.
+                게시한 공고는 바꿀 수 없어요. 전형 일정 · 장소는 전형 결과 화면의 다음 전형 안내에서
+                정해요.
               </div>
             )}
             {suggestion && (
@@ -594,11 +593,6 @@ export function PostingEditor({
                 <StageFlow stages={posting.stages} />
               )}
             </Section>
-            <StageGuides
-              recruitmentId={id}
-              stageIds={posting.stages.map((stage) => stage.id).join()}
-              editable={posting.status !== 'CLOSED'}
-            />
             <FixedBox title="필수 제출 서류">
               <div className="flex flex-wrap gap-2">
                 {(suggestion?.documents ?? posting.documents)

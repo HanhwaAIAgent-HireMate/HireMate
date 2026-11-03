@@ -43,47 +43,69 @@ import {
 } from '@/features/notice/stageGuide'
 import { errorMessage } from '@/lib/api/client'
 
-export const STAGE_GUIDES_ID = 'stage-guides'
+export const NEXT_STAGE_GUIDE_ID = 'next-stage-guide'
 
-// 전형별 안내. 앞 전형의 다음 전형 안내 메일 아래에 붙고, 채용이 끝나기 전까지 고칠 수 있다
-export function StageGuides({
+/**
+ * 전형 결과 화면의 다음 전형 안내. 합격 안내 메일 아래에 붙는다. 결과를 확정한 뒤 메일을 쓰기 전에 채우도록
+ * 합격 · 불합격 안내 단계에 접어 두고, 안내 메일 화면의 [입력하러 가기](#next-stage-guide)로 오면 펼친다
+ */
+export function NextStageGuide({
   recruitmentId,
-  stageIds,
+  stageId,
   editable,
 }: {
   recruitmentId: string
-  /** 전형 ID를 이은 값. 전형 절차가 바뀌면 안내를 새로 받는다 */
-  stageIds: string
+  /** 다음 전형 ID */
+  stageId: string
   editable: boolean
 }) {
-  const guides = useStageGuides(recruitmentId, stageIds)
+  const guides = useStageGuides(recruitmentId, stageId)
+  const view = guides.data?.find((guide) => guide.stageId === stageId)
   const { hash } = useLocation()
+  const linked = hash === `#${NEXT_STAGE_GUIDE_ID}`
+  // 담당자가 펼치거나 접기 전에는, 안내 메일 화면의 링크로 왔을 때만 펼친다
+  const [toggled, setToggled] = useState<boolean | null>(null)
+  const open = toggled ?? linked
+  const ready = Boolean(view)
 
-  // 안내 메일 화면의 [입력하러 가기]로 오면 이 칸으로 내려간다
   useEffect(() => {
-    if (hash === `#${STAGE_GUIDES_ID}` && guides.data) {
-      document.getElementById(STAGE_GUIDES_ID)?.scrollIntoView({ block: 'start' })
+    if (linked && ready) {
+      document.getElementById(NEXT_STAGE_GUIDE_ID)?.scrollIntoView({ block: 'start' })
     }
-  }, [hash, guides.data])
+  }, [linked, ready])
 
-  if (!guides.data?.length) return null
+  if (!guides.data || !view) return null
+  const empty = missingGuideFields(view.guide)
   return (
-    <section id={STAGE_GUIDES_ID} className="space-y-3">
-      <h2 className="flex flex-wrap items-baseline gap-2 text-sm font-bold">
-        전형별 안내
+    <section id={NEXT_STAGE_GUIDE_ID} className="space-y-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setToggled(!open)}
+        className="flex w-full flex-wrap items-baseline gap-2 text-left text-sm font-semibold"
+      >
+        {view.name} 안내
         <span className="text-xs font-normal text-muted-foreground">
-          앞 전형의 합격 안내 메일 아래에 붙어요. 비워 둔 칸은 빠져요
+          합격 안내 메일 아래에 붙어요
         </span>
-      </h2>
-      {guides.data.map((view) => (
+        {empty.length > 0 && (
+          <span className="text-[11px] font-normal text-amber-700">
+            비어 있음: {empty.join(', ')}
+          </span>
+        )}
+        <span className="ml-auto text-xs font-normal text-muted-foreground">
+          {open ? '접기' : editable ? '입력하기' : '보기'}
+        </span>
+      </button>
+      {open && (
         <GuideCard
-          key={`${view.stageId}-${JSON.stringify(view.guide)}`}
+          key={JSON.stringify(view.guide)}
           recruitmentId={recruitmentId}
           view={view}
           bounds={scheduleBounds(guides.data, view.stageId)}
           editable={editable}
         />
-      ))}
+      )}
     </section>
   )
 }
@@ -119,19 +141,18 @@ function GuideCard({
 
   return (
     <div className="space-y-2 rounded-xl border p-4">
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        {view.name}
-        {view.notifiedCount > 0 && (
-          <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
-            {view.notifiedCount}명에게 보냄
-          </span>
-        )}
-        {empty.length > 0 && (
-          <span className="text-[11px] font-normal text-amber-700">
-            비어 있음: {empty.join(', ')}
-          </span>
-        )}
-      </div>
+      {(view.notifiedCount > 0 || empty.length > 0) && (
+        <div className="flex items-center gap-2 text-sm">
+          {view.notifiedCount > 0 && (
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+              {view.notifiedCount}명에게 보냄
+            </span>
+          )}
+          {empty.length > 0 && (
+            <span className="text-[11px] text-amber-700">비어 있음: {empty.join(', ')}</span>
+          )}
+        </div>
+      )}
       <Field label="일정" problem={problems.schedule}>
         <Input
           type="date"
