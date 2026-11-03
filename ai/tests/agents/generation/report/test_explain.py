@@ -1,12 +1,16 @@
 import httpx2
 from openai import APIConnectionError
 
+from hiremate_ai.agents.generation.report.check import sentence_problems
 from hiremate_ai.agents.generation.report.explain import (
+    CareerCount,
+    CriterionCount,
     DistributionFacts,
     _Charts,
     _Draft,
     explain_distribution,
     facts_text,
+    highlights,
 )
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.fake import FakeLlm, LlmCall
@@ -69,7 +73,8 @@ async def test_explain_keeps_only_sentences_that_pass_the_report_checks() -> Non
             ),
         )
 
-    note = await explain_distribution(FACTS, FakeLlm(answer))
+    # 걸린 차트 문장이 있어 한 번 다시 쓰게 하고, 다시 써도 걸리면 그 차트는 뺀다
+    note = await explain_distribution(FACTS, FakeLlm(answer, answer))
 
     assert note.lines == [
         "Java · Kotlin 경력은 확인 필요 비율이 65%라 서류만으로 거르기 어려워요.",
@@ -97,3 +102,63 @@ async def test_explain_returns_nothing_when_the_model_server_fails() -> None:
 
     note = await explain_distribution(FACTS, FakeLlm(down))
     assert note.lines == []
+
+
+def test_highlights_name_what_stands_out_in_each_chart() -> None:
+    points = highlights(FACTS)
+    assert points["funnel"] == ["필수 조건 충족 97명이 서류 통과 목표 60명보다 37명 많아요"]
+    assert points["counts"][0] == "필수 조건 충족자 중 항목 5개를 충족한 사람이 35명으로 가장 많아요"
+    assert "Q-01 Java 또는 Kotlin 기반 서버 개발 경력 3년 이상 68%" in points["criteria"][0]
+    assert points["careers"] == ["필수 조건 충족 비율이 가장 낮은 경력: 신입 34%(99명 중 34명)"]
+    # 코드가 고른 사실은 모델이 받는 자료에도 그대로 들어간다
+    text = facts_text(FACTS)
+    assert all(point in text for chart in points.values() for point in chart)
+
+
+async def test_chart_sentence_without_a_number_is_rewritten() -> None:
+    vague = _Charts(
+        funnel="필수 조건 충족자가 목표보다 많아 처리 현황을 확인해 보세요.",
+        required="확인 필요가 65%예요.",
+        counts="충족 5개가 35명으로 가장 많아요.",
+        criteria="Java · Kotlin 경력은 충족이 아닌 비율이 68%예요.",
+        careers="신입은 필수 조건 충족이 34%예요.",
+    )
+    fixed = vague.model_copy(update={"funnel": "필수 조건 충족 97명이 목표 60명보다 37명 많아요."})
+    llm = FakeLlm(
+        _Draft(lines=["목표보다 37명 많아 동점인 지원자를 먼저 봐요."], charts=vague), _Draft(lines=[], charts=fixed)
+    )
+
+    note = await explain_distribution(FACTS, llm)
+
+    assert note.charts["funnel"] == "필수 조건 충족 97명이 목표 60명보다 37명 많아요."
+    assert note.lines == ["목표보다 37명 많아 동점인 지원자를 먼저 봐요."]
+    # 다시 쓸 때는 걸린 차트만 알려 준다
+    assert "charts.funnel에 숫자가 없다" in llm.calls[1].user
+    assert "charts.required" not in llm.calls[1].user
+
+
+def test_highlights_skip_tiny_career_bands_and_trivial_unsure_rates() -> None:
+    facts = FACTS.model_copy(
+        update={
+            "careers": [
+                CareerCount(label="신입", all=1, above_line=0),
+                CareerCount(label="3~4년", all=9, above_line=7),
+                CareerCount(label="5~6년", all=15, above_line=15),
+            ],
+            "criteria": [
+                CriterionCount(criterion_id="Q-01", text="경력", required=True, met=26, partial=0, not_met=3, unknown=1)
+            ],
+        }
+    )
+    points = highlights(facts)
+    # 1명뿐인 신입(0%)은 고르지 않고, 인원을 함께 적는다
+    assert points["careers"] == [
+        "필수 조건 충족 비율이 가장 낮은 경력: 3~4년 78%(9명 중 7명), 가장 높은 경력: 5~6년 100%(15명 중 15명)"
+    ]
+    # 확인 필요 3%는 모든 항목에 한 명씩인 경우라 알리지 않는다
+    assert not any("확인 필요 비율" in point for point in points["criteria"])
+
+
+def test_hanja_in_a_sentence_is_a_problem() -> None:
+    assert any("한자" in p for p in sentence_problems("lines[0]", "확인이 필요한項目도 있어요.", set()))
+    assert any("한자" in p for p in sentence_problems("lines[0]", "필수 조건を 못 채웠어요.", set()))
