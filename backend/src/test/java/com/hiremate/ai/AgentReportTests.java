@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.job.JobResult;
@@ -182,8 +183,7 @@ class AgentReportTests extends IntegrationTest {
         awaitAnalyzed(hr.companyId(), recruitmentId, applicants);
         for (var applicant : applications.applicants(hr.companyId(), recruitmentId)) {
             int order = Integer.parseInt(applicant.name().replace("지원자", ""));
-            applications.recordAnalysis(applicant.applicationId(), ApplicationAnalysis.of(order, "OO카드",
-                    BigDecimal.valueOf(100 - order * 10), true, false, List.of()));
+            applications.recordAnalysis(applicant.applicationId(), ApplicationAnalysis.of(order, "OO카드", List.of()));
         }
         List<String> ids = applications.applicants(hr.companyId(), recruitmentId).stream()
                 .sorted(Comparator.comparing(applicant -> applicant.name()))
@@ -196,7 +196,7 @@ class AgentReportTests extends IntegrationTest {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {
             if (applications.applicants(companyId, recruitmentId).stream()
-                    .filter(applicant -> applicant.documentScore() != null).count() == count) {
+                    .filter(applicant -> applicant.analysisStatus() == AnalysisStatus.DONE).count() == count) {
                 return;
             }
             Thread.sleep(200);

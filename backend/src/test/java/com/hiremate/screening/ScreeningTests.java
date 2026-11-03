@@ -10,10 +10,10 @@ import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
 import com.hiremate.TestMailConfiguration;
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.apply.CriterionMark;
-import com.hiremate.apply.QualificationStatus;
 import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewService;
 import com.hiremate.interview.InterviewView;
@@ -73,7 +73,7 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("필수 조건을 못 채우면 개수가 많아도 맨 아래이고, 같은 개수는 이름 순이며 인재상 포함 정렬은 상인 인재상을 더한다")
+    @DisplayName("필수 자격요건을 못 채우면 개수가 많아도 맨 아래이고, 충족 개수에 상인 인재상 개수를 더해 세우며 같으면 이름 순이다")
     void documentStageSortsByCountThenName() throws Exception {
         Stage stage = startDocumentStage(5);
         expect(stage.hr().put("/api/companies/me/profile", Map.of("intro", "", "culture", "",
@@ -87,46 +87,47 @@ class ScreeningTests extends IntegrationTest {
                 4, marked(9, false),
                 5, marked(4, true)));
         Map<String, String> ids = idsByName(stage);
-        applications.recordTalents(UUID.fromString(ids.get("지원자3")), List.of("협업", "끈기"));
+        applications.recordTalents(UUID.fromString(ids.get("지원자3")), List.of("협업", "끈기"), List.of());
         // 지금 인재상에 없는 제목은 세지 않는다
-        applications.recordTalents(UUID.fromString(ids.get("지원자1")), List.of("예전 인재상"));
+        applications.recordTalents(UUID.fromString(ids.get("지원자1")), List.of("예전 인재상"), List.of());
 
-        JsonNode basic = json(expect(stage.hr().get(stage.path() + "/candidates?size=50"), 200)).path("items");
-        assertThat(names(basic)).containsExactly("지원자2", "지원자3", "지원자5", "지원자1", "지원자4");
-        assertThat(basic.get(4).path("aboveLine").asBoolean()).isFalse();
-
-        JsonNode talent = json(expect(stage.hr().get(stage.path() + "/candidates?size=50&sort=TALENT"), 200))
-                .path("items");
+        JsonNode talent = json(expect(stage.hr().get(stage.path() + "/candidates?size=50"), 200)).path("items");
         assertThat(names(talent)).containsExactly("지원자3", "지원자2", "지원자5", "지원자1", "지원자4");
+        assertThat(talent.get(4).path("aboveLine").asBoolean()).isFalse();
         assertThat(talent.get(0).path("talentCount").asInt()).isEqualTo(2);
         assertThat(talent.get(0).path("talentTotal").asInt()).isEqualTo(2);
         assertThat(talent.get(3).path("talentCount").asInt()).isZero();
     }
 
     @Test
-    @DisplayName("필수 조건은 처음에 중요 표시한 자격요건이고, HR이 바꾸면 선 위 지원자가 바로 달라진다")
-    void requirementsMoveTheLine() throws Exception {
+    @DisplayName("거르기는 결정 상태가 하나라도 맞으면, 평가 항목과 인재상은 모두 O 또는 중 이상이어야 남긴다")
+    void filtersByDecisionCriteriaAndTalents() throws Exception {
         Stage stage = startDocumentStage(3);
-        JsonNode initial = json(expect(stage.hr().get(stage.path() + "/requirements"), 200));
-        assertThat(initial.path("criterionIds")).extracting(JsonNode::asString).containsExactly("Q-01", "Q-02");
+        expect(stage.hr().put("/api/companies/me/profile", Map.of("intro", "", "culture", "",
+                "talents", List.of(Map.of("title", "협업", "description", ""), Map.of("title", "끈기", "description", "")),
+                "benefits", List.of())), 200);
+        // 앞에서부터 Q-01 … Q-05, P-01 … 순서로 채운다. Q-04는 지원자1 · 2, P-03은 지원자1만 채웠다
+        record(stage, Map.of(1, marked(8, true), 2, marked(6, true), 3, partly(marked(3, true), "P-03")));
+        Map<String, String> ids = idsByName(stage);
+        applications.recordTalents(UUID.fromString(ids.get("지원자2")), List.of("끈기"), List.of());
+        applications.recordTalents(UUID.fromString(ids.get("지원자3")), List.of(), List.of("끈기"));
+        expect(stage.hr().post(stage.tabPath() + "/selection/add",
+                Map.of("applicationIds", List.of(ids.get("지원자1")))), 204);
+        expect(stage.hr().post(stage.path() + "/decisions",
+                Map.of("applicationIds", List.of(ids.get("지원자1")), "decision", "PASS")), 204);
 
-        // 지원자3은 Q-01을 못 채웠다. 필수 조건을 비우면 분석이 끝난 지원자 모두 선 위다
-        expect(stage.hr().put(stage.path() + "/requirements", Map.of("criterionIds", List.of())), 200);
-        JsonNode items = json(expect(stage.hr().get(stage.path() + "/candidates"), 200)).path("items");
-        items.forEach(item -> assertThat(item.path("aboveLine").asBoolean()).isTrue());
-
-        // 지원자1만 P-03을 채웠다
-        expect(stage.hr().put(stage.path() + "/requirements", Map.of("criterionIds", List.of("P-03"))), 200);
-        items = json(expect(stage.hr().get(stage.path() + "/candidates"), 200)).path("items");
-        assertThat(names(items).getFirst()).isEqualTo("지원자1");
-        List<Boolean> above = new ArrayList<>();
-        items.forEach(item -> above.add(item.path("aboveLine").asBoolean()));
-        assertThat(above).containsExactly(true, false, false);
-        String second = stage.ids().get(1);
-        expect(stage.hr().post(stage.tabPath() + "/selection/add", Map.of("applicationIds", List.of(second))), 409);
-
-        expect(stage.hr().put(stage.path() + "/requirements", Map.of("criterionIds", List.of("X-99"))), 400);
-        expect(newHr().get(stage.path() + "/requirements"), 404);
+        assertThat(filtered(stage, "decision=PENDING&decision=FAIL")).containsExactly("지원자2", "지원자3");
+        assertThat(filtered(stage, "criterion=Q-04")).containsExactly("지원자1", "지원자2");
+        // 지원자3은 P-03을 부분 충족(중)했다
+        assertThat(filtered(stage, "criterion=P-03")).containsExactly("지원자1", "지원자3");
+        assertThat(filtered(stage, "criterion=Q-04&criterion=P-03")).containsExactly("지원자1");
+        // 지원자2는 끈기가 상, 지원자3은 중이다
+        assertThat(filtered(stage, "talent=T-2")).containsExactly("지원자2", "지원자3");
+        assertThat(filtered(stage, "talent=T-1")).isEmpty();
+        assertThat(filtered(stage, "talent=T-9")).isEmpty();
+        assertThat(filtered(stage, "decision=PENDING&criterion=Q-04")).containsExactly("지원자2");
+        assertThat(json(expect(stage.hr().get(stage.path() + "/candidates?criterion=Q-04"), 200))
+                .path("total").asLong()).isEqualTo(2);
     }
 
     @Test
@@ -192,7 +193,6 @@ class ScreeningTests extends IntegrationTest {
         assertThat(tabs.size()).isEqualTo(1);
         assertThat(tabs.get(0).path("name").asString()).isEqualTo("새 탭");
         assertThat(tabs.get(0).path("selectedCount").asLong()).isZero();
-        assertThat(tabs.get(0).path("canRestore").asBoolean()).isFalse();
 
         String second = newTab(stage);
         JsonNode created = json(expect(stage.hr().get(stage.path() + "/tabs"), 200));
@@ -273,7 +273,7 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("비우기와 되돌리기는 결정하지 않은 지원자에만 적용하고, 결정한 지원자는 결정을 되돌리면 제자리로 돌아온다")
+    @DisplayName("비우기는 결정하지 않은 지원자에만 적용하고, 결정한 지원자는 결정을 되돌리면 제자리로 돌아온다")
     void selectionEditsSkipDecidedApplicants() throws Exception {
         Stage stage = startDocumentStage(3);
         List<String> top = stage.ids().subList(0, 2);
@@ -281,14 +281,11 @@ class ScreeningTests extends IntegrationTest {
         expect(stage.hr().post(stage.path() + "/decisions",
                 Map.of("applicationIds", top.subList(0, 1), "decision", "PASS")), 204);
         expect(stage.hr().post(stage.tabPath() + "/selection/clear", null), 204);
-        assertThat(json(expect(stage.hr().get(stage.path() + "/tabs"), 200)).get(0).path("canRestore").asBoolean())
-                .isTrue();
-        expect(stage.hr().post(stage.tabPath() + "/selection/restore", null), 204);
-        assertThat(names(selection(stage, stage.tabId()).path("items"))).containsExactly("지원자2");
+        assertThat(selection(stage, stage.tabId()).path("total").asLong()).isZero();
 
         expect(stage.hr().post(stage.path() + "/decisions/revert",
                 Map.of("applicationIds", top.subList(0, 1), "tabId", stage.tabId())), 204);
-        assertThat(names(selection(stage, stage.tabId()).path("items"))).containsExactly("지원자1", "지원자2");
+        assertThat(names(selection(stage, stage.tabId()).path("items"))).containsExactly("지원자1");
     }
 
     @Test
@@ -881,9 +878,19 @@ class ScreeningTests extends IntegrationTest {
         if (!required) {
             marks.put("Q-01", CriterionMark.UNKNOWN);
         }
-        BigDecimal score = BigDecimal.valueOf(met * 10L);
-        return new ApplicationAnalysis(3, "OO카드", null, QualificationStatus.PASSED, null, score, 50, null, 50,
-                score, score, score, true, false, required ? List.of() : List.of("경력 확인 필요"), marks);
+        return new ApplicationAnalysis(3, "OO카드", null, required ? List.of() : List.of("경력 확인 필요"), marks);
+    }
+
+    /** 판정 하나를 부분 충족으로 바꾼다. */
+    private static ApplicationAnalysis partly(ApplicationAnalysis analysis, String criterionId) {
+        Map<String, CriterionMark> marks = new LinkedHashMap<>(analysis.criterionMarks());
+        marks.put(criterionId, CriterionMark.PARTIAL);
+        return new ApplicationAnalysis(analysis.careerYears(), analysis.lastCompany(), analysis.criteriaVersion(),
+                analysis.shortfalls(), marks);
+    }
+
+    private List<String> filtered(Stage stage, String query) throws Exception {
+        return names(json(expect(stage.hr().get(stage.path() + "/candidates?size=50&" + query), 200)).path("items"));
     }
 
     private Map<String, String> idsByName(Stage stage) throws Exception {
@@ -905,7 +912,7 @@ class ScreeningTests extends IntegrationTest {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {
             if (applications.applicants(companyId, recruitmentId).stream()
-                    .filter(applicant -> applicant.documentScore() != null).count() == count) {
+                    .filter(applicant -> applicant.analysisStatus() == AnalysisStatus.DONE).count() == count) {
                 return;
             }
             Thread.sleep(200);

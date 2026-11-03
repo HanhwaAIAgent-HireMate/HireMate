@@ -10,7 +10,6 @@ import com.hiremate.ai.application.TalentFit;
 import com.hiremate.ai.application.TalentFitRequest;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicantDocument;
-import com.hiremate.apply.QualificationStatus;
 import com.hiremate.company.Talent;
 import com.hiremate.posting.DocumentType;
 import com.hiremate.posting.PostingContent;
@@ -84,9 +83,7 @@ class StubCandidateAnalyst implements CandidateAnalyst {
         if (sentences.isEmpty()) {
             checks.add(new CandidateAnalysis.Finding("제출 문서에서 글자를 읽지 못했어요. 원본 PDF를 확인해 주세요.", "제출 문서"));
         }
-        return new CandidateAnalysis(conditions, notable, checks, List.of(), null, CandidateAnalysis.ScoreStatus.HELD,
-                null, null, QualificationStatus.UNDETERMINED, null, null, null, 0, null, null, 0, List.of(),
-                List.of(),
+        return new CandidateAnalysis(conditions, notable, checks, List.of(), null, List.of(), List.of(),
                 highlights.entrySet().stream()
                         .map(entry -> new CandidateAnalysis.Evidence(entry.getValue(), entry.getKey()))
                         .toList(),
@@ -161,7 +158,7 @@ class StubCandidateAnalyst implements CandidateAnalyst {
     public TalentFit talents(TalentFitRequest request) {
         return new TalentFit(request.talents().stream()
                 .map(talent -> new TalentFit.Match(talent.title(), TalentFit.Level.UNKNOWN, "",
-                        "개발용 응답이라 판정하지 않았어요.", null))
+                        "개발용 응답이라 판정하지 않았어요.", null, ""))
                 .toList(), "Application Agent", true);
     }
 

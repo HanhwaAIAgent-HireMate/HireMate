@@ -70,8 +70,7 @@ public record ChatPlan(Intent intent, SelectionMode mode, EditAction edit, List<
     public enum EditAction {
         ADD,
         REMOVE,
-        CLEAR,
-        RESTORE
+        CLEAR
     }
 
     public static ChatPlan answer(Intent intent, String message, List<ChatItem> items, List<String> sources,

@@ -9,7 +9,6 @@ import com.hiremate.apply.CriterionMark;
 import com.hiremate.company.CompanyService;
 import com.hiremate.company.Talent;
 import com.hiremate.global.ApiException;
-import com.hiremate.global.JsonText;
 import com.hiremate.posting.PostingService;
 import com.hiremate.posting.ScreeningRubric;
 import com.hiremate.recruit.RecruitService;
@@ -17,12 +16,8 @@ import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageInfo;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
-import com.hiremate.screening.domain.SelectionSnapshot;
-import com.hiremate.screening.domain.SelectionSnapshotRepository;
 import com.hiremate.screening.domain.StageCandidate;
 import com.hiremate.screening.domain.StageCandidateRepository;
-import com.hiremate.screening.domain.StageRequirement;
-import com.hiremate.screening.domain.StageRequirementRepository;
 import com.hiremate.screening.domain.StageTab;
 import com.hiremate.screening.domain.StageTabRepository;
 import com.hiremate.screening.domain.TabSelection;
@@ -44,12 +39,11 @@ import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.core.type.TypeReference;
 
 /**
  * 공통 전형 화면 (FR-10 ~ FR-24). 지원자 상태를 바꾸는 유일한 모듈이다.
  * 선택 지원자는 탭마다 따로 두고, AI Chat의 선택 편집 명령도 이 서비스가 대상과 권한을 검증한 뒤 탭에 실행한다.
- * 결정한 지원자는 탭에 행이 남아도 선택 지원자에 보이지 않는다. 빼기 · 비우기 · 교체 · 되돌리기는 보이는 선택 지원자에만
+ * 결정한 지원자는 탭에 행이 남아도 선택 지원자에 보이지 않는다. 빼기 · 비우기 · 교체는 보이는 선택 지원자에만
  * 적용하므로, 결정을 되돌리면 그 지원자는 원래 탭에 AI 표시 그대로 돌아온다.
  */
 @Service
@@ -62,7 +56,6 @@ public class ScreeningService {
     private static final Collator NAME_ORDER = Collator.getInstance(Locale.KOREAN);
 
     private final StageCandidateRepository candidates;
-    private final SelectionSnapshotRepository snapshots;
     private final StageTabRepository tabRepository;
     private final TabSelectionRepository selections;
     private final StageTabService tabs;
@@ -70,15 +63,13 @@ public class ScreeningService {
     private final ApplicationService applications;
     private final PostingService postings;
     private final ActivityService activity;
-    private final StageRequirementRepository requirements;
     private final CompanyService companies;
 
-    public ScreeningService(StageCandidateRepository candidates, SelectionSnapshotRepository snapshots,
-            StageTabRepository tabRepository, TabSelectionRepository selections, StageTabService tabs,
-            RecruitService recruits, ApplicationService applications, PostingService postings,
-            ActivityService activity, StageRequirementRepository requirements, CompanyService companies) {
+    public ScreeningService(StageCandidateRepository candidates, StageTabRepository tabRepository,
+            TabSelectionRepository selections, StageTabService tabs, RecruitService recruits,
+            ApplicationService applications, PostingService postings, ActivityService activity,
+            CompanyService companies) {
         this.candidates = candidates;
-        this.snapshots = snapshots;
         this.tabRepository = tabRepository;
         this.selections = selections;
         this.tabs = tabs;
@@ -86,7 +77,6 @@ public class ScreeningService {
         this.applications = applications;
         this.postings = postings;
         this.activity = activity;
-        this.requirements = requirements;
         this.companies = companies;
     }
 
@@ -126,16 +116,17 @@ public class ScreeningService {
     }
 
     /**
-     * 전체 지원자 리스트. 서류 전형은 선 위(필수 조건 충족 · ↑로 올림) 지원자를 먼저, 그 안에서 sort 기준 충족 개수가 많은
-     * 순으로 세우고 같으면 이름 순이다. 분석이 끝나지 않은 지원자는 선 아래 맨 뒤다. 평가 전형은 점수 높은 순이다.
+     * 전체 지원자 리스트. 서류 전형은 선 위(필수 자격요건 충족 · ↑로 올림) 지원자를 먼저, 그 안에서 자격요건 + 우대사항
+     * 충족 개수에 상으로 판정한 인재상 개수를 더한 값이 많은 순으로 세우고 같으면 이름 순이다. 분석이 끝나지 않은 지원자는
+     * 선 아래 맨 뒤다. 평가 전형은 점수 높은 순이다. filter에 맞지 않는 지원자는 빠진다.
      */
     @Transactional(readOnly = true)
-    public CandidatePage candidates(UUID companyId, UUID stageId, UUID tabId, String query, CandidateSort sort,
+    public CandidatePage candidates(UUID companyId, UUID stageId, UUID tabId, String query, CandidateFilter filter,
             int page, int size) {
         StageContext context = context(companyId, stageId);
         List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
         Map<UUID, TabSelection> selected = tabId == null ? Map.of() : visible(tabs.tab(companyId, stageId, tabId), all);
-        List<CandidateRow> rows = rows(context, all, selected, sort);
+        List<CandidateRow> rows = rows(context, all, selected, filter);
         if (query != null && !query.isBlank()) {
             String keyword = query.trim().toLowerCase(Locale.ROOT);
             Set<UUID> textMatches = new HashSet<>(
@@ -155,7 +146,7 @@ public class ScreeningService {
         List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
         Map<UUID, TabSelection> selected = visible(tabs.tab(companyId, stageId, tabId), all);
         // 넣은 순서대로, 한 번에 넣었으면 리스트 순서대로 둔다
-        List<CandidateRow> rows = rows(context, all, selected, CandidateSort.BASIC).stream()
+        List<CandidateRow> rows = rows(context, all, selected, CandidateFilter.NONE).stream()
                 .filter(CandidateRow::selected)
                 .sorted(Comparator.comparing(row -> selected.get(row.applicationId()).getSelectedAt()))
                 .toList();
@@ -201,33 +192,13 @@ public class ScreeningService {
                 .forEach(selections::delete);
     }
 
-    /** 탭의 선택 지원자를 비운다. 되돌릴 수 있게 남긴다. */
+    /** 탭의 선택 지원자를 비운다. */
     @Transactional
     public void clear(UUID companyId, UUID stageId, UUID tabId) {
         activeContext(companyId, stageId);
         StageTab tab = tabs.tab(companyId, stageId, tabId);
         Map<UUID, TabSelection> visible = visible(tab, candidates.findByStageIdAndCompanyId(stageId, companyId));
-        snapshot(tab.getId(), visible);
         selections.deleteAll(visible.values());
-    }
-
-    /** 교체 · 좁히기 · 비우기 직전의 선택 지원자로 돌아간다. 그 사이 결정한 지원자는 돌아오지 않는다. */
-    @Transactional
-    public void restore(UUID companyId, UUID stageId, UUID tabId) {
-        activeContext(companyId, stageId);
-        StageTab tab = tabs.tab(companyId, stageId, tabId);
-        SelectionSnapshot snapshot = snapshots.findById(tab.getId()).orElseThrow(() -> new ApiException(
-                HttpStatus.CONFLICT, "NOTHING_TO_RESTORE", "There is no previous selection."));
-        List<SnapshotEntry> previous = JsonText.read(snapshot.getEntries(),
-                new TypeReference<List<SnapshotEntry>>() { });
-        List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
-        Set<UUID> pending = all.stream().filter(candidate -> candidate.getDecision() == Decision.PENDING)
-                .map(StageCandidate::getApplicationId).collect(Collectors.toSet());
-        selections.deleteAll(visible(tab, all).values());
-        selections.flush();
-        previous.stream().filter(entry -> pending.contains(entry.applicationId()))
-                .forEach(entry -> selections.save(new TabSelection(tab.getId(), entry.applicationId(), entry.ai())));
-        snapshots.delete(snapshot);
     }
 
     /**
@@ -263,7 +234,6 @@ public class ScreeningService {
         if (mode != SelectionMode.ADD) {
             Set<UUID> retained = chosen.stream().map(StageCandidate::getApplicationId).collect(Collectors.toSet());
             if (!visible.keySet().equals(retained)) {
-                snapshot(tab.getId(), visible);
                 visible.values().stream().filter(row -> !retained.contains(row.getApplicationId()))
                         .forEach(selections::delete);
             }
@@ -361,7 +331,6 @@ public class ScreeningService {
         List<UUID> tabIds = tabRepository.findByStageIdAndCompanyIdOrderByNumber(stageId, companyId).stream()
                 .map(StageTab::getId).toList();
         selections.deleteAll(selections.findByTabIdIn(tabIds));
-        snapshots.deleteAllById(tabIds.stream().filter(snapshots::existsById).toList());
         activity.record(companyId, memberId, "CONFIRM_STAGE", "STAGE", stageId,
                 "pass=" + before.pass() + ", fail=" + (before.fail() + before.pending()));
         return before;
@@ -457,15 +426,6 @@ public class ScreeningService {
                 () -> new ApiException(HttpStatus.NOT_FOUND, "CANDIDATE_NOT_FOUND", "Applicant not found."));
     }
 
-    private void snapshot(UUID tabId, Map<UUID, TabSelection> visible) {
-        String entries = JsonText.write(visible.values().stream()
-                .sorted(Comparator.comparing(TabSelection::getSelectedAt))
-                .map(row -> new SnapshotEntry(row.getApplicationId(), row.isAi()))
-                .toList());
-        snapshots.findById(tabId).ifPresentOrElse(snapshot -> snapshot.replace(entries),
-                () -> snapshots.save(new SelectionSnapshot(tabId, entries)));
-    }
-
     /** 탭의 선택 행 전부. 결정한 지원자의 숨은 행도 있다. */
     private Map<UUID, TabSelection> tabRows(StageTab tab) {
         return selections.findByTabIdOrderBySelectedAt(tab.getId()).stream()
@@ -488,22 +448,23 @@ public class ScreeningService {
     }
 
     private List<CandidateRow> rows(StageContext context, List<StageCandidate> all,
-            Map<UUID, TabSelection> selected, CandidateSort sort) {
+            Map<UUID, TabSelection> selected, CandidateFilter filter) {
         Map<UUID, ApplicantInfo> infos = infos(context);
         Lines lines = lines(context);
         Set<UUID> recommended = recommended(lines, infos);
-        Comparator<CandidateRow> byTotal = Comparator
-                .comparing(row -> totalKey(infos.get(row.applicationId())), HIGH_FIRST);
+        // 서류는 점수를 매기지 않는다. 평가 점수가 같거나 점수가 없는 전형은 이름 순이다
+        Comparator<CandidateRow> byName = Comparator.comparing(CandidateRow::name, NAME_ORDER);
         Comparator<CandidateRow> order = switch (context.type()) {
             case DOCUMENT -> Comparator.comparing((CandidateRow row) -> !row.aboveLine())
                     .thenComparing(row -> row.analysisStatus() != AnalysisStatus.DONE)
-                    .thenComparing(row -> sort == CandidateSort.TALENT ? row.metCount() + row.talentCount()
-                            : row.metCount(), Comparator.reverseOrder())
+                    .thenComparing(row -> row.metCount() + row.talentCount(), Comparator.reverseOrder())
                     .thenComparing(CandidateRow::name, NAME_ORDER);
-            case ASSESSMENT -> Comparator.comparing(CandidateRow::score, HIGH_FIRST).thenComparing(byTotal);
-            case INTERVIEW -> byTotal;
+            case ASSESSMENT -> Comparator.comparing(CandidateRow::score, HIGH_FIRST).thenComparing(byName);
+            case INTERVIEW -> byName;
         };
         return all.stream()
+                .filter(candidate -> filter.decisions().isEmpty() || filter.decisions().contains(effective(candidate)))
+                .filter(candidate -> lines.passes(infos.get(candidate.getApplicationId()), filter))
                 .map(candidate -> toRow(context.type(), candidate, infos.get(candidate.getApplicationId()),
                         recommended, selected.get(candidate.getApplicationId()), lines))
                 .sorted(order.thenComparing(row -> infos.get(row.applicationId()).applicationNo()))
@@ -511,7 +472,8 @@ public class ScreeningService {
     }
 
     /**
-     * 서류 전형의 선 위 지원자: 분석이 끝났고 필수 조건을 모두 충족한(MET) 지원자. 필수 조건이 없으면 분석이 끝난 지원자 모두다.
+     * 서류 전형의 선 위 지원자: 분석이 끝났고 필수 자격요건을 모두 충족한(MET) 지원자. 필수 자격요건이 없으면 분석이 끝난
+     * 지원자 모두다.
      * 서류 전형이 아니면 비어 있다.
      */
     private Set<UUID> recommended(StageContext context, Map<UUID, ApplicantInfo> infos) {
@@ -531,56 +493,22 @@ public class ScreeningService {
     /** 필수 조건 · 평가 항목 · 인재상. 서류 전형이 아니면 모두 비어 있다. */
     private Lines lines(StageContext context) {
         if (context.type() != StageType.DOCUMENT) {
-            return new Lines(false, List.of(), List.of(), List.of());
+            return new Lines(false, List.of(), List.of(), Set.of(), List.of());
         }
         List<ScreeningRubric.Criterion> criteria = postings
                 .screeningRubric(context.companyId(), context.recruitmentId()).criteria();
         return new Lines(true, criteria.stream().map(ScreeningRubric.Criterion::criterionId).toList(),
-                requiredIds(context.stageId(), criteria),
+                criteria.stream().filter(ScreeningService::required).map(ScreeningRubric.Criterion::criterionId)
+                        .toList(),
+                criteria.stream()
+                        .filter(criterion -> criterion.criterionType() == ScreeningRubric.CriterionType.CONDITION)
+                        .map(ScreeningRubric.Criterion::criterionId).collect(Collectors.toSet()),
                 companies.factors(context.companyId()).stream().map(Talent::title).toList());
     }
 
-    /** HR이 체크한 필수 조건. 체크한 적이 없으면 공고 기준에서 중요 표시한 자격요건이다. */
-    private List<String> requiredIds(UUID stageId, List<ScreeningRubric.Criterion> criteria) {
-        List<String> known = criteria.stream().map(ScreeningRubric.Criterion::criterionId).toList();
-        return requirements.findById(stageId)
-                .map(saved -> saved.criterionIds().stream().filter(known::contains).toList())
-                .orElseGet(() -> criteria.stream()
-                        .filter(criterion -> criterion.important()
-                                && criterion.category() == ScreeningRubric.Category.QUALIFICATION)
-                        .map(ScreeningRubric.Criterion::criterionId)
-                        .toList());
-    }
-
-    /** 서류 전형의 필수 조건. */
-    @Transactional(readOnly = true)
-    public StageRequirements requirements(UUID companyId, UUID stageId) {
-        return new StageRequirements(lines(context(companyId, stageId)).required());
-    }
-
-    /** 필수 조건을 바꾼다. 선 위 지원자가 바로 달라진다. 이미 선택 지원자에 있는 지원자는 그대로 둔다. */
-    @Transactional
-    public StageRequirements updateRequirements(UUID companyId, UUID stageId, Collection<String> criterionIds) {
-        StageContext context = activeContext(companyId, stageId);
-        if (context.type() != StageType.DOCUMENT) {
-            throw new ApiException(HttpStatus.CONFLICT, "NOT_DOCUMENT_STAGE", "Only document stages have a line.");
-        }
-        List<String> chosen = lines(context).criteria().stream().filter(criterionIds::contains).toList();
-        if (chosen.size() != new HashSet<>(criterionIds).size()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "Unknown criterion.");
-        }
-        requirements.findById(stageId).ifPresentOrElse(saved -> saved.replace(chosen),
-                () -> requirements.save(new StageRequirement(stageId, companyId, chosen)));
-        return new StageRequirements(chosen);
-    }
-
-    /** 총점 순 정렬 값. 보류면 확인 필요를 0점으로 계산한 점수이고, 그것도 없으면(서류를 읽지 못함) 0점이다. */
-    private static BigDecimal totalKey(ApplicantInfo info) {
-        return heldAsZero(info, info.documentScore() != null ? info.documentScore() : info.documentScoreLow());
-    }
-
-    private static BigDecimal heldAsZero(ApplicantInfo info, BigDecimal score) {
-        return score == null && info.held() ? BigDecimal.ZERO : score;
+    /** 필수 자격요건: 공고 평가 기준에서 중요 표시한 자격요건. 우대사항은 필수가 아니다. 표 보기 · 거르기의 '필수'와 같다. */
+    public static boolean required(ScreeningRubric.Criterion criterion) {
+        return criterion.important() && criterion.category() == ScreeningRubric.Category.QUALIFICATION;
     }
 
     private static boolean aboveLine(StageType type, StageCandidate candidate, Set<UUID> recommended) {
@@ -602,11 +530,7 @@ public class ScreeningService {
         return new CandidateRow(candidate.getApplicationId(), info.name(), info.careerYears(), info.lastCompany(),
                 candidate.getFinalResult() != null ? candidate.getFinalResult() : candidate.getDecision(),
                 selection != null, selection != null && selection.isAi(), aboveLine(type, candidate, recommended),
-                candidate.getScore(), info.analysisStatus(), document && info.held(),
-                document ? info.shortfalls() : List.of(), document ? info.documentScore() : null,
-                document ? info.documentScoreLow() : null,
-                document ? info.qualificationScore() : null, document ? info.qualificationMax() : 0,
-                document ? info.preferenceScore() : null, document ? info.preferenceMax() : 0, lines.met(info),
+                candidate.getScore(), info.analysisStatus(), document ? info.shortfalls() : List.of(), lines.met(info),
                 lines.criteria().size(), lines.strong(info), lines.talents().size(),
                 document ? lines.missing(info) : List.of());
     }
@@ -625,11 +549,12 @@ public class ScreeningService {
             StageStatus status) {
     }
 
-    private record SnapshotEntry(UUID applicationId, boolean ai) {
-    }
-
-    /** 서류 전형의 줄 세우기 기준. criteria는 평가 항목 ID, required는 필수 조건 ID, talents는 인재상 제목이다. */
-    private record Lines(boolean document, List<String> criteria, List<String> required, List<String> talents) {
+    /**
+     * 서류 전형의 줄 세우기 기준. criteria는 평가 항목 ID, required는 필수 조건 ID, conditions는 조건형(O · X) 항목 ID,
+     * talents는 인재상 제목이다.
+     */
+    private record Lines(boolean document, List<String> criteria, List<String> required, Set<String> conditions,
+            List<String> talents) {
 
         int met(ApplicantInfo info) {
             return (int) criteria.stream().filter(id -> info.criterionMarks().get(id) == CriterionMark.MET).count();
@@ -641,6 +566,30 @@ public class ScreeningService {
 
         List<String> missing(ApplicantInfo info) {
             return required.stream().filter(id -> info.criterionMarks().get(id) != CriterionMark.MET).toList();
+        }
+
+        /**
+         * 거르기에서 고른 평가 항목과 인재상(T-1, T-2 …)이 모두 표 보기 표기로 O 또는 중 이상인가.
+         * 조건형은 충족(O)만, 경험형은 충족 · 부분 충족(상 · 중)을, 인재상은 상 · 중을 남긴다.
+         */
+        boolean passes(ApplicantInfo info, CandidateFilter filter) {
+            return filter.criteria().stream().allMatch(id -> fits(id, info.criterionMarks().get(id)))
+                    && filter.talents().stream().allMatch(id -> talent(id)
+                            .filter(title -> info.highTalents().contains(title) || info.midTalents().contains(title))
+                            .isPresent());
+        }
+
+        private boolean fits(String id, CriterionMark mark) {
+            return mark == CriterionMark.MET || mark == CriterionMark.PARTIAL && !conditions.contains(id);
+        }
+
+        /** 표 보기 열 ID(T-1부터)의 인재상 제목. 없는 ID면 비어 있다. */
+        private Optional<String> talent(String id) {
+            if (!id.matches("T-\\d{1,3}")) {
+                return Optional.empty();
+            }
+            int index = Integer.parseInt(id.substring(2)) - 1;
+            return index >= 0 && index < talents.size() ? Optional.of(talents.get(index)) : Optional.empty();
         }
     }
 }

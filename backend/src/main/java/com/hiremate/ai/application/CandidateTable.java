@@ -29,7 +29,8 @@ public record CandidateTable(List<Feature> features) {
      * @param id 자격요건 · 우대사항이면 평가 항목 ID(Q-01), 인재상이면 설정 순서로 만든 ID(T-1)
      * @param label 열 이름으로 쓰는 짧은 키워드
      * @param text 원래 문장. 열 이름에 마우스를 올리면 보여 준다
+     * @param important 공고 평가 기준에서 필수(중요)로 표시한 항목. 인재상은 false다
      */
-    public record Feature(String id, Group group, Kind kind, String label, String text) {
+    public record Feature(String id, Group group, Kind kind, String label, String text, boolean important) {
     }
 }

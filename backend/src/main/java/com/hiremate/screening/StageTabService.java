@@ -4,7 +4,6 @@ import com.hiremate.global.ApiException;
 import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.StageStatus;
-import com.hiremate.screening.domain.SelectionSnapshotRepository;
 import com.hiremate.screening.domain.StageCandidate;
 import com.hiremate.screening.domain.StageCandidateRepository;
 import com.hiremate.screening.domain.StageTab;
@@ -35,17 +34,14 @@ public class StageTabService {
 
     private final StageTabRepository tabs;
     private final TabSelectionRepository selections;
-    private final SelectionSnapshotRepository snapshots;
     private final StageCandidateRepository candidates;
     private final RecruitService recruits;
     private final ApplicationEventPublisher events;
 
     public StageTabService(StageTabRepository tabs, TabSelectionRepository selections,
-            SelectionSnapshotRepository snapshots, StageCandidateRepository candidates, RecruitService recruits,
-            ApplicationEventPublisher events) {
+            StageCandidateRepository candidates, RecruitService recruits, ApplicationEventPublisher events) {
         this.tabs = tabs;
         this.selections = selections;
-        this.snapshots = snapshots;
         this.candidates = candidates;
         this.recruits = recruits;
         this.events = events;
@@ -136,7 +132,7 @@ public class StageTabService {
         return view(tab, count(companyId, stageId, tabId));
     }
 
-    /** 탭과 그 탭의 선택 지원자 · 되돌리기를 지운다. 대화방은 {@link TabDeleted}를 받은 쪽이 지운다. */
+    /** 탭과 그 탭의 선택 지원자를 지운다. 대화방은 {@link TabDeleted}를 받은 쪽이 지운다. */
     @Transactional
     public void delete(UUID companyId, UUID stageId, UUID tabId) {
         requireActive(companyId, stageId);
@@ -194,6 +190,6 @@ public class StageTabService {
     }
 
     private StageTabView view(StageTab tab, long selectedCount) {
-        return new StageTabView(tab.getId(), tab.getName(), selectedCount, snapshots.existsById(tab.getId()));
+        return new StageTabView(tab.getId(), tab.getName(), selectedCount);
     }
 }

@@ -90,13 +90,6 @@ public class TabController {
         screening.clear(member.companyId(), stageId, tabId);
     }
 
-    @PostMapping("/{tabId}/selection/restore")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void restore(AuthenticatedMember member, @PathVariable UUID stageId, @PathVariable UUID tabId) {
-        tabs.requireAccess(member, stageId, tabId);
-        screening.restore(member.companyId(), stageId, tabId);
-    }
-
     public record RenameRequest(@NotBlank @Size(max = 30) String name) {
     }
 

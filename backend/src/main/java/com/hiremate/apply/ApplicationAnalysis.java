@@ -1,36 +1,20 @@
 package com.hiremate.apply;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Application Agent가 정리한 지원자 요약. 서류 평가 점수는 자격요건 50점 + 우대사항 50점이다 (한 영역만 있으면 그 영역이
- * 100점). 75% 통과 판단(qualificationStatus)과 총점 확정 여부(held)는 따로 둔다.
+ * Application Agent가 정리한 지원자 요약. 서류는 점수를 매기지 않고 평가 항목마다 판정만 남긴다.
  *
  * @param careerYears 서류를 읽지 못했거나 경력을 확인하지 못하면 null, 신입은 0
  * @param lastCompany 신입이거나 찾지 못하면 null
  * @param criteriaVersion 평가에 쓴 평가 기준 버전
- * @param qualificationRate 자격요건 충족률(%). 확인 필요 항목이 있으면 null
- * @param qualificationScore 자격요건 점수. 확인 필요 항목이 있으면 null
- * @param qualificationMax 자격요건 만점 (50, 우대사항이 없으면 100)
- * @param documentScore 총점(0~100, 소수 첫째 자리). 보류면 null
- * @param documentScoreLow 확인 필요를 0점으로 넣어 계산한 총점(보류 점수). 보류 지원자의 점수 표시와 정렬에 쓴다.
- *         확인 필요가 없으면 documentScore와 같고, 평가하지 못했으면 null
- * @param qualificationScoreLow 확인 필요를 0점으로 넣어 계산한 자격요건 점수. 자격요건 순 정렬에 쓴다
- * @param passed qualificationStatus가 PASSED인가
- * @param held 총점을 보류했는가 (서류를 읽지 못함 · 확인 필요가 남음). 보류한 지원자는 AI 추천 순위에서 빠진다
  * @param shortfalls 채우지 못했거나 확인이 필요한 자격요건의 짧은 표시 (예: 신입, 경력 확인 필요). 이름 옆에 붙는다
  * @param criterionMarks 평가 항목 ID별 판정. 전체 지원자의 충족 개수 정렬과 필수 조건 확인에 쓴다
  */
 public record ApplicationAnalysis(@Schema(nullable = true) Integer careerYears,
         @Schema(nullable = true) String lastCompany, @Schema(nullable = true) String criteriaVersion,
-        QualificationStatus qualificationStatus, @Schema(nullable = true) BigDecimal qualificationRate,
-        @Schema(nullable = true) BigDecimal qualificationScore, int qualificationMax,
-        @Schema(nullable = true) BigDecimal preferenceScore, int preferenceMax,
-        @Schema(nullable = true) BigDecimal documentScore, @Schema(nullable = true) BigDecimal documentScoreLow,
-        @Schema(nullable = true) BigDecimal qualificationScoreLow, boolean passed, boolean held,
         List<String> shortfalls, Map<String, CriterionMark> criterionMarks) {
 
     public ApplicationAnalysis {
@@ -38,22 +22,8 @@ public record ApplicationAnalysis(@Schema(nullable = true) Integer careerYears,
         criterionMarks = criterionMarks == null ? Map.of() : Map.copyOf(criterionMarks);
     }
 
-    /** 항목별 판정 없이 점수만 있는 요약. */
-    public ApplicationAnalysis(Integer careerYears, String lastCompany, String criteriaVersion,
-            QualificationStatus qualificationStatus, BigDecimal qualificationRate, BigDecimal qualificationScore,
-            int qualificationMax, BigDecimal preferenceScore, int preferenceMax, BigDecimal documentScore,
-            BigDecimal documentScoreLow, BigDecimal qualificationScoreLow, boolean passed, boolean held,
-            List<String> shortfalls) {
-        this(careerYears, lastCompany, criteriaVersion, qualificationStatus, qualificationRate, qualificationScore,
-                qualificationMax, preferenceScore, preferenceMax, documentScore, documentScoreLow,
-                qualificationScoreLow, passed, held, shortfalls, Map.of());
-    }
-
-    /** 영역 점수 없이 총점만 있는 요약 (stub · 테스트). 자격요건 50 · 우대사항 50으로 둔다. */
-    public static ApplicationAnalysis of(Integer careerYears, String lastCompany, BigDecimal documentScore,
-            boolean passed, boolean held, List<String> shortfalls) {
-        return new ApplicationAnalysis(careerYears, lastCompany, null,
-                passed ? QualificationStatus.PASSED : QualificationStatus.FAILED, null, null, 50, null, 50,
-                documentScore, documentScore, null, passed, held, shortfalls);
+    /** 평가 기준 버전 · 항목별 판정 없이 경력과 미충족 표시만 있는 요약 (stub · 테스트). */
+    public static ApplicationAnalysis of(Integer careerYears, String lastCompany, List<String> shortfalls) {
+        return new ApplicationAnalysis(careerYears, lastCompany, null, shortfalls, Map.of());
     }
 }

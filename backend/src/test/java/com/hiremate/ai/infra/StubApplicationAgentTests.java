@@ -22,14 +22,4 @@ class StubApplicationAgentTests {
         assertThat(StubApplicationAgent.careerYears("저는 경력 6년 차 개발자입니다")).isEqualTo(6);
         assertThat(StubApplicationAgent.careerYears("신입 지원자입니다")).isZero();
     }
-
-    @Test
-    @DisplayName("공고 낱말이 많이 나올수록 서류 점수가 높다")
-    void scoresByPostingKeywords() {
-        int strong = StubApplicationAgent.score("Java Spring 결제 시스템 정산 배치 개발", POSTING, 5);
-        int weak = StubApplicationAgent.score("마케팅 캠페인 기획", POSTING, 0);
-
-        assertThat(strong).isGreaterThanOrEqualTo(StubApplicationAgent.PASS_SCORE);
-        assertThat(weak).isLessThan(StubApplicationAgent.PASS_SCORE);
-    }
 }

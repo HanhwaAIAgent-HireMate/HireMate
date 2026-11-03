@@ -20,6 +20,7 @@ import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.RootAgent;
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.recruit.StageStatus;
@@ -244,12 +245,13 @@ class RootMemoryChatTests extends IntegrationTest {
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (applications.applicants(hr.companyId(), recruitmentId).stream()
-                .noneMatch(applicant -> applicant.documentScore() != null) && Instant.now().isBefore(deadline)) {
+                .noneMatch(applicant -> applicant.analysisStatus() == AnalysisStatus.DONE)
+                && Instant.now().isBefore(deadline)) {
             Thread.sleep(200);
         }
         UUID applicant = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
         applications.recordAnalysis(applicant,
-                ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
+                ApplicationAnalysis.of(3, "OO카드", List.of()));
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         UUID stageId = UUID.fromString(closed.path("stages").get(0).path("id").asString());
         return new Setup(hr, stageId, applicant, TestFixtures.firstTab(hr, stageId));

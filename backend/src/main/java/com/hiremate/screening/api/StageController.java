@@ -2,13 +2,12 @@ package com.hiremate.screening.api;
 
 import com.hiremate.global.AuthenticatedMember;
 import com.hiremate.screening.CandidateDetail;
+import com.hiremate.screening.CandidateFilter;
 import com.hiremate.screening.CandidatePage;
-import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.StageCandidateView;
 import com.hiremate.screening.StageOverview;
-import com.hiremate.screening.StageRequirements;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -42,25 +41,19 @@ public class StageController {
         return screening.overview(member.companyId(), stageId);
     }
 
-    /** 전체 지원자. tabId를 주면 그 탭의 선택 표시와 AI 테두리를 붙인다. */
+    /**
+     * 전체 지원자. tabId를 주면 그 탭의 선택 표시와 AI 테두리를 붙인다. decision은 하나라도 맞으면 남고, criterion(평가 항목
+     * ID)과 talent(표 보기 인재상 열 ID)는 모두 표 보기 표기로 O 또는 중 이상이어야 남는다.
+     */
     @GetMapping("/candidates")
     public CandidatePage candidates(AuthenticatedMember member, @PathVariable UUID stageId,
             @RequestParam(required = false) UUID tabId, @RequestParam(required = false) String query,
-            @RequestParam(defaultValue = "BASIC") CandidateSort sort,
+            @RequestParam(required = false) List<Decision> decision,
+            @RequestParam(required = false) List<String> criterion,
+            @RequestParam(required = false) List<String> talent,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "30") int size) {
-        return screening.candidates(member.companyId(), stageId, tabId, query, sort, page, size);
-    }
-
-    /** 서류 전형의 필수 조건. 모두 충족한 지원자만 선 위(AI 단계)에 오른다. */
-    @GetMapping("/requirements")
-    public StageRequirements requirements(AuthenticatedMember member, @PathVariable UUID stageId) {
-        return screening.requirements(member.companyId(), stageId);
-    }
-
-    @PutMapping("/requirements")
-    public StageRequirements updateRequirements(AuthenticatedMember member, @PathVariable UUID stageId,
-            @Valid @RequestBody RequirementsRequest request) {
-        return screening.updateRequirements(member.companyId(), stageId, request.criterionIds());
+        return screening.candidates(member.companyId(), stageId, tabId, query,
+                CandidateFilter.of(decision, criterion, talent), page, size);
     }
 
     @PostMapping("/candidates/{applicationId}/promote")
@@ -125,9 +118,5 @@ public class StageController {
     }
 
     public record MemoRequest(@NotNull @Size(max = 5000) String memo) {
-    }
-
-    /** 필수로 체크한 평가 항목 ID. 비우면 필수 조건이 없다. */
-    public record RequirementsRequest(@NotNull @Size(max = 100) List<@NotNull String> criterionIds) {
     }
 }

@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.auth.domain.Member;
 import com.hiremate.auth.domain.MemberRepository;
@@ -234,7 +235,7 @@ class InterviewerSessionTests extends IntegrationTest {
         UUID applicationId = null;
         while (Instant.now().isBefore(deadline)) {
             var found = applications.applicants(hr.companyId(), recruitmentId).stream()
-                    .filter(applicant -> applicant.documentScore() != null).findFirst();
+                    .filter(applicant -> applicant.analysisStatus() == AnalysisStatus.DONE).findFirst();
             if (found.isPresent()) {
                 applicationId = found.get().applicationId();
                 break;

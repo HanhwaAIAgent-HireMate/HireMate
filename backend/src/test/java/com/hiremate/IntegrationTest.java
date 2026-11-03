@@ -3,6 +3,7 @@ package com.hiremate;
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationService;
 import java.time.Duration;
@@ -87,7 +88,7 @@ public abstract class IntegrationTest {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {
             var analyzed = applicationService.applicants(companyId, recruitmentId).stream()
-                    .filter(applicant -> applicant.documentScore() != null)
+                    .filter(applicant -> applicant.analysisStatus() == AnalysisStatus.DONE)
                     .map(ApplicantInfo::applicationId)
                     .findFirst();
             if (analyzed.isPresent()) {

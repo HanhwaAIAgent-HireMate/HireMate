@@ -9,8 +9,8 @@ import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageInfo;
 import com.hiremate.recruit.StageType;
+import com.hiremate.screening.CandidateFilter;
 import com.hiremate.screening.CandidateRow;
-import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
 import java.math.BigDecimal;
@@ -21,7 +21,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -89,10 +88,10 @@ public class ReportBundles {
                 .findFirst().orElse(null);
         for (CandidateRow row : rows) {
             String number = numbers.get(row.applicationId());
-            ApplicantInfo info = infos.get(row.applicationId());
             facts.verdict(number, stageId, prefix + ".decision", current.name() + " 결정", row.decision().name());
-            if (documentStage != null) {
-                document(facts, number, documentStage, row, info, current.type() == StageType.DOCUMENT);
+            if (documentStage != null && current.type() == StageType.DOCUMENT) {
+                facts.verdict(number, documentStage, "document.ai_pick", "AI 추천",
+                        row.aboveLine() ? "RECOMMENDED" : "NOT_RECOMMENDED");
             }
             if (current.type() == StageType.ASSESSMENT) {
                 assessment(facts, number, companyId, stageId, prefix, row);
@@ -101,7 +100,8 @@ public class ReportBundles {
             }
         }
         String totalKey = switch (current.type()) {
-            case DOCUMENT -> "document.total";
+            // 서류는 점수를 매기지 않는다
+            case DOCUMENT -> null;
             case ASSESSMENT -> prefix + ".total";
             case INTERVIEW -> facts.has(prefix + ".score") ? prefix + ".score" : null;
         };
@@ -114,8 +114,7 @@ public class ReportBundles {
                         row.careerYears(), row.lastCompany()))
                 .toList();
         List<String> compared = targets.stream().filter(numbers::containsKey).map(numbers::get).distinct().toList();
-        List<ReportBundle.Metric> metrics = metrics(stageId, prefix, totalKey, rows, infos, facts,
-                passed(rows, numbers));
+        List<ReportBundle.Metric> metrics = metrics(stageId, totalKey, rows, facts, passed(rows, numbers));
         return new ReportBundle(kind, companyId, recruitment.id(), stageId, recruitment.title(), Instant.now(),
                 focus == null ? "" : focus, brief, scope.stream().map(ReportBundles::stage).toList(), applicants,
                 compared, totalKey, areas, metrics, facts.list, List.of());
@@ -151,10 +150,7 @@ public class ReportBundles {
             for (CandidateRow row : rows) {
                 String number = numbers.get(row.applicationId());
                 facts.verdict(number, stage.id(), prefix + ".decision", stage.name() + " 결정", row.decision().name());
-                // 서류 점수는 지원서에 하나라 첫 서류 전형에만 넣는다
-                if (stage.type() == StageType.DOCUMENT && prefix.equals("document")) {
-                    document(facts, number, stage.id(), row, infos.get(row.applicationId()), false);
-                } else if (stage.type() == StageType.ASSESSMENT) {
+                if (stage.type() == StageType.ASSESSMENT) {
                     assessment(facts, number, companyId, stage.id(), prefix, row);
                 } else if (stage.type() == StageType.INTERVIEW && row.score() != null) {
                     facts.number(number, stage.id(), prefix + ".score", stage.name() + " 점수", row.score(), null);
@@ -190,7 +186,7 @@ public class ReportBundles {
             UUID recruitmentId) {
         return switch (stage.type()) {
             case DOCUMENT -> prefix.equals("document")
-                    ? Optional.of(new ReportBundle.Area(prefix, stage.name(), "document.total",
+                    ? Optional.of(new ReportBundle.Area(prefix, stage.name(), null,
                             postings.screeningRubric(companyId, recruitmentId).criteria().stream()
                                     .map(criterion -> "document.criterion." + criterion.criterionId()).toList()))
                     : Optional.empty();
@@ -208,30 +204,12 @@ public class ReportBundles {
         List<CandidateRow> rows = new ArrayList<>();
         for (int page = 0;; page++) {
             // 리포트는 탭의 선택 표시와 무관하다
-            var result = screening.candidates(companyId, stageId, null, null, CandidateSort.BASIC, page, PAGE);
+            var result = screening.candidates(companyId, stageId, null, null, CandidateFilter.NONE, page, PAGE);
             rows.addAll(result.items());
             if (rows.size() >= result.total() || result.items().isEmpty()) {
                 return rows;
             }
         }
-    }
-
-    private static void document(Facts facts, String number, UUID stageId, CandidateRow row, ApplicantInfo info,
-            boolean current) {
-        BigDecimal total = info.documentScore() != null ? info.documentScore() : info.documentScoreLow();
-        facts.number(number, stageId, "document.total", "서류 총점", total, 100.0);
-        if (!current) {
-            return;
-        }
-        facts.number(number, stageId, "document.qualification", "자격요건",
-                info.qualificationScore() != null ? info.qualificationScore() : info.qualificationScoreLow(),
-                (double) info.qualificationMax());
-        if (info.preferenceMax() > 0) {
-            facts.number(number, stageId, "document.preference", "우대사항", info.preferenceScore(),
-                    (double) info.preferenceMax());
-        }
-        facts.verdict(number, stageId, "document.ai_pick", "AI 추천",
-                row.aboveLine() ? "RECOMMENDED" : "NOT_RECOMMENDED");
     }
 
     private void assessment(Facts facts, String number, UUID companyId, UUID stageId, String prefix, CandidateRow row) {
@@ -252,7 +230,7 @@ public class ReportBundles {
             }
             boolean qualification = category == ScreeningRubric.Category.QUALIFICATION;
             areas.add(new ReportBundle.Area(category.name().toLowerCase(Locale.ROOT), qualification ? "자격요건" : "우대사항",
-                    qualification ? "document.qualification" : "document.preference", keys));
+                    null, keys));
         }
         return areas;
     }
@@ -262,8 +240,8 @@ public class ReportBundles {
                 .toList();
     }
 
-    private static List<ReportBundle.Metric> metrics(UUID stageId, String prefix, String totalKey,
-            List<CandidateRow> rows, Map<UUID, ApplicantInfo> infos, Facts facts, List<String> passed) {
+    private static List<ReportBundle.Metric> metrics(UUID stageId, String totalKey, List<CandidateRow> rows,
+            Facts facts, List<String> passed) {
         List<ReportBundle.Metric> metrics = new ArrayList<>();
         long pass = rows.stream().filter(row -> row.decision() == Decision.PASS).count();
         long fail = rows.stream().filter(row -> row.decision() == Decision.FAIL).count();
@@ -274,25 +252,12 @@ public class ReportBundles {
         if (!rows.isEmpty()) {
             metrics.add(metric("m-pass-rate", stageId, "합격률", round(100.0 * pass / rows.size()), "%", null, null));
         }
-        for (String key : List.of(Objects.requireNonNullElse(totalKey, ""), "document.qualification",
-                "document.preference")) {
-            facts.average(key).ifPresent(avg -> metrics.add(metric("m-avg-" + key, stageId, facts.label(key) + " 평균",
-                    avg, "점", key, null)));
-        }
         if (totalKey != null) {
+            facts.average(totalKey).ifPresent(avg -> metrics.add(metric("m-avg-" + totalKey, stageId,
+                    facts.label(totalKey) + " 평균", avg, "점", totalKey, null)));
             facts.average(totalKey, passed)
                     .ifPresent(avg -> metrics.add(metric("m-pass-avg", stageId, "합격자 " + facts.label(totalKey) + " 평균",
                             avg, "점", totalKey, null)));
-        }
-        if (prefix.equals("document")) {
-            Map<String, Long> judged = rows.stream().collect(Collectors.groupingBy(
-                    row -> infos.get(row.applicationId()).qualificationStatus().name(), Collectors.counting()));
-            metrics.add(metric("m-qj-met", stageId, "자격요건 충족", judged.getOrDefault("PASSED", 0L), "명", null,
-                    "qualification-judgement"));
-            metrics.add(metric("m-qj-unmet", stageId, "자격요건 미달", judged.getOrDefault("FAILED", 0L), "명", null,
-                    "qualification-judgement"));
-            metrics.add(metric("m-qj-unknown", stageId, "자격요건 판단 보류", judged.getOrDefault("UNDETERMINED", 0L), "명",
-                    null, "qualification-judgement"));
         }
         careers(metrics, stageId, "all", "전체", rows);
         careers(metrics, stageId, "pass", "합격자", rows.stream().filter(row -> row.decision() == Decision.PASS).toList());
