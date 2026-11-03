@@ -222,6 +222,8 @@ class PostingContent(ContractModel):
     work_hours: str = ""
     salary: str = ""
     roles: list[PostingRole] = Field(default_factory=list, max_length=10)
+    blind: bool = False
+    """블라인드 채용. 켜면 학력 · 출신 학교를 공고와 AI 판단에 쓰지 않는다 (차별 조건 검사에 blind로 넘긴다)."""
 
 
 class Talent(ContractModel):

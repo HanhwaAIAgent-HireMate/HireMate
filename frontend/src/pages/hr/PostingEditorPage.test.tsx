@@ -33,6 +33,7 @@ const posting: Posting = {
     preferred: [],
     benefits: ['교육 지원'],
     roles: [],
+    blind: false,
     headcount: 3,
     position: '',
     education: '',

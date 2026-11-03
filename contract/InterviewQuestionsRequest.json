@@ -59,7 +59,8 @@
     "education": "",
     "workHours": "",
     "salary": "",
-    "roles": []
+    "roles": [],
+    "blind": false
   },
   "analysis": {
     "conditions": [

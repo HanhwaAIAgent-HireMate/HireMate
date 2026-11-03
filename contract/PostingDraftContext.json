@@ -29,7 +29,8 @@
     "education": "학력 무관",
     "workHours": "주 5일(월~금) 10:00~19:00",
     "salary": "회사 내규에 따름",
-    "roles": []
+    "roles": [],
+    "blind": false
   },
   "stages": [
     {

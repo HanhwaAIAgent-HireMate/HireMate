@@ -8,6 +8,7 @@ const posting: PosterPosting = {
   companyName: '맑은물',
   content: {
     roles: [],
+    blind: false,
     title: '서비스 운영 담당자',
     jobCategory: '운영',
     employmentType: '정규직',

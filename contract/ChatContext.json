@@ -190,7 +190,8 @@
     "education": "",
     "workHours": "",
     "salary": "",
-    "roles": []
+    "roles": [],
+    "blind": false
   },
   "message": "@정유민 빼줘",
   "asker": {

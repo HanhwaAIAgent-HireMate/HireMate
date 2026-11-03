@@ -79,6 +79,15 @@ BLOCKED_REPLY = (
     "나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 자격 요건이나 우대 사항에 넣을 수 없어요. "
     "직무와 관련된 경험이나 역량으로 다시 말씀해 주세요."
 )
+BLIND_REPLY = (
+    "블라인드 채용이라 학력이나 출신 학교 조건은 자격 요건이나 우대 사항에 넣을 수 없어요. "
+    "직무와 관련된 전공, 자격, 경험으로 다시 말씀해 주세요."
+)
+"""블라인드 채용 공고에서 학력 · 출신 학교 조건을 넣으려 할 때의 답. 나이 · 성별 같은 조건은 BLOCKED_REPLY다."""
+BLIND_LINE = (
+    "블라인드 채용: 예 (학력 칸과 학력 · 출신 학교 조건은 쓰지 않는다. 직무 관련 전공, 자격, 경험은 쓸 수 있다)"
+)
+"""블라인드 채용 공고에서 모든 호출의 공고 정보에 덧붙이는 줄."""
 CHECK_FAILED_REPLY = "요청대로 고친 수정안이 공고 작성 규칙을 지키지 못했어요. 요청을 조금 바꿔 다시 말씀해 주세요."
 RETRY_HINT = "처음 요청에 종류를 붙여 다시 말씀해 주세요. 예: 'PT 발표 전형을 평가로 넣어 줘'"
 ANSWER_ONLY_REPLY = f"앞의 대화는 기억하지 못해요. {RETRY_HINT}"
@@ -382,8 +391,8 @@ async def revise_posting(
     step = report or _silent
     if focus is not None:
         return await _revise_line(llm, posting, writing_style, request, focus, step)
-    if blocked_attribute(request) and _JUDGING.search(request):
-        return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
+    if (term := blocked_attribute(request, blind=posting.content.blind)) and _JUDGING.search(request):
+        return RevisionResult(reply=_blocked_reply(term), suggestion=None)
     if _ANSWER_ONLY.fullmatch(_compact(request)):
         return RevisionResult(reply=ANSWER_ONLY_REPLY, suggestion=None)
     context = _context(posting, writing_style, request)
@@ -433,12 +442,12 @@ async def revise_posting(
         edit = await _write(llm, posting, writing_style, request, context, targets, found, fills_empty, roles, sources)
         draft = _draft(posting, edit, request)
         if whole:
-            draft, edit = _with_defaults(draft, edit)
+            draft, edit = _with_defaults(draft, edit, posting.content.blind)
         if draft.unknown_stages:
             # 모델의 되묻는 말은 평가 방식 같은 다른 것을 묻곤 해서, 정해 둔 말로 종류만 묻는다
             return RevisionResult(reply=_stage_question(draft.unknown_stages), suggestion=None)
-        if blocked_terms(draft.content, draft.changed):
-            return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
+        if terms := blocked_terms(draft.content, draft.changed, posting.content.blind):
+            return RevisionResult(reply=_blocked_reply(terms[0]), suggestion=None)
         found = problems(draft.content, draft.changed, draft.stages, FIELD_LABELS, source=context)
         found += career_conflicts(posting.content, draft.content)
         if fills_empty and not posting.content.duties and not draft.content.duties:
@@ -476,8 +485,10 @@ async def _revise_line(
 
     회사 소개는 줄 하나짜리 목록으로 다룬다. 고친 줄이 그대로이거나 검사에 걸리면 이유를 붙여 한 번 더 쓰게 한다.
     """
-    if blocked_attribute(request) and (focus.field in JUDGED_FIELDS or _JUDGING.search(request)):
-        return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
+    if (term := blocked_attribute(request, blind=posting.content.blind)) and (
+        focus.field in JUDGED_FIELDS or _JUDGING.search(request)
+    ):
+        return RevisionResult(reply=_blocked_reply(term), suggestion=None)
     value: str | list[str] = getattr(posting.content, focus.field)
     listed = isinstance(value, list)
     lines = list(value) if isinstance(value, list) else [value]
@@ -497,8 +508,8 @@ async def _revise_line(
             found = [UNCHANGED_LINE]
             continue
         content = posting.content.model_copy(update={focus.field: revised if listed else revised[0]})
-        if blocked_terms(content, [focus.field]):
-            return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
+        if terms := blocked_terms(content, [focus.field], posting.content.blind):
+            return RevisionResult(reply=_blocked_reply(terms[0]), suggestion=None)
         found = problems(content, [focus.field], None, FIELD_LABELS, source=context)
         removed = len(revised) < len(lines)
         if listed and not removed and "\n" in revised[index]:
@@ -615,7 +626,11 @@ def _number(word: str) -> int:
 
 
 def _draft(posting: PostingDraftContext, edit: _Edit, request: str) -> _Draft:
-    content, changed = _apply(posting.content, _requested_facts(edit.changes, request))
+    changes = _requested_facts(edit.changes, request)
+    if posting.content.blind:
+        # 블라인드 채용은 학력 칸을 쓰지 않는다. backend도 저장할 때 비운다
+        changes = [change for change in changes if LABEL_FIELDS[change.field] != "education"]
+    content, changed = _apply(posting.content, changes)
     if edit.roles is not None and edit.roles != content.roles:
         content = content.model_copy(update={"roles": edit.roles})
         changed.append("roles")
@@ -637,8 +652,11 @@ def _draft(posting: PostingDraftContext, edit: _Edit, request: str) -> _Draft:
     return _Draft(content=content, changed=changed, stages=stages, required_extras=extras, unknown_stages=unknown)
 
 
-def _with_defaults(draft: _Draft, edit: _Edit) -> tuple[_Draft, _Edit]:
-    """수정안에서도 비어 있는 칸을 기본 문구(WHOLE_POSTING_DEFAULTS)로 채우고, 채운 칸과 남은 칸을 답에 알린다."""
+def _with_defaults(draft: _Draft, edit: _Edit, blind: bool = False) -> tuple[_Draft, _Edit]:
+    """수정안에서도 비어 있는 칸을 기본 문구(WHOLE_POSTING_DEFAULTS)로 채우고, 채운 칸과 남은 칸을 답에 알린다.
+
+    블라인드 채용은 학력 칸을 쓰지 않아 정해 달라고 하지 않는다.
+    """
     filled = {name: text for name, text in WHOLE_POSTING_DEFAULTS.items() if not getattr(draft.content, name)}
     content = draft.content.model_copy(update=filled)
     changed = [name for name in FIELD_LABELS if name in draft.changed or name in filled]
@@ -646,9 +664,16 @@ def _with_defaults(draft: _Draft, edit: _Edit) -> tuple[_Draft, _Edit]:
     if filled:
         labels = ", ".join(FIELD_LABELS[name] for name in filled)
         notes.append(f"{labels} 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요.")
-    if left := [FIELD_LABELS[name] for name in LEFT_FOR_HR if getattr(content, name) in ("", None)]:
+    left_fields = [name for name in LEFT_FOR_HR if not (blind and name == "education")]
+    if left := [FIELD_LABELS[name] for name in left_fields if getattr(content, name) in ("", None)]:
         notes.append(f"{', '.join(left)} 칸은 정해 주세요.")
     return replace(draft, content=content, changed=changed), replace(edit, notes=notes)
+
+
+def _blocked_reply(term: str) -> str:
+    """막은 낱말에 맞는 답. 늘 막는 조건(나이, 성별 등)이면 BLOCKED_REPLY,
+    블라인드라 막은 학력 조건이면 BLIND_REPLY다."""
+    return BLOCKED_REPLY if blocked_attribute(term) else BLIND_REPLY
 
 
 def _ambiguous(name: str, current: set[str], request: str) -> bool:
@@ -848,6 +873,7 @@ def _context(posting: PostingDraftContext, writing_style: str, request: str) -> 
     if posting.status is not RecruitmentStatus.DRAFT:
         status += " (게시한 뒤라 전형 절차와 필수 제출 서류는 바꿀 수 없다)"
     lines += [
+        *([BLIND_LINE] if posting.content.blind else []),
         f"공고 상태: {status}",
         "",
         f"공고 작성 스타일: {writing_style.strip() or '(없음)'}",

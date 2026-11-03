@@ -50,7 +50,10 @@ function usePostingMutation<T>(recruitmentId: string, request: (variables: T) =>
   })
 }
 
-/** 본문과 서류 필수 조건을 함께 저장한다. required가 null이면 저장된 표시를 그대로 둔다 */
+/**
+ * 본문과 서류 필수 조건을 함께 저장한다. required가 null이면 저장된 표시를 그대로 둔다.
+ * 블라인드 채용 여부(content.blind)도 본문과 함께 보낸다
+ */
 export function useSavePosting(recruitmentId: string) {
   return usePostingMutation(
     recruitmentId,

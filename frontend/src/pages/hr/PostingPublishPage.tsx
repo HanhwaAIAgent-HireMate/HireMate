@@ -258,6 +258,9 @@ function PublishForm({ posting }: { posting: Posting }) {
           <dl className="divide-y border-y text-sm">
             <ConfirmRow label="게시 형식" value={formatLabel} />
             <ConfirmRow label="공고명" value={posting.content.title} />
+            {posting.content.blind && (
+              <ConfirmRow label="블라인드 채용" value="학력 · 출신 학교를 보지 않아요" />
+            )}
             <ConfirmRow
               label="공고 기간"
               value={

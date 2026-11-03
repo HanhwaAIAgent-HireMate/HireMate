@@ -78,6 +78,10 @@ public class JobPosting {
     @Column(nullable = false)
     private List<String> requiredPreferred = new ArrayList<>();
 
+    /** 블라인드 채용. 켜면 학력 칸을 비우고, 학력 · 출신 학교 조건을 쓰지 않는다. */
+    @Column(nullable = false)
+    private boolean blind;
+
     /** 모집 조건. 채용 인원은 정하지 않았으면 null이다. */
     private Integer headcount;
 
@@ -152,7 +156,7 @@ public class JobPosting {
         return new PostingContent(title, jobCategory, employmentType, career, location, intro, List.copyOf(duties),
                 List.copyOf(qualifications), List.copyOf(preferred), List.copyOf(benefits), headcount, position,
                 education, workHours, salary,
-                roleContent == null ? List.of() : JsonText.read(roleContent, Roles.class).items());
+                roleContent == null ? List.of() : JsonText.read(roleContent, Roles.class).items(), blind);
     }
 
     public void update(PostingContent content) {
@@ -168,7 +172,7 @@ public class JobPosting {
         this.benefits = new ArrayList<>(content.benefits());
         this.headcount = content.headcount();
         this.position = content.position();
-        this.education = content.education();
+        this.education = blind ? "" : content.education();
         this.workHours = content.workHours();
         this.salary = content.salary();
         this.roleContent = JsonText.write(new Roles(content.roles()));
@@ -176,6 +180,22 @@ public class JobPosting {
     }
 
     /** 서류 필수 조건. 공고에 있는 줄만 남긴다 (RequiredCriteria#within). */
+    public boolean isBlind() {
+        return blind;
+    }
+
+    /**
+     * 블라인드를 켜면 학력 칸을 비운다. 공고 작성 중에만 부른다 (게시하면 공고 전체가 잠긴다).
+     * update는 본문의 blind를 보지 않아, 블라인드 여부는 이 메서드로만 바뀐다.
+     */
+    public void changeBlind(boolean blind) {
+        this.blind = blind;
+        if (blind) {
+            this.education = "";
+        }
+        this.updatedAt = Instant.now();
+    }
+
     public RequiredCriteria required() {
         return new RequiredCriteria(requiredQualifications, requiredPreferred);
     }

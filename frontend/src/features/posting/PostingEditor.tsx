@@ -24,6 +24,7 @@ import {
   type Posting,
   type PostingContent,
 } from '@/features/posting/api'
+import { blindLineNumbers } from '@/features/posting/blind'
 import { BulletListField, LineBullet } from '@/features/posting/BulletListField'
 import { focusLabel, hasLine, toServerFocus, type LineFocus } from '@/features/posting/focus'
 import { StageEditor } from '@/features/posting/StageEditor'
@@ -157,6 +158,8 @@ export function PostingEditor({
   // 게시한 공고는 모든 지원자가 같은 공고를 보도록 바꿀 수 없다. 전형별 안내(일정 · 장소)는 전형 결과 화면에서 정한다
   const editable = isDraft
   const shown = suggestion ? { ...draft, ...pick(suggestion.content, changed) } : draft
+  // 블라인드 채용. 켜면 학력 칸을 숨기고 비우며, 자격 요건 · 우대 사항의 학력 · 출신 학교 조건을 알린다
+  const blind = draft.blind
   const locked = (field: string) => !editable || changed.has(field)
   // 고른 줄. 그 칸에 수정안이 생겨 잠기거나 줄이 비면 고르지 않은 것으로 본다
   const picked = focus && !locked(focus.field) && hasLine(focus, draft) ? focus : null
@@ -236,7 +239,10 @@ export function PostingEditor({
         setStages(toStageForms(saved.stages))
       }
       if (dirty || requiredDirty) {
-        await save.mutateAsync({ content: { ...draft, title: draft.title.trim() }, required })
+        await save.mutateAsync({
+          content: { ...draft, title: draft.title.trim() },
+          required,
+        })
       }
       if (!silent) toast.success('저장했어요.')
       return true
@@ -451,7 +457,7 @@ export function PostingEditor({
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {TAGS.map((tag) =>
-                  tag.key === 'employmentType' ? (
+                  tag.key === 'education' && blind ? null : tag.key === 'employmentType' ? (
                     <EmploymentTypeSelect
                       key={tag.key}
                       value={shown.employmentType}
@@ -507,6 +513,21 @@ export function PostingEditor({
                   />
                   명
                 </label>
+                <button
+                  type="button"
+                  aria-pressed={blind}
+                  disabled={!editable}
+                  title="켜면 학력 칸을 비우고, 학력 · 출신 학교 조건을 쓰지 않아요"
+                  onClick={() => {
+                    update(blind ? { blind: false } : { blind: true, education: '' })
+                  }}
+                  className={cn(
+                    'h-7 rounded-md px-2 text-xs font-medium',
+                    blind ? 'bg-foreground text-background' : 'border text-muted-foreground',
+                  )}
+                >
+                  블라인드 채용
+                </button>
               </div>
               {actions('title')}
             </div>
@@ -596,6 +617,9 @@ export function PostingEditor({
                       : undefined
                   }
                 />
+                {blind && isRequiredKey(list.key) && (
+                  <BlindWarning lines={blindLineNumbers(shown[list.key])} />
+                )}
                 {actions(list.key)}
               </Section>
             ))}
@@ -870,6 +894,16 @@ function CareerField({
         />
       )}
     </div>
+  )
+}
+
+/** 블라인드 채용 공고에서 학력 · 출신 학교 조건이 들어간 줄. 이 줄이 있으면 게시할 수 없다 */
+function BlindWarning({ lines }: { lines: number[] }) {
+  if (!lines.length) return null
+  return (
+    <p className="mt-1 text-xs text-destructive">
+      블라인드 채용이라 학력 · 출신 학교 조건은 쓸 수 없어요: {lines.join(', ')}번 줄
+    </p>
   )
 }
 

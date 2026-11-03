@@ -35,6 +35,7 @@ from hiremate_ai.ncs_search.reference import get_ncs
 
 CONTENT = {
     "roles": [],
+    "blind": False,
     "title": "결제 플랫폼 백엔드 개발자",
     "jobCategory": "백엔드 개발",
     "employmentType": "정규직",

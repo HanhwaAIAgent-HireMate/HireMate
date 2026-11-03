@@ -54,6 +54,7 @@ export function PosterBrandForm() {
     notices: [],
     content: {
       roles: [],
+      blind: false,
       title: '함께할 동료를 찾습니다',
       jobCategory: '모집 직무',
       employmentType: '',

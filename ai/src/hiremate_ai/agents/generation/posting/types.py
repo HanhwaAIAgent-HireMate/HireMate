@@ -46,7 +46,7 @@ class StageDraft(ContractModel):
 class PostingDraftContext(ContractModel):
     """AI 수정 요청에 넘기는 현재 공고 (posting.PostingDraftContext).
 
-    required_extras는 이력서 · 자기소개서 밖에 필수로 받는 서류다.
+    required_extras는 이력서 · 자기소개서 밖에 필수로 받는 서류다. 블라인드 채용 여부는 content.blind다.
     """
 
     recruitment_id: UUID

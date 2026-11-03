@@ -39,7 +39,8 @@ public record PostingContentRequest(
         @Schema(nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED)
         @Size(max = 30) List<@NotNull @Size(max = 300) String> requiredQualifications,
         @Schema(nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED)
-        @Size(max = 30) List<@NotNull @Size(max = 300) String> requiredPreferred) {
+        @Size(max = 30) List<@NotNull @Size(max = 300) String> requiredPreferred,
+        @Schema(nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED) Boolean blind) {
 
     /** 고를 수 있는 고용 형태. frontend EMPLOYMENT_TYPES, ai reviser와 같다. */
     static final String EMPLOYMENT_TYPES = "^(|정규직|계약직|인턴|파견직)$";
@@ -59,7 +60,8 @@ public record PostingContentRequest(
     PostingContent toContent() {
         return new PostingContent(title.trim(), jobCategory.trim(), employmentType.trim(), career.trim(),
                 location.trim(), intro, clean(duties), clean(qualifications), clean(preferred), clean(benefits),
-                headcount, trim(position), trim(education), trim(workHours), trim(salary), roles);
+                headcount, trim(position), trim(education), trim(workHours), trim(salary), roles,
+                Boolean.TRUE.equals(blind));
     }
 
     private static String trim(String value) {

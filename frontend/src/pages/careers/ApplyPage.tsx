@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApplicationForm } from '@/features/apply/ApplicationForm'
 import { usePublicPosting } from '@/features/posting/api'
-import { CareersHeader } from '@/features/posting/CareersPosting'
+import { BlindNotice, CareersHeader } from '@/features/posting/CareersPosting'
 
 export function ApplyPage() {
   const { postingId = '' } = useParams()
@@ -50,7 +50,10 @@ export function ApplyPage() {
             <p className="mt-2 text-sm text-muted-foreground">지금은 지원 접수 기간이 아니에요.</p>
           </div>
         ) : (
-          <ApplicationForm posting={posting.data} onSubmitted={setSubmitted} />
+          <div className="space-y-4">
+            {posting.data.content.blind && <BlindNotice />}
+            <ApplicationForm posting={posting.data} onSubmitted={setSubmitted} />
+          </div>
         )}
       </main>
     </div>
