@@ -61,3 +61,54 @@ def test_merge_keeps_only_facts_and_periods_with_real_quotes() -> None:
     assert [fact.statement for fact in facts] == ["결제 API를 개발했다"]
     assert facts[0].actor == Actor.SELF
     assert [(period.company, period.months) for period in periods] == [("한빛카드", 55)]
+
+
+SCHOOL_TEXT = (
+    "학력\n한빛대학교 컴퓨터공학과 2016.03 ~ 2020.02 졸업\n"
+    "한빛대학교 캡스톤 프로젝트에서 결제 앱을 만들었습니다.\n"
+    "Java와 Spring Boot로 정산 API를 개발했습니다."
+)
+SCHOOL_DOCUMENT = ApplicantDocument(
+    type=DocumentType.RESUME, file_id=uuid4(), file_name="이력서.pdf", size=1, text=SCHOOL_TEXT
+)
+SCHOOL_FACTS = ExtractedFacts(
+    facts=[
+        ExtractedFact(
+            kind="EDUCATION", statement="컴퓨터공학을 전공했다", actor="SELF", evidence=["한빛대학교 컴퓨터공학과"]
+        ),
+        ExtractedFact(
+            kind="PROJECT",
+            statement="캡스톤 프로젝트에서 결제 앱을 만들었다",
+            actor="SELF",
+            evidence=["한빛대학교 캡스톤 프로젝트에서 결제 앱을 만들었습니다."],
+        ),
+        ExtractedFact(
+            kind="SKILL",
+            statement="Java로 정산 API를 개발했다",
+            actor="SELF",
+            evidence=["Java와 Spring Boot로 정산 API를 개발했습니다."],
+        ),
+    ],
+    periods=[
+        ExtractedPeriod(
+            company="한빛대학교",
+            kind="EDUCATION",
+            start="2016-03",
+            end="2020-02",
+            evidence=["한빛대학교 컴퓨터공학과 2016.03 ~ 2020.02 졸업"],
+        )
+    ],
+)
+
+
+def test_merge_drops_education_facts_only_for_blind_hiring() -> None:
+    """블라인드 채용이면 학력 사실과, 근거 문장에 학교가 나오는 사실을 통째로 뺀다 (근거는 원문 그대로여야 한다)."""
+    facts, periods = merge([SCHOOL_DOCUMENT], [SCHOOL_FACTS], TODAY, blind=True)
+
+    assert [fact.statement for fact in facts] == ["Java로 정산 API를 개발했다"]
+    assert periods == []
+
+    facts, periods = merge([SCHOOL_DOCUMENT], [SCHOOL_FACTS], TODAY)
+
+    assert len(facts) == 3
+    assert [period.company for period in periods] == ["한빛대학교"]

@@ -167,7 +167,9 @@ class Delegation:
             if self.artifacts is not None and recipe is not None
             else None
         )
-        facts = await review_application_documents(self.llm, documents, extracted=extracted)
+        facts = await review_application_documents(
+            self.llm, documents, extracted=extracted, blind=scope.chat.posting.blind
+        )
         items = [
             DelegatedItem(
                 text=fact.statement,

@@ -54,6 +54,15 @@ def blocked_attribute(message: str, *, blind: bool = False) -> str | None:
     return match.group() if match else None
 
 
+def education_term(text: str) -> str | None:
+    """학력 · 출신 학교를 가리키는 낱말 (블라인드 채용에서만 가리는 것). 없으면 None이다.
+
+    나이 · 성별처럼 늘 막는 조건은 보지 않는다. 블라인드 채용에서 지원자 사실을 거를 때 쓴다.
+    """
+    match = _BLIND_ATTRIBUTE.search(text)
+    return match.group() if match else None
+
+
 def blocked_reply(term: str) -> str:
     """`blocked_attribute`가 돌려준 낱말에 맞는 안내. 블라인드 채용이라 막은 학력 조건이면 `BLIND_BLOCKED_REPLY`다."""
     return BLOCKED_REPLY if blocked_attribute(term) else BLIND_BLOCKED_REPLY

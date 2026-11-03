@@ -6,7 +6,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
+from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute, blocked_reply
 from hiremate_ai.agents.root.answer import BULK_LIMIT, INTERVIEW_AGENT, QUESTIONS_REQUESTED, readable
 from hiremate_ai.agents.root.edit import plan_edit, selectable
 from hiremate_ai.agents.root.find import LOCKED, SEARCH_STATUS, SearchQuery, plan_find, search_criteria
@@ -91,8 +91,8 @@ async def handle_find(
     progress: Progress,
 ) -> Handled:
     """rows는 요청이 말한 검색 범위다. None이면 전형 전체다."""
-    if blocked_attribute(" ".join(search_criteria(form.query, context))):
-        return Handled(ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY), "ANSWER")
+    if term := blocked_attribute(" ".join(search_criteria(form.query, context)), blind=context.posting.blind):
+        return Handled(ChatPlan.answer(Intent.BLOCKED, blocked_reply(term)), "ANSWER")
     progress.status(SEARCH_STATUS)
     if form.remove:
         return await _remove_matching(llm, context, toolkit, form.query, rows, nested(progress))
@@ -152,8 +152,8 @@ def handle_report(context: ChatContext, form: ReportPlan, rows: Sequence[Candida
 
     전형 결과 리포트는 전형만 정한다. 결과 확정 · 안내 발송 여부와 저장된 리포트는 backend가 확인한다.
     """
-    if blocked_attribute(form.perspective):
-        return Handled(ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY), "ANSWER")
+    if term := blocked_attribute(form.perspective, blind=context.posting.blind):
+        return Handled(ChatPlan.answer(Intent.BLOCKED, blocked_reply(term)), "ANSWER")
     if form.view == "stage":
         stage_id = report_stage(form.stage, context) if form.stage else context.stage_id
         if isinstance(stage_id, str):

@@ -7,6 +7,7 @@ from hiremate_ai.agents.guardrails import (
     BLOCKED_REPLY,
     blocked_attribute,
     blocked_reply,
+    education_term,
     evidence_source,
     verified_evidence,
 )
@@ -151,3 +152,11 @@ def test_data_block_escapes_attributes() -> None:
     assert data_block("url", "본문", url='https://example.com/?a="b"') == (
         '<data kind="url" url="https://example.com/?a=&quot;b&quot;">\n본문\n</data>'
     )
+
+
+def test_education_term_finds_only_education_and_school() -> None:
+    """블라인드 채용에서 지원자 사실을 거를 때 쓴다. 늘 막는 조건(나이 · 지역 등)과 전공은 보지 않는다."""
+    assert education_term("한빛대학교 캡스톤 프로젝트") == "대학교"
+    assert education_term("석사 과정 연구") == "석사"
+    assert education_term("지역 축제 기획 경험") is None
+    assert education_term("컴퓨터공학 전공") is None

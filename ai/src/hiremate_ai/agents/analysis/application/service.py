@@ -34,9 +34,15 @@ class RubricScopeError(ValueError):
 
 
 async def review_application_documents(
-    llm: LlmClient, documents: Sequence[ApplicantDocument], *, extracted: Sequence[ExtractedFacts | None] | None = None
+    llm: LlmClient,
+    documents: Sequence[ApplicantDocument],
+    *,
+    extracted: Sequence[ExtractedFacts | None] | None = None,
+    blind: bool = False,
 ) -> list[Fact]:
     """제출 문서의 사실과 근거를 검토한다. 점수를 매기거나 결과를 저장하지 않는다.
+
+    블라인드 채용(blind)이면 학력 · 출신 학교가 나오는 사실은 빼고 돌려준다.
 
     원문에서 찾은 인용과 본인 역할을 보존하며, 검토에서 명시적으로 뒷받침된 사실만 supported다.
     """
@@ -48,7 +54,7 @@ async def review_application_documents(
             raise ValueError("추출 결과와 문서 수가 다르다")
         extracted = [result for document, result in zip(documents, extracted, strict=True) if document.text.strip()]
     results = await extract_documents(llm, usable, settings.application_concurrency, cached=extracted)
-    facts, _ = merge(usable, results, date.today())
+    facts, _ = merge(usable, results, date.today(), blind=blind)
     reviews = await review_claims(llm, fact_claims(facts))
     supported = {review.id for review in reviews.values() if review.verdict == "SUPPORTED"}
     return [
@@ -126,7 +132,7 @@ def match_criteria(posting: PostingContent, rubric: ScreeningRubric) -> tuple[tu
         (CriterionCategory.PREFERENCE, posting.preferred, "P"),
     ):
         for number, text in enumerate(texts, start=1):
-            if blocked_attribute(text):
+            if blocked_attribute(text, blind=posting.blind):
                 notes.append(
                     Note(text=f"'{text}'은 채용 판단에 쓰면 안 되는 조건이라 평가하지 않았어요.", source="공고")
                 )
