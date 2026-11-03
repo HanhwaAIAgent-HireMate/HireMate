@@ -187,7 +187,11 @@ export function useWorkspaceActions(stageId: string, applicationId: string) {
             workspacePath(stageId, applicationId),
           ),
         ),
-      onSuccess,
+      // 내 종료는 같은 시간 면접자 모두의 면접관 종료 현황을 바꾸므로 준비 현황도 다시 읽는다
+      onSuccess: (workspace: InterviewerWorkspace) => {
+        onSuccess(workspace)
+        void queryClient.invalidateQueries({ queryKey: ['interviewer', 'attendance', stageId] })
+      },
     }),
     // 불참은 같은 시간 면접자 모두의 준비 현황을 바꾸므로 준비 현황도 다시 읽는다
     absent: useMutation({

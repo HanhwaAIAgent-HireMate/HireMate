@@ -17,7 +17,7 @@ const question = (questionId: string, text: string, interviewerRole: string, ans
   parentQuestionId: null,
   version: 0,
 })
-const workspace = (status: string) => ({
+const workspace = (status: string, myEnded = false) => ({
   session: {
     stageId: 's1',
     applicationId: 'a1',
@@ -36,10 +36,11 @@ const workspace = (status: string) => ({
   questions: [
     {
       question: question('q1', '원장 재설계에서 직접 정한 부분은?', 'PRACTICAL'),
-      canAnswer: status === 'IN_PROGRESS',
+      canAnswer: status === 'IN_PROGRESS' && !myEnded,
       canRequestFollowUp: false,
       canDelete: false,
-      readOnlyReason: status === 'IN_PROGRESS' ? null : '면접 시작 전',
+      readOnlyReason:
+        status === 'IN_PROGRESS' && !myEnded ? null : myEnded ? '면접 종료' : '면접 시작 전',
     },
     {
       question: question('q2', '의견이 갈렸던 경험은?', 'HR', '일정을 두고 조율했다'),
@@ -59,6 +60,8 @@ function mockServer(
     /** 상대 면접관(인사)이 준비 완료했나. 기본은 준비 완료 */
     otherReady?: boolean
     otherOnline?: boolean
+    /** 상대 면접관이 이미 [면접 종료]를 눌렀나. 기본은 눌렀다 (내가 누르면 면접이 끝난다) */
+    otherEnded?: boolean
     unassigned?: boolean
     holdAnswer?: boolean
     failAnswer?: boolean
@@ -87,6 +90,7 @@ function mockServer(
   let absent = false
   let status = options.status ?? 'SCHEDULED'
   let ready = options.ready ?? false
+  let myEnded = false
   const requests: string[] = []
   let releaseAnswer = () => {}
   const answerGate = new Promise<void>((resolve) => {
@@ -95,7 +99,7 @@ function mockServer(
   const savedAnswers: string[] = []
   let savedAnswer = ''
   const makeWorkspace = () => {
-    const value = workspace(absent ? 'ABSENT' : status)
+    const value = workspace(absent ? 'ABSENT' : status, myEnded)
     value.questions[0].question.answer = savedAnswer
     if (options.unassigned) value.questions[0].question.interviewerRole = ''
     const others = (options.together ?? []).map((member) => ({
@@ -133,9 +137,18 @@ function mockServer(
         name: '최인사',
         ready: options.otherReady ?? true,
         online: options.otherOnline ?? true,
+        ended: options.otherEnded ?? true,
         me: false,
       },
-      { role: 'PRACTICAL', memberId: 'kim', name: '김실무', ready, online: true, me: true },
+      {
+        role: 'PRACTICAL',
+        memberId: 'kim',
+        name: '김실무',
+        ready,
+        online: true,
+        ended: myEnded,
+        me: true,
+      },
     ],
   })
   vi.stubGlobal(
@@ -172,7 +185,11 @@ function mockServer(
       }
       if (input.method === 'POST') {
         posts.push(url)
-        status = url.endsWith('/end') ? 'ENDED' : 'IN_PROGRESS'
+        // 서버처럼 두 면접관이 모두 종료해야 면접이 끝난다
+        if (url.endsWith('/end')) {
+          myEnded = true
+          if (options.otherEnded ?? true) status = 'ENDED'
+        } else status = 'IN_PROGRESS'
         return Response.json(makeWorkspace())
       }
       if (input.method === 'PUT' && url.endsWith('/answer')) {
@@ -307,8 +324,11 @@ describe('InterviewRoomPage', () => {
     expect(
       screen.getByText('김하늘 님의 본인 역할을 확인할 질문 하나 더 만들어줘'),
     ).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: '내 메모' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '의견 이유' })).toBeInTheDocument()
+    // 내 메모는 HR 화면의 메모처럼 [메모] 버튼으로 연다
+    expect(screen.queryByRole('textbox', { name: '내 메모' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '메모' }))
+    expect(await screen.findByRole('textbox', { name: '내 메모' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: /인사.*실무 공유 기록/ })).not.toBeInTheDocument()
   })
 
@@ -378,9 +398,8 @@ describe('InterviewRoomPage', () => {
         .getAllByRole('button')
         .map((button) => button.textContent),
     ).toEqual(['김하늘', '박서준'])
-    const together = await screen.findByRole('list', { name: '같은 시간 면접자' })
-    expect(together).toHaveTextContent('김하늘')
-    expect(together).toHaveTextContent('박서준')
+    // 같은 시간 면접자는 왼쪽 목록에서 보이므로 가운데에 다시 나열하지 않는다
+    expect(screen.queryByRole('list', { name: '같은 시간 면접자' })).not.toBeInTheDocument()
     expect(screen.getByText(/이 시간 면접자 2명의 면접이 바로 함께 시작돼요/)).toBeInTheDocument()
 
     fireEvent.click(await screen.findByRole('button', { name: '불참' }))
@@ -464,6 +483,26 @@ describe('InterviewRoomPage', () => {
     expect(answer).toHaveValue('보존할 마지막 답변')
     expect(answer).toBeEnabled()
     expect(posts).not.toContain('/api/interviewer/sessions/s1/a1/end')
+  })
+
+  it('상대 면접관이 진행 중이면 내 면접만 마치고, 기록과 메모는 잠근 채 기다린다', async () => {
+    const { posts } = mockServer({ status: 'IN_PROGRESS', ready: true, otherEnded: false })
+    renderRoom()
+    const people = await screen.findByRole('list', { name: '배정 면접관 접속 현황' })
+    await vi.waitFor(() => expect(people).toHaveTextContent('인사 최인사진행 중'))
+    fireEvent.click(screen.getByRole('button', { name: '면접 종료' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('내 면접을 종료할까요?')
+    expect(dialog).toHaveTextContent('다른 면접관도 종료하면 면접이 끝나요')
+    fireEvent.click(within(dialog).getByRole('button', { name: '저장하고 종료' }))
+    await vi.waitFor(() => expect(posts).toContain('/api/interviewer/sessions/s1/a1/end'))
+    expect(await screen.findByText(/내 면접을 마쳤어요/)).toBeInTheDocument()
+    await vi.waitFor(() => expect(people).toHaveTextContent('실무 김실무 (나)면접 종료'))
+    expect(people).toHaveTextContent('인사 최인사진행 중')
+    expect(screen.queryByRole('button', { name: '면접 종료' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('원장 재설계에서 직접 정한 부분은? 답변')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '메모' }))
+    expect(await screen.findByRole('textbox', { name: '내 메모' })).toBeDisabled()
   })
 
   it('결과가 확정된 전형에서는 의견을 읽기만 한다', async () => {

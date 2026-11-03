@@ -1,8 +1,10 @@
-import { CalendarClock, CalendarX } from 'lucide-react'
+import { CalendarClock, CalendarX, NotebookPen } from 'lucide-react'
 import { useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
 
 import { useHeaderCrumb } from '@/app/header-store'
+import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChatPanel } from '@/features/chat/ChatPanel'
@@ -196,6 +198,8 @@ function Room({
   const [ending, setEnding] = useState(false)
   const data = workspace.data
   const status = data?.session.status
+  // 먼저 [면접 종료]를 누른 면접관은 상대 면접관이 끝낼 때까지 기다리며 기록을 고칠 수 없다
+  const myEnded = !!attendance.data?.attendees.find((attendee) => attendee.me)?.ended
   const ownerNames = Object.fromEntries(
     (attendance.data?.attendees ?? []).map((attendee) => [attendee.role, attendee.name]),
   )
@@ -224,6 +228,21 @@ function Room({
           onCancelReady={() => readiness.cancel.mutateAsync()}
           onEnd={endInterview}
           onAbsent={(absent) => actions.absent.mutateAsync(absent)}
+          memo={
+            data && (
+              <PersonalMemo
+                stageId={stageId}
+                applicationId={applicationId}
+                workspace={data}
+                editable={
+                  status === 'IN_PROGRESS' &&
+                  attendance.data?.stageActive === true &&
+                  !ending &&
+                  !myEnded
+                }
+              />
+            )
+          }
         />
         <div className="min-h-0 flex-1 space-y-4 overflow-auto px-5 py-4">
           <div className="flex justify-end">
@@ -286,14 +305,6 @@ function Room({
                 stageId={stageId}
                 applicationId={applicationId}
                 editable={attendance.data?.stageActive === true}
-              />
-              <PersonalMemo
-                stageId={stageId}
-                applicationId={applicationId}
-                workspace={data}
-                editable={
-                  status === 'IN_PROGRESS' && attendance.data?.stageActive === true && !ending
-                }
               />
             </>
           )}
@@ -388,7 +399,7 @@ function Documents({
   return <DocumentViewer stageId={stageId} recruitmentId={recruitmentId} detail={detail.data} />
 }
 
-/** 나만 보는 면접 메모. 다른 면접관과 HR에게는 보이지 않는다 */
+/** [메모] 버튼으로 여는, 나만 보는 면접 메모. 다른 면접관과 HR에게는 보이지 않는다 */
 function PersonalMemo({
   stageId,
   applicationId,
@@ -403,20 +414,30 @@ function PersonalMemo({
   const actions = useWorkspaceActions(stageId, applicationId)
   const query = useWorkspace(stageId, applicationId)
   return (
-    <NoteEditor
-      stageId={stageId}
-      applicationId={applicationId}
-      field="personal-memo"
-      label="내 메모"
-      description="나만 보는 메모예요. 다른 면접관과 채용 담당자에게는 보이지 않아요."
-      text={workspace.personalMemo}
-      version={workspace.personalMemoVersion}
-      editable={editable}
-      reload={() => query.refetch({ throwOnError: true })}
-      save={async (text, expectedVersion) => {
-        const stored = await actions.memo.mutateAsync({ text, expectedVersion })
-        return { text: stored.personalMemo, version: stored.personalMemoVersion }
-      }}
-    />
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm">
+          <NotebookPen />
+          메모{workspace.personalMemo && ' ·'}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-96">
+        <NoteEditor
+          stageId={stageId}
+          applicationId={applicationId}
+          field="personal-memo"
+          label="내 메모"
+          description="나만 보는 메모예요. 다른 면접관과 채용 담당자에게는 보이지 않아요."
+          text={workspace.personalMemo}
+          version={workspace.personalMemoVersion}
+          editable={editable}
+          reload={() => query.refetch({ throwOnError: true })}
+          save={async (text, expectedVersion) => {
+            const stored = await actions.memo.mutateAsync({ text, expectedVersion })
+            return { text: stored.personalMemo, version: stored.personalMemoVersion }
+          }}
+        />
+      </PopoverContent>
+    </Popover>
   )
 }

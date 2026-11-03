@@ -74,13 +74,13 @@ export function NoteEditor({
     }
   }
   return (
-    <section className="space-y-2 rounded-xl border p-3" aria-label={label}>
+    <section className="space-y-2" aria-label={label}>
       <h3 className="text-sm font-semibold">{label}</h3>
       <p className="text-xs text-muted-foreground">{description}</p>
       <Textarea
         aria-label={label}
         value={value}
-        rows={3}
+        rows={6}
         maxLength={10_000}
         disabled={!editable || busy}
         onChange={(event) => {

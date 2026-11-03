@@ -1,9 +1,9 @@
-import { useStageInterviewProgress } from '@/features/interview/live'
+import { attendeeState, useStageInterviewProgress } from '@/features/interview/live'
 import { INTERVIEW_STATUS_LABELS, INTERVIEW_STATUS_STYLES } from '@/features/interview/sessions'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-/** 지원자별로 달라지는 면접 진행과 면접관 준비 현황. 면접관 구성은 전형 상단에서만 바꾼다. */
+/** 지원자별로 달라지는 면접 진행과 면접관 준비 · 종료 현황. 면접관 구성은 전형 상단에서만 바꾼다. */
 export function CandidateInterviewProgress({
   stageId,
   applicationId,
@@ -34,23 +34,26 @@ export function CandidateInterviewProgress({
         {current.scheduledAt ? formatDateTime(current.scheduledAt) : '일정 미정'}
       </span>
       <ul aria-label="면접관 준비 상태" className="flex flex-wrap gap-x-4 gap-y-1">
-        {current.attendees.map((attendee) => (
-          <li key={attendee.memberId} className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="font-medium break-words">
-              {attendee.role === 'HR' ? '인사' : '실무'} {attendee.name}
-            </span>
-            <span
-              className={cn(
-                'flex shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground',
-                attendee.ready && attendee.online && 'text-emerald-700',
-                attendee.ready && !attendee.online && 'text-amber-800',
-              )}
-            >
-              <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
-              {!attendee.ready ? '준비 전' : attendee.online ? '준비 완료' : '접속 끊김'}
-            </span>
-          </li>
-        ))}
+        {current.attendees.map((attendee) => {
+          const state = attendeeState(attendee, current.status)
+          return (
+            <li key={attendee.memberId} className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span className="font-medium break-words">
+                {attendee.role === 'HR' ? '인사' : '실무'} {attendee.name}
+              </span>
+              <span
+                className={cn(
+                  'flex shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground',
+                  state.tone === 'active' && 'text-emerald-700',
+                  state.tone === 'warn' && 'text-amber-800',
+                )}
+              >
+                <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
+                {state.label}
+              </span>
+            </li>
+          )
+        })}
       </ul>
     </section>
   )
