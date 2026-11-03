@@ -100,6 +100,10 @@ _FORMAL = re.compile(r"[가-힣]니다(?![가-힣])")
 """합니다체. 리포트 문장은 해요체로 쓴다."""
 _VAGUE = re.compile(r"대부분|대다수")
 """세지 않은 양. 요약 · 읽을 점에서 쓰면 센 개수나 비율을 같이 쓴다."""
+_KEY_NAME = re.compile(r"(?<![A-Za-z_])[a-z]+[0-9]*\.[a-z_*][a-z0-9_.*-]*")
+"""값 key 이름(document.criterion.Q-05). 제목에는 담당자가 쓰는 말로 쓴다."""
+_INNER_WORD = re.compile(r"선 위|선 아래|경계 그룹|판정 교차|값 정리|조각 지표")
+"""개발하며 쓰던 말. 리포트만 보는 담당자는 뜻을 모른다."""
 MAX_KEYWORDS = 4
 MAX_KEYWORD_LENGTH = 20
 
@@ -500,6 +504,20 @@ def _text_problems(spec: ReportSpec, bundle: ReportBundle) -> list[str]:
             found.append(f"{label}의 '{vague.group()}'는 count_values로 센 개수나 비율을 같이 쓴다")
         if unknown := sorted(set(_APPLICANT.findall(text)) - known):
             found.append(f"{label}에 범위 밖 지원자번호가 있다: {', '.join(unknown)}")
+        if label.endswith(".title"):
+            found += _title_problems(label, text)
+    return found
+
+
+def _title_problems(label: str, title: str) -> list[str]:
+    """섹션 · 부품 제목. 그림이 무엇을 보여 주는지 담당자가 쓰는 말로 쓴다 (visual-guide의 '제목')."""
+    found = []
+    if key := _KEY_NAME.search(title):
+        found.append(f"{label}에 값 key 이름이 있다: {key.group()}. 담당자가 쓰는 말로 쓴다")
+    elif title.strip() and not _CODE.sub("", title).strip(" ·,/"):
+        found.append(f"{label}가 항목 코드뿐이다: {title}. 항목 이름을 쓴다")
+    if word := _INNER_WORD.search(title):
+        found.append(f"{label}에 내부 용어가 있다: {word.group()}. 담당자가 쓰는 말로 풀어 쓴다")
     return found
 
 

@@ -97,7 +97,7 @@ describe('분포 리포트', () => {
     expect(screen.getByText(/51~80번째 30명이 모두 8개라/)).toBeInTheDocument()
   })
 
-  it('경계 그룹은 한 번에 5명씩 비교를 요청한다', () => {
+  it('다시 볼 지원자는 한 번에 5명씩 비교를 요청한다', () => {
     const onDeepDive = vi.fn()
     render(<DistributionView stageId="s" onDeepDive={onDeepDive} deepPending={false} />)
 
@@ -126,7 +126,7 @@ describe('분포 리포트', () => {
 
   it('맨 위 요약을 숫자로 만든다', () => {
     expect(insightLines(distribution)).toEqual([
-      '필수 조건을 모두 충족한 선 위 80명이 목표 60명보다 20명 많아요. 충족 8개인 30명 사이에서 선발이 갈려요.',
+      '필수 조건을 모두 충족한 80명이 목표 60명보다 20명 많아요. 충족 8개인 30명 사이에서 선발이 갈려요.',
       "가장 많이 걸리는 필수 조건은 Q-01 'Java 서버 개발 경력 3년 이상'이에요. 73%가 충족이 아니에요(미충족 · 부분 50%, 확인 필요 23%).",
     ])
   })

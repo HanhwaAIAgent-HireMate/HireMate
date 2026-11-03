@@ -311,6 +311,28 @@ def test_text_problems(change: dict[str, str], expected: str) -> None:
     assert any(expected in problem for problem in found), found
 
 
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("document.criterion.Q-05 분포", "값 key 이름"),
+        ("Q-01 · Q-05", "항목 코드뿐"),
+        ("선 위 지원자", "내부 용어"),
+        ("판정 교차", "내부 용어"),
+    ],
+)
+def test_titles_use_words_the_recruiter_uses(title: str, expected: str) -> None:
+    spec = good_spec()
+    spec.sections[1].blocks[1].title = title
+    found = problems(spec, bundle())
+    assert any(expected in problem and "sections[1].blocks[1].title" in problem for problem in found), found
+
+
+def test_titles_may_name_an_item_with_its_code() -> None:
+    spec = good_spec()
+    spec.sections[1].blocks[1].title = "Q-05 테스트 코드 판정"
+    assert problems(spec, bundle()) == []
+
+
 def test_applicant_number_before_count_is_not_an_age() -> None:
     spec = good_spec().model_copy(update={"summary": "A-0021, 세 명 모두 코드 리뷰 경험이 있어요."})
     assert problems(spec, bundle()) == []
