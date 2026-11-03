@@ -46,8 +46,8 @@ import { errorMessage } from '@/lib/api/client'
 export const NEXT_STAGE_GUIDE_ID = 'next-stage-guide'
 
 /**
- * 전형 결과 화면의 다음 전형 안내. 합격 안내 메일 아래에 붙는다. 결과를 확정한 뒤 메일을 쓰기 전에 채우도록
- * 합격 · 불합격 안내 단계에 접어 두고, 안내 메일 화면의 [입력하러 가기](#next-stage-guide)로 오면 펼친다
+ * 전형 결과 화면의 다음 전형 안내 카드. 합격 안내 메일 아래에 붙는다. 결과를 확정한 뒤 메일을 보내기 전에 채우도록
+ * 합격 · 불합격 안내 카드 바로 아래에 펼쳐 두고, 안내 메일 화면의 [입력하러 가기](#next-stage-guide)로 오면 이 카드로 내려간다
  */
 export function NextStageGuide({
   recruitmentId,
@@ -63,9 +63,6 @@ export function NextStageGuide({
   const view = guides.data?.find((guide) => guide.stageId === stageId)
   const { hash } = useLocation()
   const linked = hash === `#${NEXT_STAGE_GUIDE_ID}`
-  // 담당자가 펼치거나 접기 전에는, 안내 메일 화면의 링크로 왔을 때만 펼친다
-  const [toggled, setToggled] = useState<boolean | null>(null)
-  const open = toggled ?? linked
   const ready = Boolean(view)
 
   useEffect(() => {
@@ -75,37 +72,19 @@ export function NextStageGuide({
   }, [linked, ready])
 
   if (!guides.data || !view) return null
-  const empty = missingGuideFields(view.guide)
   return (
-    <section id={NEXT_STAGE_GUIDE_ID} className="space-y-2">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setToggled(!open)}
-        className="flex w-full flex-wrap items-baseline gap-2 text-left text-sm font-semibold"
-      >
-        {view.name} 안내
-        <span className="text-xs font-normal text-muted-foreground">
-          합격 안내 메일 아래에 붙어요
-        </span>
-        {empty.length > 0 && (
-          <span className="text-[11px] font-normal text-amber-700">
-            비어 있음: {empty.join(', ')}
-          </span>
-        )}
-        <span className="ml-auto text-xs font-normal text-muted-foreground">
-          {open ? '접기' : editable ? '입력하기' : '보기'}
-        </span>
-      </button>
-      {open && (
-        <GuideCard
-          key={JSON.stringify(view.guide)}
-          recruitmentId={recruitmentId}
-          view={view}
-          bounds={scheduleBounds(guides.data, view.stageId)}
-          editable={editable}
-        />
-      )}
+    <section id={NEXT_STAGE_GUIDE_ID} className="rounded-xl border p-4">
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-bold">{view.name} 안내</h2>
+        <span className="text-xs text-muted-foreground">합격 안내 메일 아래에 붙어요</span>
+      </div>
+      <GuideCard
+        key={JSON.stringify(view.guide)}
+        recruitmentId={recruitmentId}
+        view={view}
+        bounds={scheduleBounds(guides.data, view.stageId)}
+        editable={editable}
+      />
     </section>
   )
 }
@@ -140,7 +119,7 @@ function GuideCard({
     })
 
   return (
-    <div className="space-y-2 rounded-xl border p-4">
+    <div className="space-y-2">
       {(view.notifiedCount > 0 || empty.length > 0) && (
         <div className="flex items-center gap-2 text-sm">
           {view.notifiedCount > 0 && (
