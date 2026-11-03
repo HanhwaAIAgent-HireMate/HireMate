@@ -185,10 +185,13 @@ def _mentions_education(kind: str, text: str, quotes: Sequence[Quote]) -> bool:
     return kind == "EDUCATION" or any(education_term(part) for part in [text, *(quote.sentence for quote in quotes)])
 
 
-async def summarize(llm: LlmClient, documents: Sequence[ApplicantDocument]) -> list[DocumentSection]:
+async def summarize(
+    llm: LlmClient, documents: Sequence[ApplicantDocument], *, blind: bool = False
+) -> list[DocumentSection]:
     """자기소개서 문항별 요약. 사실 추출과 따로 묻는다 (한 번에 받으면 긴 자기소개서에서 출력 한도를 넘었다).
 
-    근거 문장은 원문에서 찾은 것만 남긴다.
+    근거 문장은 원문에서 찾은 것만 남긴다. 블라인드 채용(blind)이면 학력 · 출신 학교가 나오는 요점과 근거 문장을 빼고,
+    제목이나 요약에 나오는 문항은 통째로 뺀다 (merge와 같은 기준).
     """
     sections = []
     for document in documents:
@@ -201,14 +204,18 @@ async def summarize(llm: LlmClient, documents: Sequence[ApplicantDocument]) -> l
             user=f"{document_block(document)}\n\n위 자기소개서를 문항마다 요약해 줘.",
         )
         for section in result.sections:
+            if blind and education_term(f"{section.title} {section.summary}"):
+                continue
             if section.title.strip() and section.summary.strip():
+                points = [point.strip() for point in section.points if point.strip()]
+                quotes = quotes_in([document], section.evidence)
                 sections.append(
                     DocumentSection(
                         document=document.type,
                         title=section.title.strip(),
                         summary=section.summary.strip(),
-                        points=[point.strip() for point in section.points if point.strip()][:3],
-                        quotes=quotes_in([document], section.evidence),
+                        points=[point for point in points if not (blind and education_term(point))][:3],
+                        quotes=[quote for quote in quotes if not (blind and education_term(quote.sentence))],
                     )
                 )
     return sections

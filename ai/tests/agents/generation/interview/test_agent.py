@@ -194,6 +194,28 @@ async def test_required_experience_and_concept_have_separate_slots(
     assert "한결대학교" not in call.user  # 학력 줄은 질문 소재로 넘기지 않는다
 
 
+async def test_blind_hiring_keeps_grade_and_degree_lines_out_of_question_material(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
+) -> None:
+    applicant = sample_applicants["이도윤"]
+    grade = "학점 4.1/4.5로 석사 학위를 받았습니다."
+    documents = [document.model_copy(update={"text": grade + "\n" + document.text}) for document in applicant.documents]
+    asked = applicant.model_copy(update={"documents": documents})
+
+    for blind in (False, True):
+        llm = FakeLlm(draft)
+        await generate_questions(
+            llm,
+            applicant=asked,
+            posting=sample_posting.model_copy(update={"blind": blind}),
+            analysis=newcomer_analysis,
+            interview=view(),
+            focus=None,
+        )
+        # 블라인드 채용이면 학교 이름이 없는 학점 · 학위 줄도 질문 소재로 넘기지 않는다
+        assert any(grade in call.user for call in llm.calls) is not blind
+
+
 async def test_document_headers_are_not_question_material(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent, newcomer_analysis: CandidateAnalysis
 ) -> None:

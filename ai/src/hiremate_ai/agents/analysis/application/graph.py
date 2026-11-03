@@ -105,7 +105,7 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
             ]
         extracted, sections = await asyncio.gather(
             extract_documents(llm, documents, settings.application_concurrency, cached=cached),
-            summarize(llm, documents),
+            summarize(llm, documents, blind=context.posting.blind),
         )
         if artifacts is not None and recipe is not None and context.company_id is not None:
             for document, result in zip(documents, extracted, strict=True):
