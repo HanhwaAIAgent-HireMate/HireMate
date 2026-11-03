@@ -27,6 +27,10 @@ class SchoolNamesTests {
         assertThat(SchoolNames.mask("대구대에서 공부했고 이화여대, 서울교대, 한국외대 학생들과 협업했습니다."))
                 .isEqualTo("○○학교에서 공부했고 ○○학교, ○○학교, ○○학교 학생들과 협업했습니다.");
         assertThat(SchoolNames.mask("국립부경대학교와 명지전문대를 거쳤습니다.")).isEqualTo("○○학교와 ○○학교를 거쳤습니다.");
+        assertThat(SchoolNames.mask("강릉원주대에서 공부하고 경희사이버대를 다녔습니다."))
+                .isEqualTo("○○학교에서 공부하고 ○○학교를 다녔습니다.");
+        assertThat(SchoolNames.mask("Studied at Gwangju Institute of Science and Technology."))
+                .isEqualTo("Studied at ○○학교.");
     }
 
     @Test

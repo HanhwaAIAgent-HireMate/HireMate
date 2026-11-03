@@ -31,7 +31,7 @@ public final class SchoolNames {
 
     /** 목록 이름에서 만들 수 없는 줄임말. */
     private static final List<String> EXTRA = List.of("카이스트", "포스텍", "유니스트", "지스트", "디지스트", "코리아텍", "외대",
-            "시립대", "항공대", "한국공대", "방송대", "방통대");
+            "시립대", "항공대", "한국공대", "방송대", "방통대", "한예종");
 
     /** 이름 끝을 줄여 쓰는 말. 이화여자대학교는 이화여대, 서울교육대학교는 서울교대로 쓴다. */
     private static final Map<String, String> SHORT = Map.of("여자", "여", "교육", "교", "외국어", "외", "공과", "공",
@@ -47,7 +47,8 @@ public final class SchoolNames {
             // 학과, 졸업 같은 말 앞의 대학 줄임말. 한빛대 컴퓨터공학과, 한빛대 졸업
             "[가-힣]{1,5}대(?=\\s*(?:[가-힣]{0,10}(?:학과|학부|전공|대학원)|졸업|재학|휴학|출신|동아리|캡스톤|학생회|교내|동문))",
             // 영어 학교 이름. Hanbit University, University of Hanbit, Hanbit High School, KAIST
-            "(?:[A-Z][A-Za-z.&'-]*\\s+){1,5}(?:University|College|High School|Institute of Technology)\\b",
+            "(?:[A-Z][A-Za-z.&'-]*\\s+){1,5}"
+                    + "(?:University|College|High School|Institute of (?:Science and )?Technology)\\b",
             "\\bUniversity of(?:\\s+[A-Z][A-Za-z.&'-]*){1,4}",
             "\\b(?:KAIST|POSTECH|UNIST|DGIST|GIST|SNU)\\b"));
 
