@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Any
 
 from langchain.tools import ToolRuntime, tool
+from openai import APIError
 from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.generation.report.bundle import Evidence, ReportBundle, Strength
@@ -224,7 +225,8 @@ async def consult(scope: ReportScope, specialist: Specialist, applicant: str, qu
         answer = await scope.llm.structured(
             SpecialistAnswer, agent=f"report-{specialist.value}", system=system, user=user
         )
-    except LlmOutputError:
+    except (LlmOutputError, APIError):
+        # 확인 하나가 실패해도 리포트 전체를 멈추지 않는다. 묶음의 근거로 계속 쓴다
         return f"{label}: 확인하지 못했어요."
     ids = {item.id for item in items}
     findings = [finding for finding in answer.findings if finding.evidence and set(finding.evidence) <= ids]

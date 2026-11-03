@@ -1,3 +1,6 @@
+import httpx2
+from openai import APIConnectionError
+
 from hiremate_ai.agents.generation.report.explain import (
     DistributionFacts,
     _Charts,
@@ -85,4 +88,12 @@ async def test_explain_returns_nothing_when_the_model_breaks_format() -> None:
         raise LlmOutputError("형식 오류")
 
     note = await explain_distribution(FACTS, FakeLlm(broken))
+    assert note.lines == []
+
+
+async def test_explain_returns_nothing_when_the_model_server_fails() -> None:
+    def down(call: LlmCall) -> _Draft:
+        raise APIConnectionError(request=httpx2.Request("POST", "http://model.test"))
+
+    note = await explain_distribution(FACTS, FakeLlm(down))
     assert note.lines == []

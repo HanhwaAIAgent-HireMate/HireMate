@@ -5,6 +5,8 @@
 
 import logging
 
+from openai import APIError
+
 from hiremate_ai.agents.generation.report.bundle import ReportBundle, ReportKind
 from hiremate_ai.agents.generation.report.check import MAX_BRIEF_SUMMARY, problems
 from hiremate_ai.agents.generation.report.derive import drawable
@@ -109,9 +111,14 @@ async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport
 
     try:
         spec = await agent.run(request(bundle), context=scope, validate=validate, rewrites=REWRITES)
-    except LlmOutputError as error:
-        logger.warning("리포트를 기본 구성으로 만든다 (reason=%s)", error.reason.value)
-        tried = f"설계서 검사 {len(repaired)}번에 모두 걸려 코드가 숫자와 표로 기본 구성을 만듦" if repaired else ""
+    except (LlmOutputError, APIError) as error:
+        # 모델 서버 오류(사용 한도, 연결 끊김, 요청 거절)도 SDK가 다시 시도한 뒤라 빈 화면 대신 기본 구성을 낸다
+        if isinstance(error, APIError):
+            logger.warning("모델 서버 오류로 리포트를 기본 구성으로 만든다 (%s)", type(error).__name__)
+            tried = "모델 서버 오류로 설계서를 받지 못해 코드가 기본 구성을 만듦"
+        else:
+            logger.warning("리포트를 기본 구성으로 만든다 (reason=%s)", error.reason.value)
+            tried = f"설계서 검사 {len(repaired)}번에 모두 걸려 코드가 숫자와 표로 기본 구성을 만듦" if repaired else ""
         return ComposedReport(
             spec=fallback_spec(bundle),
             skills=scope.skills,
