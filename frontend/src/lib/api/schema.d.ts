@@ -2025,6 +2025,8 @@ export interface components {
             /** Format: int64 */
             version: number;
             locked: boolean;
+            /** Format: int32 */
+            started: number;
         };
         StageGuideRequest: {
             /** Format: date */

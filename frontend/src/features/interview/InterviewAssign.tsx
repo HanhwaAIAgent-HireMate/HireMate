@@ -23,7 +23,8 @@ import { ApiError, errorMessage } from '@/lib/api/client'
 
 /**
  * 면접 전형의 [면접관 배정] 버튼. Stage 바의 결정 현황 왼쪽에 들어간다.
- * 면접관은 전형에 한 번 정하고 모든 지원자에게 공통으로 적용한다. 면접이 시작되면 바꿀 수 없어 보기만 한다.
+ * 면접관은 전형에 한 번 정하고 모든 지원자에게 공통으로 적용한다. 면접이 시작된 뒤에 바꾸면 아직 시작하지 않은 시간의
+ * 면접에만 적용하고(면접관이 아프거나 일정이 빠질 때), 모든 면접이 시작되면 보기만 한다.
  */
 export function InterviewAssign({ stageId, editable }: { stageId: string; editable: boolean }) {
   const assignment = useStageInterviewAssignment(stageId)
@@ -35,13 +36,16 @@ export function InterviewAssign({ stageId, editable }: { stageId: string; editab
   const [practical, setPractical] = useState('')
   const [expectedVersion, setExpectedVersion] = useState<number | null>(null)
   const current = assignment.data
-  // 불참은 면접을 하지 않은 것이라 배정을 잠그지 않는다 (서버와 같다)
-  const locked =
-    current?.locked ||
-    progress.data?.some((row) => row.status === 'IN_PROGRESS' || row.status === 'ENDED')
   const conflicting =
     assignment.error instanceof ApiError &&
     assignment.error.code === 'INTERVIEW_ASSIGNMENT_CONFLICT'
+  // 서버가 잠그면(모든 면접이 시작됐거나 결과를 확정했으면) 보기만 한다. 지원자별 배정이 어긋난 예전 전형은 시작한 면접이
+  // 있으면 공통 배정을 새로 정하지 않는다 (불참은 면접을 하지 않은 것이라 잠그지 않는다)
+  const locked =
+    current?.locked ||
+    (conflicting &&
+      progress.data?.some((row) => row.status === 'IN_PROGRESS' || row.status === 'ENDED'))
+  const started = current?.started ?? 0
   const canEdit =
     editable && !locked && !assignment.isPending && (!assignment.isError || conflicting)
   const name = (memberId: string) =>
@@ -86,7 +90,8 @@ export function InterviewAssign({ stageId, editable }: { stageId: string; editab
           <DialogHeader>
             <DialogTitle>면접관 배정</DialogTitle>
             <DialogDescription>
-              이 전형의 모든 지원자에게 공통으로 적용해요. 면접이 하나라도 시작되면 바꿀 수 없어요.
+              이 전형의 모든 지원자에게 공통으로 적용해요. 면접이 시작된 뒤에 바꾸면 아직 시작하지
+              않은 면접에만 적용해요.
             </DialogDescription>
           </DialogHeader>
           {conflicting && (
@@ -97,7 +102,15 @@ export function InterviewAssign({ stageId, editable }: { stageId: string; editab
           {locked && editable && (
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <LockKeyhole className="size-3.5" />
-              면접이 시작된 지원자가 있어 면접관을 바꿀 수 없어요.
+              {conflicting
+                ? '면접이 시작된 지원자가 있어 면접관을 바꿀 수 없어요.'
+                : '모든 면접이 시작돼 면접관을 바꿀 수 없어요.'}
+            </p>
+          )}
+          {canEdit && current && (
+            <p role="note" className="text-xs text-muted-foreground">
+              {started > 0 && `면접이 시작된 지원자 ${started}명은 지금 면접관이 그대로 맡아요. `}
+              바뀌는 면접관이 시작 전 면접에 남긴 준비 완료와 메모는 지워져요.
             </p>
           )}
           {canEdit ? (
@@ -177,7 +190,11 @@ export function InterviewAssign({ stageId, editable }: { stageId: string; editab
                       { hrMemberId: hr, practicalMemberId: practical, expectedVersion },
                       {
                         onSuccess: () => {
-                          toast.success('전형의 모든 지원자에게 면접관을 적용했어요.')
+                          toast.success(
+                            started > 0
+                              ? '아직 시작하지 않은 면접에 면접관을 적용했어요.'
+                              : '전형의 모든 지원자에게 면접관을 적용했어요.',
+                          )
                           setOpen(false)
                         },
                         onError: (error) => toast.error(errorMessage(error)),

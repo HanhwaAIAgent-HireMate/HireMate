@@ -291,7 +291,7 @@ class InterviewerSessionTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("전형에서 한 번 배정하면 지원자 전원에게 적용되고 지원자별 배정은 허용하지 않는다")
+    @DisplayName("전형에서 한 번 배정하면 지원자 전원에게 적용되고, 면접이 시작된 뒤에는 시작 전 면접만 바꾼다")
     void stageAssignmentAppliesToEveryCandidate() throws Exception {
         Fixture f = fixture(2, false);
         JsonNode assigned = json(expect(f.hr().put(f.legacy() + "/interview/assignment", assignment(f)), 200));
@@ -303,12 +303,42 @@ class InterviewerSessionTests extends IntegrationTest {
                 .containsOnly(f.stageId());
         expect(f.hr().put(f.legacy() + "/candidates/" + f.applicationId() + "/interview/session",
                 assignment(f)), 405);
+        String other = applicants(f).stream().filter(id -> !id.equals(f.applicationId().toString()))
+                .findFirst().orElseThrow();
+        schedule(f, other, LATER);
+        // 시작 전 면접에 남긴 준비 완료와 메모는 면접관이 바뀌면 지운다 (새 면접관에게 넘기지 않는다)
+        expect(f.people().api().put(room(f, other) + "/memo", Map.of("text", "PREP-HR-NOTE", "expectedVersion", 0)),
+                200);
+        expect(f.practical().api().post(room(f, other) + "/ready", null), 200);
         readyBoth(f);
+        JsonNode partly = json(expect(f.hr().get(f.legacy() + "/interview/assignment"), 200));
+        assertThat(partly.path("locked").asBoolean()).isFalse();
+        assertThat(partly.path("started").asInt()).isEqualTo(1);
+
+        // 면접이 시작된 뒤에 바꾸면 아직 시작하지 않은 시간의 면접에만 적용한다
+        JsonNode swapped = json(expect(f.hr().put(f.legacy() + "/interview/assignment", Map.of(
+                "hrMemberId", f.practical().id(), "practicalMemberId", f.people().id(),
+                "expectedVersion", assigned.path("version").asLong())), 200));
+        assertThat(swapped.path("started").asInt()).isEqualTo(1);
+        Map<String, String> roles = new HashMap<>();
+        json(expect(f.people().api().get("/api/interviewer/sessions"), 200)).path("items").valueStream()
+                .forEach(item -> roles.put(item.path("applicationId").asString(), item.path("myRole").asString()));
+        assertThat(roles).containsEntry(f.applicationId().toString(), "HR").containsEntry(other, "PRACTICAL");
+        JsonNode moved = json(expect(f.practical().api().get(room(f, other)), 200));
+        assertThat(moved.path("myRole").asString()).isEqualTo("HR");
+        assertThat(moved.path("personalMemo").asString()).isEmpty();
+        assertThat(json(expect(f.practical().api().get(room(f, other) + "/attendance"), 200)).path("attendees")
+                .valueStream().noneMatch(person -> person.path("ready").asBoolean())).isTrue();
+
+        // 모든 면접이 시작되면 더 바꿀 면접이 없다
+        expect(f.practical().api().post(room(f, other) + "/ready", null), 200);
+        expect(f.people().api().post(room(f, other) + "/ready", null), 200);
         JsonNode locked = json(expect(f.hr().get(f.legacy() + "/interview/assignment"), 200));
         assertThat(locked.path("locked").asBoolean()).isTrue();
-        expect(f.hr().put(f.legacy() + "/interview/assignment", Map.of(
-                "hrMemberId", f.practical().id(), "practicalMemberId", f.people().id(),
-                "expectedVersion", assigned.path("version").asLong())), 409);
+        assertThat(locked.path("started").asInt()).isEqualTo(2);
+        assertThat(code(f.hr().put(f.legacy() + "/interview/assignment", Map.of(
+                "hrMemberId", f.people().id(), "practicalMemberId", f.practical().id(),
+                "expectedVersion", swapped.path("version").asLong())), 409)).isEqualTo("INTERVIEW_STARTED");
     }
 
     @Test
