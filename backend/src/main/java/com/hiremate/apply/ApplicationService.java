@@ -12,6 +12,7 @@ import com.hiremate.global.ApiException;
 import com.hiremate.posting.ApplicationTarget;
 import com.hiremate.posting.DocumentType;
 import com.hiremate.posting.PostingService;
+import com.hiremate.posting.SchoolNames;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -74,10 +75,10 @@ public class ApplicationService {
         JobApplication application = applications.save(new JobApplication(target.recruitmentId(),
                 target.companyId(), postingId, applications.maxApplicationNo(target.recruitmentId()) + 1, name, email,
                 phone, certificates));
-        saveDocument(application, DocumentType.RESUME, form.resume());
-        saveDocument(application, DocumentType.COVER_LETTER, form.coverLetter());
+        saveDocument(application, DocumentType.RESUME, form.resume(), target.blind());
+        saveDocument(application, DocumentType.COVER_LETTER, form.coverLetter(), target.blind());
         if (form.portfolio() != null) {
-            saveDocument(application, DocumentType.PORTFOLIO, form.portfolio());
+            saveDocument(application, DocumentType.PORTFOLIO, form.portfolio(), target.blind());
         }
         events.publishEvent(new ApplicationSubmitted(application.getId(), target.recruitmentId(), target.companyId()));
         return new SubmittedApplication(application.getApplicationNo(), name, target.companyName(),
@@ -223,10 +224,13 @@ public class ApplicationService {
         return files.read(companyId, document.getFileId());
     }
 
-    private void saveDocument(JobApplication application, DocumentType type, ApplicationForm.Upload upload) {
+    /** 블라인드 채용이면 본문의 학교 이름을 가려 저장한다. AI는 이 본문만 읽는다. 원본 PDF는 그대로 둔다. */
+    private void saveDocument(JobApplication application, DocumentType type, ApplicationForm.Upload upload,
+            boolean blind) {
         StoredFileInfo stored = files.storePdf(application.getCompanyId(), upload.fileName(), upload.content());
+        String text = PdfText.extract(upload.content());
         documents.save(new ApplicationDocument(application.getId(), type, stored.fileId(), stored.originalName(),
-                stored.size(), PdfText.extract(upload.content())));
+                stored.size(), blind ? SchoolNames.mask(text) : text));
     }
 
     private JobApplication application(UUID companyId, UUID applicationId) {

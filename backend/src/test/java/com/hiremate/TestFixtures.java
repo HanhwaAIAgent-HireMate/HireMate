@@ -28,12 +28,20 @@ public final class TestFixtures {
     }
 
     public static Posting publish(TestApi hr, boolean requirePortfolio, String stagePlan) throws Exception {
+        return publish(hr, requirePortfolio, stagePlan, false);
+    }
+
+    private static Posting publish(TestApi hr, boolean requirePortfolio, String stagePlan, boolean blind)
+            throws Exception {
         JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
         String id = draft.path("recruitmentId").asString();
         String base = "/api/recruitments/" + id + "/posting";
-        expect(hr.put(base, Map.of("title", "백엔드 개발자", "jobCategory", "개발", "employmentType", "정규직",
-                "career", "경력 3년 이상", "location", "서울", "intro", "", "duties", List.of("결제 시스템 개발"),
-                "qualifications", List.of("Java Spring"), "preferred", List.of(), "benefits", List.of())), 200);
+        Map<String, Object> content = new HashMap<>(Map.of("title", "백엔드 개발자", "jobCategory", "개발",
+                "employmentType", "정규직", "career", "경력 3년 이상", "location", "서울", "intro", "",
+                "duties", List.of("결제 시스템 개발"), "qualifications", List.of("Java Spring"), "preferred", List.of(),
+                "benefits", List.of()));
+        content.put("blind", blind);
+        expect(hr.put(base, content), 200);
         expect(hr.post(base + "/ai-requests",
                 Map.of("message", stagePlan == null ? "전형은 서류, 1차 면접 순으로 해줘" : stagePlan)), 200);
         expect(hr.post(base + "/suggestion/apply", null), 200);
@@ -45,6 +53,11 @@ public final class TestFixtures {
         expect(hr.post(base + "/publish", Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
                 "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
         return new Posting(id, draft.path("postingId").asString());
+    }
+
+    /** 블라인드 채용 공고. */
+    public static Posting publishBlind(TestApi hr) throws Exception {
+        return publish(hr, false, null, true);
     }
 
     /** 전형의 첫 탭. 전형을 시작하면 "새 탭"이 생긴다. */
