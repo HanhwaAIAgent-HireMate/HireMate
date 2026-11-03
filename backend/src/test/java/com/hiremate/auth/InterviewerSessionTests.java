@@ -385,8 +385,9 @@ class InterviewerSessionTests extends IntegrationTest {
         assertThat(Instant.parse(group.path("scheduledAt").asString())).isEqualTo(SLOT);
         assertThat(group.path("status").asString()).isEqualTo("SCHEDULED");
         assertThat(group.path("members").valueStream().map(member -> member.path("applicationId").asString()))
-                .containsExactly(a, b);
-        assertThat(group.path("members").get(0).path("blocker").isNull()).isTrue();
+                .containsExactlyInAnyOrder(a, b);
+        assertThat(group.path("members").valueStream().allMatch(member -> member.path("blocker").isNull()))
+                .isTrue();
         assertThat(json(expect(f.practical().api().get(room(f, unscheduled)), 200)).path("group")
                 .path("scheduledAt").isNull()).isTrue();
 
@@ -481,6 +482,26 @@ class InterviewerSessionTests extends IntegrationTest {
         assertThat(status(f, a)).isEqualTo("IN_PROGRESS");
         assertThat(status(f, b)).isEqualTo("SCHEDULED");
         assertThat(code(scheduleRequest(f, b, SLOT), 409)).isEqualTo("INTERVIEW_SLOT_STARTED");
+    }
+
+    @Test
+    @DisplayName("면접관이 준비 완료한 동안과 면접이 시작된 뒤에는 질문을 다시 만들 수 없다")
+    void questionsAreNotRegeneratedUnderReadyInterviewers() throws Exception {
+        Fixture f = fixture();
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        schedule(f, f.applicationId(), SLOT);
+        String regenerate = f.legacy() + "/candidates/" + f.applicationId() + "/interview/questions/regenerate";
+
+        // 면접관이 지금 질문을 보고 준비 완료했으면 바꾸지 않는다 (준비를 취소하면 다시 만들 수 있다)
+        expect(f.practical().api().post(f.workspace() + "/ready", null), 200);
+        assertThat(code(f.hr().post(regenerate, null), 409)).isEqualTo("INTERVIEWERS_READY");
+        expect(f.practical().api().delete(f.workspace() + "/ready"), 200);
+        expect(f.hr().post(regenerate, null), 202);
+        applicants(f);
+
+        readyBoth(f);
+        assertThat(status(f, f.applicationId().toString())).isEqualTo("IN_PROGRESS");
+        assertThat(code(f.hr().post(regenerate, null), 409)).isEqualTo("INTERVIEW_STARTED");
     }
 
     private Fixture fixture() throws Exception {
