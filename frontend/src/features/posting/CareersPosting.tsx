@@ -51,8 +51,8 @@ export function BlindNotice() {
   return (
     <p className="rounded-lg bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
       해당 채용은 블라인드로 진행됩니다. 이력서와 자기소개서에 사진, 출신 학교, 학점, 나이, 가족
-      관계와 같은 직무와 관계 없는 개인 정보를 작성하지 말아 주시길 바랍니다. 위와 같은 정보를
-      작성할 경우, 불이익이 있을 수 있습니다.
+      관계 등 직무와 관계없는 개인 정보를 기재하지 마시기 바랍니다. 이러한 정보를 기재할 경우
+      불이익이 있을 수 있습니다.
     </p>
   )
 }
