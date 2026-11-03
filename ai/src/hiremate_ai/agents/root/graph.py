@@ -384,7 +384,7 @@ async def apply_plan(llm: LlmClient, saver: BaseCheckpointSaver[Any], applied: C
     allowed = _plan_candidates(applied.previous)
     if (
         applied.previous.intent is Intent.EDIT
-        and applied.previous.edit in (EditAction.CLEAR, EditAction.RESTORE)
+        and applied.previous.edit is EditAction.CLEAR
         and applied.plan.intent is Intent.EDIT
         and applied.plan.edit is applied.previous.edit
     ):

@@ -265,12 +265,9 @@ async def test_late_applied_corrects_the_result_carried_through_a_clarification(
     assert values["result"] == values["subject"] == [str(previous.targets[0])]
 
 
-@pytest.mark.parametrize("action", [EditAction.CLEAR, EditAction.RESTORE])
-async def test_applied_can_record_backend_resolved_clear_and_restore_targets(
-    context: ChatContext, action: EditAction
-) -> None:
+async def test_applied_can_record_backend_resolved_clear_targets(context: ChatContext) -> None:
     saver, thread = InMemorySaver(), thread_of(context)
-    previous = await run_plan(FakeLlm(edit(action)), context, saver=saver, thread=thread)
+    previous = await run_plan(FakeLlm(edit(EditAction.CLEAR)), context, saver=saver, thread=thread)
     final = previous.model_copy(update={"targets": ids(context, "김하늘"), "message": "실제 1명을 반영했어요."})
 
     assert confirm_plan(saver, thread, context.message, previous, final)
@@ -356,14 +353,14 @@ async def test_applied_preserves_a_result_carried_from_legacy_retained_turns(con
 
 async def test_second_turn_runs_full_graph(context: ChatContext) -> None:
     saver, thread = InMemorySaver(), thread_of(context)
-    llm = FakeLlm(edit(EditAction.CLEAR), edit(EditAction.RESTORE))
+    llm = FakeLlm(edit(EditAction.CLEAR), edit(EditAction.CLEAR))
 
     cleared = await run_plan(llm, context, saver=saver, thread=thread)
-    restored = await run_plan(llm, ask(context, "되돌려줘"), saver=saver, thread=thread)
+    again = await run_plan(llm, ask(context, "다시 비워줘"), saver=saver, thread=thread)
 
-    assert (cleared.edit, restored.edit) == (EditAction.CLEAR, EditAction.RESTORE)
+    assert (cleared.edit, again.edit) == (EditAction.CLEAR, EditAction.CLEAR)
     turns = await saved_turns(saver, thread)
-    assert [turn["message"] for turn in turns] == ["비워줘", "되돌려줘"]
+    assert [turn["message"] for turn in turns] == ["비워줘", "다시 비워줘"]
     assert turns[1]["intent"] == Intent.EDIT.value
     assert "비워줘" in llm.calls[1].user.split('kind="history"', 1)[1]
 

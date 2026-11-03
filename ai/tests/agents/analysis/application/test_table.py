@@ -54,7 +54,7 @@ SELF = Fact(
     kind="EXPERIENCE",
     statement="타 팀과 API 명세를 조율했다",
     actor=Actor.SELF,
-    quotes=[quote("타 팀과 API 명세를 조율")],
+    quotes=[quote("타 팀과 API 명세를 조율해 출시를 2주 앞당겼다")],
 )
 TEAM = Fact(
     kind="PROJECT", statement="결제 장애 대응 TF에 참여했다", actor=Actor.TEAM, quotes=[quote("결제 장애 대응 TF 참여")]
@@ -152,14 +152,31 @@ def test_talent_judgment_needs_a_real_source_and_own_work_for_high() -> None:
     assert items[1].level is TalentLevel.UNKNOWN
 
 
-def test_missing_or_unknown_source_is_unknown() -> None:
+def test_unconfirmed_experience_is_low_and_missing_judgment_is_unknown() -> None:
     saved = review(SELF)
-    judgments = [_Judgment(number=1, level=TalentLevel.LOW, source="F9", evidence="", reason="언급")]
+    judgments = [_Judgment(number=1, level=TalentLevel.LOW, source="F9", evidence="", reason="다짐만 있다")]
 
     items = check_talents(saved, TALENTS, judgments)
 
-    assert [item.level for item in items] == [TalentLevel.UNKNOWN, TalentLevel.UNKNOWN]
+    # 서류에서 경험이 확인되지 않으면 하, 모델 답에 빠진 인재상은 확인 필요다
+    assert [item.level for item in items] == [TalentLevel.LOW, TalentLevel.UNKNOWN]
     assert [item.title for item in items] == [talent.title for talent in TALENTS]
+
+
+def test_high_needs_a_metric_in_the_source() -> None:
+    saved = review(SELF)
+
+    def judged(metric: str) -> tuple[TalentLevel, str]:
+        judgment = _Judgment(
+            number=1, level=TalentLevel.HIGH, source="F1", evidence="API 명세 조율", metric=metric, reason="조율"
+        )
+        item = check_talents(saved, TALENTS[:1], [judgment])[0]
+        return item.level, item.metric
+
+    assert judged("출시를 2주 앞당겼다") == (TalentLevel.HIGH, "출시를 2주 앞당겼다")
+    # 지표가 없거나 근거 문장에 없는 지표면 경험만 있는 것으로 보고 중이다
+    assert judged("") == (TalentLevel.MID, "")
+    assert judged("출시를 3주 앞당겼다") == (TalentLevel.MID, "")
 
 
 def test_section_source_is_at_most_mid() -> None:
@@ -213,7 +230,12 @@ def test_talents_endpoint_reuses_saved_judgment(artifacts: MemoryArtifacts) -> N
         _Judgments(
             items=[
                 _Judgment(
-                    number=1, level=TalentLevel.HIGH, source="F1", evidence="타 팀 API 명세 조율", reason="직접 조율"
+                    number=1,
+                    level=TalentLevel.HIGH,
+                    source="F1",
+                    evidence="타 팀 API 명세 조율",
+                    metric="출시를 2주 앞당겼다",
+                    reason="직접 조율",
                 )
             ]
         )
@@ -233,6 +255,6 @@ def test_talents_endpoint_reuses_saved_judgment(artifacts: MemoryArtifacts) -> N
     assert first.status_code == 200
     items = first.json()["items"]
     assert [item["level"] for item in items] == ["HIGH", "UNKNOWN"]
-    assert items[0]["quote"] == "타 팀과 API 명세를 조율"
+    assert items[0]["quote"] == "타 팀과 API 명세를 조율해 출시를 2주 앞당겼다"
     assert second.json() == first.json()
     assert len(llm.calls) == 1

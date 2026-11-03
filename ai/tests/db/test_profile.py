@@ -19,8 +19,6 @@ def jung_yumin_profile() -> CandidateProfile:
         status=ProfileStatus.DONE,
         career_years=4,
         last_company="한빛카드",
-        document_score=85,
-        passed=True,
         summary="카드 결제 승인 · 정산 4년",
         items=[
             ProfileItem(
@@ -55,7 +53,6 @@ async def test_saves_profile_with_items(db_session: AsyncSession) -> None:
 
     assert saved is not None
     assert saved.career_years == 4
-    assert saved.passed is True
     # 한 번에 저장한 항목은 저장 시각이 같아 순서가 정해지지 않으므로 분류로 찾아 본다
     items = {item.category: item for item in saved.items}
     assert set(items) == {ItemCategory.DOMAIN, ItemCategory.CHECK}

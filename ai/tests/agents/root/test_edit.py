@@ -59,17 +59,21 @@ def test_no_target_does_not_fall_back_to_checked_or_mentions(
     assert plan_edit(EditAction.REMOVE, context, []) == ChatPlan.answer(Intent.CLARIFY, NO_TARGET)
 
 
-def test_clear_and_restore_have_no_targets(
+def test_clear_has_no_targets(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = make_context(sample_applicants, sample_company, sample_posting, message="비워줘")
 
     cleared = plan_edit(EditAction.CLEAR, context, [])
-    restored = plan_edit(EditAction.RESTORE, context, [])
 
     assert (cleared.intent, cleared.edit, cleared.targets) == (Intent.EDIT, EditAction.CLEAR, [])
-    assert cleared.message == "선택 지원자를 비웠어요. [되돌리기]로 돌아갈 수 있어요."
-    assert (restored.edit, restored.message) == (EditAction.RESTORE, "이전 선택 지원자로 되돌렸어요.")
+    assert cleared.message == "선택 지원자를 비웠어요."
+
+
+def test_saved_restore_turn_reads_without_an_edit() -> None:
+    plan = ChatPlan.answer(Intent.EDIT, "이전 선택 지원자로 되돌렸어요.").model_dump(mode="json")
+
+    assert ChatPlan.model_validate({**plan, "edit": "RESTORE"}).edit is None
 
 
 def test_add_refuses_decided_applicants(

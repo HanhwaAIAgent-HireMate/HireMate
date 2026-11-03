@@ -27,9 +27,8 @@ from hiremate_ai.agents.analysis.application.types import ApplicationReview, Cri
 from hiremate_ai.contract import (
     ApplicantDetail,
     CertificateStatus,
+    CriterionCategory,
     PostingContent,
-    QualificationStatus,
-    ScoreStatus,
     Verdict,
 )
 from hiremate_ai.llm.fake import FakeLlm
@@ -88,36 +87,30 @@ def judging(llm: FakeLlm) -> list[str]:
     return [call.user for call in llm.calls if call.output is CriteriaJudgement]
 
 
-async def test_two_areas_of_50_points_with_equal_items(
+async def test_criteria_are_judged_without_scores(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
     script = Script(extract={"결제플랫폼팀": YUMIN_EXTRACT}, verdicts=YUMIN)
 
     review = await review_of(scripted(script), sample_applicants["정유민"], sample_posting)
 
-    # 중요 표시(Q-01 · P-01)가 있어도 모든 항목이 같은 비중이다
-    # 자격요건: 충족도 1 · 1 · 1 · 0 → 50 × 3 ÷ 4 = 37.5
-    # 우대사항: 충족도 0.5 · 0 · 0 (자격증 없음) → 50 × 0.5 ÷ 3 = 8.33
-    assert (review.qualification_score, review.preference_score) == (37.5, 8.3)
-    assert (review.qualification_max, review.preference_max) == (50, 50)
-    assert review.document_score == 45.8  # 37.5 + 8.333… 를 합친 뒤 반올림한다
-    assert review.score_status == ScoreStatus.CONFIRMED
-    # 4개 중 3개 = 75%
-    assert (review.qualification_status, review.qualification_rate) == (QualificationStatus.PASSED, 75.0)
+    # 자격요건: 충족 · 충족 · 충족 · 미충족, 우대사항: 부분 충족 · 미충족 · 미충족 (자격증 없음). 점수는 매기지 않는다
+    verdicts = {item.criterion_id: item.verdict for item in review.criteria}
+    assert [verdicts[key] for key in ("Q-01", "Q-02", "Q-03", "Q-04")] == [Verdict.MET] * 3 + [Verdict.NOT_MET]
+    assert verdicts["P-01"] == Verdict.PARTIAL
+    assert review.holds == []
     analysis = to_analysis(review)
-    assert analysis.shortfalls == ["Git 근거 없음"]  # 점수와 따로 미충족 표시를 남긴다
-    # 확인 필요가 없으면 0점으로 넣어 계산한 점수도 확정 점수와 같다
-    assert (analysis.document_score_low, analysis.qualification_score_low) == (45.8, 37.5)
+    assert analysis.shortfalls == ["Git 근거 없음"]
+    assert analysis.criterion_marks == verdicts
     assert result(review, "Q-01").career_months == 55  # 2022.03 ~ 2026.10
     card = to_candidate_analysis(review, sample_applicants["정유민"].documents)
     lines = {line.criterion_id: line for line in card.criteria}
-    assert (lines["Q-01"].allotted, lines["Q-01"].earned, lines["Q-01"].career_years) == (12.5, 12.5, 4)
-    assert (lines["P-01"].allotted, lines["P-01"].earned, lines["P-01"].fulfillment) == (16.7, 8.3, 0.5)
+    assert lines["Q-01"].career_years == 4
     assert lines["P-01"].satisfied_parts and lines["P-01"].unsatisfied_parts
-    assert card.document_score == 45.8 and card.criteria_version == CRITERIA_VERSION
+    assert card.criteria_version == CRITERIA_VERSION
 
 
-async def test_unknown_is_rechecked_and_holds_the_total(
+async def test_unknown_is_rechecked_and_listed_for_checking(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
     script = Script(extract={"결제플랫폼팀": YUMIN_EXTRACT}, verdicts={**YUMIN, "P-02": verdict("P-02", "UNKNOWN")})
@@ -126,14 +119,10 @@ async def test_unknown_is_rechecked_and_holds_the_total(
     review = await review_of(llm, sample_applicants["정유민"], sample_posting)
 
     unknown = result(review, "P-02")
-    assert (unknown.verdict, unknown.recheck_count, unknown.fulfillment) == (Verdict.UNKNOWN, 2, None)
-    # 확인 필요를 0이나 0.5로 바꾸지 않고, 분모에서 빼 점수를 부풀리지도 않는다
-    assert review.document_score is None and review.preference_score is None
-    assert review.qualification_score == 37.5
-    assert review.score_status == ScoreStatus.HELD and "P-02" in review.holds[0].text
-    # 보류 지원자는 확인 필요를 0점으로 넣어 계산한 점수로 보여 준다: 37.5 + 8.3
-    analysis = to_analysis(review)
-    assert (analysis.document_score, analysis.document_score_low) == (None, 45.8)
+    assert (unknown.verdict, unknown.recheck_count) == (Verdict.UNKNOWN, 2)
+    # 재확인해도 정하지 못한 항목은 확인 필요로 모은다
+    assert len(review.holds) == 1 and "P-02" in review.holds[0].text
+    assert to_analysis(review).criterion_marks["P-02"] == Verdict.UNKNOWN
     rounds = [user for user in judging(llm) if "재확인" in user]
     assert any("1차 재확인" in user for user in rounds) and any("2차 재확인" in user for user in rounds)
     assert len(rounds) == 2  # 확인 필요인 항목만 다시 묻는다
@@ -153,7 +142,7 @@ async def test_recheck_can_settle_the_item(
     # 원문에 없는 근거로 충족이라 했으면 받지 않고 확인 필요로 돌려 재확인한다
     item = result(review, "P-01")
     assert (item.verdict, item.recheck_count) == (Verdict.MET, 1)
-    assert review.score_status == ScoreStatus.CONFIRMED
+    assert review.holds == []
 
 
 async def test_output_checks_reject_partial_and_missing_answers(
@@ -174,8 +163,6 @@ async def test_output_checks_reject_partial_and_missing_answers(
         assert result(review, criterion_id).verdict == Verdict.UNKNOWN, criterion_id
     assert "부분 충족" in result(review, "Q-02").reason
     assert "응답" in result(review, "Q-03").reason
-    assert review.qualification_status == QualificationStatus.UNDETERMINED  # 1 + 0 ~ 1 + 2 → 25% ~ 75%
-    assert review.qualification_rate is None
     assert "Spring 확인 필요" in to_analysis(review).shortfalls
 
 
@@ -234,7 +221,7 @@ async def test_newcomer_with_education_only_is_marked(
 
     assert result(review, "Q-01").shortfall == "신입"
     assert review.career_years == 0
-    assert review.qualification_status == QualificationStatus.FAILED
+    assert result(review, "Q-01").verdict == Verdict.NOT_MET
 
 
 async def test_certificate_is_checked_by_code_with_status(
@@ -285,7 +272,7 @@ async def test_prompts_wrap_documents_and_hide_importance(
     assert any("[Q-01] (조건형) Java 또는 Kotlin 기반 서버 개발 경력 (기간은" in user for user in calls)
 
 
-async def test_no_preferences_scale_qualifications_to_100(
+async def test_no_preferences_judges_only_qualifications(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
     script = Script(extract={"결제플랫폼팀": YUMIN_EXTRACT}, verdicts=YUMIN)
@@ -303,8 +290,8 @@ async def test_no_preferences_scale_qualifications_to_100(
 
     review = await run_review(scripted(script), context_)
 
-    assert (review.qualification_max, review.preference_max) == (100, 0)
-    assert review.document_score == 75.0  # 100 × 3 ÷ 4
+    assert {item.category for item in review.criteria} == {CriterionCategory.QUALIFICATION}
+    assert len(review.criteria) == 4
 
 
 async def test_recheck_stops_when_time_runs_out(
@@ -318,7 +305,7 @@ async def test_recheck_stops_when_time_runs_out(
     review = await run_review(llm, late)
 
     assert result(review, "P-02").recheck_count == 0
-    assert review.score_status == ScoreStatus.HELD
+    assert any("P-02" in note.text for note in review.holds)
 
 
 async def test_posting_items_without_rubric_are_judged_plainly(
@@ -343,9 +330,9 @@ async def test_unreadable_documents_are_held_without_model_calls(
     review = await review_of(llm, sample_applicants["윤태오"], sample_posting)
 
     assert llm.calls == []
-    assert not review.readable and review.held
+    assert not review.readable and review.holds
     analysis = to_analysis(review)
-    assert (analysis.career_years, analysis.document_score, analysis.held) == (None, None, True)
+    assert (analysis.career_years, analysis.criterion_marks) == (None, {})
     assert to_candidate_analysis(review, []).criteria == []
 
 

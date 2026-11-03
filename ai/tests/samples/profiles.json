@@ -1,7 +1,7 @@
 [
   {
     "name": "정유민",
-    "fields": {"status": "DONE", "careerYears": 4, "lastCompany": "한빛카드", "documentScore": 88, "passed": true, "summary": "카드 결제 승인 · 정산 4년, 대용량 트랜잭션 처리 경험"},
+    "fields": {"status": "DONE", "careerYears": 4, "lastCompany": "한빛카드", "summary": "카드 결제 승인 · 정산 4년, 대용량 트랜잭션 처리 경험"},
     "items": [
       {"category": "DOMAIN", "content": "금융 (카드 결제 · 정산)", "evidence": "한빛카드 결제플랫폼팀 2022.03 ~ 현재", "source": "이력서"},
       {"category": "EXPERIENCE", "content": "카드 결제 승인 · 정산 API 개발", "evidence": "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다.", "source": "이력서"},
@@ -12,7 +12,7 @@
   },
   {
     "name": "김하늘",
-    "fields": {"status": "DONE", "careerYears": 7, "lastCompany": "페이온", "documentScore": 90, "passed": true, "summary": "은행 계정계 6년과 간편결제 정산, RDBMS 설계 · 운영"},
+    "fields": {"status": "DONE", "careerYears": 7, "lastCompany": "페이온", "summary": "은행 계정계 6년과 간편결제 정산, RDBMS 설계 · 운영"},
     "items": [
       {"category": "DOMAIN", "content": "금융 (은행 계정계)", "evidence": "새솔은행 IT본부 계정계개발팀 2019.01 ~ 2024.12", "source": "이력서"},
       {"category": "DOMAIN", "content": "금융 (간편결제 정산)", "evidence": "페이온 정산개발팀 2025.01 ~ 현재", "source": "이력서"},
@@ -23,7 +23,7 @@
   },
   {
     "name": "박서준",
-    "fields": {"status": "DONE", "careerYears": 3, "lastCompany": "다온마켓", "documentScore": 78, "passed": true, "summary": "이커머스 주문 · 배송 3년, 대용량 주문 트래픽 처리"},
+    "fields": {"status": "DONE", "careerYears": 3, "lastCompany": "다온마켓", "summary": "이커머스 주문 · 배송 3년, 대용량 주문 트래픽 처리"},
     "items": [
       {"category": "DOMAIN", "content": "이커머스 (주문 · 배송)", "evidence": "다온마켓 주문개발팀 2023.04 ~ 현재", "source": "이력서"},
       {"category": "EXPERIENCE", "content": "대용량 주문 트래픽 처리 (초당 8천 건)", "evidence": "연말 할인 기간 초당 8천 건 주문 트래픽을 처리하도록 주문 서버를 수평 확장했습니다.", "source": "이력서"},
@@ -33,7 +33,7 @@
   },
   {
     "name": "이도윤",
-    "fields": {"status": "DONE", "careerYears": 0, "lastCompany": null, "documentScore": 45, "passed": false, "summary": "신입. 모의 결제 서비스 프로젝트 경험"},
+    "fields": {"status": "DONE", "careerYears": 0, "lastCompany": null, "summary": "신입. 모의 결제 서비스 프로젝트 경험"},
     "items": [
       {"category": "EXPERIENCE", "content": "모의 결제 서비스 프로젝트 (실무 경력 아님)", "evidence": "모의 결제 서비스: Spring Boot와 MySQL로 결제 승인 · 취소 API를 만들고 JUnit으로 테스트했습니다.", "source": "이력서"},
       {"category": "QUALIFICATION", "content": "경력 3년 이상 요건 미충족 (신입)", "evidence": "신입 지원자입니다.", "source": "이력서"}
@@ -41,7 +41,7 @@
   },
   {
     "name": "최지우",
-    "fields": {"status": "DONE", "careerYears": 3, "lastCompany": "누리데이터", "documentScore": 50, "passed": false, "summary": "데이터 분석 3년 11개월. 백엔드 실무 근거 없음"},
+    "fields": {"status": "DONE", "careerYears": 3, "lastCompany": "누리데이터", "summary": "데이터 분석 3년 11개월. 백엔드 실무 근거 없음"},
     "items": [
       {"category": "EXPERIENCE", "content": "데이터 분석과 파이프라인 운영", "evidence": "Airflow로 일일 데이터 파이프라인을 운영했습니다.", "source": "이력서"},
       {"category": "CHECK", "content": "Java · Spring 실무 경력 확인 필요 (독학만 있음)", "evidence": "Java와 Spring Boot를 독학하며 게시판 API를 만들었습니다.", "source": "이력서"}
@@ -49,7 +49,7 @@
   },
   {
     "name": "한예린",
-    "fields": {"status": "DONE", "careerYears": 5, "lastCompany": "결제온", "documentScore": 86, "passed": true, "summary": "PG 가맹점 정산 5년, 정산 대사 자동화"},
+    "fields": {"status": "DONE", "careerYears": 5, "lastCompany": "결제온", "summary": "PG 가맹점 정산 5년, 정산 대사 자동화"},
     "items": [
       {"category": "DOMAIN", "content": "금융 (PG 가맹점 정산)", "evidence": "결제온 PG개발팀 2021.03 ~ 현재", "source": "이력서"},
       {"category": "EXPERIENCE", "content": "정산 원장 설계와 하루 50만 건 정산 처리", "evidence": "PostgreSQL 정산 원장을 설계하고 하루 50만 건 정산을 처리했습니다.", "source": "이력서"},
@@ -59,14 +59,14 @@
   },
   {
     "name": "윤태오",
-    "fields": {"status": "CHECK", "careerYears": null, "lastCompany": null, "documentScore": null, "passed": null, "summary": "제출 문서 본문을 읽지 못해 분석하지 못했어요"},
+    "fields": {"status": "CHECK", "careerYears": null, "lastCompany": null, "summary": "제출 문서 본문을 읽지 못해 분석하지 못했어요"},
     "items": [
       {"category": "CHECK", "content": "제출 문서 본문이 비어 있음. 원본 파일 확인 필요", "evidence": null, "source": "이력서"}
     ]
   },
   {
     "name": "서민재",
-    "fields": {"status": "DONE", "careerYears": 4, "lastCompany": "모아소프트", "documentScore": 40, "passed": false, "summary": "프론트엔드 4년. 협업을 강조함"},
+    "fields": {"status": "DONE", "careerYears": 4, "lastCompany": "모아소프트", "summary": "프론트엔드 4년. 협업을 강조함"},
     "items": [
       {"category": "EXPERIENCE", "content": "React · TypeScript 관리자 화면 개발", "evidence": "React와 TypeScript로 관리자 화면을 개발했습니다.", "source": "이력서"},
       {"category": "QUALIFICATION", "content": "백엔드 개발 요건 미충족 (프론트엔드 경력)", "evidence": null, "source": "이력서"},

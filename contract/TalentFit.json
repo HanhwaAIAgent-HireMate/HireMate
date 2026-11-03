@@ -5,14 +5,16 @@
       "level": "HIGH",
       "evidence": "타 팀 API 명세 조율",
       "reason": "결제 연동에서 다른 팀과 API 명세를 직접 맞춘 사례가 있다.",
-      "quote": "카드사 연동 시 정산팀과 API 명세를 조율해 일정 내 오픈"
+      "quote": "카드사 연동 시 정산팀과 API 명세를 조율해 일정을 2주 앞당겨 오픈",
+      "metric": "일정을 2주 앞당겨"
     },
     {
       "title": "고객 신뢰를 최우선으로",
       "level": "UNKNOWN",
       "evidence": "",
       "reason": "관련 근거를 찾지 못했어요.",
-      "quote": null
+      "quote": null,
+      "metric": ""
     }
   ],
   "agent": "Application Agent",
