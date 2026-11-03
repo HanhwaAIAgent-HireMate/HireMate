@@ -72,6 +72,7 @@ export function PostingPoster({
       kind: 'stages',
       children: (
         <StageProcess
+          includeFinal
           stages={posting.stages.map((stage) => ({
             ...stage,
             icon: design.stageIcons?.[stage.name] ?? 'AUTO',

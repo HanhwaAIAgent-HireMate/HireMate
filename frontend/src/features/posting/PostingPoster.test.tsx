@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { initialPoster, POSTER_TEMPLATES, posterPalette } from '@/features/posting/poster-design'
@@ -32,6 +32,34 @@ const posting: PosterPosting = {
 }
 
 describe('공고 포스터', () => {
+  it.each(POSTER_TEMPLATES)('$name에서도 실제 전형 뒤에 최종 합격을 표시한다', (template) => {
+    const stages = [
+      { name: '서류 전형', type: 'DOCUMENT' as const },
+      { name: '1차면접', type: 'INTERVIEW' as const },
+      { name: '최종면접', type: 'INTERVIEW' as const },
+    ]
+    render(
+      <PostingPoster
+        posting={{ ...posting, stages }}
+        design={{ ...initialPoster(), template: template.id, color: '#116644' }}
+      />,
+    )
+    const flow = screen.getByRole('list', { name: '전형 절차' })
+    const items = within(flow).getAllByRole('listitem')
+    expect(items.map((item) => item.textContent)).toEqual([
+      '서류 전형',
+      '1차면접',
+      '최종면접',
+      '최종 합격',
+    ])
+    expect(items[3].querySelector('.stage-illustration')).toHaveAttribute(
+      'data-stage-icon',
+      'BADGE_CHECK',
+    )
+    expect(flow.style.getPropertyValue('--stage-color')).toBe('#116644')
+    expect(stages).toHaveLength(3)
+  })
+
   it('지정한 번호의 항목에만 가독성 배색을 적용한다', () => {
     const { container } = render(
       <PostingPoster posting={posting} design={{ ...initialPoster(), readableSections: [2] }} />,
