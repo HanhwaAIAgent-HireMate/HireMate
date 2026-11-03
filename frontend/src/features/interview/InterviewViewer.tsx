@@ -34,6 +34,7 @@ import {
   type InterviewQuestion,
 } from '@/features/interview/api'
 import { HrOpinions } from '@/features/interview/HrOpinions'
+import { useStageInterviewProgress } from '@/features/interview/live'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import { QuestionReason } from '@/features/interview/QuestionReason'
 import { RoleTag } from '@/features/interview/RoleTag'
@@ -127,6 +128,18 @@ function Questions({
     (status.isPending && interview.questions.length === 0) ||
     status.data?.preparing === true ||
     actions.regenerate.isPending
+  const progress = useStageInterviewProgress(stageId)
+  const session = progress.data?.find((row) => row.applicationId === applicationId)
+  // 질문을 처음부터 다시 만들면 안 되는 때: 면접을 시작했거나 끝났거나 불참했을 때, 그리고 면접관이 지금 질문을 보고
+  // 준비 완료했을 때 (그 질문으로 면접이 시작될 수 있다). 서버도 같은 조건으로 거절한다
+  const regenerateBlocked =
+    session?.status === 'IN_PROGRESS' || session?.status === 'ENDED'
+      ? '면접이 시작돼 질문을 다시 만들 수 없어요.'
+      : session?.status === 'ABSENT'
+        ? '불참한 지원자는 질문을 다시 만들 수 없어요. 다른 시간으로 옮기면 다시 만들 수 있어요.'
+        : session?.attendees.some((attendee) => attendee.ready)
+          ? '면접관이 준비 완료했어요. 준비를 취소한 뒤 질문을 다시 만들 수 있어요.'
+          : null
   const [draft, setDraft] = useState<string | null>(null)
   const [draftRole, setDraftRole] = useState<'HR' | 'PRACTICAL'>('HR')
   const [regenerating, setRegenerating] = useState(false)
@@ -176,7 +189,7 @@ function Questions({
             <Button
               size="sm"
               variant="ghost"
-              disabled={preparing || actions.regenerate.isPending}
+              disabled={preparing || actions.regenerate.isPending || regenerateBlocked !== null}
               onClick={() => setRegenerating(true)}
             >
               <RotateCcw />
@@ -191,6 +204,11 @@ function Questions({
           />
         </div>
       </div>
+      {editable && regenerateBlocked && (
+        <p role="note" className="-mt-1 text-right text-xs text-muted-foreground">
+          {regenerateBlocked}
+        </p>
+      )}
       <AlertDialog open={regenerating} onOpenChange={setRegenerating}>
         <AlertDialogContent>
           <AlertDialogHeader>

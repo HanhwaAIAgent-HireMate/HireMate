@@ -22,6 +22,12 @@ const state = vi.hoisted(() => ({
   previous: [] as unknown[],
   // 이 전형에 이미 정해 둔 면접 시간
   schedules: [] as { applicationId: string; scheduledAt: string }[],
+  // 지원자별 면접 진행 현황 (상태와 면접관 준비 완료)
+  progress: [] as { applicationId: string; status: string; attendees: { ready: boolean }[] }[],
+}))
+
+vi.mock('@/features/interview/live', () => ({
+  useStageInterviewProgress: () => ({ data: state.progress }),
 }))
 
 vi.mock('@/features/interview/HrOpinions', () => ({ HrOpinions: () => null }))
@@ -264,6 +270,21 @@ it('지난 면접 기록의 꼬리질문은 기본으로 접어 두고 펼칠 �
   expect(screen.getByText('pf1 지난 답')).toBeInTheDocument()
   unmount()
   state.previous = []
+})
+
+it('면접관이 준비 완료했거나 면접이 시작된 지원자는 질문을 다시 만들 수 없다', () => {
+  state.progress = [{ applicationId: 'kim', status: 'SCHEDULED', attendees: [{ ready: true }] }]
+  const ready = renderWith('HR')
+  expect(screen.getByRole('button', { name: '질문 재생성' })).toBeDisabled()
+  expect(screen.getByText(/면접관이 준비 완료했어요. 준비를 취소한 뒤/)).toBeInTheDocument()
+  ready.unmount()
+
+  state.progress = [{ applicationId: 'kim', status: 'IN_PROGRESS', attendees: [{ ready: true }] }]
+  const started = renderWith('HR')
+  expect(screen.getByRole('button', { name: '질문 재생성' })).toBeDisabled()
+  expect(screen.getByText('면접이 시작돼 질문을 다시 만들 수 없어요.')).toBeInTheDocument()
+  started.unmount()
+  state.progress = []
 })
 
 it('지원자 카드에서는 면접관을 배정하지 않고 일정만 수정한다', () => {
