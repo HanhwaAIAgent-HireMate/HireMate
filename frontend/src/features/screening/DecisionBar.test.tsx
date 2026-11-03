@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { DecisionBar } from '@/features/screening/DecisionBar'
@@ -41,5 +41,29 @@ describe('DecisionBar 면접관 의견 확인', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '그래도 합격' }))
     expect(decide).toHaveBeenCalledWith({ ids: ['a1'], decision: 'PASS' }, expect.anything())
+  })
+})
+
+describe('DecisionBar 결정 알림', () => {
+  it('결정 알림은 2초 뒤 흐려지며 사라진다', () => {
+    vi.useFakeTimers()
+    decide.mockImplementation((_variables, options: { onSuccess: () => void }) =>
+      options.onSuccess(),
+    )
+    render(<DecisionBar stageId="s1" tabId="t1" editable names={{ a1: '김하늘' }} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '불합격' }))
+    fireEvent.click(screen.getByRole('button', { name: '그래도 불합격' }))
+    expect(screen.getByRole('status')).toHaveTextContent('김하늘 님을 불합격 처리했어요')
+
+    act(() => {
+      vi.advanceTimersByTime(1700)
+    })
+    expect(screen.getByRole('status')).toHaveClass('opacity-0')
+    act(() => {
+      vi.advanceTimersByTime(300)
+    })
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    vi.useRealTimers()
   })
 })

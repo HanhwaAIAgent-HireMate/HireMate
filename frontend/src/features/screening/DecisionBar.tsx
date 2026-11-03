@@ -1,5 +1,5 @@
 import { Check, Undo2, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -21,8 +21,13 @@ import {
 } from '@/features/screening/api'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
+import { cn } from '@/lib/utils'
 
 type LastDecision = { ids: string[]; names: string[]; decision: 'PASS' | 'FAIL' }
+
+// 결정 알림은 2초 보이고, 마지막 0.3초 동안 흐려지며 사라진다
+const NOTICE_MS = 2000
+const FADE_MS = 300
 
 /**
  * 맨 아래 결정 버튼 (STG-07). 체크한 지원자를 확인 창 없이 한 번에 결정한다. 체크한 지원자가 없고 지원자 카드를 열어
@@ -45,6 +50,9 @@ export function DecisionBar({
   const { checked, setChecked, openId } = useStageUi()
   const { decide, revert } = useDecisionActions(stageId, tabId)
   const [last, setLast] = useState<LastDecision | null>(null)
+  // 알림은 되돌리기 대상(last)과 따로 둔다. 알림이 사라져도 체크 없이 방금 결정을 되돌릴 수 있다
+  const [notice, setNotice] = useState<LastDecision | null>(null)
+  const [fading, setFading] = useState(false)
   // 서버가 받은 결정을 다시 불러오기 전에 먼저 반영한다. 그때의 서버 값(before)이 바뀌면 다시 불러온 서버 값을 따른다
   const [known, setKnown] = useState<
     Record<string, { decision: Decision; before: Decision | undefined }>
@@ -58,6 +66,16 @@ export function DecisionBar({
     null,
   )
   const openRow = openId ? open.data?.row : undefined
+
+  useEffect(() => {
+    if (!notice) return
+    const fade = setTimeout(() => setFading(true), NOTICE_MS - FADE_MS)
+    const hide = setTimeout(() => setNotice(null), NOTICE_MS)
+    return () => {
+      clearTimeout(fade)
+      clearTimeout(hide)
+    }
+  }, [notice])
 
   const single = checked.length === 0 ? openRow : undefined
   const pending = single ? known[single.applicationId] : undefined
@@ -101,7 +119,10 @@ export function DecisionBar({
       {
         onSuccess: () => {
           remember(ids, decision)
-          setLast({ ids, names: ids.map((id) => targetNames[id] ?? '지원자'), decision })
+          const decided = { ids, names: ids.map((id) => targetNames[id] ?? '지원자'), decision }
+          setLast(decided)
+          setFading(false)
+          setNotice(decided)
           setChecked([])
         },
         onError: (error) => toast.error(errorMessage(error)),
@@ -129,27 +150,35 @@ export function DecisionBar({
       onSuccess: () => {
         remember(ids, 'PENDING')
         setLast(null)
+        setNotice(null)
       },
       onError: (error) => toast.error(errorMessage(error)),
     })
   }
 
   const who =
-    last && (last.names.length === 1 ? `${last.names[0]} 님을` : `${last.names.length}명을`)
+    notice && (notice.names.length === 1 ? `${notice.names[0]} 님을` : `${notice.names.length}명을`)
 
   return (
     <div className="relative shrink-0">
-      {last && (
-        <div className="absolute inset-x-3 bottom-full mb-2 flex items-center gap-3 rounded-lg bg-foreground px-3 py-2.5 text-sm text-background shadow-lg">
+      {notice && (
+        <div
+          role="status"
+          style={{ transitionDuration: `${FADE_MS}ms` }}
+          className={cn(
+            'absolute inset-x-3 bottom-full mb-2 flex items-center gap-3 rounded-lg bg-foreground px-3 py-2.5 text-sm text-background shadow-lg transition-opacity',
+            fading && 'opacity-0',
+          )}
+        >
           <button
             aria-label="알림 닫기"
-            onClick={() => setLast(null)}
+            onClick={() => setNotice(null)}
             className="opacity-70 hover:opacity-100"
           >
             <X className="size-4" />
           </button>
           <span className="flex-1">
-            {who} {last.decision === 'PASS' ? '합격' : '불합격'} 처리했어요
+            {who} {notice.decision === 'PASS' ? '합격' : '불합격'} 처리했어요
           </span>
         </div>
       )}
