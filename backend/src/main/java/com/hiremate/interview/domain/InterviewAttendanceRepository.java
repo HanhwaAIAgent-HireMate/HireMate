@@ -17,6 +17,9 @@ public interface InterviewAttendanceRepository
 
     List<InterviewAttendance> findByStageIdAndCompanyId(UUID stageId, UUID companyId);
 
+    /** 이 지원자의 면접에 준비 완료한 면접관이 있나 */
+    boolean existsByStageIdAndApplicationId(UUID stageId, UUID applicationId);
+
     @Modifying
     @Query("update InterviewAttendance a set a.lastSeenAt = :at where a.stageId = :stageId "
             + "and a.applicationId = :applicationId and a.memberId = :memberId")

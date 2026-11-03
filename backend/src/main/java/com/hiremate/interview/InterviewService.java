@@ -393,6 +393,7 @@ public class InterviewService {
     @Transactional
     public KeptQuestions clearAiQuestions(UUID companyId, UUID stageId, UUID applicationId) {
         requirePlanning(companyId, stageId, applicationId);
+        requireNobodyReady(stageId, applicationId);
         StageInfo stage = interviewStage(companyId, stageId, applicationId);
         if (stage.status() != StageStatus.ACTIVE) {
             throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "Only active interviews can regenerate.");
@@ -417,6 +418,7 @@ public class InterviewService {
     @Transactional
     public void clearQuestions(UUID companyId, UUID stageId, UUID applicationId) {
         requirePlanning(companyId, stageId, applicationId);
+        requireNobodyReady(stageId, applicationId);
         StageInfo stage = interviewStage(companyId, stageId, applicationId);
         if (stage.status() != StageStatus.ACTIVE) {
             throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "Only active interviews can regenerate.");
@@ -509,6 +511,17 @@ public class InterviewService {
                         "Interview assignments and question replacements are locked after the interview starts.");
             }
         });
+    }
+
+    /**
+     * 질문을 통째로 다시 만들거나 갈아 끼우기 전에: 면접관이 지금 질문을 보고 [준비 완료]했으면 그 질문으로 면접이 시작될 수
+     * 있으니 바꾸지 않는다. 면접관이 준비를 취소하면 다시 만들 수 있다.
+     */
+    private void requireNobodyReady(UUID stageId, UUID applicationId) {
+        if (attendance.existsByStageIdAndApplicationId(stageId, applicationId)) {
+            throw new ApiException(HttpStatus.CONFLICT, "INTERVIEWERS_READY",
+                    "An interviewer is ready with the current questions.");
+        }
     }
 
     private InterviewQuestion question(UUID companyId, UUID stageId, UUID questionId) {
