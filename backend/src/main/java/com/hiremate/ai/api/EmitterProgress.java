@@ -23,7 +23,12 @@ class EmitterProgress implements ChatProgress {
 
     @Override
     public void status(String text) {
-        send("status", new ChatStatus(text));
+        send("status", new ChatStatus(text, 0));
+    }
+
+    @Override
+    public void status(String text, int depth) {
+        send("status", new ChatStatus(text, depth));
     }
 
     @Override

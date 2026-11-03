@@ -13,10 +13,18 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from hiremate_ai.agents.root.graph import RootThread, apply_plan, stream_plan
 from hiremate_ai.agents.root.memory import SaverDep, forget_thread
+from hiremate_ai.agents.root.progress import stored_steps
 from hiremate_ai.agents.root.title import make_title
 from hiremate_ai.agents.root.toolkit import ToolkitDep
 from hiremate_ai.agents.root.turns import Turn
-from hiremate_ai.agents.root.types import ChatApplied, ChatAsker, ChatContext, ChatHistoryTurn, ChatPlan
+from hiremate_ai.agents.root.types import (
+    ChatApplied,
+    ChatAsker,
+    ChatContext,
+    ChatHistoryTurn,
+    ChatPlan,
+    ChatStatus,
+)
 from hiremate_ai.contract import ContractModel
 from hiremate_ai.llm.client import LlmDep
 
@@ -82,7 +90,7 @@ async def history(request: ThreadRequest, saver: SaverDep) -> list[ChatHistoryTu
             plan=ChatPlan.model_validate(turn["plan"]),
             total=turn["total"],
             mentions=[UUID(application_id) for application_id in turn.get("mentions", [])],
-            steps=turn.get("steps", []),
+            steps=[ChatStatus(text=each["text"], depth=each["depth"]) for each in stored_steps(turn.get("steps", []))],
             seconds=turn.get("seconds"),
             asker=_asker(turn.get("asker")),
         )

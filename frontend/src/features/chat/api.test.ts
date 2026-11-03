@@ -27,14 +27,17 @@ describe('readChat', () => {
 
     const answer = await readChat(
       streamOf(
-        'event:status\ndata:{"text":"2명 자료를 정리하고 있어요"}\n\n',
+        'event:status\ndata:{"text":"서류 Agent · 정유민의 제출 문서 2건을 검토하고 있어요","depth":1}\n\n',
         `event:item\ndata:${JSON.stringify(item)}\n\n`,
         `event:done\ndata:${JSON.stringify(ANSWER)}\n\n`,
       ),
       { onStatus, onItem },
     )
 
-    expect(onStatus).toHaveBeenCalledWith('2명 자료를 정리하고 있어요')
+    expect(onStatus).toHaveBeenCalledWith({
+      text: '서류 Agent · 정유민의 제출 문서 2건을 검토하고 있어요',
+      depth: 1,
+    })
     expect(onItem).toHaveBeenCalledWith(item)
     expect(answer).toEqual(ANSWER)
   })

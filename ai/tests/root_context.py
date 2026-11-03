@@ -165,10 +165,12 @@ class Recorder:
     """진행 알림을 모아 두는 Progress. 낸 순서대로 남는다."""
 
     statuses: list[str] = field(default_factory=list)
+    depths: list[int] = field(default_factory=list)  # statuses와 같은 순서의 단계 깊이
     items: list[ChatItem] = field(default_factory=list)
 
-    def status(self, text: str) -> None:
+    def status(self, text: str, depth: int = 0) -> None:
         self.statuses.append(text)
+        self.depths.append(depth)
 
     def item(self, item: ChatItem) -> None:
         self.items.append(item)

@@ -2462,6 +2462,8 @@ export interface components {
         };
         ChatStatus: {
             text: string;
+            /** Format: int32 */
+            depth: number;
         };
         ChatItem: {
             /** Format: uuid */
@@ -2845,7 +2847,7 @@ export interface components {
             message: string;
             mentions: components["schemas"]["ChatMention"][];
             answer: components["schemas"]["ChatAnswer"];
-            steps: string[];
+            steps: components["schemas"]["ChatStatus"][];
             /** Format: int32 */
             seconds: number | null;
             asker: components["schemas"]["ChatAsker"] | null;
@@ -2875,26 +2877,26 @@ export interface components {
             null: boolean;
             object: boolean;
             float: boolean;
-            number: boolean;
-            boolean: boolean;
-            double: boolean;
-            binary: boolean;
             string: boolean;
-            long: boolean;
-            int: boolean;
-            /** @deprecated */
-            textual: boolean;
             pojo: boolean;
-            short: boolean;
-            valueNode: boolean;
-            integralNumber: boolean;
-            bigInteger: boolean;
-            missingNode: boolean;
-            bigDecimal: boolean;
             floatingPointNumber: boolean;
+            short: boolean;
+            int: boolean;
+            long: boolean;
+            valueNode: boolean;
             container: boolean;
+            missingNode: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            integralNumber: boolean;
+            double: boolean;
+            bigDecimal: boolean;
+            bigInteger: boolean;
+            /** @deprecated */
+            textual: boolean;
+            boolean: boolean;
+            binary: boolean;
+            number: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3332,9 +3334,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
+            headerName: string;
             parameterName: string;
             token: string;
-            headerName: string;
         };
         CsrfResponse: {
             token: string;

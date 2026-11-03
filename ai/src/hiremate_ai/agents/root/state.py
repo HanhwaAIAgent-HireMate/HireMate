@@ -7,6 +7,7 @@ from langgraph.channels.untracked_value import UntrackedValue
 
 from hiremate_ai.agents.root.analysis import AnalysisReply, AnalysisRun
 from hiremate_ai.agents.root.plan import RootPlan
+from hiremate_ai.agents.root.progress import Step
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatPlan, SelectionMode
 from hiremate_ai.llm.chat import ModelCallBudget
@@ -29,7 +30,7 @@ class RootInput(TypedDict, total=False):
     plan: ChatPlan | None
     kind: str
     mode: SelectionMode | None
-    steps: list[str]
+    steps: list[Step]
 
 
 class RootOutput(TypedDict, total=False):
@@ -41,7 +42,7 @@ class RootOutput(TypedDict, total=False):
     turns: list[Turn]
     result: list[str] | None
     subject: list[str]
-    steps: list[str]
+    steps: list[Step]
     started: float
 
 
@@ -52,6 +53,6 @@ class RootState(TypedDict, total=False):
     turns: list[Turn]
     result: list[str] | None
     subject: list[str]
-    steps: list[str]  # 이번 턴에 낸 단계 문구
+    steps: list[Step]  # 이번 턴에 낸 단계 문구와 깊이
     started: float  # 이번 턴을 시작한 시각 (time.monotonic)
     run: Annotated[RootRun | None, UntrackedValue]

@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from root_context import Recorder, extra_row, make_context
 
 from hiremate_ai.agents.root.find import (
+    CONFIRMED_STATUS,
     DEFAULT_CLARIFY,
     JUDGED_LIMIT,
     LIMIT_NOTE,
@@ -920,7 +921,9 @@ async def test_find_reports_recheck_count(
 
     await plan_find(FakeLlm(rechecked(FINANCE_ORDER, met)), FINANCE, context, default_toolkit(), progress=progress)
 
-    assert progress.statuses == [RECHECK_STATUS.format(count=len(FINANCE_ORDER))]
+    # 재확인 단계 아래 한 칸에 확인한 인원을 낸다
+    assert progress.statuses == [RECHECK_STATUS.format(count=len(FINANCE_ORDER)), CONFIRMED_STATUS.format(count=3)]
+    assert progress.depths == [0, 1]
 
 
 async def test_posting_find_reports_recheck_count(
@@ -934,7 +937,9 @@ async def test_posting_find_reports_recheck_count(
         FakeLlm(criteria(ORDER, BOTH_TWO)), preferred("all"), context, RootToolkit(search=search), progress=progress
     )
 
-    assert progress.statuses == [RECHECK_STATUS.format(count=len(ORDER))]
+    assert progress.statuses[0] == RECHECK_STATUS.format(count=len(ORDER))
+    assert progress.statuses[1].startswith("우대 사항을 하나 이상 충족한 지원자")
+    assert progress.depths == [0, 1]
 
 
 async def test_requested_pool_intersects_current_eligible_candidates(

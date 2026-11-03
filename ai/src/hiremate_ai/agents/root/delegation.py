@@ -39,8 +39,17 @@ from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError, record_interrupted_model_tool, reserve_model_calls
 from hiremate_ai.llm.client import LlmClient
 
-REVIEWING_APPLICATION = "서류 Agent가 제출 문서의 근거를 검토하고 있어요"
-REVIEWING_INTERVIEW = "면접 Agent가 답변과 앞선 분석을 검토하고 있어요"
+# 하위 Agent의 단계(받은 Progress의 0칸)와 그 결과(한 칸 아래). 이름과 개수는 코드가 채운다
+REVIEWING_APPLICATION = "서류 Agent · {name}의 제출 문서 {count}건을 검토하고 있어요"
+REVIEWING_INTERVIEW = "면접 Agent · {name}의 면접 답변 {count}개를 검토하고 있어요"
+REVIEWING_INTERVIEW_WITH = "면접 Agent · {name}의 면접 답변 {count}개를 앞선 결과와 비교하고 있어요"
+APPLICATION_REVIEWED = "근거 문장 {quotes}개를 찾았어요"
+INTERVIEW_REVIEWED = "확인된 점 {confirmed}개를 찾았어요"
+NEEDS_CHECK = ", 확인 필요 {count}개"
+NOTHING_REVIEWED = "새로 확인한 사실이 없어요"
+PARTLY_REVIEWED = " (호출 한도로 일부만 검토했어요)"
+REVIEW_FAILED = "검토를 끝내지 못해 저장된 분석으로 답해요"
+REVIEW_BUDGET = "호출 한도가 남지 않아 검토하지 못했어요"
 INVALID_RESULT = "이 지원자의 이번 요청에서 받은 결과 번호만 전달할 수 있어요."
 NO_INTERVIEW = "현재 면접 전형에서 이 지원자의 답변 기록을 불러오지 않았어요."
 SUB_AGENT_FAILED = "{agent}가 검토를 끝내지 못했어요. 저장된 분석으로 답하세요."
@@ -113,6 +122,7 @@ class Delegation:
             with reserve_model_calls(KEEP_CALLS):
                 key = await self._application(scope, row)
         except LlmOutputError as error:
+            self._failed(error)
             return _failure(error, ItemAgent.APPLICATION, "review_documents")
         return self._lines(key, scope)
 
@@ -128,6 +138,7 @@ class Delegation:
             with reserve_model_calls(KEEP_CALLS):
                 key = await self._interview(scope, row, earlier)
         except LlmOutputError as error:
+            self._failed(error)
             return _failure(error, ItemAgent.INTERVIEW, "review_interview")
         return self._lines(key, scope)
 
@@ -137,7 +148,8 @@ class Delegation:
         if cached:
             return cached
         documents = scope.chat.documents.get(row.application_id, [])
-        self.progress.status(REVIEWING_APPLICATION)
+        readable = sum(1 for document in documents if document.text.strip())
+        self.progress.status(REVIEWING_APPLICATION.format(name=row.name, count=readable))
         recipe = extraction_recipe(self.llm)
         extracted = (
             [
@@ -169,6 +181,8 @@ class Delegation:
             )
             for fact in facts
         ]
+        quotes = sum(len(item.evidence) for item in items)
+        self._reviewed(APPLICATION_REVIEWED.format(quotes=quotes) if quotes else NOTHING_REVIEWED, items)
         return self._store(Consultation(row.application_id, ItemAgent.APPLICATION, items))
 
     def _interview_problem(self, scope: RootToolContext, row: CandidateRow, previous: tuple[str, ...]) -> str | None:
@@ -215,7 +229,10 @@ class Delegation:
                 for earlier in view.previous
             ],
         )
-        self.progress.status(REVIEWING_INTERVIEW)
+        answered = sum(1 for question in view.questions if question.answer.strip())
+        self.progress.status(
+            (REVIEWING_INTERVIEW_WITH if previous else REVIEWING_INTERVIEW).format(name=row.name, count=answered)
+        )
         recipe = interview_recipe(self.llm)
         analysis = (
             await self.artifacts.find_interview(data, recipe_hash=recipe)
@@ -236,7 +253,19 @@ class Delegation:
             )
             for item in analysis.items
         ]
+        confirmed = sum(1 for item in items if item.verification is not Verification.UNCONFIRMED)
+        reviewed = INTERVIEW_REVIEWED.format(confirmed=confirmed) if items else NOTHING_REVIEWED
+        self._reviewed(reviewed, items, PARTLY_REVIEWED if analysis.interrupted else "")
         return self._store(Consultation(row.application_id, ItemAgent.INTERVIEW, items, previous, analysis.interrupted))
+
+    def _reviewed(self, text: str, items: Sequence[DelegatedItem], note: str = "") -> None:
+        """하위 Agent 결과를 한 칸 아래 단계로 알린다. 문장은 내보내지 않고 개수만 쓴다."""
+        unconfirmed = sum(1 for item in items if item.verification is Verification.UNCONFIRMED)
+        check = NEEDS_CHECK.format(count=unconfirmed) if unconfirmed and text != NOTHING_REVIEWED else ""
+        self.progress.status(text + check + note, 1)
+
+    def _failed(self, error: LlmOutputError) -> None:
+        self.progress.status(REVIEW_BUDGET if error.reason is LlmFailureReason.BUDGET else REVIEW_FAILED, 1)
 
     def _lines(self, key: str, scope: RootToolContext) -> str:
         """결과 번호 한 줄과 항목마다 근거 번호가 붙은 줄. 미확인 항목은 확인 필요로만 올릴 수 있다."""

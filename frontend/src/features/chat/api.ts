@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 
+import type { ChatStep } from '@/features/chat/steps'
 import { ApiError, api, unwrap, type Schemas } from '@/lib/api/client'
 import { readEvents, type SseEvent } from '@/lib/api/sse'
 import { stageKeys } from '@/features/screening/api'
@@ -16,7 +17,7 @@ export type ChatReply = { answer: ChatAnswer; seconds: number }
 
 /** 답을 기다리는 동안 받는 진행 알림. 단계 문구와 검증을 마친 항목, 그리고 답 뒤의 탭 제목이다. */
 export type ChatProgress = {
-  onStatus: (text: string) => void
+  onStatus: (step: ChatStep) => void
   onItem: (item: ChatItem) => void
   onTitle?: (title: ChatTitle) => void
 }
@@ -38,7 +39,7 @@ export async function readChat(
     const next = await events.next()
     if (next.done) break
     const { event, data } = next.value
-    if (event === 'status') progress.onStatus((JSON.parse(data) as Schemas['ChatStatus']).text)
+    if (event === 'status') progress.onStatus(JSON.parse(data) as ChatStep)
     else if (event === 'item') progress.onItem(JSON.parse(data) as ChatItem)
     else if (event === 'done') {
       void readTitle(events, progress)

@@ -19,6 +19,7 @@ import com.hiremate.ai.application.ChatAsker;
 import com.hiremate.ai.application.ChatContext;
 import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatPlan;
+import com.hiremate.ai.application.ChatStatus;
 import com.hiremate.ai.application.RootAgent;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
@@ -72,7 +73,8 @@ class RootMemoryChatTests extends IntegrationTest {
         when(root.history(threadId)).thenReturn(List.of(new ChatHistoryTurn("금융 경험 찾아줘", found, 3),
                 new ChatHistoryTurn("경력 알려줘", ChatPlan.answer(ChatPlan.Intent.ANSWER, "3년이에요.", List.of(),
                         List.of(), List.of()), 3, List.of(setup.applicant(), UUID.randomUUID()),
-                        List.of("요청을 확인하고 있어요", "지원자 자료를 확인하고 있어요"), 4)));
+                        List.of(new ChatStatus("요청을 확인하고 있어요", 0), new ChatStatus("정유민의 프로필을 읽고 있어요", 1)),
+                        4)));
         JsonNode history = json(expect(setup.hr().get(setup.chatPath(setup.tabId())), 200));
         assertThat(history.get(0).path("message").asString()).isEqualTo("금융 경험 찾아줘");
         assertThat(history.get(0).path("answer").path("intent").asString()).isEqualTo("FIND");
@@ -87,8 +89,9 @@ class RootMemoryChatTests extends IntegrationTest {
         assertThat(mentioned.path("mentions").get(0).path("applicationId").asString())
                 .isEqualTo(setup.applicant().toString());
         assertThat(mentioned.path("mentions").get(0).path("name").asString()).isEqualTo("지원자1");
-        assertThat(mentioned.path("steps")).extracting(JsonNode::asString)
-                .containsExactly("요청을 확인하고 있어요", "지원자 자료를 확인하고 있어요");
+        assertThat(mentioned.path("steps")).extracting(step -> step.path("text").asString())
+                .containsExactly("요청을 확인하고 있어요", "정유민의 프로필을 읽고 있어요");
+        assertThat(mentioned.path("steps")).extracting(step -> step.path("depth").asInt()).containsExactly(0, 1);
         assertThat(mentioned.path("seconds").asInt()).isEqualTo(4);
 
         // [대화 지우기]는 없다. 대화는 탭을 지울 때만 지운다

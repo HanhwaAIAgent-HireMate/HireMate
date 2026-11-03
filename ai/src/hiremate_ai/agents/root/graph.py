@@ -38,7 +38,7 @@ from hiremate_ai.agents.root.handlers import (
     precheck,
 )
 from hiremate_ai.agents.root.plan import EditPlan, FindPlan, QuestionsPlan, ReportPlan, make_plan
-from hiremate_ai.agents.root.progress import StepRecorder, writer_progress
+from hiremate_ai.agents.root.progress import StepRecorder, step, writer_progress
 from hiremate_ai.agents.root.review import (
     NO_EVIDENCE,
     answer_plan,
@@ -71,6 +71,14 @@ __all__ = ["RootState", "RootThread", "apply_plan", "build_root_graph", "run_pla
 logger = logging.getLogger(__name__)
 
 CHECKING = "요청을 확인하고 있어요"
+REVIEWING = "답변의 근거를 검토하고 있어요"
+# 근거 검토 결과. REVIEWING 아래 한 칸 들여 보인다
+REVIEWED = "항목 {total}개 중 근거 확인 {ok}개"
+REVIEWED_CHECK = ", 확인 필요 {count}개"
+REVIEWED_DROPPED = ", 근거가 맞지 않아 뺀 항목 {count}개"
+FOCUS_REVIEWED = "면접에서 확인할 점 {count}개를 정했어요"
+NO_FOCUS_LEFT = "남은 확인할 점이 없어 요청 문장으로 질문을 만들어요"
+NOTHING_EVIDENCED = "근거를 확인한 항목이 없어요"
 NOT_FINISHED = "답변을 올바른 형식으로 완성하지 못했어요. 잠시 후 다시 요청해 주세요."
 VALIDATION_FAILED = "답변의 근거와 실행 조건을 확인하지 못했어요. 질문을 다시 말씀해 주세요."
 BUDGET_EXHAUSTED = "한 번에 확인할 수 있는 처리 한도에 도달했어요. 요청을 나눠 다시 말씀해 주세요."
@@ -108,7 +116,7 @@ def build_root_graph(
         writer_progress(runtime.stream_writer).status(CHECKING)
         context = runtime.context
         run = RootRun(budget=new_model_call_budget(settings.llm_agent_max_calls))
-        started: RootState = {"steps": [CHECKING], "started": time.monotonic(), "run": run}
+        started: RootState = {"steps": [step(CHECKING)], "started": time.monotonic(), "run": run}
         if blocked_attribute(context.message):
             return {**started, "plan": ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY)}
         if set(context.mentions) - {row.application_id for row in context.candidates}:
@@ -232,6 +240,7 @@ def build_root_graph(
         if run.reply is None or run.analysis is None or run.plan is None:
             raise TypeError("분석 답 없이 근거를 검토할 수 없다")
         output, ledger = run.reply.form, run.analysis.ledger
+        progress.status(REVIEWING)
         with using_model_call_budget(run.budget):
             if isinstance(output, AnswerOutput):
                 message, checked = await review_items(llm, context, ledger, output.message, output.items)
@@ -246,6 +255,8 @@ def build_root_graph(
             else:
                 raise TypeError(f"근거를 검토하지 않는 답이다: {run.reply.kind}")
         final = reviewed or ChatPlan.answer(Intent.CLARIFY, NO_EVIDENCE)
+        drafts = len(output.items) if isinstance(output, AnswerOutput) else len(output.focus)
+        progress.status(_reviewed(final, isinstance(output, QuestionsOutput), len(checked), drafts - len(checked)), 1)
         return {"plan": final, "kind": "ANSWER", "steps": progress.steps}
 
     def record(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
@@ -297,6 +308,21 @@ def build_root_graph(
         graph.add_edge(node, "record")
     graph.add_edge("record", END)
     return graph.compile(checkpointer=checkpointer)
+
+
+def _reviewed(final: ChatPlan, questions: bool, kept: int, dropped: int) -> str:
+    """근거 검토 결과 단계. 항목 문장은 내보내지 않고 상태별 개수만 쓴다."""
+    if questions:
+        return FOCUS_REVIEWED.format(count=kept) if kept else NO_FOCUS_LEFT
+    if not final.items or final.intent is Intent.CLARIFY:
+        return NOTHING_EVIDENCED
+    check = sum(1 for item in final.items if item.status == "CHECK")
+    text = REVIEWED.format(total=len(final.items), ok=sum(1 for item in final.items if item.status == "OK"))
+    if check:
+        text += REVIEWED_CHECK.format(count=check)
+    if dropped > 0:
+        text += REVIEWED_DROPPED.format(count=dropped)
+    return text
 
 
 def _run(state: RootState) -> RootRun:

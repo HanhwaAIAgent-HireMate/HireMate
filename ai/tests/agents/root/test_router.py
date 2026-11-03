@@ -30,7 +30,7 @@ def test_plan_endpoint_round_trip() -> None:
     assert events[0][0] == "status"
     assert events[-1][0] == "done"
     assert all(name == "status" for name, _ in events[:-1])
-    assert events[0][1] == {"text": "요청을 확인하고 있어요"}
+    assert events[0][1] == {"text": "요청을 확인하고 있어요", "depth": 0}
     body = events[-1][1]
     assert (body["intent"], body["edit"]) == ("EDIT", "CLEAR")
     assert body["questionTargets"] == []
@@ -85,7 +85,7 @@ def test_plan_history_and_forget_use_thread() -> None:
     assert turns[0]["total"] == 2
     assert turns[0]["mentions"] == []
     assert turns[1]["mentions"] == context["mentions"] != []
-    assert turns[0]["steps"][0] == "요청을 확인하고 있어요"
+    assert turns[0]["steps"][0] == {"text": "요청을 확인하고 있어요", "depth": 0}
     assert isinstance(turns[0]["seconds"], int)
     # 대화방은 같은 기업 담당자가 함께 쓴다. 턴마다 질문한 담당자를 남긴다
     assert turns[0]["asker"] == context["asker"]

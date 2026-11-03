@@ -54,7 +54,10 @@ DECIDED_FOUND = (
 )
 DECIDED_NOT_FOUND = "{label} 지원자 {pool}명 중 조건에 맞는 사람을 찾지 못했어요."
 NO_DECIDED = "아직 {label} 지원자가 없어요."
+SEARCH_STATUS = "조건에 맞는 지원자를 찾고 있어요"
 RECHECK_STATUS = "후보 {count}명을 다시 확인하고 있어요"
+CONFIRMED_STATUS = "조건을 충족한 지원자 {count}명을 확인했어요"
+POSTING_CONFIRMED_STATUS = "{label}을 하나 이상 충족한 지원자 {count}명을 확인했어요"
 # 공고 기준 찾기 (기획 18절)
 _SECTION_LABELS = {"qualifications": "자격 요건", "preferred": "우대 사항", "both": "자격 요건, 우대 사항"}
 NO_POSTING_ITEMS = "공고에 {label}이 없어요. 찾을 조건을 직접 말씀해 주세요."
@@ -366,6 +369,7 @@ async def plan_find(
             raise
         return ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
     chosen = [(allowed[application_id], _shorten(evidence[0].sentence)) for application_id, evidence in verified]
+    progress.status(CONFIRMED_STATUS.format(count=len(chosen)), 1)
     sources = list(dict.fromkeys(sourced.source for _, evidence in verified for sourced in evidence)) + score_sources
     agents = await _agents(
         toolkit, context, [(application_id, sourced) for application_id, evidence in verified for sourced in evidence]
@@ -421,6 +425,7 @@ async def _plan_posting(
             count = sum(index in met for index in range(n))
             if count:
                 scored.append((application_id, count, met))
+    progress.status(POSTING_CONFIRMED_STATUS.format(label=label, count=len(scored)), 1)
     best = max((count for _, count, _ in scored), default=0)
     match_mode = query.criteria_match
     if match_mode == "all" and best < n:

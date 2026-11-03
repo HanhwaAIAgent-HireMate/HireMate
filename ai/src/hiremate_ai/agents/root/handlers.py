@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.answer import BULK_LIMIT, INTERVIEW_AGENT, QUESTIONS_REQUESTED, readable
 from hiremate_ai.agents.root.edit import plan_edit, selectable
-from hiremate_ai.agents.root.find import LOCKED, SearchQuery, plan_find, search_criteria
+from hiremate_ai.agents.root.find import LOCKED, SEARCH_STATUS, SearchQuery, plan_find, search_criteria
 from hiremate_ai.agents.root.plan import (
     BlockedPlan,
     ClarifyPlan,
@@ -21,7 +21,7 @@ from hiremate_ai.agents.root.plan import (
     ReportPlan,
     RootPlan,
 )
-from hiremate_ai.agents.root.progress import Progress
+from hiremate_ai.agents.root.progress import Progress, nested
 from hiremate_ai.agents.root.report import (
     COMPARE_COUNT,
     COMPARING,
@@ -93,10 +93,11 @@ async def handle_find(
     """rows는 요청이 말한 검색 범위다. None이면 전형 전체다."""
     if blocked_attribute(" ".join(search_criteria(form.query, context))):
         return Handled(ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY), "ANSWER")
+    progress.status(SEARCH_STATUS)
     if form.remove:
-        return await _remove_matching(llm, context, toolkit, form.query, rows, progress)
+        return await _remove_matching(llm, context, toolkit, form.query, rows, nested(progress))
     pool = [row.application_id for row in rows] if rows is not None else None
-    found = await plan_find(llm, form.query, context, toolkit, pool=pool, progress=progress)
+    found = await plan_find(llm, form.query, context, toolkit, pool=pool, progress=nested(progress))
     kind = "FIND" if found.intent in (Intent.FIND, Intent.ANSWER) else "ANSWER"
     return Handled(found, kind, form.query.mode)
 

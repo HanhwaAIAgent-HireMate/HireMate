@@ -48,7 +48,10 @@ describe('turnsToMessages', () => {
 
   it('질문에 쓴 @멘션과 답의 처리 단계, 걸린 시간을 살린다', () => {
     const mention = { applicationId: 'a1', name: '정유민' }
-    const steps = ['요청을 확인하고 있어요', '지원자 자료를 확인하고 있어요']
+    const steps = [
+      { text: '요청을 확인하고 있어요', depth: 0 },
+      { text: '정유민의 프로필을 읽고 있어요', depth: 1 },
+    ]
 
     const [question, reply] = turnsToMessages([
       { ...turn('경력 알려줘'), mentions: [mention], steps, seconds: 7 },

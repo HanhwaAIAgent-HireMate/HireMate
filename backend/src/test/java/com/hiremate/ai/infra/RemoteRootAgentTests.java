@@ -8,6 +8,7 @@ import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatItem;
 import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.ChatProgress;
+import com.hiremate.ai.application.ChatStatus;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
@@ -95,7 +96,8 @@ class RemoteRootAgentTests {
         assertThat(history).hasSize(1);
         assertThat(history.getFirst().total()).isEqualTo(2);
         assertThat(history.getFirst().mentions()).hasSize(1);
-        assertThat(history.getFirst().steps()).startsWith("요청을 확인하고 있어요");
+        assertThat(history.getFirst().steps()).startsWith(new ChatStatus("요청을 확인하고 있어요", 0));
+        assertThat(history.getFirst().steps()).contains(new ChatStatus("정유민의 프로필을 읽고 있어요", 1));
         assertThat(history.getFirst().seconds()).isEqualTo(6);
         assertThat(sent).extracting(request -> request.url().getPath())
                 .containsExactly("/agents/root/history", "/agents/root/forget");

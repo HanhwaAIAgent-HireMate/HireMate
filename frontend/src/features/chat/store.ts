@@ -1,12 +1,13 @@
 import { create } from 'zustand'
 
 import type { ChatAnswer, ChatTurn } from '@/features/chat/api'
+import type { ChatStep } from '@/features/chat/steps'
 import type { Mention } from '@/features/screening/store'
 
 export type ChatMessage =
   /** asker: 질문한 담당자 이름. 탭 대화는 같은 기업 담당자가 함께 쓴다. 예전 기록은 null이다 */
   | { role: 'user'; text: string; mentions: Mention[]; asker: string | null }
-  | { role: 'ai'; answer: ChatAnswer; steps: string[]; seconds: number | null }
+  | { role: 'ai'; answer: ChatAnswer; steps: ChatStep[]; seconds: number | null }
   | { role: 'error'; text: string }
 
 type ChatState = {

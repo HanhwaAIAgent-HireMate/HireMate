@@ -12,7 +12,7 @@ import {
   type ChatItem,
 } from '@/features/chat/api'
 import { LiveSteps, StepsSummary } from '@/features/chat/ChatSteps'
-import { addStep } from '@/features/chat/steps'
+import { addStep, type ChatStep } from '@/features/chat/steps'
 import { turnsToMessages, useChatStore, type ChatMessage } from '@/features/chat/store'
 import { careerLabel, stageKeys, type StageOverview } from '@/features/screening/api'
 import { useStageUi } from '@/features/screening/store'
@@ -23,10 +23,10 @@ import { cn } from '@/lib/utils'
 
 const EMPTY: ChatMessage[] = []
 const RECENT = 6
-const WAITING = '지원자 자료를 살펴보고 있어요…'
+const WAITING: ChatStep = { text: '지원자 자료를 살펴보고 있어요…', depth: 0 }
 
 /** 답을 기다리는 동안 쌓은 단계 문구와 검증을 마친 항목 */
-type Progress = { steps: string[]; items: ChatItem[] }
+type Progress = { steps: ChatStep[]; items: ChatItem[] }
 const NO_PROGRESS: Progress = { steps: [], items: [] }
 
 /**
@@ -63,10 +63,10 @@ export function ChatPanel({
   const asking = useRef<string | null>(null)
   const [progress, setProgress] = useState<Progress>(NO_PROGRESS)
   // 답이 오면 그때까지 쌓은 단계를 답에 붙인다. 응답 콜백은 보낼 때의 progress만 보므로 따로 들고 있는다
-  const steps = useRef<string[]>([])
+  const steps = useRef<ChatStep[]>([])
   const chat = useChat(stageId, {
-    onStatus: (text) => {
-      steps.current = addStep(steps.current, text)
+    onStatus: (step) => {
+      steps.current = addStep(steps.current, step)
       setProgress((current) => ({ ...current, steps: steps.current }))
     },
     onItem: (item) => setProgress((current) => ({ ...current, items: [...current.items, item] })),
@@ -371,7 +371,7 @@ function Answer({
   openReport,
 }: {
   answer: ChatAnswer
-  steps: string[]
+  steps: ChatStep[]
   seconds: number | null
   openReport: (reportId: string) => void
 }) {

@@ -136,7 +136,9 @@ async def test_read_application_detail_without_saved_review(
     )
 
     assert "저장된 서류 분석이 없어요" in llm.calls[1].user
-    assert "지원자 자료를 확인하고 있어요" in progress.statuses
+    # 도구 단계는 Root 단계 아래 한 칸 들여 지원자 이름과 함께 낸다
+    assert progress.statuses[1] == "정유민의 서류 분석을 읽고 있어요"
+    assert progress.depths[:2] == [0, 1]
 
 
 async def test_search_then_find_returns_search_number(
