@@ -1,37 +1,50 @@
 package com.hiremate.posting;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * 블라인드 채용에서 지원 서류의 학교 이름을 가린다. 지원서를 받을 때 추출한 본문에 쓰고, 원본 PDF는 바꾸지 않는다.
- * 학교 이름 모양(한빛대학교, 한빛고등학교, Hanbit University), 자주 쓰는 약칭(서울대, 카이스트),
- * 학과 · 졸업 같은 말 앞의 "○○대"를 찾는다. 연대, 고대, 홍대, 교대처럼 다른 뜻으로 많이 쓰는 약칭은 문맥이 있을 때만 가린다.
+ * 학교 이름 모양(한빛대학교, 한빛고등학교, Hanbit University), 전국 대학 · 전문대학 이름과 줄임말(school-names.txt),
+ * 학과 · 졸업 같은 말 앞의 "○○대"를 찾는다. 연대, 고대, 홍대, 교대처럼 다른 뜻으로 많이 쓰는 줄임말은 문맥이 있을 때만 가린다.
  */
 public final class SchoolNames {
 
     /** 가린 자리에 넣는 말. 학교 수준(대학, 고등학교)도 드러나지 않게 하나로 쓴다. */
     public static final String MASK = "○○학교";
 
-    /** 약칭 뒤에 올 수 있는 말. 서울대입구역의 "서울대"처럼 다른 낱말의 일부는 가리지 않는다. */
-    private static final String AFTER = "(?=$|[^가-힣]|에서|에|의|를|을|는|은|이|가|와|과|로|으로|도|만|생|출신|졸업|재학|휴학"
+    /**
+     * 줄임말 뒤에 올 수 있는 말. 서울대입구역의 "서울대"처럼 다른 낱말의 일부는 가리지 않는다.
+     * "로"는 넣지 않는다. 주소의 강남대로를 강남대로 보지 않기 위해서다.
+     */
+    private static final String AFTER = "(?=$|[^가-힣]|에서|에|의|를|을|는|은|이|가|와|과|으로|도|만|생|출신|졸업|재학|휴학"
             + "|학부|학과|대학원|동문)";
 
-    private static final String ABBREVIATIONS = String.join("|", "서울대", "연세대", "고려대", "카이스트", "포스텍", "포항공대",
-            "성균관대", "한양대", "서강대", "중앙대", "경희대", "한국외대", "외대", "서울시립대", "시립대", "이화여대", "건국대", "동국대",
-            "홍익대", "숙명여대", "국민대", "숭실대", "세종대", "단국대", "광운대", "명지대", "상명대", "가톨릭대", "서울과기대",
-            "항공대", "인하대", "아주대", "한국공대", "코리아텍", "가천대", "경기대", "부산대", "경북대", "전남대", "전북대", "충남대",
-            "충북대", "강원대", "제주대", "경상국립대", "부경대", "울산대", "영남대", "계명대", "동아대", "조선대", "한남대", "원광대",
-            "순천향대", "한림대", "인제대", "덕성여대", "동덕여대", "서울여대", "성신여대", "한성대", "삼육대", "서경대", "한국교원대",
-            "서울교대", "방송대", "방통대", "유니스트", "지스트", "디지스트");
+    /** 목록 이름에서 만들 수 없는 줄임말. */
+    private static final List<String> EXTRA = List.of("카이스트", "포스텍", "유니스트", "지스트", "디지스트", "코리아텍", "외대",
+            "시립대", "항공대", "한국공대", "방송대", "방통대");
+
+    /** 이름 끝을 줄여 쓰는 말. 이화여자대학교는 이화여대, 서울교육대학교는 서울교대로 쓴다. */
+    private static final Map<String, String> SHORT = Map.of("여자", "여", "교육", "교", "외국어", "외", "공과", "공",
+            "과학기술", "과기");
 
     private static final Pattern SCHOOL = Pattern.compile(String.join("|",
             // 학교 이름 모양. 한빛대학교, 한빛과학기술원, 한빛고등학교, 육군사관학교
             "[가-힣]{2,}(?:대학교|대학원|대학|과학기술원|학교)",
-            // 고등학교 약칭. 한빛과학고, 한빛외고, 한빛여고
+            // 목록의 학교 이름과 줄임말. 서울대, 이화여대, 서울교대
+            dictionary(),
+            // 고등학교 줄임말. 한빛과학고, 한빛외고, 한빛여고
             "[가-힣]+(?:과학고|외국어고|외고|국제고|예술고|여고)" + AFTER,
-            // 자주 쓰는 대학 약칭
-            "(?:" + ABBREVIATIONS + ")" + AFTER,
-            // 학과, 졸업 같은 말 앞의 대학 약칭. 한빛대 컴퓨터공학과, 한빛대 졸업
+            // 학과, 졸업 같은 말 앞의 대학 줄임말. 한빛대 컴퓨터공학과, 한빛대 졸업
             "[가-힣]{1,5}대(?=\\s*(?:[가-힣]{0,10}(?:학과|학부|전공|대학원)|졸업|재학|휴학|출신|동아리|캡스톤|학생회|교내|동문))",
             // 영어 학교 이름. Hanbit University, University of Hanbit, Hanbit High School, KAIST
             "(?:[A-Z][A-Za-z.&'-]*\\s+){1,5}(?:University|College|High School|Institute of Technology)\\b",
@@ -44,5 +57,48 @@ public final class SchoolNames {
     /** 학교 이름을 MASK로 바꾼 본문. 학교 이름이 없으면 그대로 돌려준다. */
     public static String mask(String text) {
         return SCHOOL.matcher(text).replaceAll(MASK);
+    }
+
+    /** 목록의 이름과 줄임말. 같은 자리에서 긴 이름을 먼저 본다 (한국외대를 외대보다 먼저). */
+    private static String dictionary() {
+        Set<String> names = new LinkedHashSet<>();
+        Set<String> abbreviations = new LinkedHashSet<>(EXTRA);
+        for (String name : listed()) {
+            names.add(name);
+            String stem = name.replaceFirst("(?:대학교|대학)$", "");
+            if (stem.equals(name) || stem.contains(" ")) {
+                continue;
+            }
+            String base = stem.replaceFirst("^국립", "");
+            abbreviations.add(base + "대");
+            SHORT.forEach((full, shortened) -> {
+                if (base.endsWith(full)) {
+                    abbreviations.add(base.substring(0, base.length() - full.length()) + shortened + "대");
+                }
+            });
+        }
+        abbreviations.removeIf(abbreviation -> abbreviation.length() < 3 && !EXTRA.contains(abbreviation));
+        return "(?:" + quoted(names) + ")|(?:" + quoted(abbreviations) + ")" + AFTER;
+    }
+
+    private static String quoted(Set<String> words) {
+        return words.stream()
+                .sorted(Comparator.comparingInt(String::length).reversed())
+                .map(Pattern::quote)
+                .collect(Collectors.joining("|"));
+    }
+
+    private static List<String> listed() {
+        try (InputStream in = SchoolNames.class.getResourceAsStream("/school-names.txt")) {
+            if (in == null) {
+                throw new IllegalStateException("school-names.txt is missing.");
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8).lines()
+                    .map(String::strip)
+                    .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                    .toList();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }
