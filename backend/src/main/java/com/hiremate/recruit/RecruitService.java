@@ -46,7 +46,7 @@ public class RecruitService {
     /** 최근에 만든 채용부터. */
     @Transactional(readOnly = true)
     public List<RecruitmentInfo> list(UUID companyId) {
-        List<Recruitment> found = recruitments.findByCompanyIdOrderByCreatedAtDesc(companyId);
+        List<Recruitment> found = recruitments.findByCompanyIdAndDeletedAtIsNullOrderByCreatedAtDesc(companyId);
         Map<UUID, List<StageInfo>> stagesByRecruitment = stages
                 .findByRecruitmentIdInOrderBySeq(found.stream().map(Recruitment::getId).toList()).stream()
                 .map(RecruitService::toInfo)
@@ -61,7 +61,7 @@ public class RecruitService {
     @Transactional(readOnly = true)
     public RecruitmentInfo getByStage(UUID companyId, UUID stageId) {
         Stage stage = stages.findById(stageId).orElseThrow(RecruitService::stageNotFound);
-        return recruitments.findByIdAndCompanyId(stage.getRecruitmentId(), companyId)
+        return recruitments.findByIdAndCompanyIdAndDeletedAtIsNull(stage.getRecruitmentId(), companyId)
                 .map(this::toInfo)
                 .orElseThrow(RecruitService::stageNotFound);
     }
@@ -69,6 +69,24 @@ public class RecruitService {
     @Transactional
     public void rename(UUID companyId, UUID recruitmentId, String title) {
         recruitment(companyId, recruitmentId).rename(title);
+    }
+
+    /** 공고 모듈이 초안을 지운 뒤, 작성 중인 채용과 전형 구성을 함께 지운다. */
+    @Transactional
+    public void deleteDraft(UUID companyId, UUID recruitmentId) {
+        Recruitment recruitment = recruitment(companyId, recruitmentId);
+        requireStatus(recruitment, RecruitmentStatus.DRAFT, "RECRUITMENT_LOCKED");
+        stages.deleteByRecruitmentId(recruitmentId);
+        stages.flush();
+        recruitments.delete(recruitment);
+    }
+
+    /** 종료된 채용은 관련 지원 자료와 평가 기록을 보존하고 조회 대상에서 제외한다. */
+    @Transactional
+    public void archiveClosed(UUID companyId, UUID recruitmentId) {
+        Recruitment recruitment = recruitment(companyId, recruitmentId);
+        requireStatus(recruitment, RecruitmentStatus.CLOSED, "RECRUITMENT_LOCKED");
+        recruitment.archive();
     }
 
     /**
@@ -178,13 +196,13 @@ public class RecruitService {
 
     private Stage stage(UUID companyId, UUID stageId) {
         Stage stage = stages.findById(stageId).orElseThrow(RecruitService::stageNotFound);
-        recruitments.findByIdAndCompanyId(stage.getRecruitmentId(), companyId)
+        recruitments.findByIdAndCompanyIdAndDeletedAtIsNull(stage.getRecruitmentId(), companyId)
                 .orElseThrow(RecruitService::stageNotFound);
         return stage;
     }
 
     private Recruitment recruitment(UUID companyId, UUID recruitmentId) {
-        return recruitments.findByIdAndCompanyId(recruitmentId, companyId).orElseThrow(
+        return recruitments.findByIdAndCompanyIdAndDeletedAtIsNull(recruitmentId, companyId).orElseThrow(
                 () -> new ApiException(HttpStatus.NOT_FOUND, "RECRUITMENT_NOT_FOUND", "Recruitment not found."));
     }
 

@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -15,14 +15,23 @@ const member = {
 }
 
 function mockServer(loggedIn: boolean, role = 'HR') {
+  let authenticated = loggedIn
   vi.stubGlobal(
     'fetch',
     vi.fn((input: Request | string) => {
       const url = typeof input === 'string' ? input : input.url
+      if (url.endsWith('/api/auth/csrf'))
+        return Promise.resolve(Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' }))
+      if (url.endsWith('/api/auth/signup'))
+        return Promise.resolve(new Response(null, { status: 201 }))
+      if (url.endsWith('/api/auth/login')) {
+        authenticated = true
+        return Promise.resolve(Response.json({ ...member, role }))
+      }
       if (url.endsWith('/api/auth/me')) {
         return Promise.resolve(
-          Response.json(loggedIn ? { ...member, role } : { code: 'UNAUTHENTICATED' }, {
-            status: loggedIn ? 200 : 401,
+          Response.json(authenticated ? { ...member, role } : { code: 'UNAUTHENTICATED' }, {
+            status: authenticated ? 200 : 401,
           }),
         )
       }
@@ -87,5 +96,44 @@ describe('routes', () => {
     renderAt('/hr/settings')
 
     expect(await screen.findByRole('heading', { level: 1, name: '로그인' })).toBeInTheDocument()
+  })
+
+  it.each(['/login', '/login?next=%2Fhr', '/login?next=%2Fhr%2F'])(
+    '%s의 일반 로그인 목적지는 채용 페이지다',
+    async (path) => {
+      mockServer(true)
+      renderAt(path)
+      expect(await screen.findByRole('heading', { level: 1, name: '채용' })).toBeInTheDocument()
+    },
+  )
+
+  it('특정 공고로 이동하던 중 로그인하면 해당 공고로 돌아간다', async () => {
+    mockServer(true)
+    renderAt('/login?next=%2Fhr%2Frecruitments%2F1%2Fposting')
+    expect(await screen.findByRole('heading', { level: 1, name: '공고 편집' })).toBeInTheDocument()
+  })
+
+  it('회원가입 직후에는 회사 소개를 작성할 수 있도록 설정 화면을 연다', async () => {
+    mockServer(false)
+    renderAt('/signup')
+    await screen.findByRole('heading', { name: '기업 가입' })
+    fireEvent.change(screen.getByLabelText('회사 이름'), { target: { value: '테스트 기업' } })
+    fireEvent.change(screen.getByLabelText('담당자 이름'), { target: { value: '최은영' } })
+    fireEvent.change(screen.getByLabelText('이메일'), { target: { value: 'hr@example.com' } })
+    fireEvent.change(screen.getByLabelText('비밀번호 (12자 이상)'), {
+      target: { value: 'test-password-2026' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '가입하고 시작하기' }))
+    expect(await screen.findByRole('heading', { level: 1, name: '설정' })).toBeInTheDocument()
+  })
+
+  it('이후 일반 로그인은 채용 페이지를 연다', async () => {
+    mockServer(false)
+    renderAt('/login')
+    await screen.findByRole('heading', { name: '로그인' })
+    fireEvent.change(screen.getByLabelText('이메일'), { target: { value: 'hr@example.com' } })
+    fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'test-password-2026' } })
+    fireEvent.click(screen.getByRole('button', { name: '로그인' }))
+    expect(await screen.findByRole('heading', { level: 1, name: '채용' })).toBeInTheDocument()
   })
 })

@@ -21,6 +21,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 
 class PostingTests extends IntegrationTest {
@@ -30,6 +31,69 @@ class PostingTests extends IntegrationTest {
 
     @Autowired
     private PostingService postings;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @Test
+    @DisplayName("작성 중 공고는 같은 기업만 삭제하며 채용 목록과 개수에서도 사라진다")
+    void deletesOnlyOwnDraft() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String base = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
+        expect(newHr().delete(base), 404);
+        expect(newInterviewer(hr, "면접관").delete(base), 403);
+        expect(anonymous().delete(base), 401);
+        expect(hr.get(base), 200);
+        expect(hr.delete(base), 204);
+        expect(hr.get(base), 404);
+        expect(hr.delete(base), 404);
+        JsonNode dashboard = json(expect(hr.get("/api/recruitments"), 200));
+        assertThat(dashboard.path("items").size()).isZero();
+        assertThat(dashboard.path("counts").path("all").asLong()).isZero();
+        assertThat(dashboard.path("counts").path("draft").asLong()).isZero();
+    }
+
+    @Test
+    @DisplayName("게시했거나 진행 중인 공고는 삭제할 수 없다")
+    void cannotDeletePublishedRecruitment() throws Exception {
+        TestApi hr = newHr();
+        TestFixtures.Posting posting = TestFixtures.publish(hr, false);
+        String base = "/api/recruitments/" + posting.recruitmentId() + "/posting";
+        assertThat(json(expect(hr.delete(base), 409)).path("code").asString()).isEqualTo("RECRUITMENT_LOCKED");
+        expect(hr.get(base), 200);
+        expect(hr.post(base + "/close", null), 200);
+        expect(hr.delete(base), 409);
+        expect(hr.get(base), 200);
+    }
+
+    @Test
+    @DisplayName("종료된 공고는 목록과 조회에서 제거하되 연결된 공고와 전형 기록을 보존한다")
+    void archivesClosedRecruitment() throws Exception {
+        TestApi hr = newHr();
+        TestFixtures.Posting posting = TestFixtures.publish(hr, false);
+        String base = "/api/recruitments/" + posting.recruitmentId() + "/posting";
+        JsonNode progress = json(expect(hr.post(base + "/close", null), 200));
+        for (JsonNode stage : progress.path("stages")) {
+            String stagePath = "/api/stages/" + stage.path("id").asString();
+            expect(hr.post(stagePath + "/confirm", null), 200);
+            expect(hr.post(stagePath + "/finish", null), 200);
+        }
+        assertThat(json(expect(hr.get(base), 200)).path("status").asString()).isEqualTo("CLOSED");
+        expect(newHr().delete(base), 404);
+        expect(hr.delete(base), 204);
+        expect(hr.get(base), 404);
+        expect(hr.delete(base), 404);
+        expect(anonymous().get("/api/public/postings/" + posting.postingId()), 404);
+        JsonNode dashboard = json(expect(hr.get("/api/recruitments"), 200));
+        assertThat(dashboard.path("items").size()).isZero();
+        assertThat(dashboard.path("counts").path("closed").asLong()).isZero();
+        UUID id = UUID.fromString(posting.recruitmentId());
+        assertThat(jdbc.queryForObject("select count(*) from job_postings where recruitment_id = ?",
+                Long.class, id)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("select count(*) from stages where recruitment_id = ?",
+                Long.class, id)).isEqualTo(2L);
+    }
 
     @Test
     @DisplayName("새 채용은 설정의 회사 소개 · 복지 · 회사 주소 · 필수 안내 문구로 공고 초안을 연다")

@@ -1,10 +1,26 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap, type Schemas } from '@/lib/api/client'
 
 export type Dashboard = Schemas['DashboardView']
 export type RecruitmentCard = Schemas['RecruitmentCard']
 export type StatusFilter = RecruitmentCard['status'] | 'ALL'
+
+export function useDeleteRecruitment(recruitmentId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.DELETE('/api/recruitments/{recruitmentId}/posting', {
+          params: { path: { recruitmentId } },
+        }),
+      ),
+    onSuccess: async () => {
+      queryClient.removeQueries({ queryKey: ['posting', recruitmentId] })
+      await queryClient.invalidateQueries({ queryKey: ['recruitments'] })
+    },
+  })
+}
 
 export function useDashboard(status: StatusFilter, query: string) {
   return useQuery({

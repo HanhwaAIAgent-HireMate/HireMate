@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
-import { Link, Navigate, useNavigate } from 'react-router'
+import { Link, Navigate } from 'react-router'
 import { z } from 'zod'
 
 import { AuthLayout } from '@/app/AuthLayout'
@@ -40,18 +40,17 @@ const FIELDS: { name: keyof Values; label: string; type: string; autoComplete: s
 export function SignupPage() {
   const me = useMe()
   const signup = useSignup()
-  const navigate = useNavigate()
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: { companyName: '', name: '', email: '', password: '' },
   })
 
-  if (me.data) return <Navigate to="/hr" replace />
+  if (signup.isSuccess) return <Navigate to="/hr/settings" replace />
+  if (me.data && !signup.isPending) return <Navigate to="/hr" replace />
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
       await signup.mutateAsync(values)
-      await navigate('/hr/settings', { replace: true })
     } catch (error) {
       form.setError('root', { message: errorMessage(error) })
     }
