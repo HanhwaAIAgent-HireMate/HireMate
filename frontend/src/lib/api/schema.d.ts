@@ -2612,11 +2612,20 @@ export interface components {
             /** Format: int32 */
             index: number | null;
         };
+        NcsSource: {
+            code: string;
+            subdivision: string;
+            name: string;
+            /** Format: int32 */
+            level: number;
+            definition: string;
+        };
         PostingAiAnswer: {
             reply: string;
             agent: string;
             stub: boolean;
             posting: components["schemas"]["PostingView"];
+            ncsSources: components["schemas"]["NcsSource"][];
         };
         SubmittedApplication: {
             /** Format: int32 */
@@ -2832,26 +2841,26 @@ export interface components {
             null: boolean;
             object: boolean;
             float: boolean;
-            container: boolean;
-            missingNode: boolean;
-            pojo: boolean;
-            int: boolean;
-            /** @deprecated */
-            textual: boolean;
             number: boolean;
-            double: boolean;
-            binary: boolean;
-            short: boolean;
-            long: boolean;
-            boolean: boolean;
-            string: boolean;
+            missingNode: boolean;
             bigInteger: boolean;
-            floatingPointNumber: boolean;
-            bigDecimal: boolean;
-            valueNode: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
             integralNumber: boolean;
+            valueNode: boolean;
+            container: boolean;
+            floatingPointNumber: boolean;
+            bigDecimal: boolean;
+            string: boolean;
+            pojo: boolean;
+            boolean: boolean;
+            binary: boolean;
+            short: boolean;
+            double: boolean;
+            long: boolean;
+            /** @deprecated */
+            textual: boolean;
+            int: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {

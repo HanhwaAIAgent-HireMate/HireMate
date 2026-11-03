@@ -72,6 +72,25 @@ class RemotePostingAgentTests {
         assertThat(client.body).containsEntry("focus", focus);
     }
 
+    @Test
+    @DisplayName("ai 서버 응답의 NCS 근거를 받고, 근거가 없는 응답은 빈 목록으로 받는다")
+    void readsNcsSources() {
+        JsonMapper json = JsonMapper.builder().build();
+
+        PostingAgent.Result cited = json.readValue("""
+                {"reply": "자격 요건 수정안을 만들었어요.", "suggestion": null,
+                 "ncsSources": [{"code": "2001020211_23v6", "subdivision": "응용SW엔지니어링",
+                                 "name": "서버프로그램 구현", "level": 5, "definition": "서버 프로그램을 구현하는 능력이다."}]}
+                """, PostingAgent.Result.class);
+        PostingAgent.Result plain = json.readValue("""
+                {"reply": "어느 칸을 고칠까요?", "suggestion": null}
+                """, PostingAgent.Result.class);
+
+        assertThat(cited.ncsSources()).containsExactly(new PostingAgent.NcsSource("2001020211_23v6", "응용SW엔지니어링",
+                "서버프로그램 구현", 5, "서버 프로그램을 구현하는 능력이다."));
+        assertThat(plain.ncsSources()).isEmpty();
+    }
+
     /** ai 서버 대신 받은 요청을 기록하고 정해 둔 응답을 돌려준다. */
     private static final class RecordingClient extends AiServerClient {
 

@@ -22,6 +22,7 @@ from pydantic.alias_generators import to_camel
 
 from hiremate_ai.agents.generation.posting.checks import JUDGED_FIELDS, MAX_ITEMS, blocked_terms, problems
 from hiremate_ai.agents.generation.posting.types import (
+    NcsSource,
     PostingDraftContext,
     PostingFocus,
     PostingSuggestion,
@@ -995,12 +996,22 @@ def _tidy(text: str) -> str:
 
 
 def _result(draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
-    # 안내는 한 줄에 하나씩 보이게 하고, 길어지는 NCS 근거는 맨 끝에 둔다 (경력 · 빈 칸 안내가 묻히지 않게)
+    # 안내는 한 줄에 하나씩 보이게 한다. 길어지는 NCS 근거는 답 문장에 넣지 않고 따로 보내 화면이 접어 보여 준다
     notes = list(edit.notes)
     if locked:
         notes.append(LOCKED_REPLY)
-    if edit.cited and {name for name, _ in NCS_FIELDS} & set(draft.changed):
-        notes.append("근거(NCS): " + ", ".join(f"{unit.subdivision} · {unit.name}" for unit in edit.cited))
+    sources = []
+    if {name for name, _ in NCS_FIELDS} & set(draft.changed):
+        sources = [
+            NcsSource(
+                code=unit.code,
+                subdivision=unit.subdivision,
+                name=unit.name,
+                level=unit.level,
+                definition=unit.definition,
+            )
+            for unit in edit.cited
+        ]
     labels = [FIELD_LABELS[name] for name in draft.changed]
     fields = [to_camel(name) for name in draft.changed]
     if draft.stages is not None:
@@ -1017,6 +1028,7 @@ def _result(draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
         suggestion=PostingSuggestion(
             content=draft.content, stages=draft.stages, required_extras=draft.required_extras, changed_fields=fields
         ),
+        ncs_sources=sources,
     )
 
 

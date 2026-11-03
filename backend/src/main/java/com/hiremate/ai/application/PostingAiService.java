@@ -6,6 +6,7 @@ import com.hiremate.posting.PostingFocus;
 import com.hiremate.posting.PostingService;
 import com.hiremate.posting.PostingView;
 import com.hiremate.recruit.RecruitmentStatus;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -40,23 +41,25 @@ public class PostingAiService {
     public PostingAiAnswer request(UUID companyId, UUID recruitmentId, String message, PostingFocus focus) {
         PostingDraftContext context = postings.draftContext(companyId, recruitmentId);
         if (context.status() != RecruitmentStatus.DRAFT) {
-            return answer(PUBLISHED_REPLY, postings.view(companyId, recruitmentId));
+            return answer(PUBLISHED_REPLY, postings.view(companyId, recruitmentId), List.of());
         }
         if (focus != null && !focus.isIn(context.content())) {
-            return answer(FOCUS_MISSING_REPLY, postings.view(companyId, recruitmentId));
+            return answer(FOCUS_MISSING_REPLY, postings.view(companyId, recruitmentId), List.of());
         }
         PostingAgent.Result result = agent.revise(context,
                 companies.postingSettings(companyId).writingStyle(), message, focus);
         PostingView posting = result.suggestion() == null
                 ? postings.view(companyId, recruitmentId)
                 : postings.suggest(companyId, recruitmentId, result.suggestion());
-        return answer(result.reply(), posting);
+        return answer(result.reply(), posting, result.ncsSources());
     }
 
-    private PostingAiAnswer answer(String reply, PostingView posting) {
-        return new PostingAiAnswer(reply, "Posting Agent", settings.isStub(AiAgent.POSTING), posting);
+    private PostingAiAnswer answer(String reply, PostingView posting, List<PostingAgent.NcsSource> ncsSources) {
+        return new PostingAiAnswer(reply, "Posting Agent", settings.isStub(AiAgent.POSTING), posting, ncsSources);
     }
 
-    public record PostingAiAnswer(String reply, String agent, boolean stub, PostingView posting) {
+    /** ncsSources는 자격 요건 · 우대 사항을 쓴 NCS 근거다. Chat이 답 아래에 접어 보여 준다. */
+    public record PostingAiAnswer(String reply, String agent, boolean stub, PostingView posting,
+            List<PostingAgent.NcsSource> ncsSources) {
     }
 }

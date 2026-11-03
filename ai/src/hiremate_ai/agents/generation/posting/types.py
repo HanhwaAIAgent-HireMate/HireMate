@@ -83,8 +83,25 @@ class PostingSuggestion(ContractModel):
     changed_fields: list[str]
 
 
+class NcsSource(ContractModel):
+    """PostingAgent.NcsSource. 자격 요건 · 우대 사항을 쓸 때 근거로 삼은 NCS 능력단위.
+
+    Chat에는 접어서 보여 주고, HR이 펼치면 세분류 · 능력단위 · 수준 · 정의를 읽는다.
+    """
+
+    code: str
+    subdivision: str
+    name: str
+    level: int
+    definition: str
+
+
 class RevisionResult(ContractModel):
-    """PostingAgent.Result. reply는 Chat에 보여 줄 답이고, 되묻거나 처리할 수 없는 요청이면 suggestion이 null이다."""
+    """PostingAgent.Result. reply는 Chat에 보여 줄 답이고, 되묻거나 처리할 수 없는 요청이면 suggestion이 null이다.
+
+    ncs_sources는 수정안의 자격 요건 · 우대 사항을 쓴 NCS 근거다. 답 문장에 넣으면 길어서 따로 보낸다.
+    """
 
     reply: str
     suggestion: PostingSuggestion | None
+    ncs_sources: list[NcsSource] = []

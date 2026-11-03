@@ -583,10 +583,13 @@ async def test_revise_writes_requirements_from_picked_ncs_units_and_cites_them()
     ]
     assert result.suggestion.content.preferred == ["SQL로 응용 기능에 맞는 데이터 처리 경험"]
     assert result.suggestion.changed_fields == ["qualifications", "preferred"]
-    assert result.reply == (
-        "자격 요건, 우대 사항 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요.\n"
-        "근거(NCS): 응용SW엔지니어링 · 서버프로그램 구현, DB엔지니어링 · SQL응용"
-    )
+    assert result.reply == "자격 요건, 우대 사항 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
+    # NCS 근거는 답 문장에 넣지 않고 따로 보내 화면이 접어 보여 준다
+    assert [(source.subdivision, source.name) for source in result.ncs_sources] == [
+        ("응용SW엔지니어링", "서버프로그램 구현"),
+        ("DB엔지니어링", "SQL응용"),
+    ]
+    assert all(source.code and source.definition and source.level for source in result.ncs_sources)
 
 
 @pytest.mark.parametrize(
@@ -643,7 +646,7 @@ async def test_revise_accepts_ncs_codes_with_a_wrong_version() -> None:
 
     result = await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
 
-    assert result.reply.endswith("근거(NCS): 응용SW엔지니어링 · 서버프로그램 구현")
+    assert [source.name for source in result.ncs_sources] == ["서버프로그램 구현"]
     assert SERVER in llm.calls[2].user
 
 
@@ -949,9 +952,9 @@ async def test_revise_tells_when_ncs_writer_writes_fewer_items() -> None:
     assert result.suggestion.content.qualifications == [item.text for item in items(2)]
     assert result.reply == (
         "자격 요건 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요.\n"
-        "자격 요건은 근거를 찾을 수 있는 2개만 썼어요.\n"
-        "근거(NCS): 응용SW엔지니어링 · 서버프로그램 구현"
+        "자격 요건은 근거를 찾을 수 있는 2개만 썼어요."
     )
+    assert [source.name for source in result.ncs_sources] == ["서버프로그램 구현"]
 
 
 async def test_revise_writes_at_most_the_limit_and_says_so() -> None:
@@ -1135,10 +1138,10 @@ async def test_revise_says_requirements_fit_juniors_when_career_was_left_blank()
 
     assert result.suggestion is not None
     assert result.suggestion.content.career == ""
-    # 안내는 한 줄씩, 길어지는 NCS 근거는 맨 끝이라 경력 안내가 묻히지 않는다
-    lines = result.reply.split("\n")
-    assert CAREER_UNSET_NOTE in lines
-    assert lines[-1].startswith("근거(NCS): ")
+    # 안내는 한 줄씩 보이고, NCS 근거는 답 문장 밖에 따로 있어 경력 안내가 묻히지 않는다
+    assert CAREER_UNSET_NOTE in result.reply.split("\n")
+    assert "NCS" not in result.reply
+    assert result.ncs_sources
 
 
 async def test_revise_writes_one_job_as_the_posting_body_even_if_routed_to_roles() -> None:

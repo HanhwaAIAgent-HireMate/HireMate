@@ -4,6 +4,7 @@ from hiremate_ai.agents.generation.posting.poster import propose_poster
 from hiremate_ai.agents.generation.posting.poster_chat import design_poster
 from hiremate_ai.agents.generation.posting.reviser import revise_posting
 from hiremate_ai.agents.generation.posting.types import (
+    NcsSource,
     PostingDraftContext,
     PostingFocus,
     PostingSuggestion,
@@ -13,6 +14,7 @@ from hiremate_ai.agents.generation.posting.types import (
 )
 
 __all__ = [
+    "NcsSource",
     "PostingDraftContext",
     "PostingFocus",
     "PostingSuggestion",

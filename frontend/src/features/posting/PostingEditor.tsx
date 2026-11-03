@@ -260,7 +260,13 @@ export function PostingEditor({
       }
       setMessages((current) => [
         ...current,
-        { role: 'ai', text: answer.reply, agent: answer.agent, stub: answer.stub },
+        {
+          role: 'ai',
+          text: answer.reply,
+          agent: answer.agent,
+          stub: answer.stub,
+          sources: answer.ncsSources,
+        },
       ])
     } catch (error) {
       setMessages((current) => [...current, { role: 'ai', text: errorMessage(error) }])

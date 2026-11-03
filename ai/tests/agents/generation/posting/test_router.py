@@ -125,6 +125,7 @@ def test_revise_returns_backend_result_shape() -> None:
             "requiredExtras": None,
             "changedFields": ["preferred"],
         },
+        "ncsSources": [],
     }
 
 
@@ -149,7 +150,7 @@ def test_revise_returns_null_suggestion_when_nothing_changes() -> None:
 
     response = client(llm).post("/agents/posting/revise", json=body("음"))
 
-    assert response.json() == {"reply": NOTHING_CHANGED_REPLY, "suggestion": None}
+    assert response.json() == {"reply": NOTHING_CHANGED_REPLY, "suggestion": None, "ncsSources": []}
 
 
 def test_revise_rejects_unknown_status() -> None:

@@ -5,6 +5,8 @@ import { api, unwrap, type Schemas } from '@/lib/api/client'
 export type Posting = Schemas['PostingView']
 export type PostingContent = Schemas['PostingContent']
 export type PostingFocus = Schemas['PostingFocus']
+/** 공고 AI 수정안의 자격 요건 · 우대 사항을 쓴 NCS 근거 */
+export type NcsSource = Schemas['NcsSource']
 export type PublicPosting = Schemas['PublicPostingView']
 export type RequiredDocument = Schemas['RequiredDocument']
 /** 서류 필수 조건. HR이 공고 작성 화면에서 '필수'로 표시한 줄이다. 지원자에게는 보내지 않는다 */

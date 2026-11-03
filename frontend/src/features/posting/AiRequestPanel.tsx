@@ -1,15 +1,20 @@
-import { ArrowUp, AtSign, Bot, History, Sparkles, X } from 'lucide-react'
+import { ArrowUp, AtSign, BookOpen, Bot, ChevronDown, History, Sparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
+import type { NcsSource } from '@/features/posting/api'
 import { cn } from '@/lib/utils'
 
-/** focus는 HR이 줄을 골라 보낸 요청의 줄 이름이다 (예: 우대 사항 3번) */
+/**
+ * focus는 HR이 줄을 골라 보낸 요청의 줄 이름이다 (예: 우대 사항 3번).
+ * sources는 AI가 자격 요건 · 우대 사항을 쓴 NCS 근거다. 답 아래에 접어 보여 준다
+ */
 export type AiMessage = {
   role: 'user' | 'ai'
   text: string
   agent?: string
   stub?: boolean
   focus?: string
+  sources?: NcsSource[]
 }
 
 /**
@@ -96,6 +101,9 @@ export function AiRequestPanel({
               <Sparkles className="mt-0.5 size-4 shrink-0 text-ai" />
               <div className="space-y-1.5">
                 <p className="whitespace-pre-wrap">{message.text}</p>
+                {message.sources && message.sources.length > 0 && (
+                  <NcsSources sources={message.sources} />
+                )}
                 {message.agent && <AgentChip name={message.agent} stub={message.stub} />}
               </div>
             </div>
@@ -151,6 +159,33 @@ export function AiRequestPanel({
         </button>
       </form>
     </aside>
+  )
+}
+
+/** AI가 쓴 자격 요건 · 우대 사항의 NCS 근거. 접어 두고, 누르면 능력단위마다 세분류 · 수준 · 정의를 보여 준다 */
+function NcsSources({ sources }: { sources: NcsSource[] }) {
+  return (
+    <details className="group rounded-lg border text-xs">
+      <summary className="flex cursor-pointer list-none items-center gap-1 px-2.5 py-1.5 text-muted-foreground hover:text-foreground">
+        <BookOpen className="size-3.5" />
+        NCS 근거 {sources.length}개
+        <ChevronDown className="ml-auto size-3.5 transition-transform group-open:rotate-180" />
+      </summary>
+      <ul className="space-y-2 border-t px-2.5 py-2">
+        {sources.map((source) => (
+          <li key={source.code}>
+            <div className="font-medium">
+              {source.name}
+              <span className="font-normal text-muted-foreground">
+                {' '}
+                · {source.subdivision} · 수준 {source.level}
+              </span>
+            </div>
+            <p className="mt-0.5 leading-5 text-muted-foreground">{source.definition}</p>
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 
