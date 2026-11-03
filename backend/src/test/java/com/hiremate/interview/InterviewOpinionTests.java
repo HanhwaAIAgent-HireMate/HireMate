@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
+import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -15,8 +16,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 
 /**
- * 면접관 의견(추천도 + 이유). 배정된 면접관만 쓰고, 다른 면접관의 의견은 내 의견을 저장한 뒤에 보인다.
- * HR은 언제나 모든 의견을 본다. 결정은 HR이 하고, 의견은 AI에 넘기지 않는다.
+ * 면접관 의견(추천도 + 이유). 배정된 면접관이 내 면접을 마친 뒤에 쓰고, 다른 면접관의 의견은 내 의견을 저장한 뒤에
+ * 보인다. HR은 언제나 모든 의견을 본다. 결정은 HR이 하고, 의견은 AI에 넘기지 않는다.
  */
 class InterviewOpinionTests extends IntegrationTest {
 
@@ -26,7 +27,7 @@ class InterviewOpinionTests extends IntegrationTest {
     @Test
     @DisplayName("다른 면접관의 의견은 내 의견을 저장하기 전에는 제출 여부만 보이고, HR은 모두 본다")
     void opinionsStayHiddenUntilOwnIsSaved() throws Exception {
-        Room room = room();
+        Room room = ended();
 
         JsonNode before = json(expect(room.kim().get(room.opinions()), 200));
         assertThat(before).hasSize(2);
@@ -57,7 +58,7 @@ class InterviewOpinionTests extends IntegrationTest {
     @Test
     @DisplayName("의견을 고치면 수정됨으로 보이고, 이유가 없거나 배정되지 않았거나 결과를 확정했으면 저장하지 않는다")
     void validatesAndMarksEdits() throws Exception {
-        Room room = room();
+        Room room = ended();
         String mine = room.opinions() + "/me";
 
         expect(room.kim().put(mine, Map.of("recommendation", "RECOMMEND", "comment", " ")), 400);
@@ -80,6 +81,26 @@ class InterviewOpinionTests extends IntegrationTest {
                 .path("code").asString()).isEqualTo("STAGE_NOT_ACTIVE");
     }
 
+    @Test
+    @DisplayName("의견은 내 면접을 마친 뒤에 쓰고, 불참한 지원자에게는 쓰지 않는다")
+    void opinionsWaitForOwnInterviewEnd() throws Exception {
+        Room room = room();
+        String mine = room.opinions() + "/me";
+        Map<String, String> opinion = Map.of("recommendation", "RECOMMEND", "comment", "면접 전 의견");
+
+        assertThat(code(room.kim().put(mine, opinion))).isEqualTo("INTERVIEW_NOT_ENDED");
+        start(room);
+        assertThat(code(room.kim().put(mine, opinion))).isEqualTo("INTERVIEW_NOT_ENDED");
+        // 먼저 마친 면접관은 상대가 아직 면접 중이어도 의견을 쓴다
+        expect(room.kim().post(room.session() + "/end", null), 200);
+        expect(room.kim().put(mine, opinion), 200);
+        assertThat(code(room.people().put(mine, opinion))).isEqualTo("INTERVIEW_NOT_ENDED");
+
+        Room absent = room();
+        expect(absent.kim().post(absent.session() + "/absent", null), 200);
+        assertThat(code(absent.kim().put(absent.opinions() + "/me", opinion))).isEqualTo("INTERVIEW_ABSENT");
+    }
+
     /** kim은 실무 면접관, people은 인사 면접관이다. */
     private record Room(Interview interview, TestApi kim, TestApi people) {
 
@@ -87,13 +108,31 @@ class InterviewOpinionTests extends IntegrationTest {
             return interview.hr();
         }
 
+        String session() {
+            return "/api/interviewer/sessions/" + interview.stageId() + "/" + interview.applicationId();
+        }
+
         String opinions() {
-            return "/api/interviewer/sessions/" + interview.stageId() + "/" + interview.applicationId()
-                    + "/opinions";
+            return session() + "/opinions";
         }
     }
 
-    /** 인사는 면접관 최인사, 실무는 면접관 김지민으로 배정한 면접. */
+    /** 두 면접관이 모두 마친 면접. */
+    private Room ended() throws Exception {
+        Room room = room();
+        start(room);
+        expect(room.kim().post(room.session() + "/end", null), 200);
+        expect(room.people().post(room.session() + "/end", null), 200);
+        return room;
+    }
+
+    /** 두 면접관이 [준비 완료]를 눌러 면접을 시작한다. */
+    private static void start(Room room) throws Exception {
+        expect(room.kim().post(room.session() + "/ready", null), 200);
+        expect(room.people().post(room.session() + "/ready", null), 200);
+    }
+
+    /** 인사는 면접관 최인사, 실무는 면접관 김지민으로 배정하고 일시를 정한 면접. 미리 만드는 질문이 다 들어온 뒤다. */
     private Room room() throws Exception {
         Interview interview = interviewStage();
         TestApi kim = newInterviewer(interview.hr(), "김지민");
@@ -103,7 +142,21 @@ class InterviewOpinionTests extends IntegrationTest {
         body.put("practicalMemberId", kim.memberId().toString());
         body.put("expectedVersion", null);
         expect(interview.hr().put(interview.stage() + "/interview/assignment", body), 200);
+        Map<String, Object> schedule = new HashMap<>();
+        schedule.put("scheduledAt", "2026-11-20T05:00:00Z");
+        schedule.put("interviewers", "");
+        expect(interview.hr().put(interview.candidate() + "/interview/schedule", schedule), 200);
+        long deadline = System.currentTimeMillis() + 15_000;
+        while (System.currentTimeMillis() < deadline && (json(expect(interview.hr().get(interview.candidate()
+                + "/interview/preparing"), 200)).path("preparing").asBoolean() || json(expect(interview.hr()
+                .get(interview.candidate() + "/interview"), 200)).path("questions").isEmpty())) {
+            Thread.sleep(200);
+        }
         return new Room(interview, kim, people);
+    }
+
+    private static String code(HttpResponse<String> response) {
+        return json(expect(response, 409)).path("code").asString();
     }
 
     private static JsonNode entry(JsonNode opinions, String role) {
