@@ -15,10 +15,12 @@ from hiremate_ai.agents.generation.report.repair import repair
 from hiremate_ai.agents.generation.report.skills import catalog
 from hiremate_ai.agents.generation.report.spec import ReportSpec
 from hiremate_ai.agents.generation.report.tools import TOOLS, ReportScope
+from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ContractModel, StageType
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import LlmClient
+from hiremate_ai.llm.prompt import data_block
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,9 @@ REWRITE = (
     "설계서에 고칠 점이 있다. 아래 문제만 고치고, 문제가 없는 섹션과 부품은 그대로 두어 설계서 전체를 다시 낸다:\n"
 )
 """고쳐 쓰기 지시. 고치다가 앞에서 맞춘 부품을 빼 버리지 않게 한다."""
+MAX_FOCUS = 40
+"""요청 관점 글자 수. 관점은 '협업'처럼 짧은 말이라, 긴 글은 잘라 지시문을 끼워 넣지 못하게 한다."""
+BLOCKED_FOCUS = "요청 관점에 채용 판단에 쓰면 안 되는 조건이 있어 관점 없이 만듦"
 
 SYSTEM = """너는 채용 담당자가 읽을 리포트를 설계하는 Report Agent다.
 글만 쓰지 않는다. 정해진 부품(kpi · bar · stacked · radar · distribution · donut · cross · share · composition ·
@@ -78,7 +83,8 @@ class ComposedReport(ContractModel):
 
 async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport:
     """묶음으로 리포트 설계서를 만든다. 채용 상태는 바꾸지 않는다."""
-    scope = ReportScope(bundle=bundle)
+    bundle, guarded = guard_focus(bundle)
+    scope = ReportScope(bundle=bundle, log=guarded)
     agent = llm.tool_agent(
         ReportSpec,
         agent=AGENT,
@@ -135,6 +141,18 @@ async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport
     )
 
 
+def guard_focus(bundle: ReportBundle) -> tuple[ReportBundle, list[str]]:
+    """모델에 넘기기 전에 요청 관점을 코드가 검사한다. 줄바꿈을 없애고 MAX_FOCUS자로 자른다.
+
+    리포트 창의 비교 요청은 Root를 거치지 않으므로, 차별 조건(규칙 6)이 든 관점은 여기서 빼고 화면의 작업 과정에 남긴다.
+    """
+    focus = " ".join(bundle.focus.split())[:MAX_FOCUS]
+    if focus and blocked_attribute(focus):
+        logger.info("차별 조건이 든 요청 관점을 빼고 리포트를 만든다")
+        return bundle.model_copy(update={"focus": ""}), [BLOCKED_FOCUS]
+    return (bundle if focus == bundle.focus else bundle.model_copy(update={"focus": focus})), []
+
+
 def steps(scope: ReportScope, finished: list[str]) -> list[str]:
     """화면의 AI 작업 과정. 읽은 스킬, 도구로 읽은 자료, 검사 · 보완 순서다."""
     lines = [f"지침 {len(scope.skills)}개를 읽음 ({', '.join(scope.skills)})"] if scope.skills else []
@@ -187,7 +205,8 @@ def request(bundle: ReportBundle) -> str:
             "bar · stacked · distribution · position · donut은 쓰지 않는다 (compare 스킬의 '점수가 없을 때')."
         )
     if bundle.focus:
-        lines.append(f"요청 관점: {bundle.focus}")
+        # 담당자가 적은 말이라 지시로 읽지 않게 자료 블록으로 넣는다
+        lines.append("요청 관점 (관점 이름으로만 쓴다):\n" + data_block("focus", bundle.focus))
     if len(bundle.stages) > 1 and bundle.kind is not ReportKind.FINAL:
         lines.append(f"범위: {', '.join(stage.name for stage in bundle.stages)}")
     if bundle.kind is not ReportKind.COMPARE and not bundle.brief and (found := hints(bundle)):

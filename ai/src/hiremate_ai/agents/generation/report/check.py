@@ -104,6 +104,14 @@ _KEY_NAME = re.compile(r"(?<![A-Za-z_])[a-z]+[0-9]*\.[a-z_*][a-z0-9_.*-]*")
 """값 key 이름(document.criterion.Q-05). 제목에는 담당자가 쓰는 말로 쓴다."""
 _INNER_WORD = re.compile(r"선 위|선 아래|경계 그룹|판정 교차|값 정리|조각 지표")
 """개발하며 쓰던 말. 리포트만 보는 담당자는 뜻을 모른다."""
+_VERDICT_WORD = re.compile(
+    r"부분\s*충족|미충족|확인\s*필요|보류|(?<![부미])충족(?!\s*(?:하지|하진|못|여부|을|이\s*아))"
+)
+"""갈린 이유 문장 속 판정 말. '충족하지 못했어요'처럼 뒤에서 뒤집는 말은 판정으로 읽지 않는다."""
+_VERDICT_WORDS = {"부분": "PARTIAL", "미충족": "NOT_MET", "확인": "UNKNOWN", "보류": "UNKNOWN", "충족": "MET"}
+_VERDICT_LABELS = {"MET": "충족", "PARTIAL": "부분 충족", "NOT_MET": "미충족", "UNKNOWN": "확인 필요"}
+_JOINED = re.compile(r"[\s()가-힣]{0,4}(?:와|과|,|·|및)\s*")
+"""지원자번호 사이를 묶는 말. 'A-0004와 A-0006은 부분 충족'은 두 사람 모두의 판정이다."""
 MAX_KEYWORDS = 4
 MAX_KEYWORD_LENGTH = 20
 
@@ -541,10 +549,16 @@ def sentence_problems(label: str, text: str, allowed_numbers: set[str]) -> list[
 
 
 def _split_problems(spec: ReportSpec, bundle: ReportBundle) -> list[str]:
-    """갈린 이유는 판정이 갈린 항목에만, 비교 대상의 근거 id로 쓴다."""
+    """갈린 이유는 판정이 갈린 항목에만, 비교 대상의 근거 id로 쓴다. 문장 속 판정은 묶음의 판정과 같아야 한다."""
     keys = set(split_keys(bundle))
     owners = {item.id: item.applicant for item in bundle.evidence}
     found = []
+    if keys and not spec.splits and not bundle.brief:
+        found.append(
+            f"판정이 갈린 항목({', '.join(sorted(keys))})이 있는데 splits가 비었다. "
+            "갈린 항목마다 splits에 누가 무엇이 달랐는지 한 문장씩 쓴다"
+        )
+    verdicts = {(fact.applicant, fact.key): fact.value for fact in bundle.facts}
     for index, split in enumerate(spec.splits):
         if split.key not in keys:
             found.append(
@@ -552,7 +566,39 @@ def _split_problems(spec: ReportSpec, bundle: ReportBundle) -> list[str]:
             )
         if unknown := [id_ for id_ in split.evidence if owners.get(id_) not in bundle.targets]:
             found.append(f"splits[{index}]: 없는 근거 id: {', '.join(unknown)}")
+        for number, said in verdict_claims(split.text):
+            actual = verdicts.get((number, split.key))
+            if actual in _VERDICT_LABELS and actual != said:
+                found.append(
+                    f"splits[{index}]: {number}의 판정은 {_VERDICT_LABELS[str(actual)]}인데 "
+                    f"{_VERDICT_LABELS[said]}(으)로 썼다. 묶음의 판정대로 쓴다"
+                )
     return found
+
+
+def verdict_claims(text: str) -> list[tuple[str, str]]:
+    """문장에서 '지원자번호 … 판정 말'을 짝지은 것. 다음 지원자번호가 나오기 전의 첫 판정 말을 그 지원자 것으로 본다."""
+    claims: list[tuple[str, str]] = []
+    waiting: list[str] = []
+    position = 0
+    tokens = sorted(
+        [(m.start(), True, m.group()) for m in _APPLICANT.finditer(text)]
+        + [(m.start(), False, m.group()) for m in _VERDICT_WORD.finditer(text)]
+    )
+    for start, is_applicant, value in tokens:
+        if start < position:
+            continue
+        if is_applicant:
+            if waiting and not _JOINED.fullmatch(text[position:start]):
+                waiting = []
+            waiting.append(value)
+        elif waiting:
+            word = value.replace(" ", "")
+            code = next(code for prefix, code in _VERDICT_WORDS.items() if word.startswith(prefix))
+            claims += [(number, code) for number in waiting]
+            waiting = []
+        position = start + len(value)
+    return claims
 
 
 def _texts(spec: ReportSpec) -> Iterable[tuple[str, str]]:
