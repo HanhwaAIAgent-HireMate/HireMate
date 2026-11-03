@@ -14,7 +14,7 @@ import {
   useNotices,
   type Notice,
 } from '@/features/notice/api'
-import { NEXT_STAGE_GUIDE_ID, NextStageGuide } from '@/features/notice/StageGuides'
+import { NextStageGuide } from '@/features/notice/StageGuides'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import {
   toReportView,
@@ -178,7 +178,7 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
               {next?.type === 'INTERVIEW' && counts.pass > 0 && (
                 <InterviewSchedulingStatus
                   stageId={overview.stageId}
-                  guidesPath={`${base}/close#${NEXT_STAGE_GUIDE_ID}`}
+                  guidesPath={`/hr/recruitments/${overview.recruitmentId}/posting#stage-guides`}
                 />
               )}
               {!notices && <Skeleton className="h-20 w-full" />}

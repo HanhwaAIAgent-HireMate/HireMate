@@ -129,7 +129,7 @@ function ConfirmDialog({
         {next?.type === 'INTERVIEW' && pass > 0 && (
           <p className="text-sm text-muted-foreground">
             확정하면 합격자 {pass}명의 {next.name} 질문과 면접 일정을 백그라운드에서 준비해요.
-            일정은 공고의 전형별 안내 날짜부터 평일 09~11시·14~17시에 1시간씩 배정해요. 다음 전형은
+            일정은 다음 전형 안내의 날짜부터 평일 09~11시·14~17시에 1시간씩 배정해요. 다음 전형은
             안내 발송 후 별도로 시작해요.
           </p>
         )}
