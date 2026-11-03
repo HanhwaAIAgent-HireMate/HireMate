@@ -157,28 +157,8 @@ class CertificateStatus(StrEnum):
     ISSUER_VERIFIED = "ISSUER_VERIFIED"  # 발급기관 확인
 
 
-class QualificationStatus(StrEnum):
-    """자격요건 75% 통과 판단. 점수 계산과 따로 둔다. 부분 충족은 0.5개로 센다."""
-
-    PASSED = "PASSED"
-    FAILED = "FAILED"
-    UNDETERMINED = "UNDETERMINED"  # 확인 필요 항목에 따라 결과가 갈린다 (분석 전도 여기)
-
-
-class ScoreStatus(StrEnum):
-    """총점 확정 상태. 서류를 읽지 못했거나 확인 필요가 남으면 보류다."""
-
-    CONFIRMED = "CONFIRMED"
-    HELD = "HELD"
-
-
 class ApplicantInfo(ContractModel):
-    """전형 화면의 지원자 한 명 (apply.ApplicantInfo). 분석 전이면 경력 · 점수가 None이다.
-
-    passed는 자격요건 75% 통과가 확정됐는지, held는 총점을 보류했는지다. 보류면 document_score가 None이다.
-    document_score는 서류 평가 총점(자격요건 50 + 우대사항 50, 소수 첫째 자리)이다.
-    *_low는 확인 필요를 0점으로 넣어 계산한 점수다. 보류 지원자의 점수 표시와 정렬에 쓴다.
-    """
+    """전형 화면의 지원자 한 명 (apply.ApplicantInfo). 분석 전이면 경력이 None이다. 서류는 점수를 매기지 않는다."""
 
     application_id: UUID
     recruitment_id: UUID
@@ -187,17 +167,7 @@ class ApplicantInfo(ContractModel):
     email: str
     career_years: int | None
     last_company: str | None
-    document_score: float | None
-    document_score_low: float | None = None
-    passed: bool
-    held: bool = False
     shortfalls: list[str] = []  # 채우지 못한 자격요건의 짧은 표시 (예: 신입, 경력 확인 필요)
-    qualification_status: QualificationStatus = QualificationStatus.UNDETERMINED
-    qualification_score: float | None = None
-    qualification_score_low: float | None = None
-    qualification_max: int = 0
-    preference_score: float | None = None
-    preference_max: int = 0
     analysis_status: AnalysisStatus
     submitted_at: datetime
 
@@ -295,21 +265,17 @@ class Evidence(ContractModel):
 
 
 class CriterionLine(ContractModel):
-    """평가 항목 하나의 판정 (CandidateAnalysis.CriterionLine).
+    """평가 항목 하나의 판정 (CandidateAnalysis.CriterionLine). 점수는 매기지 않는다.
 
-    fulfillment는 1 · 0.5 · 0이고 확인 필요면 None이다. allotted는 배점(영역 만점 ÷ 영역 항목 수),
-    earned는 획득 점수이고 확인 필요면 None이다. career_years는 경력 기간 조건에서 코드가 계산한 관련 경력이다.
+    career_years는 경력 기간 조건에서 코드가 계산한 관련 경력이다.
     """
 
     criterion_id: str
     category: CriterionCategory
     text: str
-    important: bool  # 평가 기준의 중요 표시. 점수에는 쓰지 않는다
+    important: bool  # 평가 기준의 중요(필수) 표시
     criterion_type: CriterionType
     verdict: Verdict
-    fulfillment: float | None
-    allotted: float
-    earned: float | None
     reason: str
     satisfied_parts: list[str]
     unsatisfied_parts: list[str]
@@ -318,6 +284,8 @@ class CriterionLine(ContractModel):
     recheck_count: int
     career_years: int | None
     certificate_status: CertificateStatus | None
+    # 근거의 정량 지표(숫자로 된 성과 · 규모, 원문 그대로). 경험형 항목은 경험과 지표가 함께 있어야 상이다
+    metric: str = ""
 
 
 class SummarySection(ContractModel):
@@ -333,9 +301,7 @@ class SummarySection(ContractModel):
 class CandidateAnalysis(ContractModel):
     """지원자 카드의 AI 분석 요약 (ai.application.CandidateAnalysis). 근거가 없으면 확인 필요로 둔다.
 
-    holds는 총점을 보류한 이유다. 보류가 아니면 비어 있다.
-    document_score는 총점(자격요건 + 우대사항, 0~100)이고 보류면 None이다. 영역 점수는 확인 필요가 있으면 None이다.
-    *_low는 확인 필요를 0점으로 넣어 계산한 점수이고(보류 점수), 평가하지 못했거나 영역이 없으면 None이다.
+    holds는 확인 필요로 남은 항목이다 (서류를 읽지 못했으면 그 사실). 점수는 매기지 않는다.
     criteria는 항목별 판정이다. 분석 전이거나 서류를 읽지 못했으면 비어 있다.
     summaries는 자기소개서 문항별 요약이다. 판단 없이 무엇을 썼는지만 담는다.
     """
@@ -345,17 +311,6 @@ class CandidateAnalysis(ContractModel):
     checks: list[Finding]
     holds: list[Finding]
     criteria_version: str | None
-    score_status: ScoreStatus
-    document_score: float | None
-    document_score_low: float | None = None
-    qualification_status: QualificationStatus
-    qualification_rate: float | None
-    qualification_score: float | None
-    qualification_score_low: float | None = None
-    qualification_max: int
-    preference_score: float | None
-    preference_score_low: float | None = None
-    preference_max: int
     criteria: list[CriterionLine]
     summaries: list[SummarySection]
     highlights: list[Evidence]
@@ -391,12 +346,12 @@ class CompanyFactors(ContractModel):
 
 
 class TalentLevel(StrEnum):
-    """인재상 하나에 맞는 정도. 서류에 근거가 없으면 UNKNOWN이다 (LOW로 바꾸지 않는다)."""
+    """인재상 하나에 맞는 정도. 정량 지표가 있는 경험을 가장 높게 친다. 서류에서 경험이 확인되지 않으면 LOW다."""
 
-    HIGH = "HIGH"  # 상: 본인이 직접 한 구체 경험이 있다
-    MID = "MID"  # 중: 관련 경험은 있지만 팀 성과이거나 본인 역할 · 결과가 분명하지 않다
-    LOW = "LOW"  # 하: 관련 언급은 있지만 구체 경험이 없다
-    UNKNOWN = "UNKNOWN"  # 확인 필요
+    HIGH = "HIGH"  # 상: 본인이 직접 한 경험과 정량 지표(숫자로 된 성과 · 규모)가 함께 있다
+    MID = "MID"  # 중: 관련 경험은 있지만 정량 지표가 없거나, 팀 성과이거나 본인 역할이 분명하지 않다
+    LOW = "LOW"  # 하: 서류에서 관련 경험이 확인되지 않는다 (다짐 · 자기 평가만 있거나 근거가 없다)
+    UNKNOWN = "UNKNOWN"  # 확인 필요: 분석이 없거나 근거 번호가 맞지 않아 판정하지 못했다
 
 
 class TalentFitRequest(ContractModel):
@@ -409,13 +364,17 @@ class TalentFitRequest(ContractModel):
 
 
 class TalentFitItem(ContractModel):
-    """인재상 하나의 판정 (TalentFit.Item). evidence는 무엇을 했는지 짧게, quote는 원문 문장이다."""
+    """인재상 하나의 판정 (TalentFit.Item).
+
+    evidence는 무엇을 했는지 짧게, quote는 원문 문장, metric은 상일 때 근거의 정량 지표다.
+    """
 
     title: str
     level: TalentLevel
     evidence: str
     reason: str
     quote: str | None
+    metric: str = ""
 
 
 class TalentFit(ContractModel):

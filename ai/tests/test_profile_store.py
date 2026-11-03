@@ -74,12 +74,7 @@ async def test_saves_application_analysis(
 
     assert profile.company_id == sample_company.company_id
     assert profile.status == ProfileStatus.DONE
-    assert (profile.career_years, profile.last_company, profile.document_score, profile.passed) == (
-        4,
-        "한빛카드",
-        88,
-        True,
-    )
+    assert (profile.career_years, profile.last_company) == (4, "한빛카드")
     assert len(profile.items) == 5
     assert {item.agent for item in profile.items} == {ItemAgent.APPLICATION}
     domain = next(item for item in profile.items if item.category == ItemCategory.DOMAIN)
@@ -102,7 +97,7 @@ async def test_saves_all_sample_applicants_as_given(
         sample = SAMPLE_PROFILES[applicant.info.name]
         profile = saved[applicant.info.application_id]
         # 받은 값을 그대로 저장한다. 근거가 모두 원문에 있으므로 버려지는 항목도 없다
-        assert profile.document_score == sample.fields.document_score
+        assert profile.career_years == sample.fields.career_years
         assert len(profile.items) == len(sample.items)
     # 문서 본문이 빈 윤태오는 확인 필요로 남는다 (정답표 7번)
     assert saved[sample_applicants["윤태오"].info.application_id].status == ProfileStatus.CHECK
@@ -241,7 +236,6 @@ async def test_result_before_application_analysis_creates_check_profile(
     )
 
     assert profile.status == ProfileStatus.CHECK
-    assert profile.document_score is None
     assert len(profile.items) == 1
 
 

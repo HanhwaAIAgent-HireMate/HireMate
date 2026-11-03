@@ -31,7 +31,6 @@ from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 from hiremate_ai.tools.candidates import CandidateMatch, SourcedSentence
 
-SCORE_GAP = 15
 ITEM_LIMIT = 5
 RECHECK_LIMIT = 30
 # 기억하는 재확인 판정 수. 넘으면 오래된 것부터 지운다
@@ -42,7 +41,7 @@ _DOCUMENT_LABELS = {document.label for document in DocumentType}
 DEFAULT_CLARIFY = "찾을 직무 조건이나 점수 기준을 알려 주세요."
 NOT_UNDERSTOOD = "검색 결과를 확인하지 못했어요. 조건을 좁혀 다시 말씀해 주세요."
 LOCKED = "결과를 확정한 전형이라 선택 지원자를 바꿀 수 없어요. 분석이나 요약은 계속 물어볼 수 있어요."
-NO_ASSESSMENT = "이 채용에는 평가 전형이 없어요. 서류 점수나 직무 조건으로 찾아 주세요."
+NO_ASSESSMENT = "이 채용에는 평가 전형이 없어요. 직무 · 경력 조건으로 찾아 주세요."
 REPLACED = "{scope} {pool}명 중 조건에 맞는 **{{count}}명**을 선택했어요."
 ADDED = "조건에 맞는 **{count}명**을 선택 지원자에 더했어요."
 NARROWED = "{pool}명 중 **{{count}}명**으로 좁혔어요."
@@ -140,17 +139,13 @@ class SearchQuery(BaseModel):
         default_factory=list,
         description=(
             "지원자가 모두 충족해야 할 직무나 경력 조건. '금융권 경력 있는 사람'은 ['금융 업종 재직 경력']처럼 적는다. "
-            "총점은 min_score · score_source에, 영역 점수는 area_scores에, 등급은 grades에 적는다. "
+            "평가 총점은 min_score에, 영역 점수는 area_scores에, 등급은 grades에 적는다. 서류는 점수가 없다. "
             "지원자 범위는 이 query 밖의 별도 도구 인자 pool에 적는다"
         ),
     )
     min_score: int | None = Field(
         default=None,
-        description="점수 하한으로 같은 점수도 포함한다. '80점 이상'이면 80. 점수 하한 조건이 없으면 null",
-    )
-    score_source: Literal["document", "assessment"] = Field(
-        default="assessment",
-        description="점수 출처. 서류 점수는 document, 현재 평가 전형의 점수나 직무역량 평가 점수는 assessment",
+        description="평가 전형 점수 하한으로 같은 점수도 포함한다. '80점 이상'이면 80. 점수 하한 조건이 없으면 null",
     )
     area_scores: list[AreaScore] = Field(
         default_factory=list,
@@ -163,7 +158,7 @@ class SearchQuery(BaseModel):
         default_factory=list,
         description="평가 등급 조건. 'A등급만'이면 ['A'], 'B등급 이상'이면 ['A', 'B']. 등급 조건이 없으면 빈 목록",
     )
-    without_score: bool = Field(default=False, description="score_source의 점수가 입력되지 않은 지원자만 찾으면 true")
+    without_score: bool = Field(default=False, description="평가 점수가 입력되지 않은 지원자만 찾으면 true")
     min_career_years: int | None = Field(
         default=None,
         description=(
@@ -174,9 +169,6 @@ class SearchQuery(BaseModel):
     max_career_years: int | None = Field(
         default=None,
         description="전체 경력 연수 상한으로 같은 연수도 포함한다. 신입은 0, '경력 3년 이하'는 3. 조건이 없으면 null",
-    )
-    score_gap: bool = Field(
-        default=False, description="서류 점수와 현재 평가 점수의 차이가 15점 이상인 지원자를 찾으면 true"
     )
     use_talents: bool = Field(
         default=False,
@@ -252,17 +244,13 @@ def candidate_pool(query: SearchQuery, context: ChatContext, pool: Sequence[UUID
 def score_filter(
     query: SearchQuery, context: ChatContext, rows: list[CandidateRow]
 ) -> tuple[list[CandidateRow], dict[UUID, str]]:
-    """점수 조건을 적용하고 지원자별 점수 설명을 붙인다. score는 평가 전형 점수, document_scores는 서류 점수다.
-
-    점수 하한과 미입력 조건에는 명시한 score_source를 사용한다.
-    """
+    """점수 조건을 적용하고 지원자별 점수 설명을 붙인다. score는 평가 전형 점수다 (서류는 점수가 없다)."""
     notes: dict[UUID, str] = {}
-    on_document = query.score_source == "document"
     if query.min_score is not None:
         minimum = query.min_score
-        rows = [row for row in rows if (score := _score(context, row, on_document)) is not None and score >= minimum]
+        rows = [row for row in rows if (score := row.score) is not None and score >= minimum]
     if query.without_score:
-        rows = [row for row in rows if _score(context, row, on_document) is None]
+        rows = [row for row in rows if row.score is None]
     if query.area_scores:
         rows = [row for row in rows if all(_meets_area(context, row, area) for area in query.area_scores)]
     if query.grades:
@@ -282,10 +270,7 @@ def score_filter(
         parts: list[str] = []
         if (minimum_years is not None or maximum_years is not None) and row.career_years is not None:
             parts.append("신입" if row.career_years == 0 else f"경력 {row.career_years}년")
-        if on_document:
-            if (document := context.document_scores.get(row.application_id)) is not None:
-                parts.append(f"서류 {_points(document)}점")
-        elif row.score is not None:
+        if row.score is not None:
             parts.append(f"평가 {_points(row.score)}점")
         for condition in query.area_scores:
             area_score = _area_score(context, row, condition.area)
@@ -294,17 +279,6 @@ def score_filter(
             parts.append(f"{grade}등급")
         if parts:
             notes[row.application_id] = ", ".join(parts)
-    if query.score_gap:
-        gaps = []
-        for row in rows:
-            document = context.document_scores.get(row.application_id)
-            if row.score is not None and document is not None and abs(row.score - document) >= SCORE_GAP:
-                gaps.append((row, row.score, document))
-        gaps.sort(key=lambda gap: -abs(gap[1] - gap[2]))
-        rows = [row for row, _, _ in gaps]
-        for row, score, document in gaps:
-            direction = "평가가 지원서보다 높음" if score > document else "지원서에 비해 평가가 낮음"
-            notes[row.application_id] = f"평가 {_points(score)}점, 서류 {_points(document)}점, {direction}"
     return rows, notes
 
 
@@ -338,7 +312,6 @@ async def plan_find(
     has_score = (
         query.min_score is not None
         or query.without_score
-        or query.score_gap
         or bool(query.area_scores)
         or bool(query.grades)
         or query.min_career_years is not None
@@ -662,10 +635,6 @@ def _points(value: float) -> str:
     return f"{value:g}"
 
 
-def _score(context: ChatContext, row: CandidateRow, on_document: bool) -> float | None:
-    return context.document_scores.get(row.application_id) if on_document else row.score
-
-
 def _area_score(context: ChatContext, row: CandidateRow, area: str) -> float | None:
     """평가 영역 점수. 평가 전형에서 backend가 넘긴 값만 쓴다."""
     scores = context.assessments.get(row.application_id)
@@ -686,23 +655,15 @@ def _grade(context: ChatContext, row: CandidateRow) -> str | None:
 
 def _uses_assessment(query: SearchQuery) -> bool:
     """평가 전형 결과(총점 · 영역 점수 · 등급)를 쓰는 조건인가."""
-    has_filter = query.min_score is not None or query.without_score
-    return (
-        query.score_gap
-        or bool(query.area_scores)
-        or bool(query.grades)
-        or (has_filter and query.score_source == "assessment")
-    )
+    return query.min_score is not None or query.without_score or bool(query.area_scores) or bool(query.grades)
 
 
 def _score_sources(query: SearchQuery) -> list[str]:
     """명시적 점수 조건이 사용한 출처."""
-    has_filter = query.min_score is not None or query.without_score
     return [
         source
         for source, used in (
             ("평가 결과", _uses_assessment(query)),
-            ("서류 점수", query.score_gap or (has_filter and query.score_source == "document")),
             ("전형 결과", query.min_career_years is not None or query.max_career_years is not None),
         )
         if used

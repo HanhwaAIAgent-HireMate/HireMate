@@ -66,14 +66,14 @@ def test_plan_history_and_forget_use_thread() -> None:
     saver = InMemorySaver()
     llm = FakeLlm(
         form_call("edit", action="CLEAR", scope={}),
-        form_call("edit", action="RESTORE", scope={}),
+        form_call("edit", action="CLEAR", scope={}),
     )
     app.dependency_overrides[get_llm] = lambda: llm
     app.dependency_overrides[get_saver] = lambda: saver
     client = TestClient(app)
     try:
         client.post("/agents/root/plan", json=plan_request({**context, "mentions": []}, "비워줘"))
-        client.post("/agents/root/plan", json=plan_request(context, "되돌려줘"))
+        client.post("/agents/root/plan", json=plan_request(context, "다시 비워줘"))
         history = client.post("/agents/root/history", json={"threadId": context["threadId"]})
         other = client.post("/agents/root/history", json={"threadId": "다른 대화방"})
         forgotten = client.post("/agents/root/forget", json={"threadId": context["threadId"]})
@@ -83,8 +83,8 @@ def test_plan_history_and_forget_use_thread() -> None:
 
     assert 'kind="history"' in llm.calls[1].user
     turns = history.json()
-    assert [turn["message"] for turn in turns] == ["비워줘", "되돌려줘"]
-    assert turns[1]["plan"]["edit"] == "RESTORE"
+    assert [turn["message"] for turn in turns] == ["비워줘", "다시 비워줘"]
+    assert turns[1]["plan"]["edit"] == "CLEAR"
     assert turns[0]["total"] == 2
     assert turns[0]["mentions"] == []
     assert turns[1]["mentions"] == context["mentions"] != []

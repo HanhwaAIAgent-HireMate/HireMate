@@ -1,9 +1,9 @@
-"""Application Agent 흐름 (LangGraph). 준비 → 추출 · 합치기 → 판정 → 검증 → 재확인 → 계산.
+"""Application Agent 흐름 (LangGraph). 준비 → 추출 · 합치기 → 판정 → 검증 → 재확인 → 정리.
 
 Application 부분(extract)은 사실 · 본인 역할 · 수행 범위 · 근거 · 경력 기간을 뽑고 점수를 매기지 않는다.
 Assessment 부분(judge)은 자격요건 · 우대사항을 같은 판정 체계로 판정한다. 검증은 인용이 있는 충족 · 부분 충족
 판정이 근거로 받쳐지는지 보고, 재확인은 확인 필요(UNKNOWN) 항목만 1차(주변 문맥 · 본인 역할) · 2차(다른 제출 문서)로
-다시 판정한다. 점수는 계산 단계에서 코드가 합친다 (score.py). 확인 필요가 남으면 총점을 보류한다.
+다시 판정한다. 점수는 매기지 않고, 정리 단계에서 확인 필요로 남은 항목을 모은다.
 입력은 그래프 상태가 아니라 실행 context로 넘긴다. 체크포인터는 쓰지 않는다. 같은 입력이면 저장된 결과를 쓴다.
 """
 
@@ -28,7 +28,6 @@ from hiremate_ai.agents.analysis.application.judge import (
     verification_claims,
 )
 from hiremate_ai.agents.analysis.application.review import apply_to_facts, fact_claims, review_claims
-from hiremate_ai.agents.analysis.application.score import qualification_pass, scores
 from hiremate_ai.agents.analysis.application.types import (
     VERDICT_LABEL,
     Actor,
@@ -41,11 +40,11 @@ from hiremate_ai.agents.analysis.application.types import (
     Period,
 )
 from hiremate_ai.config import settings
-from hiremate_ai.contract import ApplicantDetail, CriterionCategory, PostingContent, ScoreStatus, Verdict
+from hiremate_ai.contract import ApplicantDetail, CriterionCategory, PostingContent, Verdict
 from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.llm.client import LlmClient
 
-REVIEW_VERSION = "2026-10-26.1"
+REVIEW_VERSION = "2026-11-02.1"
 # 카드의 '눈여겨볼 점' 후보로 검토하는 사실 수
 NOTABLE_CANDIDATES = 6
 NOTABLE_KINDS = ("ACHIEVEMENT", "PROJECT", "EXPERIENCE")
@@ -229,14 +228,11 @@ def _finalize(state: ReviewState, context: ReviewInput) -> ApplicationReview:
             application_id=application_id,
             readable=False,
             criteria_version=context.criteria_version,
-            score_status=ScoreStatus.HELD,
             holds=[Note(text=UNREADABLE, source="제출 문서")],
             checks=list(context.notes),
         )
     periods = state.get("periods") or []
     results = state.get("results") or []
-    computed = scores(results)
-    status, rate = qualification_pass(results)
     holds = [
         Note(
             text=f"{result.criterion_id} '{result.text}' {VERDICT_LABEL[Verdict.UNKNOWN]}: {result.reason}",
@@ -245,8 +241,6 @@ def _finalize(state: ReviewState, context: ReviewInput) -> ApplicationReview:
         for result in results
         if result.verdict == Verdict.UNKNOWN
     ]
-    if not results:
-        holds.append(Note(text="평가할 자격요건 · 우대사항이 없어 점수를 매기지 않았어요.", source="공고"))
     checks = list(context.notes)
     checks += [
         Note(
@@ -268,14 +262,6 @@ def _finalize(state: ReviewState, context: ReviewInput) -> ApplicationReview:
         career_years=career_years(periods, context.today) if periods else None,
         last_company=last_company(periods),
         criteria=results,
-        qualification_status=status,
-        qualification_rate=rate,
-        qualification_score=computed.qualification_score,
-        qualification_max=computed.qualification_max,
-        preference_score=computed.preference_score,
-        preference_max=computed.preference_max,
-        score_status=ScoreStatus.CONFIRMED if computed.total is not None and not holds else ScoreStatus.HELD,
-        document_score=computed.total if not holds else None,
         holds=holds,
         checks=checks,
     )

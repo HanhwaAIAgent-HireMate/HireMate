@@ -54,8 +54,6 @@ class ProfileFields(_Input):
     status: ProfileStatus
     career_years: int | None
     last_company: str | None
-    document_score: float | None
-    passed: bool | None  # AI 기준 통과 여부
     summary: str = ""
 
 
@@ -112,8 +110,6 @@ async def save_profile(
         profile.status = fields.status
         profile.career_years = fields.career_years
         profile.last_company = fields.last_company
-        profile.document_score = fields.document_score
-        profile.passed = fields.passed
         profile.summary = fields.summary
 
     checked = [item for item in (_checked(item, documents) for item in items) if item is not None]

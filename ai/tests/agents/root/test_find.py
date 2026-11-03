@@ -65,7 +65,7 @@ def test_search_rejects_unknown_or_malformed_modes(value: object) -> None:
     "query",
     [
         {"conditions": ["금융 업종 재직 경력"]},
-        {"minimum_score": 80, "score_source": "assessment"},
+        {"minimum_score": 80},
         {"selected": False},
         {"concepts": ["금융 업종 재직 경력"], "pool": None},
         {"concepts": ["금융 업종 재직 경력"], "pool": ["C1"]},
@@ -160,67 +160,13 @@ async def test_without_score(
     assert names(context, plan) == ["이도윤", "최지우", "한예린", "윤태오", "서민재"]
 
 
-async def test_score_gap_sorted(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = assessment_context(sample_applicants, sample_company, sample_posting)
-    scores = {
-        sample_applicants["정유민"].info.application_id: 70,
-        sample_applicants["김하늘"].info.application_id: 95,
-        sample_applicants["박서준"].info.application_id: 80,
-    }
-    context = context.model_copy(update={"document_scores": scores})
-
-    plan = await plan_find(FakeLlm(), SearchQuery(score_gap=True), context, default_toolkit())
-
-    assert names(context, plan) == ["김하늘", "정유민"]
-    assert [item.text for item in plan.items] == [
-        "평가 70점, 서류 95점, 지원서에 비해 평가가 낮음",
-        "평가 90점, 서류 70점, 평가가 지원서보다 높음",
-    ]
-    assert plan.sources == ["평가 결과", "서류 점수"]
-
-
-async def test_min_score_on_document_scores(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    # 검색 도구의 명시적 점수 출처를 사용한다.
-    context = make_context(sample_applicants, sample_company, sample_posting, message="서류 점수 80점 이상만 골라줘")
-    scores = {
-        sample_applicants["정유민"].info.application_id: 90,
-        sample_applicants["김하늘"].info.application_id: 75,
-        sample_applicants["박서준"].info.application_id: 80,
-    }
-    context = context.model_copy(update={"document_scores": scores})
-
-    plan = await plan_find(FakeLlm(), SearchQuery(min_score=80, score_source="document"), context, default_toolkit())
-
-    assert names(context, plan) == ["정유민", "박서준"]
-    assert [item.text for item in plan.items] == ["서류 90점", "서류 80점"]
-    assert plan.sources == ["서류 점수"]
-
-
-async def test_explicit_score_source_does_not_need_request_keywords(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = make_context(sample_applicants, sample_company, sample_posting, message="아까 말한 기준으로 찾아줘")
-    context = context.model_copy(update={"document_scores": {sample_applicants["정유민"].info.application_id: 90.0}})
-    query = SearchQuery(min_score=80, score_source="document")
-
-    plan = await plan_find(FakeLlm(), query, context, default_toolkit())
-
-    assert names(context, plan) == ["정유민"]
-    assert plan.sources == ["서류 점수"]
-
-
-async def test_explicit_assessment_score_source_overrides_request_words(
+async def test_min_score_uses_assessment_scores_even_when_documents_are_mentioned(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     context = assessment_context(sample_applicants, sample_company, sample_posting)
     context = context.model_copy(
         update={
-            "message": "아까 서류 점수와 비교했는데 이번에는 평가 기준으로 찾아줘",
-            "document_scores": {sample_applicants["김하늘"].info.application_id: 95.0},
+            "message": "아까 서류와 비교했는데 이번에는 평가 기준으로 찾아줘",
         }
     )
 
@@ -940,16 +886,13 @@ async def test_posting_find_reports_recheck_count(
 async def test_requested_pool_intersects_current_eligible_candidates(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
-    context = make_context(sample_applicants, sample_company, sample_posting, message="그 사람들 안에서 찾아줘")
-    context = adjust(context, 정유민={"above_line": False}, 김하늘={"decision": Decision.PASS})
-    context = context.model_copy(update={"document_scores": {row.application_id: 90.0 for row in context.candidates}})
+    context = assessment_context(sample_applicants, sample_company, sample_posting)
+    context = adjust(context, 정유민={"decision": Decision.FAIL}, 김하늘={"decision": Decision.PASS})
     pool = [sample_applicants[name].info.application_id for name in ("정유민", "김하늘", "박서준")] + [
         UUID("00000000-0000-0000-0000-000000000001")
     ]
 
-    plan = await plan_find(
-        FakeLlm(), SearchQuery(min_score=80, score_source="document"), context, default_toolkit(), pool=pool
-    )
+    plan = await plan_find(FakeLlm(), SearchQuery(min_score=80), context, default_toolkit(), pool=pool)
 
     assert names(context, plan) == ["박서준"]
 
@@ -1016,35 +959,6 @@ async def test_unloaded_previous_assessment_scores_are_not_missing_scores(
     assert plan.intent is Intent.CLARIFY
     assert plan.targets == []
     assert "불러오지" in plan.message
-
-
-async def test_document_missing_score_filter_uses_document_source(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = make_context(sample_applicants, sample_company, sample_posting, message="그 점수 없는 사람")
-    context = context.model_copy(update={"document_scores": {sample_applicants["정유민"].info.application_id: 90.0}})
-
-    plan = await plan_find(
-        FakeLlm(), SearchQuery(without_score=True, score_source="document"), context, default_toolkit()
-    )
-
-    assert "정유민" not in names(context, plan)
-    assert len(plan.targets) == 7
-    assert plan.sources == ["서류 점수"]
-
-
-async def test_missing_document_score_does_not_report_assessment_score_as_document_evidence(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    context = assessment_context(sample_applicants, sample_company, sample_posting)
-
-    plan = await plan_find(
-        FakeLlm(), SearchQuery(without_score=True, score_source="document"), context, default_toolkit()
-    )
-
-    assert names(context, plan) == [row.name for row in context.candidates]
-    assert all("평가" not in item.text for item in plan.items)
-    assert plan.sources == ["서류 점수"]
 
 
 async def test_company_talents_are_untrusted_data_in_search_judgment(

@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Self
 from uuid import UUID
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 
 from hiremate_ai.contract import (
     AnalysisStatus,
@@ -55,7 +55,6 @@ class EditAction(StrEnum):
     ADD = "ADD"
     REMOVE = "REMOVE"
     CLEAR = "CLEAR"
-    RESTORE = "RESTORE"
 
 
 class CandidateRow(ContractModel):
@@ -71,14 +70,7 @@ class CandidateRow(ContractModel):
     above_line: bool
     score: float | None
     analysis_status: AnalysisStatus
-    held: bool = False  # 서류 점수 보류
     shortfalls: list[str] = []  # 채우지 못한 자격요건의 짧은 표시
-    document_score: float | None = None  # 서류 전형의 총점. 다른 전형이면 null
-    document_score_low: float | None = None  # 확인 필요를 0점으로 넣어 계산한 서류 전형 총점 (보류 점수)
-    qualification_score: float | None = None  # 서류 전형의 자격요건 점수
-    qualification_max: int = 0
-    preference_score: float | None = None  # 서류 전형의 우대사항 점수
-    preference_max: int = 0
     met_count: int = 0  # 서류 전형에서 자격요건 + 우대사항 가운데 충족한 개수
     criterion_total: int = 0
     talent_count: int = 0  # 상으로 판정한 인재상 개수
@@ -133,7 +125,6 @@ class ChatContext(ContractModel):
     stages: list[ChatStage]  # 채용의 전형 전체, 전형 순서대로. 현재 전형도 들어 있다
     candidates: list[CandidateRow]
     documents: dict[UUID, list[ApplicantDocument]]
-    document_scores: dict[UUID, float]
     interviews: dict[UUID, InterviewView]  # 면접 전형일 때만 채워진다
     mentions: list[UUID]
     checked: list[UUID]
@@ -223,6 +214,12 @@ class ChatPlan(ContractModel):
     question_memos: dict[UUID, InterviewerMemo] = {}  # 명시적으로 요청해 원문을 확인한 메모만 전달
     question_replace: bool = False  # 만들기 전에 답변 없는 AI 질문을 지운다
     report: ChatReport | None = None  # 리포트 요청 (intent REPORT일 때)
+
+    @field_validator("edit", mode="before")
+    @classmethod
+    def _retired_edit(cls, value: object) -> object:
+        """선택 되돌리기(RESTORE)는 없앤 명령이다. 그 전에 저장된 대화 기록은 편집 명령 없이 읽는다."""
+        return None if value == "RESTORE" else value
 
     @classmethod
     def answer(

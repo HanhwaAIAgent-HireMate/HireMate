@@ -1,11 +1,14 @@
 """Assessment 부분: 자격요건과 우대사항을 같은 판정 체계(MET · PARTIAL · NOT_MET · UNKNOWN)로 판정한다.
 
 모델은 항목마다 업무 관련성 · 본인 역할 · 수행 범위를 확인하고, 사람이 정한 판정 기준 가운데 하나로 판정한다.
-점수는 프롬프트에 넣지 않는다 (score.py가 계산한다). 코드가 하는 것:
+점수는 매기지 않는다. 서류 문장을 하나씩 분석해 뽑은 사실(facts, 프로필 근거)을 먼저 보고 판정한다. 코드가 하는 것:
 - 출력 검증: 조건형 · 단일형의 부분 충족, 부분 충족인데 충족 · 미충족 부분이 없는 답, 원문에 없는 근거,
-  본인 역할이 분명하지 않은 충족은 받지 않고 확인 필요로 돌려 재확인한다. 모델 응답 누락도 미충족이 아니라 확인 필요다.
+  본인 역할이 분명하지 않은 충족은 받지 않고 확인 필요로 돌려 재확인한다. 단, 근거 문장이 사실 추출에서 본인 경험으로
+  뽑힌 문장이면 본인 역할로 본다. 모델 응답 누락도 미충족이 아니라 확인 필요다.
 - 'N년 이상' 경력 기간: 모델이 고른, 요건의 직무 · 기술에 해당하는 재직 기간만 더해 계산한다 (전체 재직 기간이 아니다).
 - 자격증 보유: 인정 자격증 이름으로 찾고 확인 상태(본인 기재 · 증빙 제출)를 남긴다.
+- 정량 지표: 경험형 항목의 근거에 있는 숫자로 된 성과 · 규모를 모델이 옮기면, 원문에 있고 숫자가 들어 있을 때만 남긴다.
+  화면은 경험과 지표가 함께 있으면 상, 경험만 있으면 중으로 보여 준다.
 """
 
 import asyncio
@@ -20,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.analysis.application.ask import ask
 from hiremate_ai.agents.analysis.application.career import EMPLOYMENT, month_index
-from hiremate_ai.agents.analysis.application.context import evidence_text, readable, related, terms
+from hiremate_ai.agents.analysis.application.context import evidence_text, fact_lines, readable, related, terms
 from hiremate_ai.agents.analysis.application.extract import locate, quotes_in
 from hiremate_ai.agents.analysis.application.review import Claim, ClaimReview
 from hiremate_ai.agents.analysis.application.types import (
@@ -58,6 +61,9 @@ JUDGE_SYSTEM = f"""너는 지원 서류를 공고의 평가 항목에 대조해 
 - 항목마다 먼저 relevance(업무 관련성: 실제로 한 일이 이 항목과 관련되는가), role(본인 역할: SELF 본인이 했다 /
   TEAM 팀 · 조직의 경험만 적었다 / UNCLEAR 알 수 없다), scope(수행 범위: 요구한 일을 어디까지 했는가)를 확인한다.
   셋에 따로 점수를 매기지 않고, 항목의 판정 기준 가운데 하나로 판정(verdict)한다.
+- facts는 서류 문장을 하나씩 분석해 뽑은 경험 목록이다 ([종류 · 본인 여부] 진술 (근거: 원문 문장)). 판정은 facts를
+  먼저 보고 한다. role은 그 경험의 본인 여부(SELF · TEAM · UNCLEAR)를 따르고, evidence에는 그 경험의 근거 문장을
+  우선 옮긴다. facts에 없는 내용만 원문에서 찾고, facts와 원문이 어긋나면 원문을 따른다.
 - criterion_id는 요청의 번호 그대로 쓴다. 예: Q-01. 목록 표시용 대괄호는 값에 넣지 않는다.
 - MET: 충족 기준에 해당한다는 근거가 있다.
 - PARTIAL: 복합 경험형 항목에서 일부 수행이 확인됐다. satisfied_parts와 unsatisfied_parts를 모두 쓴다.
@@ -67,6 +73,9 @@ JUDGE_SYSTEM = f"""너는 지원 서류를 공고의 평가 항목에 대조해 
 - UNKNOWN: 관련 기록은 있지만 본인 역할이 불분명하거나, 문서끼리 어긋나거나, 근거가 모자라 기준에 대 볼 수 없다.
   unknown_parts에 확인되지 않은 것을 쓴다.
 - MET · PARTIAL이면 근거 문장(evidence)을 원문 글자 그대로 옮긴다. 옮길 문장이 없으면 그 판정을 쓰지 않는다.
+- 정량 지표를 경험보다 훨씬 높게 친다. MET · PARTIAL인 경험의 근거에 숫자로 된 성과 · 규모가 있으면
+  metric에 그 부분을 원문 글자 그대로 짧게 옮긴다 (예: '응답 시간을 40% 줄였다', '하루 10만 건', '장애 0건').
+  기간 · 연도 · 버전 숫자(3년, 2021년, Java 17)는 정량 지표가 아니다. 없으면 비운다.
 - 항목의 '등'과 나열은 예시다. 같은 종류면 해당한다 (MySQL · PostgreSQL 등 RDBMS라면 Oracle도 RDBMS다).
 - 경력 기간 항목은 기간을 코드가 경력표로 계산한다. career_periods에 그 항목의 직무 · 기술에 해당하는 경력표 번호만
   고른다. 인턴, 교육 · 개인 프로젝트는 실무 경력이 아니다. 기간이 모자라도 직무 · 기술이 맞으면 MET로 답한다.
@@ -96,6 +105,7 @@ class CriterionVerdict(BaseModel):
     evidence: list[str] = Field(default=[], description="근거 문장. 원문 글자 그대로")
     career_periods: list[int] = Field(default=[], description="경력 기간 항목이면 해당하는 경력표 번호")
     shortfall: str = Field(default="", description="자격요건 NOT_MET이면 이름 옆에 붙일 아주 짧은 표시")
+    metric: str = Field(default="", description="근거의 정량 지표(숫자로 된 성과 · 규모). 원문 글자 그대로")
 
 
 class CriteriaJudgement(BaseModel):
@@ -152,10 +162,9 @@ async def recheck_criterion(
         return None
     else:
         documents = usable
-    facts = "\n".join(f"- [{fact.actor.value}] {fact.statement}" for fact in evidence.facts)
     parts = [
         documents_block(documents),
-        data_block("facts", facts or "(없음)"),
+        data_block("facts", fact_lines(evidence.facts) or "(없음)"),
         RECHECK_NOTES[round_no].format(reason=previous.reason),
     ]
     answer = await _ask(llm, [criterion], evidence, "\n\n".join(parts))
@@ -198,17 +207,21 @@ def settle(criterion: Criterion, verdict: CriterionVerdict | None, evidence: Evi
         return _unknown(base, "모델 응답에 이 항목이 없어 판정하지 못했어요.")
     level = Verdict(verdict.verdict)
     quotes = quotes_in(evidence.documents, verdict.evidence)
+    role = _role(verdict.role, quotes, evidence.facts)
     result = base.model_copy(
         update={
             "verdict": level,
             "reason": verdict.reason,
             "relevance": verdict.relevance,
-            "role": Actor(verdict.role),
+            "role": role,
             "scope": verdict.scope,
             "satisfied_parts": verdict.satisfied_parts,
             "unsatisfied_parts": verdict.unsatisfied_parts,
             "unknown_parts": verdict.unknown_parts,
             "quotes": quotes if level != Verdict.NOT_MET else [],
+            "metric": _metric(verdict.metric, evidence.documents)
+            if level in (Verdict.MET, Verdict.PARTIAL) and criterion.criterion_type != CriterionType.CONDITION
+            else "",
         }
     )
     if level == Verdict.PARTIAL and criterion.criterion_type != CriterionType.COMPOSITE:
@@ -217,7 +230,7 @@ def settle(criterion: Criterion, verdict: CriterionVerdict | None, evidence: Evi
         return _unknown(result, "부분 충족인데 충족한 부분과 미충족한 부분을 나눠 설명하지 않았어요.")
     if level in (Verdict.MET, Verdict.PARTIAL) and not quotes:
         return _unknown(result, "판정을 받쳐 줄 근거 문장을 원문에서 찾지 못했어요.")
-    if level == Verdict.MET and criterion.criterion_type != CriterionType.CONDITION and verdict.role != "SELF":
+    if level == Verdict.MET and criterion.criterion_type != CriterionType.CONDITION and role != Actor.SELF:
         return _unknown(result, f"본인이 직접 했는지 분명하지 않아요. {verdict.reason}")
     required = _CAREER_YEARS.search(criterion.text)
     if required:
@@ -460,7 +473,33 @@ def _unknown(result: CriterionResult, reason: str, label: str | None = None) -> 
     shortfall = None
     if result.category == CriterionCategory.QUALIFICATION:
         shortfall = label or unknown_label(result.text)
-    return result.model_copy(update={"verdict": Verdict.UNKNOWN, "reason": reason, "shortfall": shortfall})
+    return result.model_copy(
+        update={"verdict": Verdict.UNKNOWN, "reason": reason, "shortfall": shortfall, "metric": ""}
+    )
+
+
+def _role(answer: str, quotes: Sequence[Quote], facts: Sequence[Fact]) -> Actor:
+    """모델이 본인 역할을 UNCLEAR로 답해도, 근거 문장이 서류 문장 분석에서 본인 경험(SELF)으로 뽑힌 문장이면 본인이다.
+    TEAM은 모델이 이 항목을 두고 팀 경험이라고 본 것이라 그대로 둔다.
+    """
+    if answer != "UNCLEAR":
+        return Actor(answer)
+    sentences = {_compact(quote.sentence) for quote in quotes}
+    own = any(
+        fact.actor is Actor.SELF and fact.supported and _compact(quote.sentence) in sentences
+        for fact in facts
+        for quote in fact.quotes
+    )
+    return Actor.SELF if own else Actor.UNCLEAR
+
+
+def _metric(text: str, documents: Sequence[ApplicantDocument]) -> str:
+    """모델이 옮긴 정량 지표. 숫자가 없거나 원문에 없으면 버린다."""
+    metric = " ".join(text.split())
+    if not re.search(r"\d", metric):
+        return ""
+    found = any(_compact(metric) in _compact(document.text) for document in readable(documents))
+    return metric if found else ""
 
 
 def _line_quote(name: str, document: ApplicantDocument) -> Quote | None:

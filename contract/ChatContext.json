@@ -37,14 +37,7 @@
       "aboveLine": true,
       "score": 82.5,
       "analysisStatus": "DONE",
-      "held": false,
       "shortfalls": [],
-      "documentScore": null,
-      "documentScoreLow": null,
-      "qualificationScore": null,
-      "qualificationMax": 0,
-      "preferenceScore": null,
-      "preferenceMax": 0,
       "metCount": 7,
       "criterionTotal": 10,
       "talentCount": 1,
@@ -62,14 +55,7 @@
       "aboveLine": true,
       "score": null,
       "analysisStatus": "PENDING",
-      "held": false,
       "shortfalls": [],
-      "documentScore": null,
-      "documentScoreLow": null,
-      "qualificationScore": null,
-      "qualificationMax": 0,
-      "preferenceScore": null,
-      "preferenceMax": 0,
       "metCount": 7,
       "criterionTotal": 10,
       "talentCount": 1,
@@ -87,9 +73,6 @@
         "text": "한빛카드 결제플랫폼팀 2022.03 ~ 현재\n카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다."
       }
     ]
-  },
-  "documentScores": {
-    "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": 88
   },
   "assessments": {
     "3f6b1c2e-8a4d-4f1e-9b7a-1d2c3e4f5a60": {

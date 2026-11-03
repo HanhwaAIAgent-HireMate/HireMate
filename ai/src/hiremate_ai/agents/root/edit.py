@@ -9,8 +9,7 @@ from hiremate_ai.contract import StageType
 NO_TARGET = "누구를 말씀하시는지 모르겠어요. @로 지원자를 골라 다시 말씀해 주세요."
 ADDED = "{names} 님을 선택 지원자에 넣었어요."
 REMOVED = "{names} 님을 선택 지원자에서 뺐어요."
-CLEARED = "선택 지원자를 비웠어요. [되돌리기]로 돌아갈 수 있어요."
-RESTORED = "이전 선택 지원자로 되돌렸어요."
+CLEARED = "선택 지원자를 비웠어요."
 DECIDED = "{names} 님은 이미 {decided} 지원자라 선택 지원자에 넣을 수 없어요. 리스트의 {tabs} 탭에서 모아 볼 수 있어요."
 BELOW_LINE = "{names} 님은 기준선 아래라 선택 지원자에 넣을 수 없어요. 먼저 기준선 위로 올려 주세요."
 _DECIDED_WORDS = {
@@ -24,8 +23,6 @@ def plan_edit(action: EditAction, context: ChatContext, rows: Sequence[Candidate
     """모델이 정한 대상만 사용한다. 넣을 수 없는 지원자는 명령에서 빼고 이유를 설명한다."""
     if action is EditAction.CLEAR:
         return _edit(EditAction.CLEAR, [], CLEARED)
-    if action is EditAction.RESTORE:
-        return _edit(EditAction.RESTORE, [], RESTORED)
     if not rows:
         return ChatPlan.answer(Intent.CLARIFY, NO_TARGET)
     if action is EditAction.REMOVE:

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,8 +28,9 @@ class Settings(BaseSettings):
     llm_report_max_calls: int = 18
     # 호출 한 번에 모델이 쓰는 최대 토큰. 모델이 끝없이 쓰다 시간을 다 쓰는 것을 막는다
     llm_max_tokens: int = 2048
-    # 0이면 같은 질문에 같은 답을 낸다. Root의 지원자 찾기는 같은 질문에 같은 후보가 나와야 한다
-    llm_temperature: float = 0
+    # 0이면 같은 질문에 같은 답을 낸다. Root의 지원자 찾기는 같은 질문에 같은 후보가 나와야 한다.
+    # 추론형 모델(gpt-6 계열 등)은 temperature를 받지 않아 none으로 두면 보내지 않는다
+    llm_temperature: float | None = 0
     # 추론형 로컬 모델이 JSON을 쓰기 전에 출력 한도를 다 쓰면 none으로 끈다. 비우면 서버 기본값을 쓴다.
     llm_reasoning_effort: Literal["none", "minimal", "low", "medium", "high"] | None = None
     # OpenRouter 전용. 요청을 처리할 업체를 쉼표로 적은 업체로만 보낸다 (예: baidu,coreweave).
@@ -80,6 +81,11 @@ class Settings(BaseSettings):
     worker_attempts: int = 2
     # 작업을 가진 워커가 이 시간 동안 소식이 없으면(멈췄으면) 다른 워커가 가져간다. 처리 중에는 주기적으로 알린다
     worker_claim_idle_seconds: float = 120
+
+    @field_validator("llm_temperature", mode="before")
+    @classmethod
+    def _no_temperature(cls, value: object) -> object:
+        return None if isinstance(value, str) and value.strip().lower() == "none" else value
 
 
 settings = Settings()

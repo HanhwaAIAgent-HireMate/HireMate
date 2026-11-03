@@ -45,7 +45,7 @@ PLAN_SYSTEM = """[역할]
 [종류 고르기]
 - find: 조건으로 지원자를 찾아 선택 지원자를 바꾼다. 경력 연수나 신입도 조건이다.
   선택된 사람 가운데 조건에 맞는 사람을 빼면 remove=true다.
-- edit: 정해진 지원자를 선택에 넣거나 빼거나, 선택을 비우거나 되돌린다.
+- edit: 정해진 지원자를 선택에 넣거나 빼거나, 선택을 비운다.
 - answer: 지원자, 회사, 공고, 전형에 대한 사실, 분석, 비교. 서류에서 확인할 점이나 이상한 점을 묻는 질문,
   자료를 읽어 본 뒤 찾기로 이어지는 질문도 answer다.
 - questions: 면접 질문을 만들어 달라는 요청. 서류에서 확인할 점을 바탕으로 만들면 checks=documents,
@@ -132,10 +132,10 @@ class QuestionsPlan(Form):
 
 
 class EditPlan(Form):
-    """정해진 지원자를 선택 지원자에 넣거나 빼고, 선택을 비우거나 되돌린다."""
+    """정해진 지원자를 선택 지원자에 넣거나 빼고, 선택을 비운다."""
 
-    action: EditAction = Field(description="ADD, REMOVE, CLEAR, RESTORE")
-    scope: Scope = Field(description="넣거나 뺄 지원자. 비우기와 되돌리기는 비운다")
+    action: EditAction = Field(description="ADD, REMOVE, CLEAR")
+    scope: Scope = Field(description="넣거나 뺄 지원자. 비우기는 비운다")
 
 
 class ReportPlan(Form):
@@ -289,7 +289,6 @@ def has_condition(query: SearchQuery) -> bool:
         query.concepts
         or query.min_score is not None
         or query.without_score
-        or query.score_gap
         or query.area_scores
         or query.grades
         or query.min_career_years is not None

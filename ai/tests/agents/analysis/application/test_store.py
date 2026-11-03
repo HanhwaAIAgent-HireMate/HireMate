@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from hiremate_ai.agents.analysis.application.graph import REVIEW_VERSION
 from hiremate_ai.agents.analysis.application.store import DbReviewStore, Sessions, input_hash
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, Note, ScreeningRubric
-from hiremate_ai.contract import ApplicantDetail, CriterionType, PostingContent, QualificationStatus, ScoreStatus
+from hiremate_ai.contract import ApplicantDetail, CriterionType, PostingContent
 from hiremate_ai.db.application_review import ApplicationReviewRecord
 from hiremate_ai.db.profile import CandidateProfile, ProfileStatus
 
@@ -62,15 +62,10 @@ async def test_saves_review_and_profile_then_finds_them(
         "a" * 64,
         career_years=4,
         last_company="한빛카드",
-        qualification_status=QualificationStatus.PASSED,
-        score_status=ScoreStatus.CONFIRMED,
-        document_score=73.3,
     )
 
     await store.save(review, applicant, make_rubric())
-    again = review.model_copy(
-        update={"score_status": ScoreStatus.HELD, "document_score": None, "holds": [Note(text="보류", source="이력서")]}
-    )
+    again = review.model_copy(update={"holds": [Note(text="확인 필요", source="이력서")]})
     await store.save(again, applicant, make_rubric())
 
     assert (
@@ -103,7 +98,7 @@ async def test_saves_review_and_profile_then_finds_them(
         select(CandidateProfile).where(CandidateProfile.application_id == applicant.info.application_id)
     )
     assert profile is not None
-    assert (profile.company_id, profile.status, profile.document_score) == (COMPANY_ID, ProfileStatus.CHECK, None)
+    assert (profile.company_id, profile.status) == (COMPANY_ID, ProfileStatus.CHECK)
 
 
 async def test_reviews_saved_in_an_older_shape_are_analyzed_again(
