@@ -17,14 +17,13 @@ import com.hiremate.recruit.StageInfo;
 import com.hiremate.recruit.StageStatus;
 import com.hiremate.recruit.StageType;
 import com.hiremate.report.AgentReportKind;
+import com.hiremate.screening.CandidateFilter;
 import com.hiremate.screening.CandidatePage;
 import com.hiremate.screening.CandidateRow;
-import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.SelectionMode;
 import com.hiremate.screening.StageTabService;
 import com.hiremate.screening.StageTabView;
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -122,10 +121,6 @@ public class ChatService {
         List<ChatContext.Stage> stages = recruitment.stages().stream()
                 .map(other -> new ChatContext.Stage(other.id(), other.name(), other.type(), other.status()))
                 .toList();
-        Map<UUID, BigDecimal> documentScores = new HashMap<>();
-        applications.applicants(companyId, recruitment.id()).stream()
-                .filter(applicant -> applicant.documentScore() != null)
-                .forEach(applicant -> documentScores.put(applicant.applicationId(), applicant.documentScore()));
         Map<UUID, InterviewView> interviewViews = stage.type() == StageType.INTERVIEW
                 ? interviews.views(companyId, stageId, candidates.stream().map(CandidateRow::applicationId).toList())
                 : Map.of();
@@ -145,12 +140,11 @@ public class ChatService {
         if (interviewerId != null) {
             documents = documents.entrySet().stream().filter(entry -> interviewerRoles.containsKey(entry.getKey()))
                     .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-            documentScores.keySet().retainAll(interviewerRoles.keySet());
         }
         ChatContext context = new ChatContext(stageId, recruitment.id(), threadId(companyId, stageId, tabId),
                 stage.name(),
                 interviewerId == null && stage.status() == StageStatus.ACTIVE, stage.type(), stages,
-                candidates, documents, documentScores, interviewViews,
+                candidates, documents, interviewViews,
                 mentions, checked, companies.profile(companyId),
                 postings.draftContext(companyId, recruitment.id()).content(), message, interviewerMemos,
                 assessmentScores, asker, interviewerId != null);
@@ -163,7 +157,7 @@ public class ChatService {
         CandidatePage page;
         int pageNumber = 0;
         do {
-            page = screening.candidates(companyId, stageId, tabId, null, CandidateSort.BASIC,
+            page = screening.candidates(companyId, stageId, tabId, null, CandidateFilter.NONE,
                     pageNumber++, CANDIDATE_PAGE_SIZE);
             all.addAll(page.items());
         } while (!page.items().isEmpty() && all.size() < page.total());
@@ -222,7 +216,6 @@ public class ChatService {
                         .filter(id -> current.containsKey(id) && !before.containsKey(id)).toList();
                 case REMOVE -> plan.targets().stream().distinct()
                         .filter(id -> before.containsKey(id) && !current.containsKey(id)).toList();
-                case RESTORE -> current.keySet().stream().filter(id -> !before.containsKey(id)).toList();
                 case CLEAR -> before.keySet().stream().filter(id -> !current.containsKey(id)).toList();
             };
             applied = targets.size();
@@ -458,7 +451,6 @@ public class ChatService {
             case ADD -> screening.addByAi(companyId, stageId, tabId, plan.targets());
             case REMOVE -> screening.remove(companyId, stageId, tabId, plan.targets());
             case CLEAR -> screening.clear(companyId, stageId, tabId);
-            case RESTORE -> screening.restore(companyId, stageId, tabId);
             default -> throw new IllegalStateException("Unknown edit " + plan.edit());
         }
     }

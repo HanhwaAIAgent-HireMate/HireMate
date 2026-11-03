@@ -11,6 +11,7 @@ import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
 import com.hiremate.ai.application.AssessmentAgent;
 import com.hiremate.ai.application.AssessmentInput;
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
 import java.math.BigDecimal;
@@ -97,7 +98,7 @@ class AssessmentAnalysisTests extends IntegrationTest {
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());
         UUID applicationId = awaitApplicant(hr.companyId(), recruitmentId);
         applications.recordAnalysis(applicationId,
-                ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
+                ApplicationAnalysis.of(3, "OO카드", List.of()));
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         String document = "/api/stages/" + closed.path("stages").get(0).path("id").asString();
         expect(hr.post(document + "/decisions",
@@ -116,7 +117,7 @@ class AssessmentAnalysisTests extends IntegrationTest {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {
             var analyzed = applications.applicants(companyId, recruitmentId).stream()
-                    .filter(applicant -> applicant.documentScore() != null)
+                    .filter(applicant -> applicant.analysisStatus() == AnalysisStatus.DONE)
                     .findFirst();
             if (analyzed.isPresent()) {
                 return analyzed.get().applicationId();

@@ -15,7 +15,7 @@ class ReportDistributionsTests {
 
     private static CandidateRow above(int metCount) {
         return new CandidateRow(UUID.randomUUID(), "지원자", 3, null, Decision.PENDING, false, false, true, null,
-                AnalysisStatus.DONE, false, List.of(), null, null, null, 0, null, 0, metCount, 10, 0, 0, List.of());
+                AnalysisStatus.DONE, List.of(), metCount, 10, 0, 0, List.of());
     }
 
     private static List<CandidateRow> rows(int... metCounts) {

@@ -13,6 +13,7 @@ import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
 import com.hiremate.ai.application.InterviewAnalyst;
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationService;
 import java.time.Duration;
@@ -195,7 +196,7 @@ class InterviewFollowUpTests extends IntegrationTest {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {
             var analyzed = applications.applicants(companyId, recruitmentId).stream()
-                    .filter(applicant -> applicant.documentScore() != null)
+                    .filter(applicant -> applicant.analysisStatus() == AnalysisStatus.DONE)
                     .map(ApplicantInfo::applicationId)
                     .findFirst();
             if (analyzed.isPresent()) {
