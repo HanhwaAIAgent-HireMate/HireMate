@@ -8,6 +8,7 @@
 import logging
 import re
 
+from openai import APIError
 from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.generation.report.check import sentence_problems
@@ -167,6 +168,9 @@ async def explain_distribution(facts: DistributionFacts, llm: LlmClient) -> Dist
         draft = await llm.structured(_Draft, agent=AGENT, system=SYSTEM, user=data_block("distribution", text))
     except LlmOutputError as error:
         logger.warning("분포 해설을 만들지 못했다 (reason=%s)", error.reason.value)
+        return DistributionNote(lines=[])
+    except APIError as error:
+        logger.warning("모델 서버 오류로 분포 해설을 만들지 못했다 (%s)", type(error).__name__)
         return DistributionNote(lines=[])
     allowed = set(_NUMBER.findall(text))
 

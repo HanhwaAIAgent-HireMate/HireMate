@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import httpx2
 import pytest
+from openai import APIConnectionError
 
 from hiremate_ai.agents.generation.report.bundle import (
     Area,
@@ -789,6 +791,29 @@ async def test_agent_rewrites_twice_then_falls_back() -> None:
     assert composed.fallback
     assert composed.spec.summary == NO_SUMMARY
     assert "순위나 추천" in llm.calls[-1].user
+
+
+def server_down(call: LlmCall) -> ReportSpec:
+    raise APIConnectionError(request=httpx2.Request("POST", "http://model.test"))
+
+
+async def test_model_server_error_falls_back_instead_of_failing() -> None:
+    composed = await compose_report(bundle(), FakeLlm(server_down))
+    assert composed.fallback
+    assert composed.spec.summary == NO_SUMMARY
+    assert composed.steps[-1] == "모델 서버 오류로 설계서를 받지 못해 코드가 기본 구성을 만듦"
+
+
+async def test_specialist_server_error_does_not_stop_the_report() -> None:
+    llm = FakeLlm(
+        READ_SKILLS,
+        ToolCall("ask_specialist", {"specialist": "application", "applicant": "A-0012", "question": "협업"}),
+        server_down,
+        good_spec(),
+    )
+    composed = await compose_report(bundle(focus="협업"), llm)
+    assert not composed.fallback
+    assert "Application Agent: 확인하지 못했어요." in llm.calls[-1].user
 
 
 async def test_agent_fixes_on_retry() -> None:
