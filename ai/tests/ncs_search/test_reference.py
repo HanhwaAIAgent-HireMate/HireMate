@@ -120,3 +120,13 @@ async def test_units_cached_after_first_nonempty_load(loaded: str) -> None:
 
     assert [unit.code for unit in first] == ["2001010101_19v4", "2001020211_23v6"]
     assert await reference.units() == first
+
+
+async def test_unreachable_db_raises_unavailable() -> None:
+    sessions = session_factory("postgresql+psycopg://nobody:nobody@127.0.0.1:1/none")
+    reference = DbNcsReference(sessions, embed_client(answering([])))
+
+    with pytest.raises(NcsUnavailable):
+        await reference.units()
+    with pytest.raises(NcsUnavailable):
+        await reference.search("주문 API", ["업무"], [])

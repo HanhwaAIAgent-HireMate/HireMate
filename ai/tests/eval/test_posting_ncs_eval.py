@@ -5,6 +5,7 @@ NCS 표(scripts/ncs_load.py로 적재)와 질의 임베딩 서비스(uv run --gr
 """
 
 import re
+import time
 from pathlib import Path
 
 import httpx
@@ -61,8 +62,12 @@ def draft(**content: object) -> PostingDraftContext:
 
 
 async def revise(request: str, posting: PostingDraftContext | None = None) -> RevisionResult:
+    started = time.monotonic()
     result = await revise_posting(build_llm(MemoryLog()), posting or draft(), "담백하게", request, ncs=get_ncs())
-    print(result.reply)
+    elapsed = time.monotonic() - started
+    print(f"[{elapsed:.1f}s] {result.reply}")
+    # backend는 공고 수정을 60초 기다린다 (hiremate.ai.timeout)
+    assert elapsed < 60
     return result
 
 

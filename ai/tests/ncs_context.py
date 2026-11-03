@@ -1,5 +1,7 @@
 """공고 수정 테스트가 같이 쓰는 가짜 NCS 참고 조회와 묶음."""
 
+import asyncio
+
 from hiremate_ai.ncs_search.reference import NcsUnavailable
 from hiremate_ai.ncs_search.types import NcsTask, NcsUnit
 
@@ -30,7 +32,10 @@ def units() -> list[NcsUnit]:
 
 
 class FakeNcs:
-    """단위 목록과 검색 결과를 정해 두고, 검색에 받은 인자를 기록한다. unavailable이면 검색이 실패한다."""
+    """단위 목록과 검색 결과를 정해 두고, 검색에 받은 인자를 기록한다.
+
+    unavailable이면 검색이, units_unavailable이면 단위 목록이 실패한다. delay만큼 검색이 늦다.
+    """
 
     def __init__(
         self,
@@ -38,17 +43,24 @@ class FakeNcs:
         *,
         unit_list: list[NcsUnit] | None = None,
         unavailable: bool = False,
+        units_unavailable: bool = False,
+        delay: float = 0,
     ) -> None:
         self.found = [task()] if found is None else found
         self.unit_list = units() if unit_list is None else unit_list
         self.unavailable = unavailable
+        self.units_unavailable = units_unavailable
+        self.delay = delay
         self.searches: list[tuple[str, list[str], list[str]]] = []
 
     async def units(self) -> list[NcsUnit]:
+        if self.units_unavailable:
+            raise NcsUnavailable("db down")
         return self.unit_list
 
     async def search(self, request: str, tasks: list[str], units: list[str]) -> list[NcsTask]:
         self.searches.append((request, tasks, units))
+        await asyncio.sleep(self.delay)
         if self.unavailable:
             raise NcsUnavailable("down")
         return self.found
