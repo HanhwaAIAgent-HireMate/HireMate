@@ -225,3 +225,29 @@ def source_lines(cited: list[Cited], sources: NcsSources) -> list[str]:
         task, sentence = sources.items[entry.source]
         lines.append(f'{entry.label} {entry.number}번 ← {_path(task)}: "{sentence}"')
     return lines
+
+
+async def with_sources(
+    llm: LlmClient,
+    reply: str,
+    use: NcsUse,
+    sources: NcsSources | None,
+    search_notice: str | None,
+    citations: list[LineCitation],
+    content: PostingContent,
+    changed: list[str],
+    clean: Callable[[str], str],
+) -> str:
+    """수정안 답에 NCS 안내와 출처를 붙인다.
+
+    찾지 못했다는 안내는 HR이 NCS를 요청했을 때만 낸다. NCS를 요청했는데 남은 출처가 없으면 안내를 하나만 낸다.
+    """
+    if sources is None:
+        return " ".join([reply, search_notice]) if use == "REQUESTED" and search_notice else reply
+    kept, notice = await keep_supported(llm, cite_lines(citations, content, changed, sources, clean), sources)
+    if use == "REQUESTED" and not kept and notice != NCS_REVIEW_FAILED:
+        notice = NCS_NOT_FOUND
+    text = " ".join([reply, notice]) if notice else reply
+    if kept:
+        text += "\n\n" + "\n".join([NCS_HEADER, *source_lines(kept, sources)])
+    return text

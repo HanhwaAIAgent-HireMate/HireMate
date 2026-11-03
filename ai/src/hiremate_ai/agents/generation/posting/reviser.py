@@ -18,6 +18,15 @@ from pydantic import BaseModel, Field
 from pydantic.alias_generators import to_camel
 
 from hiremate_ai.agents.generation.posting.checks import JUDGED_FIELDS, blocked_terms, problems
+from hiremate_ai.agents.generation.posting.ncs import (
+    SOURCES_STEP,
+    LineCitation,
+    NcsSources,
+    NcsUse,
+    find_sources,
+    sources_block,
+    with_sources,
+)
 from hiremate_ai.agents.generation.posting.types import (
     PostingDraftContext,
     PostingFocus,
@@ -29,6 +38,8 @@ from hiremate_ai.agents.generation.posting.types import (
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.contract import DocumentType, PostingContent, PostingRole, StageType
 from hiremate_ai.llm.client import LlmClient
+from hiremate_ai.llm.prompt import UNTRUSTED_RULE
+from hiremate_ai.ncs_search.reference import NcsReference
 
 AGENT = "posting"
 """호출 로그와 backend 연동 경로(/agents/posting/...)에 쓰는 Agent 키."""
@@ -190,6 +201,11 @@ class Route(BaseModel):
     )
     targets: list[Target] = Field(description="요청이 바꾸라는 대상. 알 수 없으면 빈 목록")
     question: str | None = Field(description="무엇을 바꾸라는지 알 수 없을 때 HR에게 되묻는 한 문장. 아니면 null")
+    ncs: NcsUse = Field(
+        description="NCS 직무 자료 참고 여부. 문장 다듬기 · 이미 정한 내용 바꾸기 · NCS를 쓰지 말라는 요청 · "
+        "급여나 근무지 같은 회사 사실은 SKIP, NCS를 참고하라고 하면 REQUESTED, "
+        "주요 업무 · 자격 요건 · 우대 사항 추천이나 공고 전체 작성은 HELPFUL"
+    )
 
 
 class FieldChange(BaseModel):
@@ -202,6 +218,12 @@ class FieldChange(BaseModel):
 
 class ContentChanges(BaseModel):
     changes: list[FieldChange] = Field(description="요청이 바꾸라는 본문 칸만")
+
+
+class CitedContentChanges(ContentChanges):
+    """NCS 참고자료를 함께 준 본문 쓰기의 답. 참고한 목록 줄마다 인용을 적는다."""
+
+    citations: list[LineCitation] = Field(description="NCS를 참고해 쓴 주요 업무 · 자격 요건 · 우대 사항 줄")
 
 
 class RoleChanges(BaseModel):
@@ -243,7 +265,8 @@ class IntroEdit(BaseModel):
     text: str = Field(description="고친 뒤의 회사 소개 전체")
 
 
-SYSTEM = """너는 기업 인사팀의 채용 공고 편집을 돕는 Posting Agent다. HR의 요청대로 공고 수정안을 쓴다.
+SYSTEM = (
+    """너는 기업 인사팀의 채용 공고 편집을 돕는 Posting Agent다. HR의 요청대로 공고 수정안을 쓴다.
 요청은 여러 번에 나눠 처리한다. 맨 끝의 "지금 할 일"만 하고, 그 형식의 칸만 쓴다.
 
 바꿀 수 있는 대상:
@@ -262,14 +285,20 @@ SYSTEM = """너는 기업 인사팀의 채용 공고 편집을 돕는 Posting Ag
 2. 회사가 알려 주지 않은 사실(급여, 복지, 근무 요일 · 시간, 직급, 학력, 채용 인원, 회사 정보)은 지어내지 않는다.
    지금 공고와 HR 요청에 있는 내용만 쓴다.
 3. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 자격 요건이나 우대 사항에 넣지 않는다.
-4. 회사의 공고 작성 스타일이 있으면 따른다. 한국어로 쓰고, 목록 항목은 앞에 기호 없이 한 줄로 짧게 쓴다."""
+4. 회사의 공고 작성 스타일이 있으면 따른다. 한국어로 쓰고, 목록 항목은 앞에 기호 없이 한 줄로 짧게 쓴다.
+"""
+    + UNTRUSTED_RULE
+)
 
 ROUTE_STEP = (
     "지금 할 일: 먼저 writes_posting을 정한다. HR이 뽑으려는 직무 · 경력 · 인원을 말하며 공고를 써 달라거나 "
     "채용하겠다고 하면(예: '경력 3년 이상 5명 채용하려고 해', '프론트엔드 신입 공고 만들어 줘') true, "
     "이미 있는 칸 몇 개를 바꾸라는 요청이면 false다. 그다음 요청이 바꾸라는 대상을 targets에 고른다. "
     "요청하지 않은 대상은 넣지 않는다. 전형 절차를 말하지 않았으면 STAGES를 넣지 않는다. "
-    "무엇을 바꾸라는지 알 수 없으면 targets를 비우고 question에 되묻는 한 문장을 쓴다."
+    "무엇을 바꾸라는지 알 수 없으면 targets를 비우고 question에 되묻는 한 문장을 쓴다. "
+    "마지막으로 ncs를 정한다. NCS를 참고하라고 하면 REQUESTED, "
+    "주요 업무 · 자격 요건 · 우대 사항을 추천하거나 공고 전체를 써 달라고 하면 HELPFUL, "
+    "문장 다듬기 · 이미 정한 내용 바꾸기 · NCS를 쓰지 말라는 요청 · 회사 사실이면 SKIP이다."
 )
 CONTENT_STEP = (
     "지금 할 일: 본문 칸 중 요청이 바꾸라는 칸만 changes에 쓴다. field에는 칸 이름(예: 근무지, 우대 사항)을 쓴다. "
@@ -308,6 +337,7 @@ class _Edit:
     required_extras: list[str] | None = None
     notes: list[str] = field(default_factory=list)
     roles: list[PostingRole] | None = None
+    citations: list[LineCitation] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -327,11 +357,13 @@ async def revise_posting(
     writing_style: str,
     request: str,
     focus: PostingFocus | None = None,
+    ncs: NcsReference | None = None,
 ) -> RevisionResult:
     """HR의 요청대로 공고 수정안을 만든다. 되묻거나 처리할 수 없으면 수정안 없이 답만 한다.
 
     수정안이 검사에 걸리면 이유를 붙여 한 번 더 쓰게 한다. 차별 조건은 다시 쓰게 하지 않고 바로 거절한다.
-    focus가 있으면 HR이 고른 그 줄만 고친다.
+    focus가 있으면 HR이 고른 그 줄만 고친다. ncs가 있고 대상 고르기에서 참고하기로 하면 본문을 쓸 때 NCS 문장을
+    참고자료로 주고, 받쳐 준다고 판정한 출처만 답 끝에 붙인다. 고른 줄과 직무별 표에는 NCS를 붙이지 않는다.
     """
     if focus is not None:
         return await _revise_line(llm, posting, writing_style, request, focus)
@@ -367,11 +399,18 @@ async def revise_posting(
         reply = LOCKED_REPLY if locked else (route.question or NOTHING_CHANGED_REPLY)
         return RevisionResult(reply=reply, suggestion=None)
 
+    sources: NcsSources | None = None
+    search_notice: str | None = None
+    uses_ncs = ncs is not None and route.ncs != "SKIP" and "CONTENT" in targets and "ROLES" not in targets
+    if ncs is not None and uses_ncs:
+        job = posting.content.job_category or posting.content.title
+        sources, search_notice = await find_sources(llm, ncs, request, job)
+
     # 공고 전체를 써 달라는 요청이면 남은 빈 칸을 기본 문구로 채운다. 직무별 표는 직무마다 경력이 달라 채우지 않는다
     whole = route.writes_posting and "ROLES" not in targets and not posting.content.roles
     found: list[str] = []
     for _ in range(ATTEMPTS):
-        edit = await _write(llm, posting, writing_style, request, context, targets, found, fills_empty, roles)
+        edit = await _write(llm, posting, writing_style, request, context, targets, found, fills_empty, roles, sources)
         draft = _draft(posting, edit, request)
         if whole:
             draft, edit = _with_defaults(draft, edit)
@@ -385,7 +424,21 @@ async def revise_posting(
         if fills_empty and not posting.content.duties and not draft.content.duties:
             found.append("공고 전체 작성 요청인데 주요 업무가 비어 있다. 직무의 일반적인 주요 업무 초안을 3~5개 쓴다")
         if not found:
-            return _result(draft, edit, locked)
+            result = _result(draft, edit, locked)
+            if result.suggestion is None or not uses_ncs:
+                return result
+            reply = await with_sources(
+                llm,
+                result.reply,
+                route.ncs,
+                sources,
+                search_notice,
+                edit.citations,
+                draft.content,
+                draft.changed,
+                _clean_item,
+            )
+            return result.model_copy(update={"reply": reply})
     return RevisionResult(reply=CHECK_FAILED_REPLY, suggestion=None)
 
 
@@ -476,13 +529,16 @@ async def _write(
     found: list[str],
     fills_empty: bool = False,
     asked_roles: list[PostingRole] | None = None,
+    sources: NcsSources | None = None,
 ) -> _Edit:
     """고른 대상마다 그 대상만 쓰게 한다. found가 있으면 앞서 쓴 수정안이 걸린 이유를 붙인다.
 
     fills_empty면 비어 있는 목록 칸(LIST_FIELDS)에 직무의 일반적인 초안을 쓰게 한다 (공고 전체를 써 달라는 요청).
     asked_roles는 직무 수를 보려고 먼저 받은 직무별 표다. 처음 쓸 때는 다시 묻지 않고 쓴다.
+    sources가 있으면 본문 칸을 쓸 때 NCS 문장을 번호와 함께 주고 참고한 줄의 인용을 받는다.
     """
     changes: list[FieldChange] = []
+    citations: list[LineCitation] = []
     if "CONTENT" in targets:
         step = CONTENT_STEP
         empty = [FIELD_LABELS[name] for name in LIST_FIELDS if not getattr(posting.content, name)]
@@ -494,7 +550,12 @@ async def _write(
                 "회사 고유 정보는 만들지 않는다."
             )
         step += f"\n이번에 반영할 HR 요청: {request}"
-        changes = (await _ask(llm, ContentChanges, context, step, found)).changes
+        if sources is None:
+            changes = (await _ask(llm, ContentChanges, context, step, found)).changes
+        else:
+            step += f"\n\n{sources_block(sources)}\n{SOURCES_STEP}"
+            cited = await _ask(llm, CitedContentChanges, context, step, found)
+            changes, citations = cited.changes, cited.citations
     roles = None
     if "ROLES" in targets:
         roles = asked_roles if asked_roles is not None and not found else await _roles(llm, context, found)
@@ -504,7 +565,7 @@ async def _write(
     extras: list[str] | None = None
     if "REQUIRED_EXTRAS" in targets:
         extras = list((await _ask(llm, ExtrasPlan, context, EXTRAS_STEP, found)).required_extras)
-    return _Edit(changes=changes, stages=stages, required_extras=extras, roles=roles)
+    return _Edit(changes=changes, stages=stages, required_extras=extras, roles=roles, citations=citations)
 
 
 async def _roles(llm: LlmClient, context: str, found: list[str] | None = None) -> list[PostingRole]:
@@ -683,7 +744,12 @@ _BULLET = re.compile(r"^(?:[-*•·▪●]|\d+[.)])\s+")
 def _clean(value: str | list[str]) -> str | list[str]:
     if isinstance(value, str):
         return _tidy(value)
-    return [cleaned for item in value if (cleaned := _tidy(_BULLET.sub("", item.strip())))]
+    return [cleaned for item in value if (cleaned := _clean_item(item))]
+
+
+def _clean_item(item: str) -> str:
+    """목록 항목 하나. 앞의 기호와 번호를 떼고 띄어쓰기를 고친다."""
+    return _tidy(_BULLET.sub("", item.strip()))
 
 
 def _tidy(text: str) -> str:
