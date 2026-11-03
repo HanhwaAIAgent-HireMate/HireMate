@@ -46,8 +46,6 @@ class Settings(BaseSettings):
     langsmith_project: str = "hiremate"
     # Root Agent 대화방에 남기는 최근 턴 수
     root_memory_turns: int = 20
-    # 공공데이터포털 인증키. scripts/ncs_download.py로 NCS 자료를 받을 때만 쓰고, ai 서버는 실행 중에 쓰지 않는다
-    ncs_api_key: SecretStr = SecretStr("")
     # Application Agent: 지원 접수 분석 한 번의 시간 한도. AI 워커가 대기열에서 꺼내 돌리므로 backend는 기다리지 않는다
     application_timeout_seconds: float = 150
     # 워커의 지원서 분석만 OpenRouter Batch로 실행한다. Chat과 다른 작업은 기존 LLM 설정을 쓴다.

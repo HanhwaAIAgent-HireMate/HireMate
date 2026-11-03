@@ -2,14 +2,11 @@
 
 작은 모델은 한 번에 여러 칸을 채우게 하면 바꾸지 않을 칸까지 채우고 오래 걸린다. 그래서 짧게 나눠 묻는다.
 
-1. 요청이 바꾸라는 대상을 고른다 (본문 칸, 전형 절차, 필수 제출 서류, NCS 근거로 자격 요건 · 우대 사항 쓰기).
+1. 요청이 바꾸라는 대상을 고른다 (본문 칸, 전형 절차, 필수 제출 서류, 직무별 표).
 2. 고른 대상마다 그 대상만 쓰게 한다. 게시 뒤 바꿀 수 없는 대상은 묻지 않는다.
 
 모든 호출의 system과 앞부분(지금 공고, HR 요청)이 같아, 모델은 앞부분을 다시 읽지 않는다. 할 일은 끝에 붙인다.
 지금 공고에 합치고 바뀐 칸을 고르는 일은 코드가 한다. 모델이 바뀌었다고 말하는 칸을 믿지 않고 원래 공고와 비교한다.
-NCS 근거는 고른 능력단위의 정의를 보여 주고 쓰게 하며, 근거 코드는 실제로 있는 능력단위인지 확인한다 (규칙 7).
-고른 능력단위는 NCS 중요도 및 활용도 조사 점수가 높은 것을 앞에 놓고 앞쪽부터 쓰게 한다.
-자격 요건 · 우대 사항 중 무엇을 몇 개 쓸지는 코드가 요청과 지금 공고를 보고 정해 모델에게 알려 준다.
 HR이 줄을 골라 요청하면 대상을 고르지 않고 그 줄만 한 번에 쓰게 한다. 고른 줄 밖은 코드가 그대로 둔다.
 """
 
@@ -20,7 +17,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic.alias_generators import to_camel
 
-from hiremate_ai.agents.generation.posting.checks import JUDGED_FIELDS, MAX_ITEMS, blocked_terms, problems
+from hiremate_ai.agents.generation.posting.checks import JUDGED_FIELDS, blocked_terms, problems
 from hiremate_ai.agents.generation.posting.types import (
     PostingDraftContext,
     PostingFocus,
@@ -32,7 +29,6 @@ from hiremate_ai.agents.generation.posting.types import (
 from hiremate_ai.agents.guardrails import blocked_attribute
 from hiremate_ai.contract import DocumentType, PostingContent, PostingRole, StageType
 from hiremate_ai.llm.client import LlmClient
-from hiremate_ai.tools.ncs import NcsUnit, ncs_data, subdivisions, survey_score, unit_by_code, units_of
 
 AGENT = "posting"
 """호출 로그와 backend 연동 경로(/agents/posting/...)에 쓰는 Agent 키."""
@@ -83,32 +79,6 @@ MULTILINE_LINE = "고른 줄 하나를 한 줄로 쓰지 않고 칸 이름이나
 ATTEMPTS = 2
 """처음 한 번과, 검사에 걸렸을 때 이유를 붙여 다시 쓰는 한 번."""
 
-MAX_NCS_UNITS = 8
-"""정의와 수행준거를 보여 줄 능력단위 수. 더 고르면 조사 점수가 낮은 것부터 뺀다."""
-
-NCS_ORDER_NOTE = (
-    "(우선순위 순서다. NCS 현장 조사에서 중요하게 본 능력단위를 앞에 놓았다. "
-    "앞쪽 능력단위로 먼저 쓰고 목록에서도 앞에 둔다. 자격 요건과 우대 사항은 이 순서가 아니라 규칙 3으로 나눈다.)"
-)
-"""조사가 있는 능력단위를 둘 이상 보여 줄 때 능력단위 목록 앞에 붙인다."""
-
-ADVANCED_LABEL = "수준이 높은 능력단위"
-"""보여 준 능력단위 중 NCS 수준이 가장 높은 것을 능력단위 목록 뒤에 이 이름으로 적는다 (NCS_SYSTEM 규칙 3)."""
-
-JUNIOR_NOTE = "(신입도 지원할 수 있는 공고라서 이 능력단위의 능력은 우대 사항에만 쓴다)"
-"""규칙 3의 '주요 업무에 꼭 필요하면 자격 요건'을 두면 모델이 신입 공고에도 어려운 능력을 필수로 넣는다."""
-
-NCS_DETAIL_CHARS = 3000
-"""두 번째 호출에 넣는 능력단위 정의와 수행준거의 글자 수 한도. 능력단위 하나에 평균 700자라 다 넣으면
-노트북 모델이 한 번에 읽는 양(약 4천 토큰)을 넘는다. 지식 · 기술은 일반적인 말이라 공고 문장에는 넣지 않는다."""
-
-DEFAULT_ITEMS = 10
-"""요청에 개수가 없을 때 NCS 근거로 쓰는 자격 요건 · 우대 사항의 최대 수. HR이 골라 지울 수 있게 넉넉히 쓰되,
-근거를 찾을 수 있는 만큼만 쓰고 개수를 채우려고 지어내지 않는다 (적게 쓰면 답에서 알린다)."""
-
-MAX_DRAFT_ITEMS = 10
-"""NCS 근거로 한 번에 쓰는 목록 하나의 항목 수 한도. 항목이 많을수록 오래 걸리고 근거가 얇아진다."""
-
 ContentLabel = Literal[
     "채용명",
     "직무",
@@ -140,7 +110,8 @@ TEXT_FIELDS = (
     "salary",
     "intro",
 )
-NCS_FIELDS: tuple[tuple[str, ContentLabel], ...] = (("qualifications", "자격 요건"), ("preferred", "우대 사항"))
+LIST_FIELDS = ("duties", "qualifications", "preferred")
+"""공고 전체를 써 달라는 요청에서 비어 있으면 일반적인 초안을 쓰는 목록 칸."""
 MAX_HEADCOUNT = 9999
 """채용 인원 한도. backend PostingContentRequest와 같다."""
 EMPLOYMENT_TYPES = ("정규직", "계약직", "인턴", "파견직")
@@ -173,10 +144,6 @@ FACT_WORDS = {
 WHOLE_POSTING_DEFAULTS = {"salary": "회사 내규에 따름"}
 """공고 전체를 써 달라는 요청에서 비어 있는 칸에 코드가 넣는 기본 문구. 공고에서 흔히 쓰고 거짓이 되지 않는
 중립 문구만 쓴다. HR이 수정안을 보고 회사에 맞게 고친다."""
-CAREER_UNSET_NOTE = (
-    "경력을 정하지 않아 신입도 지원할 수 있는 수준으로 자격 요건 · 우대 사항을 썼어요. "
-    "경력으로 바꾸면 다시 쓸 수 있어요."
-)
 LEFT_FOR_HR = ("employment_type", "career", "headcount", "education", "work_hours")
 """공고 전체를 써 달라는 요청에서도 비워 두는 칸. 누구를 어떻게 뽑을지는 회사만 알아 "무관"이나 흔한 값
 ("월~금 09:00~18:00")을 넣으면 지어낸 것이 된다. 비어 있으면 답에서 정해 달라고 한다."""
@@ -194,26 +161,7 @@ _JUDGING = re.compile(r"우대|자격|요건|선호|조건|제한|이하|이상�
 # 공고 AI는 앞 대화를 받지 못한다(backend가 이번 요청만 보낸다). 되물음에 종류 낱말 하나로 답하면
 # 무엇의 종류인지 알 수 없어, 모델을 부르지 않고 처음 요청에 붙여 다시 말해 달라고 한다
 _ANSWER_ONLY = re.compile(r"(?:서류|평가|면접)(?:전형)?(?:이요|요|입니다|이에요|예요)?[.!]?")
-_NCS_WORDS = re.compile(r"자격|우대|요건|NCS", re.IGNORECASE)
-
-# NCS 근거로 쓸 목록을 요청에서 찾는 말. '자격증'은 필수 제출 서류라 자격 요건으로 보지 않는다
-_LIST_WORDS = {"qualifications": r"자격\s*요건|자격(?!증)|요건", "preferred": r"우대\s*사항|우대"}
-# 목록 이름 바로 뒤의 "그대로 두고", "말고"는 그 목록을 쓰지 말라는 뜻이고, "만"은 그 목록만 쓰라는 뜻이다
-_KEEP = r"\s*(?:은|는|을|를)?\s*(?:그대로|말고|빼고|제외)"
-_ONLY = r"\s*만(?![들큼약일족])"
-_COUNT = r"(\d+|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*(?:개|가지)"
 _KOREAN_NUMBERS = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9, "열": 10}
-_COUNT_WINDOW = 8
-"""목록 이름 뒤에서 개수를 찾는 글자 수 (예: "자격 요건은 7개로")."""
-# 목록 전체를 쓰라는 말과, 항목을 더하거나 빼라는 말. 작은 모델이 "우대 사항만 3개 써 줘"를 고치기(CONTENT)로 골라
-# 근거 없이 항목을 지어내서, 목록을 새로 쓰라는 요청은 코드가 NCS 근거 쓰기로 돌린다
-_WRITE_WORDS = re.compile(r"써|쓰|적어|적고|적을|작성|만들|채워")
-_REWRITE_WORDS = re.compile(r"다시|새로|전부|전체")
-_EDIT_WORDS = re.compile(r"추가|더해|넣어|넣고|빼|삭제|지워|고쳐|수정")
-# 지금 줄은 두고 더 써 달라는 말 (예: "추가로 써 줘", "더 적어 줘", "3개 더"). "더 구체적으로"는 고쳐 쓰기라 넣지 않는다
-_ADD_WORDS = re.compile(rf"추가|더\s*(?:써|쓰|적어|작성|만들|넣|채워)|{_COUNT}\s*더")
-# 목록 전체의 개수를 정하는 말 (예: "7개로 써 줘"). 이때는 목록을 그 개수로 새로 쓴다
-_TOTAL_COUNT = re.compile(rf"{_COUNT}\s*로")
 
 # 모델이 숫자와 단위 사이에 넣는 공백 (예: "1 차 면접", "20 대")
 _NUMBER_SPACE = re.compile(r"(\d)\s+(차|대|년|개월|월|일|시간|시|분|명|회|개|단계|주)")
@@ -223,7 +171,7 @@ _PARTICLE_SPACE = re.compile(
     r"(?<=[A-Za-z0-9+#)])\s+(?=(?:와|과|를|을|는|은|이|가|의|으로|로|에서|에|도|만|까지|부터)(?:[\s,.·)]|$))"
 )
 
-Target = Literal["CONTENT", "STAGES", "REQUIRED_EXTRAS", "NCS_REQUIREMENTS", "ROLES"]
+Target = Literal["CONTENT", "STAGES", "REQUIRED_EXTRAS", "ROLES"]
 PROCESS_TARGETS: frozenset[Target] = frozenset({"STAGES", "REQUIRED_EXTRAS"})
 """게시한 뒤에는 바꿀 수 없는 대상."""
 
@@ -295,24 +243,6 @@ class IntroEdit(BaseModel):
     text: str = Field(description="고친 뒤의 회사 소개 전체")
 
 
-class NcsPick(BaseModel):
-    ncs_codes: list[str] = Field(description="근거로 쓸 NCS 능력단위 코드 (최대 8개)")
-
-
-class SourcedItem(BaseModel):
-    """근거가 붙은 목록 항목. sources는 근거로 쓴 NCS 능력단위 코드이고, 근거가 없는 항목은 비운다."""
-
-    text: str = Field(description="항목 한 줄")
-    sources: list[str] = Field(description="근거로 쓴 NCS 능력단위 코드")
-
-
-class NcsDraft(BaseModel):
-    """NCS 정의를 보고 쓴 목록. 바꾼 뒤의 목록 전체다."""
-
-    qualifications: list[SourcedItem] = Field(description="자격 요건 목록 전체")
-    preferred: list[SourcedItem] = Field(description="우대 사항 목록 전체")
-
-
 SYSTEM = """너는 기업 인사팀의 채용 공고 편집을 돕는 Posting Agent다. HR의 요청대로 공고 수정안을 쓴다.
 요청은 여러 번에 나눠 처리한다. 맨 끝의 "지금 할 일"만 하고, 그 형식의 칸만 쓴다.
 
@@ -323,8 +253,6 @@ SYSTEM = """너는 기업 인사팀의 채용 공고 편집을 돕는 Posting Ag
   ASSESSMENT(평가: 코딩테스트, 인적성, 직무역량 평가, 과제), INTERVIEW(면접: 실무면접, 임원면접)다.
 - REQUIRED_EXTRAS: 필수 제출 서류. 이력서와 자기소개서는 항상 받는다. 더 받을 수 있는 것은 PORTFOLIO(포트폴리오),
   CERTIFICATE(자격증)뿐이다.
-- NCS_REQUIREMENTS: 자격 요건이나 우대 사항을 새로 쓰거나 전체를 다시 쓰기. NCS 능력단위를 근거로 쓴다.
-  항목 하나를 더하거나 고치는 정도면 CONTENT다.
 - ROLES: 백엔드·인사·생산관리처럼 여러 모집 직무를 한 공고의 직무별 표로 작성하거나 그 표를 수정한다.
   여러 직무를 채용한다고 하면 CONTENT와 ROLES를 함께 선택한다. 전형 절차나 팀 문화의 목록과 혼동하지 않는다.
 
@@ -369,27 +297,6 @@ ROLES_STEP = (
 )
 EXTRAS_STEP = "지금 할 일: 요청대로 바꾼 뒤, 이력서 · 자기소개서 밖에 필수로 받을 서류 전체를 required_extras에 쓴다."
 
-NCS_SYSTEM = """너는 채용 공고의 자격 요건과 우대 사항을 NCS(국가직무능력표준) 능력단위를 근거로 쓰는 Posting Agent다.
-
-규칙:
-1. 주어진 능력단위의 정의와 수행준거에 있는 능력을 지원자가 읽기 쉬운 공고 문장으로 바꿔 쓴다.
-   수행준거 문장을 그대로 옮기지 않는다. 정의와 수행준거에 없는 기술 이름(언어, 프레임워크, 자격증)은
-   지금 공고나 HR 요청에 있을 때만 쓴다.
-2. 항목마다 근거로 쓴 능력단위 코드를 sources에 적는다. 그 능력단위의 정의와 수행준거에 없는 내용
-   (예: 주요 업무에서만 가져온 내용)이면 그 코드를 적지 않는다. 근거가 없는 항목은 sources를 비운다.
-3. 자격 요건은 지원에 꼭 필요한 조건이고, 우대 사항은 있으면 좋은 조건이다.
-   "수준이 높은 능력단위"에 적힌 능력은 주요 업무에 꼭 필요한 것이 아니면 우대 사항에 쓴다.
-4. 같은 능력을 자격 요건과 우대 사항에 함께 쓰지 않는다. 한 능력단위를 두 목록에 쓰면
-   서로 다른 세부 능력([ ] 안의 이름)을 쓰거나, 자격 요건은 기본, 우대 사항은 그보다 깊은 수준으로 차이가 드러나게 쓴다.
-   다른 세부 능력도 주요 업무와 관련 있는 것만 쓴다. 관련 있는 세부 능력이 하나뿐이면 한 목록에만 쓴다.
-5. 지금 공고의 항목 중 요청과 관계없이 그대로 둘 항목도 함께 쓴다.
-6. 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 넣지 않는다. 회사가 알려 주지 않은 사실은 지어내지 않는다.
-7. 항목은 40자 안팎의 한 줄로, 공고에 쓰는 쉬운 말로 쓴다.
-   수행준거의 "~할 수 있는 능력" 말투나 전문 용어를 늘어놓지 않고 "~ 경험", "~ 능력"으로 끝낸다. 한국어로 쓴다.
-8. 목록마다 "지금 할 일"에 적힌 개수를 채운다. 능력단위마다 세부 능력([ ] 안의 이름)이 여러 개라 보통 채울 수 있다.
-   능력단위와 지금 공고에서 더는 근거를 찾을 수 없을 때만 그보다 적게 쓴다.
-   개수를 채우려고 같은 능력을 말만 바꿔 다시 쓰거나 근거 없는 항목을 만들지 않는다."""
-
 
 @dataclass(frozen=True)
 class _Edit:
@@ -398,7 +305,6 @@ class _Edit:
     changes: list[FieldChange] = field(default_factory=list)
     stages: list[StageEdit] | None = None
     required_extras: list[str] | None = None
-    cited: list[NcsUnit] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     roles: list[PostingRole] | None = None
 
@@ -444,20 +350,14 @@ async def revise_posting(
             targets.discard("ROLES")
             targets.add("CONTENT")
             roles = None
-    if "CONTENT" in targets and _writes_whole_list(posting.content, request):
-        targets.add("NCS_REQUIREMENTS")
-    # 공고 전체를 써 달라는 요청이면 자격 요건 · 우대 사항을 말하지 않았어도 비어 있는 목록을 NCS 근거로 쓴다
+    # 공고 전체를 써 달라는 요청이면 말하지 않은 목록 칸도 비어 있으면 직무의 일반적인 초안을 쓴다
     fills_empty = (
         route.writes_posting
         and "ROLES" not in targets
-        and not _NCS_WORDS.search(request)
-        and _has_empty_list(posting.content)
+        and any(not getattr(posting.content, name) for name in LIST_FIELDS)
     )
     if fills_empty:
-        targets.add("NCS_REQUIREMENTS")
-    elif not _NCS_WORDS.search(request):
-        # 근거로 새로 쓰는 일은 오래 걸려, 자격 요건 · 우대 사항을 말한 요청일 때만 한다
-        targets.discard("NCS_REQUIREMENTS")
+        targets.add("CONTENT")
     if not _STAGE_WORDS.search(request):
         targets.discard("STAGES")
     locked = posting.status is not RecruitmentStatus.DRAFT and bool(targets & PROCESS_TARGETS)
@@ -578,52 +478,32 @@ async def _write(
 ) -> _Edit:
     """고른 대상마다 그 대상만 쓰게 한다. found가 있으면 앞서 쓴 수정안이 걸린 이유를 붙인다.
 
-    fills_empty면 NCS 근거로 비어 있는 자격 요건 · 우대 사항만 쓴다 (공고 전체를 써 달라는 요청).
+    fills_empty면 비어 있는 목록 칸(LIST_FIELDS)에 직무의 일반적인 초안을 쓰게 한다 (공고 전체를 써 달라는 요청).
     asked_roles는 직무 수를 보려고 먼저 받은 직무별 표다. 처음 쓸 때는 다시 묻지 않고 쓴다.
     """
     changes: list[FieldChange] = []
-    cited: list[NcsUnit] = []
-    notes: list[str] = []
     if "CONTENT" in targets:
         step = CONTENT_STEP
-        if fills_empty and not posting.content.duties:
+        empty = [FIELD_LABELS[name] for name in LIST_FIELDS if not getattr(posting.content, name)]
+        if fills_empty and empty:
             step += (
-                " 공고 전체 작성 요청이다. 주요 업무가 비어 있다. "
-                "직무에 맞는 일반적인 업무 초안을 3~5개 반드시 쓴다. "
-                "회사의 실제 업무나 기술로 단정하지 않고 회사 고유 정보는 만들지 않는다."
+                f" 공고 전체 작성 요청이다. {', '.join(empty)} 칸이 비어 있다. "
+                "직무에 맞는 일반적인 초안을 칸마다 3~5개 반드시 쓴다. "
+                "회사의 실제 업무나 기술로 단정하지 않고, 회사가 정하지 않은 필수 자격증 · 경력 연수와 "
+                "회사 고유 정보는 만들지 않는다."
             )
         step += f"\n이번에 반영할 HR 요청: {request}"
         changes = (await _ask(llm, ContentChanges, context, step, found)).changes
     roles = None
     if "ROLES" in targets:
         roles = asked_roles if asked_roles is not None and not found else await _roles(llm, context, found)
-    if "NCS_REQUIREMENTS" in targets and (plan := _ncs_plan(posting.content, request, fills_empty)):
-        pick = await _ask(llm, NcsPick, context, _ncs_pick_step(), found)
-        if units := _chosen_units(pick.ncs_codes):
-            counts = {name: min(max(count, 1), MAX_DRAFT_ITEMS) for name, count in plan.items()}
-            adds = _appended_lists(posting.content, request, counts)
-            ncs = await llm.structured(
-                NcsDraft,
-                agent=AGENT,
-                system=NCS_SYSTEM,
-                user=_with_reasons(
-                    _ncs_prompt(
-                        posting, writing_style, request, units, counts, adds, _career_after(posting, changes, request)
-                    ),
-                    found,
-                ),
-            )
-            changes, cited, written, dropped = _apply_ncs(changes, ncs, units, counts, posting.content, adds)
-            notes = _count_notes(plan, counts, written)
-            if dropped:
-                notes.append(f"자격 요건과 같은 능력을 말하는 우대 사항 {dropped}개는 뺐어요.")
     stages: list[StageEdit] | None = None
     if "STAGES" in targets:
         stages = (await _ask(llm, StagePlan, context, STAGES_STEP, found)).stages
     extras: list[str] | None = None
     if "REQUIRED_EXTRAS" in targets:
         extras = list((await _ask(llm, ExtrasPlan, context, EXTRAS_STEP, found)).required_extras)
-    return _Edit(changes=changes, stages=stages, required_extras=extras, cited=cited, notes=notes, roles=roles)
+    return _Edit(changes=changes, stages=stages, required_extras=extras, roles=roles)
 
 
 async def _roles(llm: LlmClient, context: str, found: list[str] | None = None) -> list[PostingRole]:
@@ -636,190 +516,8 @@ async def _ask[T: BaseModel](
     return await llm.structured(output, agent=AGENT, system=SYSTEM, user=f"{_with_reasons(context, found)}\n\n{step}")
 
 
-def _ncs_plan(content: PostingContent, request: str, empty_only: bool = False) -> dict[str, int]:
-    """NCS 근거로 쓸 목록과 요청한 항목 수.
-
-    요청에서 말한 목록은 요청대로 쓰고(개수가 없으면 DEFAULT_ITEMS), 말하지 않은 목록은 비어 있을 때만 쓴다.
-    HR이 다듬어 둔 목록을 덮어쓰지 않기 위해서다. "우대 사항만"이면 그 목록만 쓰고, "자격 요건은 그대로 두고"면
-    그 목록은 쓰지 않는다. 목록을 말하지 않은 요청(예: "NCS 기반으로 써 줘")은 둘 다 말한 것으로 본다.
-    empty_only면 비어 있는 목록만 쓴다.
-    """
-    if empty_only:
-        return {name: DEFAULT_ITEMS for name in _LIST_WORDS if not getattr(content, name)}
-    said = {name for name, words in _LIST_WORDS.items() if re.search(words, request)} or set(_LIST_WORDS)
-    kept = {name for name, words in _LIST_WORDS.items() if re.search(f"(?:{words}){_KEEP}", request)}
-    only = {name for name, words in _LIST_WORDS.items() if re.search(f"(?:{words}){_ONLY}", request)}
-    empty = {name for name in _LIST_WORDS if not getattr(content, name)}
-    names = (only or (said | empty)) - kept
-    plan: dict[str, int] = {}
-    for name, words in _LIST_WORDS.items():
-        if name in names:
-            spoken = _spoken_count(words, request)
-            plan[name] = _number(spoken.group(1)) if spoken else DEFAULT_ITEMS
-    return plan
-
-
-def _has_empty_list(content: PostingContent) -> bool:
-    return any(not getattr(content, name) for name in _LIST_WORDS)
-
-
-def _writes_whole_list(content: PostingContent, request: str) -> bool:
-    """자격 요건 · 우대 사항 목록을 새로 쓰라는 요청인지.
-
-    개수를 말했거나, 다시 쓰라고 했거나, 비어 있는 목록을 쓰라는 요청이다.
-    항목을 더하거나 빼라는 말이 있으면 고치기로 둔다 (예: "우대 사항에 AWS 경험 하나 추가해 줘").
-    다만 더 써 달라는 요청(예: "자격 요건 추가로 써 줘", "3개 더 써 줘")은 NCS 근거로 써서 기존 줄 뒤에 더한다.
-    """
-    if not _WRITE_WORDS.search(request):
-        return False
-    adding = bool(_ADD_WORDS.search(request))
-    if _EDIT_WORDS.search(request) and not adding:
-        return False
-    return any(
-        re.search(words, request)
-        and (not getattr(content, name) or adding or _REWRITE_WORDS.search(request) or _spoken_count(words, request))
-        for name, words in _LIST_WORDS.items()
-    )
-
-
-def _spoken_count(words: str, request: str) -> re.Match[str] | None:
-    """목록 이름 바로 뒤의 개수(예: "자격 요건은 7개"), 없으면 "3개씩"처럼 모든 목록에 붙인 개수."""
-    own = re.search(rf"(?:{words})[^\d\n]{{0,{_COUNT_WINDOW}}}?{_COUNT}", request)
-    return own or re.search(rf"{_COUNT}\s*씩", request)
-
-
 def _number(word: str) -> int:
     return int(word) if word.isdigit() else _KOREAN_NUMBERS[word]
-
-
-def _chosen_units(codes: list[str]) -> list[NcsUnit]:
-    """모델이 고른 코드 중 실제로 있는 능력단위만, 조사 점수 순서로(_by_survey) 정해 둔 수까지."""
-    units = [unit for code in codes if (unit := unit_by_code(code.strip()))]
-    return _by_survey(list({unit.code: unit for unit in units}.values()))[:MAX_NCS_UNITS]
-
-
-def _by_survey(units: list[NcsUnit]) -> list[NcsUnit]:
-    """조사 점수가 높은 능력단위를 앞에 놓는다. 조사가 있는 능력단위끼리만 자리를 바꾼다.
-
-    조사가 없는 능력단위(DB엔지니어링 등)는 모델이 고른 자리에 둔다. 조사가 없다는 이유로 뒤로 밀지 않는다.
-    """
-    surveys = ncs_data().surveys
-    ranked = iter(
-        sorted((unit for unit in units if unit.code in surveys), key=lambda unit: -survey_score(surveys[unit.code]))
-    )
-    return [next(ranked) if unit.code in surveys else unit for unit in units]
-
-
-def _appended_lists(content: PostingContent, request: str, counts: dict[str, int]) -> set[str]:
-    """새 줄을 기존 줄 뒤에 더할 목록. 이미 줄이 있는 목록은 기본으로 기존 줄을 두고 뒤에 더한다.
-
-    HR이 적어 둔 줄(학력처럼 NCS 근거가 없는 줄 포함)을 "작성해 줘", "더 적어 줘" 같은 요청에 지우지 않기 위해서다.
-    다시 · 새로 쓰라고 했거나(_REWRITE_WORDS) "7개로"처럼 전체 개수를 정했으면(_TOTAL_COUNT) 목록을 새로 쓴다.
-    """
-    if _REWRITE_WORDS.search(request) or _TOTAL_COUNT.search(request):
-        return set()
-    return {name for name in counts if getattr(content, name)}
-
-
-def _apply_ncs(
-    changes: list[FieldChange],
-    ncs: NcsDraft,
-    units: list[NcsUnit],
-    counts: dict[str, int],
-    content: PostingContent,
-    adds: set[str],
-) -> tuple[list[FieldChange], list[NcsUnit], dict[str, int], int]:
-    """NCS 정의를 보고 쓴 목록을 바꿀 칸에 넣고, 보여 준 능력단위 중 근거로 쓴 것, 목록마다 모델이 쓴 항목 수,
-    자격 요건과 겹쳐 뺀 우대 사항 수를 돌려준다.
-
-    쓰기로 한 목록만 정한 개수까지 넣는다. 목록이 비어 있으면 지금 공고의 목록을 지우지 않게 넣지 않는다.
-    개수를 채우려고 같은 항목을 되풀이하면 하나만 남긴다. 보여 주지 않은 능력단위는 근거로 치지 않는다.
-    adds의 목록은 기존 줄을 그대로 두고, 기존 줄과 같은 새 줄은 빼고 뒤에 더한다 (목록 한도 MAX_ITEMS까지).
-    """
-    shown = {unit.code for unit in units}
-    written: list[FieldChange] = []
-    cited: dict[str, NcsUnit] = {}
-    sizes: dict[str, int] = {}
-    chosen: dict[str, list[SourcedItem]] = {}
-    dropped = 0
-    for name, label in NCS_FIELDS:
-        if name not in counts:
-            continue
-        existing = list(getattr(content, name)) if name in adds else []
-        known = {_compact(line) for line in existing}
-        unique: dict[str, SourcedItem] = {}
-        for item in getattr(ncs, name):
-            if item.text.strip() and _compact(item.text) not in known:
-                unique.setdefault(_compact(item.text), item)
-        items = list(unique.values())[: counts[name]]
-        sizes[name] = len(items)
-        if name == "preferred":
-            kept_items = [item for item in items if not _repeats(item, chosen.get("qualifications", []))]
-            dropped = len(items) - len(kept_items)
-            items = kept_items
-        chosen[name] = items
-        if not items:
-            continue
-        lines = existing + [item.text for item in items]
-        written.append(FieldChange(field=label, text=None, items=lines[:MAX_ITEMS]))
-        for code in (code for item in items for code in item.sources):
-            if (unit := unit_by_code(code.strip())) and unit.code in shown:
-                cited.setdefault(unit.code, unit)
-    rewritten = {change.field for change in written}
-    kept = [change for change in changes if change.field not in rewritten]
-    return kept + written, list(cited.values()), sizes, dropped
-
-
-OVERLAP_SHARE = 0.5
-"""우대 사항이 자격 요건과 같은 능력인지 볼 때, 짧은 쪽 낱말 중 겹쳐야 하는 몫.
-같은 능력단위를 근거로 쓴 항목끼리만 본다.
-0.5면 "소스 코드 분석을 통한 잠재적 결함 제거"와 "리팩토링을 통한 … 잠재 결함 제거"는 겹치고,
-기본과 깊은 수준으로 나눈 "인터페이스 설계"끼리(0.33)는 남긴다 (NCS_SYSTEM 규칙 4)."""
-
-# 낱말 끝의 조사 · 어미. 떼어야 "잠재적"과 "잠재", "분석을"과 "분석"이 같은 낱말이 된다
-_WORD_ENDING = re.compile(r"(?:으로|에서|하는|하고|적인|을|를|의|에|와|과|로|한|된|적|은|는|이|가)$")
-# 공고 항목마다 붙어 같은 능력인지 가리는 데 쓸모없는 말
-_FILLER_WORDS = frozenset({"능력", "경험", "위한", "통한", "대한", "따른", "가진", "관련", "기반", "기반으로"})
-
-
-def _repeats(item: SourcedItem, qualifications: list[SourcedItem]) -> bool:
-    """우대 사항 항목이 자격 요건의 어느 항목과 같은 능력을 말하는지.
-
-    근거 능력단위가 같고 낱말이 많이 겹치면 같다고 본다.
-    """
-    words = _content_words(item.text)
-    for qualification in qualifications:
-        if not set(item.sources) & set(qualification.sources):
-            continue
-        other = _content_words(qualification.text)
-        shorter = min(len(words), len(other))
-        if shorter and len(words & other) / shorter >= OVERLAP_SHARE:
-            return True
-    return False
-
-
-def _content_words(text: str) -> set[str]:
-    words = set()
-    for word in re.findall(r"[가-힣A-Za-z0-9]+", text):
-        stem = _WORD_ENDING.sub("", word) if len(word) > 2 else word
-        if len(stem) >= 2 and stem not in _FILLER_WORDS and word not in _FILLER_WORDS:
-            words.add(stem)
-    return words
-
-
-def _count_notes(plan: dict[str, int], counts: dict[str, int], written: dict[str, int]) -> list[str]:
-    """요청보다 적게 쓴 목록을 알린다. 근거를 찾을 수 있는 만큼만 쓰게 해서, 적게 썼다고 다시 쓰게 하지 않는다."""
-    notes = [
-        f"{FIELD_LABELS[name]}은 {MAX_DRAFT_ITEMS}개까지 써요."
-        for name, count in plan.items()
-        if count > MAX_DRAFT_ITEMS and written.get(name)
-    ]
-    notes += [
-        f"{FIELD_LABELS[name]}은 근거를 찾을 수 있는 {written[name]}개만 썼어요."
-        for name, count in counts.items()
-        if 0 < written.get(name, 0) < count
-    ]
-    return notes
 
 
 def _draft(posting: PostingDraftContext, edit: _Edit, request: str) -> _Draft:
@@ -854,8 +552,6 @@ def _with_defaults(draft: _Draft, edit: _Edit) -> tuple[_Draft, _Edit]:
     if filled:
         labels = ", ".join(FIELD_LABELS[name] for name in filled)
         notes.append(f"{labels} 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요.")
-    if not content.career and {name for name, _ in NCS_FIELDS} & set(draft.changed):
-        notes.append(CAREER_UNSET_NOTE)
     if left := [FIELD_LABELS[name] for name in LEFT_FOR_HR if getattr(content, name) in ("", None)]:
         notes.append(f"{', '.join(left)} 칸은 정해 주세요.")
     return replace(draft, content=content, changed=changed), replace(edit, notes=notes)
@@ -996,8 +692,6 @@ def _tidy(text: str) -> str:
 
 def _result(draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
     notes = list(edit.notes)
-    if edit.cited and {name for name, _ in NCS_FIELDS} & set(draft.changed):
-        notes.append("근거(NCS): " + ", ".join(f"{unit.subdivision} · {unit.name}" for unit in edit.cited))
     if locked:
         notes.append(LOCKED_REPLY)
     labels = [FIELD_LABELS[name] for name in draft.changed]
@@ -1030,132 +724,6 @@ def _with_reasons(prompt: str, found: list[str] | None) -> str:
         return prompt
     reasons = "\n".join(f"- {reason}" for reason in found)
     return f"{prompt}\n\n앞서 쓴 수정안의 문제:\n{reasons}\n문제를 고쳐 다시 쓴다."
-
-
-def _ncs_pick_step() -> str:
-    lines = [
-        "지금 할 일: 아래 NCS 능력단위 중 이 직무의 자격 요건 · 우대 사항 근거로 쓸 것을 ncs_codes에 고른다.",
-        f"최대 {MAX_NCS_UNITS}개이고 코드는 그대로 옮겨 쓴다. 직무와 관계있는 것이 없으면 빈 목록이다.",
-        "",
-        "NCS 능력단위 (코드 이름, 수준):",
-    ]
-    for subdivision in subdivisions():
-        lines.append(f"[{subdivision}]")
-        lines += [f"{unit.code} {unit.name} (수준 {unit.level})" for unit in units_of(subdivision)]
-    return "\n".join(lines)
-
-
-def _ncs_prompt(
-    posting: PostingDraftContext,
-    writing_style: str,
-    request: str,
-    units: list[NcsUnit],
-    counts: dict[str, int],
-    adds: set[str] | None = None,
-    career: str | None = None,
-) -> str:
-    """career는 이번 요청으로 바뀐 뒤의 경력이다. 없으면 지금 공고의 경력이다."""
-    content = posting.content
-    career = content.career if career is None else career
-    lines = [
-        f"채용명: {content.title or '(비어 있음)'}",
-        f"직무: {content.job_category or '(비어 있음)'}",
-        f"경력: {career or '(비어 있음)'}",
-    ]
-    for name in ("duties", "qualifications", "preferred"):
-        lines.append(f"지금 {FIELD_LABELS[name]}:")
-        lines += [f"- {item}" for item in getattr(content, name)] or ["(비어 있음)"]
-    lines += [
-        "",
-        f"공고 작성 스타일: {writing_style.strip() or '(없음)'}",
-        "",
-        f"NCS 능력단위 ({ncs_data().source}):",
-        *([NCS_ORDER_NOTE] if sum(unit.code in ncs_data().surveys for unit in units) >= 2 else []),
-        *_unit_lines(units),
-        *([_advanced_line(advanced, career)] if (advanced := _advanced_units(units)) else []),
-        "",
-        f"HR 요청: {request}",
-        "",
-        _ncs_task(counts, adds or set()),
-    ]
-    return "\n".join(lines)
-
-
-def _ncs_task(counts: dict[str, int], adds: set[str]) -> str:
-    """쓸 목록과 개수. 요청을 읽고 정하는 일은 코드가 하고 모델에게는 정한 대로 알려 준다.
-
-    기존 줄 뒤에 더할 목록(adds)은 지금 목록과 겹치지 않는 새 항목만 쓰게 한다. 기존 줄은 코드가 붙인다.
-    """
-    wanted = [
-        f"{FIELD_LABELS[name]} {count}개" + (" (지금 목록과 겹치지 않는 새 항목만)" if name in adds else "")
-        for name, count in counts.items()
-    ]
-    task = f"지금 할 일: {', '.join(wanted)}를 쓴다."
-    if skipped := [label for name, label in NCS_FIELDS if name not in counts]:
-        task += f" {', '.join(skipped)}은 쓰지 않고 빈 목록으로 둔다."
-    return task
-
-
-def _unit_lines(units: list[NcsUnit]) -> list[str]:
-    """능력단위마다 정의와, 세부 능력([요소 이름]) 아래 수행준거를 적는다. 글자 수 한도는 능력단위끼리 나눠 쓴다.
-
-    요소 이름을 보여 줘야 모델이 한 능력단위를 두 목록에 쓸 때 서로 다른 세부 능력을 고를 수 있다.
-    """
-    share = NCS_DETAIL_CHARS // max(len(units), 1)
-    lines = []
-    for unit in units:
-        lines.append(f"- {unit.code} {unit.name} (수준 {unit.level}): {unit.definition}")
-        shown = _criteria_within(unit, share - len(unit.definition))
-        for element in unit.elements:
-            lines.append(f"  [{element.name}]")
-            lines += [f"  · {criterion}" for criterion in element.criteria if criterion in shown]
-    return lines
-
-
-def _criteria_within(unit: NcsUnit, budget: int) -> set[str]:
-    """글자 수 한도 안에서 보여 줄 수행준거. 요소마다 고루 고른다 (_spread_criteria)."""
-    shown: set[str] = set()
-    used = 0
-    for criterion in _spread_criteria(unit):
-        if used + len(criterion) > budget:
-            break
-        shown.add(criterion)
-        used += len(criterion)
-    return shown
-
-
-def _advanced_line(units: list[NcsUnit], career: str) -> str:
-    """수준이 높은 능력단위 줄. 신입도 지원할 수 있는 공고면 그 능력은 우대 사항에만 쓰라고 덧붙인다."""
-    line = f"{ADVANCED_LABEL}: {', '.join(unit.name for unit in units)}"
-    return f"{line} {JUNIOR_NOTE}" if entry_level(career) else line
-
-
-def entry_level(career: str) -> bool:
-    """신입도 지원할 수 있는 경력인지. 신입 · 경력 무관 · 빈 칸이면 그렇고, 경력 · 경력 N년 이상이면 아니다.
-
-    예전에 글로 적은 "신입 · 경력"처럼 신입이 들어 있어도 그렇다. frontend careerLevel과 같은 기준이다.
-    """
-    return career == "경력 무관" or "신입" in career or not career.startswith("경력")
-
-
-def _career_after(posting: PostingDraftContext, changes: list[FieldChange], request: str) -> str:
-    """이번 요청으로 바뀐 뒤의 경력. 요청에서 말한 경력이 있으면 그것을, 없으면 지금 공고의 경력을 쓴다."""
-    for change in _requested_facts(changes, request):
-        if LABEL_FIELDS[change.field] == "career" and (career := _career(change.text)):
-            return career
-    return posting.content.career
-
-
-def _advanced_units(units: list[NcsUnit]) -> list[NcsUnit]:
-    """보여 준 능력단위 중 NCS 수준이 가장 높은 것. 수준이 모두 같으면 없다."""
-    levels = {unit.level for unit in units}
-    return [unit for unit in units if unit.level == max(levels)] if len(levels) > 1 else []
-
-
-def _spread_criteria(unit: NcsUnit) -> list[str]:
-    """요소마다 첫 수행준거, 그다음 두 번째 수행준거 순서로 늘어놓는다. 한도에 걸려도 요소가 고루 들어간다."""
-    rounds = max((len(element.criteria) for element in unit.elements), default=0)
-    return [element.criteria[i] for i in range(rounds) for element in unit.elements if i < len(element.criteria)]
 
 
 def _context(posting: PostingDraftContext, writing_style: str, request: str) -> str:
