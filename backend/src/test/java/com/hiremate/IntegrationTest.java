@@ -2,12 +2,17 @@ package com.hiremate;
 
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationService;
+import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -16,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 실제 HTTP, PostgreSQL, Redis로 검사하는 업무 API 테스트의 공통 설정. 같은 설정을 써서 컨텍스트를 함께 쓴다.
@@ -77,11 +83,52 @@ public abstract class IntegrationTest {
         expect(hr.post(document + "/decisions",
                 Map.of("applicationIds", List.of(applicationId.toString()), "decision", "PASS")), 204);
         expect(hr.post(document + "/confirm", null), 200);
+        scheduleNextInterview(hr, document);
         expect(hr.post(document + "/notices/prepare", null), 200);
         expect(hr.post(document + "/notices/PASS/send", null), 200);
         UUID stageId = UUID.fromString(json(expect(hr.post(document + "/finish", null), 200)).path("nextStageId")
                 .asString());
         return new Interview(hr, recruitmentId, stageId, "/api/stages/" + stageId, applicationId);
+    }
+
+    /**
+     * 결과를 확정한 전형(stage는 전형 경로)의 다음 면접 시간을 배정한다. 합격 안내는 배정한 뒤에만 보낼 수 있어,
+     * 합격 안내를 보내기 바로 전에 부른다. 날짜를 기다리고 있으면 HR처럼 다시 시도하고, 그래도 면접 날짜가 없으면
+     * 2주 뒤 평일로 정해 다시 시도한다. 다음 전형이 면접이 아니면 아무것도 하지 않는다.
+     */
+    protected static void scheduleNextInterview(TestApi hr, String stage) throws Exception {
+        JsonNode state = json(expect(hr.get(stage + "/interview-scheduling"), 200));
+        if (state.path("status").asString().equals("DATE_REQUIRED")) {
+            state = json(expect(hr.post(stage + "/interview-scheduling/retry", null), 200));
+        }
+        if (state.path("status").asString().equals("DATE_REQUIRED")) {
+            // 날짜는 앞 전형 날짜보다 뒤여야 해서, 받아들여질 때까지 한 주씩 미룬다 (면접이 두 번이면 둘째는 3주 뒤)
+            LocalDate monday = LocalDate.now(ZoneId.of("Asia/Seoul")).plusWeeks(2)
+                    .with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+            int status = 0;
+            for (int week = 0; week < 8 && status != 200; week++) {
+                status = hr.put("/api/stages/" + state.path("nextStageId").asString() + "/guide",
+                        Map.of("schedule", monday.plusWeeks(week).toString(), "place", "", "preparation", "",
+                                "note", "")).statusCode();
+            }
+            assertThat(status).isEqualTo(200);
+            expect(hr.post(stage + "/interview-scheduling/retry", null), 200);
+        }
+        awaitInterviewScheduled(hr, stage);
+    }
+
+    private static void awaitInterviewScheduled(TestApi hr, String stage) throws Exception {
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(20));
+        JsonNode state;
+        do {
+            state = json(expect(hr.get(stage + "/interview-scheduling"), 200));
+            String status = state.path("status").asString();
+            if (status.equals("READY") || status.equals("NOT_APPLICABLE")) {
+                return;
+            }
+            Thread.sleep(50);
+        } while (Instant.now().isBefore(deadline));
+        throw new AssertionError("Interview scheduling did not finish: " + state);
     }
 
     private UUID awaitAnalyzed(UUID companyId, UUID recruitmentId) throws InterruptedException {

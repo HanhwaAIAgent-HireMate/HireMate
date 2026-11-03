@@ -1947,6 +1947,8 @@ export interface components {
             failedCount: number;
             /** Format: date-time */
             sentAt: string | null;
+            /** Format: uuid */
+            nextStageId: string | null;
         };
         OnboardingGuide: {
             startDate: string;
@@ -2054,8 +2056,7 @@ export interface components {
             name: string;
             guide: components["schemas"]["StageGuide"];
             missing: string[];
-            /** Format: int32 */
-            notifiedCount: number;
+            locked: boolean;
         };
         MemoRequest: {
             memo: string;
@@ -2832,26 +2833,26 @@ export interface components {
             null: boolean;
             object: boolean;
             float: boolean;
-            container: boolean;
-            missingNode: boolean;
-            pojo: boolean;
-            int: boolean;
+            number: boolean;
             /** @deprecated */
             textual: boolean;
-            number: boolean;
-            double: boolean;
-            binary: boolean;
-            short: boolean;
-            long: boolean;
-            boolean: boolean;
             string: boolean;
+            boolean: boolean;
+            short: boolean;
+            pojo: boolean;
+            binary: boolean;
+            double: boolean;
+            int: boolean;
+            long: boolean;
             bigInteger: boolean;
+            container: boolean;
+            valueNode: boolean;
             floatingPointNumber: boolean;
             bigDecimal: boolean;
-            valueNode: boolean;
+            integralNumber: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            integralNumber: boolean;
+            missingNode: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {

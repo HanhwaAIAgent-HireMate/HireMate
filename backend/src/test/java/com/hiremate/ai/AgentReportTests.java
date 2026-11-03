@@ -122,6 +122,7 @@ class AgentReportTests extends IntegrationTest {
         String path = stage.path() + "/reports/" + list.get(0).path("id").asString();
         expect(stage.hr().get(path), 409);
         expect(stage.hr().post(stage.path() + "/notices/prepare", null), 200);
+        scheduleNextInterview(stage.hr(), stage.path());
         expect(stage.hr().post(stage.path() + "/notices/PASS/send", null), 200);
         expect(stage.hr().post(stage.path() + "/notices/FAIL/send", null), 200);
         JsonNode report = json(expect(stage.hr().get(path), 200));
@@ -163,6 +164,7 @@ class AgentReportTests extends IntegrationTest {
                 Map.of("applicationIds", document.ids(), "decision", "PASS")), 204);
         expect(hr.post(document.path() + "/confirm", null), 200);
         expect(hr.post(document.path() + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, document.path());
         expect(hr.post(document.path() + "/notices/PASS/send", null), 200);
         String stageId = json(expect(hr.post(document.path() + "/finish", null), 200)).path("nextStageId").asString();
         Stage assessment = new Stage(hr, stageId, document.ids());

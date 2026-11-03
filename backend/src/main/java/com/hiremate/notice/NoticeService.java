@@ -8,6 +8,7 @@ import com.hiremate.company.MailStyleService;
 import com.hiremate.company.NoticeTemplateInfo;
 import com.hiremate.company.NoticeTemplateType;
 import com.hiremate.global.ApiException;
+import com.hiremate.interview.InterviewScheduling;
 import com.hiremate.mail.MailBrand;
 import com.hiremate.mail.MailContent;
 import com.hiremate.mail.MailPreview;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -59,6 +61,12 @@ public class NoticeService {
     /** 메일에 쓰는 전형 일정 (예: 2026년 11월 3일(화)). */
     private static final DateTimeFormatter GUIDE_DATE = DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN);
 
+    /** 합격 안내를 보낼 수 있는 다음 면접 배정 상태. 다음 전형이 면접이 아니면 NOT_APPLICABLE이다. */
+    private static final Set<String> SCHEDULED = Set.of("READY", "NOT_APPLICABLE");
+
+    /** 안내를 고치면 다시 시작하는 면접 배정 상태. 날짜가 없거나 칸이 모자라 멈춘 경우다. */
+    private static final Set<String> STALLED = Set.of("DATE_REQUIRED", "FAILED");
+
     private final NoticeRepository notices;
     private final NoticeDeliveryRepository deliveries;
     private final ScreeningService screening;
@@ -68,10 +76,11 @@ public class NoticeService {
     private final MailStyleService mailStyles;
     private final MailService mail;
     private final ActivityService activity;
+    private final InterviewScheduling scheduling;
 
     public NoticeService(NoticeRepository notices, NoticeDeliveryRepository deliveries, ScreeningService screening,
             RecruitService recruits, ApplicationService applications, CompanyService companies,
-            MailStyleService mailStyles, MailService mail, ActivityService activity) {
+            MailStyleService mailStyles, MailService mail, ActivityService activity, InterviewScheduling scheduling) {
         this.notices = notices;
         this.deliveries = deliveries;
         this.screening = screening;
@@ -81,6 +90,7 @@ public class NoticeService {
         this.mailStyles = mailStyles;
         this.mail = mail;
         this.activity = activity;
+        this.scheduling = scheduling;
     }
 
     /** 결과를 확정한 전형의 안내 초안. 처음 열면 설정의 안내 메일 양식으로 그룹별 초안을 만든다. */
@@ -137,6 +147,12 @@ public class NoticeService {
         }
         if (notice.getContent().isBlank()) {
             throw new ApiException(HttpStatus.CONFLICT, "NOTICE_EMPTY", "Write the notice content first.");
+        }
+        // 다음 면접 시간을 배정한 뒤에 합격 안내를 보낸다. 보내면 다음 전형 안내가 잠겨, 날짜가 없거나 칸이 모자라
+        // 배정에 실패한 채로 보내면 날짜를 고쳐 다시 배정할 수 없다
+        if (group == NoticeGroup.PASS && !SCHEDULED.contains(scheduling.status(companyId, stageId).status())) {
+            throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_SCHEDULE_NOT_READY",
+                    "Schedule the next interview before sending the pass notice.");
         }
         StageResults results = screening.results(companyId, stageId);
         List<UUID> recipients = group == NoticeGroup.PASS ? results.passed() : results.failed();
@@ -205,7 +221,20 @@ public class NoticeService {
         }
         checkGuide(recruitment, target, guide);
         StageInfo stage = recruits.changeGuide(companyId, stageId, guide);
+        retryScheduling(companyId, recruitment, target);
         return guideView(companyId, recruits.getByStage(companyId, stageId), stage);
+    }
+
+    /**
+     * 면접 안내를 고치면, 날짜가 없거나 배정에 실패해 멈춘 면접 시간 배정을 다시 시작한다. 합격 안내는 배정한 뒤에 보내므로
+     * HR이 안내 메일 화면에서 날짜를 정하면 바로 배정이 이어진다.
+     */
+    private void retryScheduling(UUID companyId, RecruitmentInfo recruitment, StageInfo stage) {
+        recruitment.stages().stream()
+                .filter(previous -> previous.seq() == stage.seq() - 1)
+                .findFirst()
+                .filter(previous -> STALLED.contains(scheduling.status(companyId, previous.id()).status()))
+                .ifPresent(previous -> scheduling.request(companyId, previous.id()));
     }
 
     /**

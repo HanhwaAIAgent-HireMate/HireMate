@@ -1,6 +1,6 @@
 import { LoaderCircle, Lock, Send } from 'lucide-react'
-import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { useHeaderCrumb } from '@/app/header-store'
@@ -225,6 +225,14 @@ function Editor({
   const guides = useStageGuides(recruitmentId, nextStageId, Boolean(notice.nextStageId))
   const nextGuide = guides.data?.find((view) => view.stageId === nextStageId)
   const saveGuide = useSaveStageGuide(recruitmentId, nextStageId, notice.stageId)
+  // 면접 일정 배정 상자의 "면접 날짜 정하기"(#next-stage-guide)로 오면 다음 전형 안내 칸을 보여 준다
+  const location = useLocation()
+  const hasNextGuide = Boolean(nextGuide)
+  useEffect(() => {
+    if (hasNextGuide && location.hash === `#${NEXT_GUIDE_ID}`) {
+      document.getElementById(NEXT_GUIDE_ID)?.scrollIntoView({ block: 'center' })
+    }
+  }, [hasNextGuide, location.hash])
   const [guideEdits, setGuideEdits] = useState<StageGuide | null>(null)
   const guideDraft = guideEdits ?? nextGuide?.guide
   const guideEditable = editable && Boolean(nextGuide) && !nextGuide?.locked

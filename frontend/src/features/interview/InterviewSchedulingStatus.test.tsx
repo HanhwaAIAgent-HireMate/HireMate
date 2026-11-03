@@ -33,14 +33,17 @@ it('배정 실패를 알리고 재시도한 뒤 준비 중 상태에서 완료�
   render(
     <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter>
-        <InterviewSchedulingStatus stageId="previous" guidesPath="/posting#stage-guides" />
+        <InterviewSchedulingStatus
+          stageId="previous"
+          guidesPath="/close/notices/PASS#next-stage-guide"
+        />
       </MemoryRouter>
     </QueryClientProvider>,
   )
   expect(await screen.findByText(/배정할 시간이 부족해요/)).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: '공고의 전형 날짜 확인' })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: '면접 날짜 정하기' })).toHaveAttribute(
     'href',
-    '/posting#stage-guides',
+    '/close/notices/PASS#next-stage-guide',
   )
   fireEvent.click(screen.getByRole('button', { name: '일정 배정 다시 시도' }))
   expect(await screen.findByText(/배정하고 있어요/)).toBeInTheDocument()

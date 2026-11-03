@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/lib/api/client'
 
-const schedulingKey = (stageId: string) => ['interview-scheduling', stageId] as const
+export const schedulingKey = (stageId: string) => ['interview-scheduling', stageId] as const
 
 export function useInterviewScheduling(stageId: string, enabled = true) {
   return useQuery({

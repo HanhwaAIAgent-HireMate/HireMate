@@ -155,7 +155,7 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
               {next?.type === 'INTERVIEW' && counts.pass > 0 && (
                 <InterviewSchedulingStatus
                   stageId={overview.stageId}
-                  guidesPath={`/hr/recruitments/${overview.recruitmentId}/posting#stage-guides`}
+                  guidesPath={`${base}/close/notices/PASS#next-stage-guide`}
                 />
               )}
               {!notices && <Skeleton className="h-20 w-full" />}

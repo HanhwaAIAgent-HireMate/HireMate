@@ -67,26 +67,30 @@ class InterviewSchedulingTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("공고 날짜가 없으면 상태만 알리고 기존 메일 발송은 유지하며 날짜 설정 후 HR만 재시도한다")
-    void missingDateDoesNotBlockMailAndCanBeRetried() throws Exception {
+    @DisplayName("면접 날짜가 없으면 합격 안내를 막고, 안내에 날짜를 정하면 바로 다시 배정해 그 뒤에 보낸다")
+    void missingDateHoldsPassNoticeUntilScheduled() throws Exception {
         Room room = room(1, false);
         confirm(room, room.ids());
         await(room, "DATE_REQUIRED");
         expect(newHr().get(room.status()), 404);
         expect(newInterviewer(room.hr(), "면접관").post(room.status() + "/retry", null), 403);
         expect(room.hr().post(room.path() + "/notices/prepare", null), 200);
-        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
-        int sent = mail.sent.size();
+        int before = mail.sent.size();
+        // 보내면 다음 전형 안내가 잠겨 날짜를 넣을 수 없으므로, 면접 시간을 배정하기 전에는 합격 안내를 보내지 않는다
+        assertThat(json(expect(room.hr().post(room.path() + "/notices/PASS/send", null), 409)).path("code")
+                .asString()).isEqualTo("INTERVIEW_SCHEDULE_NOT_READY");
+        assertThat(mail.sent).hasSize(before);
+        // HR이 안내 메일 화면에서 면접 날짜를 정하면 다시 시도하지 않아도 배정이 이어진다
         guide(room, room.next(), friday());
-        expect(room.hr().post(room.status() + "/retry", null), 200);
         await(room, "READY");
-        assertThat(mail.sent).hasSize(sent);
         assertThat(times(room, room.ids())).containsExactly(friday().atTime(9, 0).atZone(KOREA).toInstant());
+        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
+        assertThat(mail.sent).hasSize(before + 1);
     }
 
     @Test
-    @DisplayName("배정 가능한 날이 부족하면 부분 배정은 롤백하되 메일 발송은 유지하며 날짜 조정 뒤 재시도한다")
-    void overflowRollsBackSchedulesWithoutChangingMailFlow() throws Exception {
+    @DisplayName("배정 가능한 날이 부족하면 부분 배정은 롤백하고 합격 안내를 막으며, 날짜 조정 뒤 재시도해 배정하고 보낸다")
+    void overflowRollsBackSchedulesAndHoldsPassNotice() throws Exception {
         Room room = room(6, true);
         guide(room, room.next(), friday());
         guide(room, room.last(), friday().plusDays(3));
@@ -98,13 +102,14 @@ class InterviewSchedulingTests extends IntegrationTest {
         assertThat(interviews.preparationView(room.hr().companyId(), room.next(), room.ids().getFirst()).schedule())
                 .isNull();
         expect(room.hr().post(room.path() + "/notices/prepare", null), 200);
-        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
-        int sent = mail.sent.size();
+        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 409);
+        assertThat(mail.sent).hasSize(before);
         guide(room, room.last(), friday().plusWeeks(2));
         expect(room.hr().post(room.status() + "/retry", null), 200);
         await(room, "READY");
         assertThat(times(room, room.ids())).hasSize(6).doesNotHaveDuplicates();
-        assertThat(mail.sent).hasSize(sent);
+        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
+        assertThat(mail.sent).hasSize(before + 6);
     }
 
     private Room room(int count, boolean finalInterview) throws Exception {

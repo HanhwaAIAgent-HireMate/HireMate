@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap, type Schemas } from '@/lib/api/client'
+import { schedulingKey } from '@/features/interview/scheduling'
 import { stageKeys } from '@/features/screening/api'
 
 export type Notice = Schemas['NoticeView']
@@ -42,6 +43,8 @@ export function useSaveStageGuide(recruitmentId: string, stageId: string, notice
       Promise.all([
         queryClient.invalidateQueries({ queryKey: stageGuideKeys.all(recruitmentId) }),
         queryClient.invalidateQueries({ queryKey: noticeKeys.all(noticeStageId) }),
+        // 면접 날짜를 정하면 멈춘 면접 시간 배정이 다시 시작된다
+        queryClient.invalidateQueries({ queryKey: schedulingKey(noticeStageId) }),
       ]),
   })
 }

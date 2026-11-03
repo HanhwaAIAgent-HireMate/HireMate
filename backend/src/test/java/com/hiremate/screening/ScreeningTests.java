@@ -177,6 +177,7 @@ class ScreeningTests extends IntegrationTest {
 
         expect(stage.hr().post(stage.path() + "/finish", null), 409);
         expect(stage.hr().post(stage.path() + "/notices/prepare", null), 200);
+        scheduleNextInterview(stage.hr(), stage.path());
         expect(stage.hr().post(stage.path() + "/notices/PASS/send", null), 200);
         expect(stage.hr().post(stage.path() + "/notices/FAIL/send", null), 200);
         JsonNode finished = json(expect(stage.hr().post(stage.path() + "/finish", null), 200));
@@ -476,6 +477,7 @@ class ScreeningTests extends IntegrationTest {
         String secondText = second.format(DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN));
         expect(hr.put(guidePath, Map.of("schedule", second.toString(), "place", "", "preparation", "", "note", "")),
                 200);
+        scheduleNextInterview(hr, stage.path());
         expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
         assertThat(mail.sent).anySatisfy(message -> assertThat(message)
                 .contains("지원자1님", "다음 전형은 1차 면접입니다.", "■ 1차 면접 안내\n- 일정: " + secondText)
@@ -508,6 +510,7 @@ class ScreeningTests extends IntegrationTest {
         expect(hr.put(stage.path() + "/notices/FAIL", Map.of("subject", fail.path("subject").asString(),
                 "greeting", fail.path("greeting").asString(), "content", revised.path("content").asString(),
                 "closing", fail.path("closing").asString())), 200);
+        scheduleNextInterview(hr, stage.path());
         expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
         JsonNode sentFail = json(expect(hr.post(stage.path() + "/notices/FAIL/send", null), 200));
         assertThat(sentFail.path("status").asString()).isEqualTo("SENT");
@@ -531,6 +534,7 @@ class ScreeningTests extends IntegrationTest {
         JsonNode onboarded = json(expect(hr.put(next + "/notices/PASS/onboarding",
                 onboarding("12월 1일(월) 오전 9시")), 200));
         assertThat(onboarded.path("guideMissing").toString()).isEqualTo("[\"제출 서류\"]");
+        scheduleNextInterview(hr, next);
         expect(hr.post(next + "/notices/PASS/send", null), 200);
         assertThat(mail.sent).anySatisfy(message -> assertThat(message).contains("""
                 입사 일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.
@@ -583,6 +587,7 @@ class ScreeningTests extends IntegrationTest {
 
         // 합격 · 불합격 안내를 모두 보내면 열린다
         expect(hr.post(stage.path() + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, stage.path());
         expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
         expect(hr.post(stage.path() + "/notices/FAIL/send", null), 200);
         String opened = json(expect(hr.post(stage.path() + "/reports/stage", null), 202)).path("reportId").asString();
@@ -601,6 +606,7 @@ class ScreeningTests extends IntegrationTest {
         expect(hr.post(stage.path() + "/decisions", Map.of("applicationIds", stage.ids(), "decision", "PASS")), 204);
         expect(hr.post(stage.path() + "/confirm", null), 200);
         expect(hr.post(stage.path() + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, stage.path());
         expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
         String assessment = "/api/stages/" + json(expect(hr.post(stage.path() + "/finish", null), 200))
                 .path("nextStageId").asString();
@@ -693,6 +699,7 @@ class ScreeningTests extends IntegrationTest {
                 .isInstanceOf(ApiException.class);
 
         expect(hr.post(stage.path() + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, stage.path());
         expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
         expect(hr.post(stage.path() + "/notices/FAIL/send", null), 200);
         expect(hr.post(stage.path() + "/finish", null), 200);
@@ -760,6 +767,7 @@ class ScreeningTests extends IntegrationTest {
                 204);
         expect(hr.post(stagePath + "/confirm", null), 200);
         expect(hr.post(stagePath + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, stagePath);
         expect(hr.post(stagePath + "/notices/PASS/send", null), 200);
         return "/api/stages/" + json(expect(hr.post(stagePath + "/finish", null), 200)).path("nextStageId").asString();
     }
