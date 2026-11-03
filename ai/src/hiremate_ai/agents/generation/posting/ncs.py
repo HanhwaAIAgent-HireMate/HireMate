@@ -248,6 +248,11 @@ async def with_sources(
     if use == "REQUESTED" and not kept and notice != NCS_REVIEW_FAILED:
         notice = NCS_NOT_FOUND
     text = " ".join([reply, notice]) if notice else reply
-    if kept:
-        text += "\n\n" + "\n".join([NCS_HEADER, *source_lines(kept, sources)])
+    # 줄 하나에 출처가 여럿이면 답이 길어져 읽기 어렵다. 받쳐 준다고 판정한 첫 출처만 보인다
+    shown: list[Cited] = []
+    for entry in kept:
+        if all((entry.label, entry.number) != (other.label, other.number) for other in shown):
+            shown.append(entry)
+    if shown:
+        text += "\n\n" + "\n".join([NCS_HEADER, *source_lines(shown, sources)])
     return text
