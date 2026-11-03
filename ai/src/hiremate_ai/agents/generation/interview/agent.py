@@ -58,7 +58,7 @@ from hiremate_ai.agents.analysis.application.types import VERDICT_LABEL, Actor, 
 from hiremate_ai.agents.analysis.interview.agent import CONFIRMED, NO_ANSWER, analyze_answers
 from hiremate_ai.agents.generation.interview.quality import checked_role, clarity_problem
 from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
-from hiremate_ai.agents.guardrails import blocked_attribute, evidence_source
+from hiremate_ai.agents.guardrails import blocked_attribute, education_term, evidence_source
 from hiremate_ai.contract import (
     ApplicantDetail,
     CandidateAnalysis,
@@ -513,6 +513,11 @@ _SENTENCE = re.compile(r"\n+|(?<=[.!?])\s+")
 _PERSONAL = re.compile(r"학교|대학|학력|생년|연락처|이메일|주소|전화")
 
 
+def _personal(line: str, posting: PostingContent) -> bool:
+    """인적 사항 줄인지. 블라인드 채용이면 학점 · 학위처럼 학교 이름 없이 학력이 나오는 줄도 인적 사항으로 본다."""
+    return bool(_PERSONAL.search(line)) or (posting.blind and education_term(line) is not None)
+
+
 def _normalize(text: str) -> str:
     return _SPACES.sub("", unicodedata.normalize("NFKC", text))
 
@@ -656,7 +661,7 @@ async def load_context(state: State) -> dict[str, Any]:
             line
             for line in parts
             if len(line) >= 8
-            and not _PERSONAL.search(line)
+            and not _personal(line, state["posting"])
             and not _document_header(line, state["applicant"].info.name)
         ]
         for index, line in enumerate(parts):
@@ -1214,7 +1219,7 @@ def _document_match(gap: Gap, state: State) -> str | None:
             _FUTURE_ACTION.search(sentence)
             or _WISH.search(sentence)
             or _PROMPT_LINE.search(sentence)
-            or _PERSONAL.search(sentence)
+            or _personal(sentence, state["posting"])
         ):
             continue  # 포부 · 지시문 · 인적 사항은 경험 문장이 아니다
         shared = len(words & _focus_words(sentence))

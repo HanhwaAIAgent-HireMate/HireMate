@@ -6,11 +6,15 @@ from hiremate_ai.agents.analysis.application.extract import (
     ExtractedFact,
     ExtractedFacts,
     ExtractedPeriod,
+    ExtractedSection,
+    LetterSummary,
     locate,
     merge,
+    summarize,
 )
 from hiremate_ai.agents.analysis.application.types import Actor
 from hiremate_ai.contract import ApplicantDocument, DocumentType
+from hiremate_ai.llm.fake import FakeLlm
 
 TEXT = "경력\n한빛카드 결제플랫폼팀 2022.03 ~ 현재\n- 카드 결제 승인 · 정산 API를\nJava와 Spring Boot로 개발했습니다."
 DOCUMENT = ApplicantDocument(type=DocumentType.RESUME, file_id=uuid4(), file_name="이력서.pdf", size=1, text=TEXT)
@@ -112,3 +116,38 @@ def test_merge_drops_education_facts_only_for_blind_hiring() -> None:
 
     assert len(facts) == 3
     assert [period.company for period in periods] == ["한빛대학교"]
+
+
+LETTER_TEXT = (
+    "학업 경험\n학점 4.1/4.5로 졸업했습니다.\n협업 경험\n팀과 정산 배치 구조를 바꿨습니다. 학점 관리도 꾸준히 했습니다."
+)
+LETTER = ApplicantDocument(
+    type=DocumentType.COVER_LETTER, file_id=uuid4(), file_name="자기소개서.pdf", size=1, text=LETTER_TEXT
+)
+LETTER_SUMMARY = LetterSummary(
+    sections=[
+        ExtractedSection(
+            title="학업 경험", summary="학점 4.1로 졸업했다고 썼다.", evidence=["학점 4.1/4.5로 졸업했습니다."]
+        ),
+        ExtractedSection(
+            title="협업 경험",
+            summary="팀과 정산 배치 구조를 바꿨다고 썼다.",
+            points=["정산 배치 구조 개선", "학점 관리"],
+            evidence=["팀과 정산 배치 구조를 바꿨습니다.", "학점 관리도 꾸준히 했습니다."],
+        ),
+    ]
+)
+
+
+async def test_summarize_drops_education_only_for_blind_hiring() -> None:
+    """블라인드 채용이면 학력 문항은 통째로, 다른 문항의 학력 요점 · 근거는 그것만 뺀다."""
+    [section] = await summarize(FakeLlm(LETTER_SUMMARY), [LETTER], blind=True)
+
+    assert section.title == "협업 경험"
+    assert section.points == ["정산 배치 구조 개선"]
+    assert [quote.sentence for quote in section.quotes] == ["팀과 정산 배치 구조를 바꿨습니다."]
+
+    sections = await summarize(FakeLlm(LETTER_SUMMARY), [LETTER])
+
+    assert [section.title for section in sections] == ["학업 경험", "협업 경험"]
+    assert len(sections[1].quotes) == 2
