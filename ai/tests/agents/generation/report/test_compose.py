@@ -1126,3 +1126,59 @@ def test_repair_draws_the_perspectives_the_model_named() -> None:
     labels = [view.label for block in fixed.all_blocks() if isinstance(block, RingsBlock) for view in block.views]
     assert {"자격 기본", "메시징 · 스프링", "클라우드"} <= set(labels)
     assert [p for p in problems(fixed, bundle()) if "근거 부품" not in p] == []
+
+
+def test_repair_expands_wildcard_keys_in_parts() -> None:
+    # 자료를 읽는 도구는 *를 받으므로 모델이 부품 keys에도 *를 쓴다. 다시 쓰게 하지 않고 코드가 실제 key로 편다
+    spec = good_spec()
+    tally = TallyBlock(title="판정 구성", caption="c", keys=["document.criterion.*"], by="applicant")
+    spec.sections[1].blocks.append(tally)
+    assert any("없는 값 key: document.criterion.*" in p for p in problems(spec, bundle()))
+    notes: list[str] = []
+
+    fixed = repair(spec, bundle(), group_by_code=False, notes=notes)
+
+    drawn = [block for block in fixed.all_blocks() if isinstance(block, TallyBlock)]
+    assert drawn[0].keys == ["document.criterion.Q-01", "document.criterion.Q-05"]
+    assert not any("없는 값 key" in p for p in problems(fixed, bundle()))
+    assert "값 key의 *를 항목으로 폄" in notes
+
+
+def test_repair_pairs_one_item_perspectives_without_a_rewrite() -> None:
+    # 항목 하나짜리 관점이 여럿이면 다시 쓰게 하지 않고 코드가 모델이 지은 이름을 이어 둘씩 합친다
+    spec = good_spec()
+    spec.sections[0].blocks[1].views = [  # type: ignore[union-attr]
+        RingView(label="자격요건 핵심", keys=["document.criterion.Q-01", "document.criterion.Q-05"]),
+        RingView(label="Kafka", keys=["document.skill.kafka"]),
+        RingView(label="스프링", keys=["document.skill.spring"]),
+        RingView(label="클라우드", keys=["document.skill.aws"]),
+    ]
+    assert any("항목 하나짜리 관점은 1개까지" in p for p in problems(spec, bundle()))
+    notes: list[str] = []
+
+    fixed = repair(spec, bundle(), group_by_code=False, notes=notes)
+
+    views = fixed.sections[0].blocks[1].views  # type: ignore[union-attr]
+    assert [(view.label, len(view.keys)) for view in views] == [
+        ("자격요건 핵심", 2),
+        ("Kafka", 1),
+        ("스프링 · 클라우드", 2),
+    ]
+    assert not any("항목 하나짜리" in p for p in problems(fixed, bundle()))
+    assert "항목 하나짜리 관점을 둘씩 묶음" in notes
+
+
+def test_repair_pairs_one_item_views_in_the_perspectives_field() -> None:
+    named = [
+        RingView(label="자격 기본", keys=["document.criterion.Q-01"]),
+        RingView(label="자격 심화", keys=["document.criterion.Q-05"]),
+        RingView(label="메시징 · 스프링", keys=["document.skill.kafka", "document.skill.spring"]),
+        RingView(label="클라우드", keys=["document.skill.aws"]),
+    ]
+    fixed = repair(good_spec().model_copy(update={"perspectives": named}), bundle(), group_by_code=False)
+    # 셋이면 맨 앞 하나는 두고 나머지 둘을 합친다
+    assert [(view.label, view.keys) for view in fixed.perspectives] == [
+        ("자격 기본", ["document.criterion.Q-01"]),
+        ("자격 심화 · 클라우드", ["document.criterion.Q-05", "document.skill.aws"]),
+        ("메시징 · 스프링", ["document.skill.kafka", "document.skill.spring"]),
+    ]
