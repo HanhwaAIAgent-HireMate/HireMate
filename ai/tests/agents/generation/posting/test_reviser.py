@@ -4,24 +4,15 @@ from uuid import UUID
 import pytest
 
 from hiremate_ai.agents.generation.posting.reviser import (
-    ADVANCED_LABEL,
     ANSWER_ONLY_REPLY,
     BLOCKED_REPLY,
-    CAREER_UNSET_NOTE,
     CHECK_FAILED_REPLY,
     CONTENT_STEP,
-    DEFAULT_ITEMS,
     FIELD_LABELS,
     FOCUS_MISSING_REPLY,
-    JUNIOR_NOTE,
     LINE_UNCHANGED_REPLY,
     LOCKED_REPLY,
-    MAX_DRAFT_ITEMS,
-    MAX_NCS_UNITS,
     MULTILINE_LINE,
-    NCS_DETAIL_CHARS,
-    NCS_ORDER_NOTE,
-    NCS_SYSTEM,
     NOTHING_CHANGED_REPLY,
     RETRY_HINT,
     ROUTE_STEP,
@@ -32,11 +23,8 @@ from hiremate_ai.agents.generation.posting.reviser import (
     FieldChange,
     IntroEdit,
     LineEdit,
-    NcsDraft,
-    NcsPick,
     RoleChanges,
     Route,
-    SourcedItem,
     StageEdit,
     StagePlan,
     revise_posting,
@@ -49,7 +37,6 @@ from hiremate_ai.agents.generation.posting.types import (
 )
 from hiremate_ai.contract import DocumentType, PostingContent, PostingRole, StageType
 from hiremate_ai.llm.fake import FakeLlm
-from hiremate_ai.tools.ncs import ncs_data, survey_score, unit_by_code
 
 CONTENT = PostingContent(
     title="결제 플랫폼 백엔드 개발자",
@@ -63,24 +50,6 @@ CONTENT = PostingContent(
     preferred=["금융 도메인 경험"],
     benefits=["유연 근무"],
 )
-NO_LISTS = CONTENT.model_copy(update={"qualifications": [], "preferred": []})
-"""자격 요건 · 우대 사항이 빈 공고. 줄이 있으면 새 줄을 뒤에 더하므로, 쓴 목록만 볼 때 쓴다."""
-SERVER = "2001020211_23v6"
-"""응용SW엔지니어링 · 서버프로그램 구현"""
-SQL = "2001020414_19v4"
-"""DB엔지니어링 · SQL응용 (중요도 및 활용도 조사 없음)"""
-DB_TUNING = "2001020408_19v4"
-"""DB엔지니어링 · 데이터베이스 성능확보 (조사 없음)"""
-TEST_RUN = "2001020227_23v6"
-"""응용SW엔지니어링 · 애플리케이션 테스트 수행 (조사 점수 1위)"""
-INTEGRATION = "2001020206_23v6"
-"""응용SW엔지니어링 · 통합 구현 (조사 점수가 서버프로그램 구현보다 낮다)"""
-INTERFACE_DESIGN = "2001020218_23v6"
-"""응용SW엔지니어링 · 인터페이스 설계 (수준 6)"""
-INTERFACE_BUILD = "2001020212_23v6"
-"""응용SW엔지니어링 · 인터페이스 구현 (수준 5, 서버프로그램 구현과 같다)"""
-DB_BUILD = "2001020405_19v4"
-"""DB엔지니어링 · 데이터베이스 구현 (수준 4)"""
 DOCUMENT = StageDraft(name="서류 전형", type=StageType.DOCUMENT)
 CODING = StageDraft(name="코딩테스트", type=StageType.ASSESSMENT)
 INTERVIEW = StageDraft(name="1차 면접", type=StageType.INTERVIEW)
@@ -552,296 +521,20 @@ async def test_revise_accepts_money_given_in_request() -> None:
     assert len(llm.calls) == 2
 
 
-# NCS 근거
-
-
-def ncs_draft(qualifications: list[SourcedItem], preferred: list[SourcedItem] | None = None) -> NcsDraft:
-    return NcsDraft(qualifications=qualifications, preferred=preferred or [])
-
-
-async def test_revise_writes_requirements_from_picked_ncs_units_and_cites_them() -> None:
-    llm = FakeLlm(
-        route("NCS_REQUIREMENTS"),
-        NcsPick(ncs_codes=[SERVER, SQL, "없는코드"]),
-        ncs_draft(
-            [
-                SourcedItem(text="서버 프로그램과 배치 프로그램 구현 경험", sources=[SERVER]),
-                SourcedItem(text="Java · Spring Boot 기반 서버 개발 경력 3년 이상", sources=[]),
-            ],
-            [SourcedItem(text="SQL로 응용 기능에 맞는 데이터 처리 경험", sources=[SQL, "보여주지않은코드"])],
-        ),
-    )
-
-    result = await revise_posting(
-        llm, posting(content=NO_LISTS), "", "NCS 기반으로 자격 요건 2개와 우대 사항 1개 써 줘"
-    )
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.qualifications == [
-        "서버 프로그램과 배치 프로그램 구현 경험",
-        "Java · Spring Boot 기반 서버 개발 경력 3년 이상",
-    ]
-    assert result.suggestion.content.preferred == ["SQL로 응용 기능에 맞는 데이터 처리 경험"]
-    assert result.suggestion.changed_fields == ["qualifications", "preferred"]
-    assert result.reply == (
-        "자격 요건, 우대 사항 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요. "
-        "근거(NCS): 응용SW엔지니어링 · 서버프로그램 구현, DB엔지니어링 · SQL응용"
-    )
-
-
-@pytest.mark.parametrize(
-    "request_text",
-    ["자격 요건 2개 추가로 써 줘", "자격 요건 더 적어줘", "자격 요건 추가해줘", "자격 요건이랑 우대 사항 작성해줘"],
-)
-async def test_revise_adds_ncs_items_after_lines_hr_already_wrote(request_text: str) -> None:
-    # HR이 직접 적은 학력 줄처럼 NCS 근거가 없는 줄도, 더 써 달라는 요청에는 지우지 않고 뒤에 더한다
-    hr_lines = CONTENT.model_copy(
-        update={"qualifications": ["학사 이상", "Java · Spring Boot 기반 서버 개발 경력 3년 이상"]}
-    )
-    llm = FakeLlm(
-        route("NCS_REQUIREMENTS"),
-        NcsPick(ncs_codes=[SERVER]),
-        ncs_draft(
-            [
-                SourcedItem(text="서버 프로그램과 배치 프로그램 구현 경험", sources=[SERVER]),
-                SourcedItem(text="학사 이상", sources=[]),
-            ]
-        ),
-    )
-
-    result = await revise_posting(llm, posting(content=hr_lines), "", request_text)
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.qualifications == [
-        "학사 이상",
-        "Java · Spring Boot 기반 서버 개발 경력 3년 이상",
-        "서버 프로그램과 배치 프로그램 구현 경험",
-    ]
-    assert "지금 목록과 겹치지 않는 새 항목만" in llm.calls[2].user
-
-
-@pytest.mark.parametrize("request_text", ["자격 요건 다시 2개 써 줘", "자격 요건은 2개로 써 줘"])
-async def test_revise_replaces_list_when_hr_asks_to_rewrite(request_text: str) -> None:
-    llm = FakeLlm(
-        route("NCS_REQUIREMENTS"),
-        NcsPick(ncs_codes=[SERVER]),
-        ncs_draft([SourcedItem(text="서버 프로그램과 배치 프로그램 구현 경험", sources=[SERVER])]),
-    )
-
-    result = await revise_posting(llm, posting(), "", request_text)
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.qualifications == ["서버 프로그램과 배치 프로그램 구현 경험"]
-
-
-async def test_revise_accepts_ncs_codes_with_a_wrong_version() -> None:
-    llm = FakeLlm(
-        route("NCS_REQUIREMENTS"),
-        NcsPick(ncs_codes=["2001020211_23v5"]),
-        ncs_draft([SourcedItem(text="서버 프로그램 구현 경험", sources=["2001020211_19v1"])]),
-    )
-
-    result = await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    assert result.reply.endswith("근거(NCS): 응용SW엔지니어링 · 서버프로그램 구현")
-    assert SERVER in llm.calls[2].user
-
-
-async def test_revise_shows_only_picked_units_with_definitions_to_ncs_writer() -> None:
-    llm = FakeLlm(
-        route("NCS_REQUIREMENTS"),
-        NcsPick(ncs_codes=[SERVER]),
-        ncs_draft([SourcedItem(text="서버 프로그램 구현 경험", sources=[SERVER])]),
-    )
-
-    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    pick, write = llm.calls[1], llm.calls[2]
-    assert f"{SERVER} 서버프로그램 구현 (수준 5)" in pick.user
-    assert "서버프로그램 구현이란" not in pick.user
-    assert write.system == NCS_SYSTEM
-    assert write.output is NcsDraft
-    assert f"- {SERVER} 서버프로그램 구현 (수준 5): 서버프로그램 구현이란" in write.user
-    assert SQL not in write.user
-    assert "지금 우대 사항:\n- 금융 도메인 경험" in write.user
-    assert "HR 요청: 자격 요건 새로 써 줘" in write.user
-
-
-async def test_revise_shows_performance_criteria_of_a_single_picked_unit_in_full() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft([]))
-
-    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    unit = unit_by_code(SERVER)
-    assert unit is not None
-    write = llm.calls[2].user
-    assert all(f"  · {criterion}" in write for element in unit.elements for criterion in element.criteria)
-    assert unit.elements[0].knowledge[0] not in write
-
-
-async def test_revise_shows_criteria_under_their_element_names() -> None:
-    """요소 이름을 보여 줘야 한 능력단위를 두 목록에 쓸 때 서로 다른 세부 능력을 고를 수 있다."""
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft([]))
-
-    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    unit = unit_by_code(SERVER)
-    assert unit is not None
-    write = llm.calls[2].user
-    for element in unit.elements:
-        assert f"  [{element.name}]\n  · {element.criteria[0]}" in write
-    assert write.index("[개발환경 구축하기]") < write.index("[배치 프로그램 구현하기]")
-
-
-async def test_revise_names_the_highest_level_units() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER, INTERFACE_DESIGN, DB_BUILD]), ncs_draft([]))
-
-    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    assert f"\n{ADVANCED_LABEL}: 인터페이스 설계\n" in llm.calls[2].user
-    assert f'"{ADVANCED_LABEL}"' in NCS_SYSTEM
-
-
-async def test_revise_tells_junior_postings_to_put_advanced_units_in_preferred() -> None:
-    """신입도 지원할 수 있는 공고는 '꼭 필요하면 자격 요건'이라는 여지 없이 어려운 능력을 우대 사항에만 쓰게 한다."""
-    for career in ("신입", "신입 · 경력", "경력 무관", ""):
-        junior = posting(content=CONTENT.model_copy(update={"career": career}))
-        llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER, INTERFACE_DESIGN]), ncs_draft([]))
-
-        await revise_posting(llm, junior, "", "자격 요건 새로 써 줘")
-
-        assert f"\n{ADVANCED_LABEL}: 인터페이스 설계 {JUNIOR_NOTE}\n" in llm.calls[2].user
-
-
-async def test_revise_does_not_add_the_junior_note_to_experienced_postings() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER, INTERFACE_DESIGN]), ncs_draft([]))
-
-    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    assert JUNIOR_NOTE not in llm.calls[2].user
-
-
-async def test_revise_writes_requirements_for_the_career_the_request_sets() -> None:
-    """요청에서 경력을 함께 정하면 저장된 경력이 아니라 바뀐 뒤의 경력 기준으로 쓴다."""
-    llm = FakeLlm(
-        route("CONTENT", "NCS_REQUIREMENTS"),
-        content(career="신입"),
-        NcsPick(ncs_codes=[SERVER, INTERFACE_DESIGN]),
-        ncs_draft(items(2)),
-    )
-
-    await revise_posting(llm, posting(), "", "신입으로 바꾸고 자격 요건 새로 써 줘")
-
-    assert "\n경력: 신입\n" in llm.calls[3].user
-    assert f"\n{ADVANCED_LABEL}: 인터페이스 설계 {JUNIOR_NOTE}\n" in llm.calls[3].user
-
-
-async def test_revise_names_no_advanced_unit_when_levels_are_equal() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER, INTERFACE_BUILD]), ncs_draft([]))
-
-    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    assert ADVANCED_LABEL not in llm.calls[2].user
-
-
-async def test_revise_keeps_ncs_detail_within_budget_and_spreads_it_over_elements() -> None:
-    codes = [unit.code for unit in ncs_data().units][: MAX_NCS_UNITS - 1] + [SERVER]
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=codes), ncs_draft([]))
-
-    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    write = llm.calls[2].user
-    detail = write.split("NCS 능력단위 (")[1].split("\n\nHR 요청")[0]
-    assert len(detail) < NCS_DETAIL_CHARS * 1.3
-    server = unit_by_code(SERVER)
-    assert server is not None
-    shown = [element.number for element in server.elements if f"  · {element.criteria[0]}" in write]
-    assert shown == [1, 2, 3, 4]
-
-
-async def test_revise_lists_ncs_units_only_in_the_pick_step() -> None:
-    llm = FakeLlm(route("CONTENT"), content(location="경기 성남시"))
-
-    await revise_posting(llm, posting(), "", "근무지 성남")
-
-    assert all(SERVER not in call.user for call in llm.calls)
-
-
-async def test_revise_keeps_current_list_when_ncs_writer_leaves_it_empty() -> None:
-    llm = FakeLlm(
-        route("NCS_REQUIREMENTS"),
-        NcsPick(ncs_codes=[SERVER]),
-        ncs_draft([SourcedItem(text="서버 프로그램 구현 경험", sources=[SERVER])]),
-    )
-
-    result = await revise_posting(llm, posting(), "", "NCS 기반으로 다시 써 줘")
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.preferred == CONTENT.preferred
-    assert result.suggestion.changed_fields == ["qualifications"]
+# 자격 요건 · 우대 사항 쓰기
 
 
 EMPTY_LISTS = CONTENT.model_copy(update={"qualifications": [], "preferred": []})
 
 
-def items(count: int) -> list[SourcedItem]:
-    return [SourcedItem(text=f"서버 프로그램 구현 경험 {number}", sources=[SERVER]) for number in range(1, count + 1)]
-
-
-def preferred_items(count: int) -> list[SourcedItem]:
-    """items와 같은 능력단위를 근거로 하지만 다른 능력을 말하는 우대 사항."""
-    return [
-        SourcedItem(text=f"트래픽 분산 아키텍처 운영 경험 {number}", sources=[SERVER]) for number in range(1, count + 1)
-    ]
-
-
-@pytest.mark.parametrize(
-    ("current", "request_text", "task"),
-    [
-        (EMPTY_LISTS, "NCS 기반으로 자격 요건과 우대 사항 써 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
-        (CONTENT, "NCS 기반으로 다시 써 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건 3개, 우대 사항 4개로 써 줘", "자격 요건 3개, 우대 사항 4개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건과 우대 사항을 각각 세 개씩 써 줘", "자격 요건 3개, 우대 사항 3개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건은 7개로 써 줘", "자격 요건 7개, 우대 사항 10개를 쓴다."),
-        (EMPTY_LISTS, "자격 요건 만들어 줘", "자격 요건 10개, 우대 사항 10개를 쓴다."),
-        (CONTENT, "자격 요건은 7개로 써 줘", "자격 요건 7개를 쓴다. 우대 사항은 쓰지 않고 빈 목록으로 둔다."),
-        (EMPTY_LISTS, "우대 사항만 써 줘", "우대 사항 10개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다."),
-        (
-            EMPTY_LISTS,
-            "자격 요건은 그대로 두고 우대 사항 다섯 가지 써 줘",
-            "우대 사항 5개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.",
-        ),
-        (
-            EMPTY_LISTS,
-            "자격 요건 15개 써 줘",
-            f"자격 요건 {MAX_DRAFT_ITEMS}개, 우대 사항 {DEFAULT_ITEMS}개를 쓴다.",
-        ),
-    ],
-)
-async def test_revise_tells_ncs_writer_which_lists_to_write_and_how_many(
-    current: PostingContent, request_text: str, task: str
-) -> None:
-    """말한 목록은 요청대로(개수가 없으면 10개까지), 말하지 않은 목록은 비어 있을 때만 쓴다."""
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft([]))
-
-    await revise_posting(llm, posting(content=current), "", request_text)
-
-    assert llm.calls[2].user.endswith(f"HR 요청: {request_text}\n\n지금 할 일: {task}")
-
-
-async def test_revise_writes_whole_list_with_ncs_even_if_routed_to_content() -> None:
-    llm = FakeLlm(
-        route("CONTENT"),
-        content(preferred=["고용보험 가입 기간 1년 이상인 경우 우대"]),
-        NcsPick(ncs_codes=[SERVER]),
-        ncs_draft([], items(3)),
-    )
+async def test_revise_writes_whole_lists_as_content() -> None:
+    llm = FakeLlm(route("CONTENT"), content(preferred=["대용량 트래픽 처리 경험", "결제 도메인 경험", "AWS 운영 경험"]))
 
     result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "우대 사항만 3개 써 줘")
 
-    assert [call.output for call in llm.calls] == [Route, ContentChanges, NcsPick, NcsDraft]
+    assert [call.output for call in llm.calls] == [Route, ContentChanges]
     assert result.suggestion is not None
-    assert result.suggestion.content.preferred == [item.text for item in items(3)]
+    assert result.suggestion.content.preferred == ["대용량 트래픽 처리 경험", "결제 도메인 경험", "AWS 운영 경험"]
 
 
 @pytest.mark.parametrize(
@@ -855,233 +548,48 @@ async def test_revise_keeps_item_edits_as_content(request_text: str) -> None:
     assert [call.output for call in llm.calls] == [Route, ContentChanges]
 
 
-async def test_revise_skips_ncs_when_request_keeps_every_list() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"))
-
-    result = await revise_posting(llm, posting(), "", "자격 요건은 그대로 둬")
-
-    assert len(llm.calls) == 1
-    assert result.reply == NOTHING_CHANGED_REPLY
-
-
-REFACTORING = "2001020217_23v6"
-"""응용SW엔지니어링 · 애플리케이션 리팩토링"""
-TEST_MANAGEMENT = "2001020226_23v6"
-"""응용SW엔지니어링 · 애플리케이션 테스트 관리"""
-
-
-async def test_revise_drops_preferred_items_that_repeat_a_qualification() -> None:
-    """2026-10-27 실제 모델 초안의 겹침.
-
-    같은 능력단위 · 같은 능력이면 우대 쪽을 빼고, 기본과 깊은 수준으로 나눈 것은 남긴다.
-    """
-    qualifications = [
-        SourcedItem(text="결제 승인 및 정산 API 개발을 위한 인터페이스 설계 능력", sources=[INTERFACE_DESIGN]),
-        SourcedItem(text="애플리케이션 성능 분석을 통한 병목 현상 해결 능력", sources=[TEST_MANAGEMENT]),
-        SourcedItem(text="소스 코드 분석을 통한 잠재적 결함 제거 능력", sources=[REFACTORING]),
-    ]
-    preferred = [
-        SourcedItem(text="비기능 요구사항을 고려한 복잡한 인터페이스 설계 경험", sources=[INTERFACE_DESIGN]),
-        SourcedItem(text="리팩토링을 통한 코드 가독성 개선 및 잠재 결함 제거 경험", sources=[REFACTORING]),
-        SourcedItem(text="애플리케이션 테스트 케이스 설계 및 성능 저하 요인 분석 경험", sources=[TEST_MANAGEMENT]),
-        SourcedItem(text="리팩토링 체크리스트를 활용한 코드 품질 관리 경험", sources=[REFACTORING]),
-    ]
-    llm = FakeLlm(
-        route("NCS_REQUIREMENTS"),
-        NcsPick(ncs_codes=[INTERFACE_DESIGN, TEST_MANAGEMENT, REFACTORING]),
-        ncs_draft(qualifications, preferred),
-    )
-
-    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "자격 요건 3개, 우대 사항 4개 써 줘")
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.qualifications == [item.text for item in qualifications]
-    assert result.suggestion.content.preferred == [
-        "비기능 요구사항을 고려한 복잡한 인터페이스 설계 경험",
-        "리팩토링 체크리스트를 활용한 코드 품질 관리 경험",
-    ]
-    assert "자격 요건과 같은 능력을 말하는 우대 사항 2개는 뺐어요." in result.reply
-    assert "근거를 찾을 수 있는" not in result.reply
-
-
-async def test_revise_keeps_similar_items_based_on_different_units() -> None:
-    qualifications = [SourcedItem(text="소스 코드 분석을 통한 잠재적 결함 제거 능력", sources=[REFACTORING])]
-    preferred = [SourcedItem(text="소스 코드 분석을 통한 잠재적 결함 제거 경험", sources=[TEST_MANAGEMENT])]
-    llm = FakeLlm(
-        route("NCS_REQUIREMENTS"),
-        NcsPick(ncs_codes=[TEST_MANAGEMENT, REFACTORING]),
-        ncs_draft(qualifications, preferred),
-    )
-
-    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "자격 요건 1개, 우대 사항 1개 써 줘")
-
-    assert result.suggestion is not None
-    assert len(result.suggestion.content.preferred) == 1
-
-
-async def test_revise_trims_ncs_lists_to_the_planned_count() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(12), preferred_items(11)))
-
-    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "자격 요건과 우대 사항 써 줘")
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.qualifications == [item.text for item in items(DEFAULT_ITEMS)]
-    assert len(result.suggestion.content.preferred) == DEFAULT_ITEMS
-    assert "만 썼어요" not in result.reply
-
-
-async def test_revise_ignores_lists_it_was_not_asked_to_write() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(5), items(5)))
-
-    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "우대 사항만 써 줘")
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.qualifications == []
-    assert result.suggestion.changed_fields == ["preferred"]
-
-
-async def test_revise_tells_when_ncs_writer_writes_fewer_items() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(2)))
-
-    result = await revise_posting(llm, posting(content=NO_LISTS), "", "자격 요건 3개 써 줘")
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.qualifications == [item.text for item in items(2)]
-    assert result.reply == (
-        "자격 요건 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요. "
-        "자격 요건은 근거를 찾을 수 있는 2개만 썼어요. "
-        "근거(NCS): 응용SW엔지니어링 · 서버프로그램 구현"
-    )
-
-
-async def test_revise_writes_at_most_the_limit_and_says_so() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(items(12)))
-
-    result = await revise_posting(llm, posting(content=NO_LISTS), "", "자격 요건 15개 써 줘")
-
-    assert result.suggestion is not None
-    assert len(result.suggestion.content.qualifications) == MAX_DRAFT_ITEMS
-    assert f"자격 요건은 {MAX_DRAFT_ITEMS}개까지 써요." in result.reply
-    assert "만 썼어요" not in result.reply
-
-
-async def test_revise_skips_ncs_writer_when_no_known_unit_is_picked() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=["없는코드"]))
-
-    result = await revise_posting(llm, posting(), "", "마케팅 자격 요건 써 줘")
-
-    assert len(llm.calls) == 2
-    assert result.reply == NOTHING_CHANGED_REPLY
-
-
-async def test_revise_skips_ncs_when_request_does_not_mention_requirements() -> None:
-    llm = FakeLlm(route("CONTENT", "NCS_REQUIREMENTS"), content(intro="결제 플랫폼을 함께 만들 분을 찾아요."))
-
-    result = await revise_posting(llm, posting(), "", "회사 소개를 더 친근하게 바꿔 줘")
-
-    assert [call.output for call in llm.calls] == [Route, ContentChanges]
-    assert result.suggestion is not None
-    assert result.suggestion.changed_fields == ["intro"]
-
-
-async def test_revise_limits_units_shown_to_ncs_writer_keeping_higher_survey_scores() -> None:
-    surveys = ncs_data().surveys
-    codes = [unit.code for unit in ncs_data().units][: MAX_NCS_UNITS + 3]
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=codes), ncs_draft([]))
-
-    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    shown = {code for code in codes if code in llm.calls[2].user}
-    assert shown == set(sorted(codes, key=lambda code: -survey_score(surveys[code]))[:MAX_NCS_UNITS])
-
-
-async def test_revise_puts_units_with_higher_survey_scores_first() -> None:
-    """조사가 있는 능력단위끼리 점수 순서로 자리를 바꾸고, 조사가 없는 SQL응용은 고른 자리(두 번째)에 둔다."""
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[INTEGRATION, SQL, TEST_RUN, SERVER]), ncs_draft([]))
-
-    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    write = llm.calls[2].user
-    assert sorted([TEST_RUN, SQL, SERVER, INTEGRATION], key=write.index) == [TEST_RUN, SQL, SERVER, INTEGRATION]
-    assert f"):\n{NCS_ORDER_NOTE}\n- {TEST_RUN}" in write
-
-
-async def test_revise_keeps_picked_order_and_skips_the_note_without_survey() -> None:
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SQL, DB_TUNING, SERVER]), ncs_draft([]))
-
-    await revise_posting(llm, posting(), "", "자격 요건 새로 써 줘")
-
-    write = llm.calls[2].user
-    assert sorted([SQL, DB_TUNING, SERVER], key=write.index) == [SQL, DB_TUNING, SERVER]
-    assert NCS_ORDER_NOTE not in write
-
-
-async def test_revise_combines_content_changes_with_ncs_lists() -> None:
-    llm = FakeLlm(
-        route("CONTENT", "NCS_REQUIREMENTS"),
-        content(location="경기 성남시", qualifications=["덮어써질 항목"]),
-        NcsPick(ncs_codes=[SERVER]),
-        ncs_draft([SourcedItem(text="서버 프로그램 구현 경험", sources=[SERVER])]),
-    )
-
-    result = await revise_posting(llm, posting(), "", "근무지 성남으로 하고 자격 요건은 NCS로 새로 써 줘")
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.location == "경기 성남시"
-    assert result.suggestion.content.qualifications == ["서버 프로그램 구현 경험"]
-    assert result.suggestion.changed_fields == ["location", "qualifications"]
-
-
-async def test_revise_checks_ncs_written_lists_too() -> None:
-    llm = FakeLlm(
-        route("NCS_REQUIREMENTS"),
-        NcsPick(ncs_codes=[SERVER]),
-        ncs_draft([SourcedItem(text="30세 이하 서버 개발자", sources=[SERVER])]),
-    )
-
-    result = await revise_posting(llm, posting(), "", "자격 요건 써 줘")
-
-    assert result.reply == BLOCKED_REPLY
-
-
 # 공고 전체 쓰기와 회사 정보
 
 
 BROAD = "백엔드 개발자 경력 3년 이상 5명 채용하려고 해."
 
 
-async def test_revise_fills_empty_lists_with_ncs_when_asked_to_write_the_whole_posting() -> None:
+async def test_revise_fills_empty_lists_when_asked_to_write_the_whole_posting() -> None:
     llm = FakeLlm(
         route("CONTENT", writes_posting=True),
-        content(duties=["결제 API 개발"]),
-        NcsPick(ncs_codes=[SERVER]),
-        ncs_draft(items(3), preferred_items(2)),
+        content(duties=["결제 API 개발"], qualifications=["서버 개발 경험"], preferred=["결제 도메인 경험"]),
     )
 
     result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", BROAD)
 
     assert result.suggestion is not None
-    assert result.suggestion.changed_fields == [
-        "salary",
-        "duties",
-        "qualifications",
-        "preferred",
-    ]
-    assert llm.calls[3].user.endswith("지금 할 일: 자격 요건 10개, 우대 사항 10개를 쓴다.")
-    assert "자격 요건은 근거를 찾을 수 있는 3개만 썼어요." in result.reply
+    assert result.suggestion.changed_fields == ["salary", "duties", "qualifications", "preferred"]
+    step = llm.calls[1].user
+    assert "자격 요건, 우대 사항 칸이 비어 있다" in step
+    assert "회사가 정하지 않은 필수 자격증 · 경력 연수" in step
+    assert len(llm.calls) == 2
 
 
-async def test_revise_fills_only_the_empty_list_for_a_whole_posting_request() -> None:
-    llm = FakeLlm(
-        route("CONTENT", writes_posting=True), content(), NcsPick(ncs_codes=[SERVER]), ncs_draft([], items(2))
-    )
+async def test_revise_names_only_the_empty_list_for_a_whole_posting_request() -> None:
+    llm = FakeLlm(route("CONTENT", writes_posting=True), content(preferred=["결제 도메인 경험"]))
     only_preferred_empty = CONTENT.model_copy(update={"preferred": []})
 
     result = await revise_posting(llm, posting(content=only_preferred_empty), "", BROAD)
 
     assert result.suggestion is not None
     assert result.suggestion.content.qualifications == CONTENT.qualifications
-    assert llm.calls[3].user.endswith("지금 할 일: 우대 사항 10개를 쓴다. 자격 요건은 쓰지 않고 빈 목록으로 둔다.")
+    assert "공고 전체 작성 요청이다. 우대 사항 칸이 비어 있다." in llm.calls[1].user
+
+
+async def test_revise_adds_content_step_for_a_whole_posting_with_empty_lists() -> None:
+    llm = FakeLlm(
+        route(writes_posting=True), content(qualifications=["서버 개발 경험"], preferred=["결제 도메인 경험"])
+    )
+
+    result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", BROAD)
+
+    assert [call.output for call in llm.calls] == [Route, ContentChanges]
+    assert result.suggestion is not None
 
 
 async def test_revise_does_not_rewrite_filled_lists_for_a_whole_posting_request() -> None:
@@ -1108,7 +616,6 @@ async def test_revise_fills_only_the_salary_and_lists_fields_left_for_hr() -> No
     assert filled.salary == "회사 내규에 따름"
     assert "급여 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요." in result.reply
     assert "고용 형태, 경력, 채용 인원, 학력, 근무 요일 · 시간 칸은 정해 주세요." in result.reply
-    assert CAREER_UNSET_NOTE not in result.reply
 
 
 async def test_revise_keeps_the_salary_hr_wrote_for_a_whole_posting_request() -> None:
@@ -1122,30 +629,17 @@ async def test_revise_keeps_the_salary_hr_wrote_for_a_whole_posting_request() ->
     assert "기본 문구" not in result.reply
 
 
-async def test_revise_says_requirements_fit_juniors_when_career_was_left_blank() -> None:
-    blank = EMPTY_LISTS.model_copy(update={"career": ""})
-    llm = FakeLlm(
-        route("CONTENT", writes_posting=True),
-        content(title="백엔드 개발자 채용"),
-        NcsPick(ncs_codes=[SERVER]),
-        ncs_draft(items(5), preferred_items(5)),
-    )
-
-    result = await revise_posting(llm, posting(content=blank), "", "백엔드 개발자 공고 작성해 줘")
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.career == ""
-    assert CAREER_UNSET_NOTE in result.reply
-
-
 async def test_revise_writes_one_job_as_the_posting_body_even_if_routed_to_roles() -> None:
     one_role = PostingRole(name="백엔드 개발자", career="", duties=["API 개발"], qualifications=[], preferred=[])
     llm = FakeLlm(
         route("CONTENT", "ROLES", writes_posting=True),
         RoleChanges(roles=[one_role]),
-        content(title="백엔드 개발자 채용", duties=["결제 API 개발"]),
-        NcsPick(ncs_codes=[SERVER]),
-        ncs_draft(items(5), preferred_items(5)),
+        content(
+            title="백엔드 개발자 채용",
+            duties=["결제 API 개발"],
+            qualifications=["서버 개발 경험"],
+            preferred=["결제 도메인 경험"],
+        ),
     )
 
     result = await revise_posting(llm, posting(content=EMPTY_LISTS), "", "백엔드 개발자 채용 공고 작성해줘")
@@ -1246,16 +740,6 @@ async def test_revise_reads_headcount_as_a_number(text: str, count: int | None) 
     result = await revise_posting(llm, posting(), "", "채용 인원 바꿔 줘")
 
     assert (result.suggestion.content.headcount if result.suggestion else None) == count
-
-
-async def test_revise_keeps_one_of_repeated_ncs_items() -> None:
-    repeated = [SourcedItem(text="서버 프로그램 구현 경험", sources=[SERVER])] * 3
-    llm = FakeLlm(route("NCS_REQUIREMENTS"), NcsPick(ncs_codes=[SERVER]), ncs_draft(repeated))
-
-    result = await revise_posting(llm, posting(content=NO_LISTS), "", "자격 요건 3개 써 줘")
-
-    assert result.suggestion is not None
-    assert result.suggestion.content.qualifications == ["서버 프로그램 구현 경험"]
 
 
 async def test_context_shows_recruitment_conditions() -> None:
