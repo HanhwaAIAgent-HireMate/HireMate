@@ -6,6 +6,7 @@ from typing import Annotated, Protocol
 import httpx
 from fastapi import Depends
 from pydantic import BaseModel, ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from hiremate_ai.config import settings
@@ -62,14 +63,21 @@ class DbNcsReference:
 
     async def units(self) -> list[NcsUnit]:
         if not self._units:
-            async with self._sessions() as session:
-                self._units = await load_units(session)
+            try:
+                async with self._sessions() as session:
+                    self._units = await load_units(session)
+            except SQLAlchemyError as error:
+                raise NcsUnavailable(type(error).__name__) from error
         return self._units
 
     async def search(self, request: str, tasks: list[str], units: list[str]) -> list[NcsTask]:
         original, converted = await self._embed.embed([request, " ".join(tasks) or request])
-        async with self._sessions() as session:
-            return await search_tasks(session, original, converted, units)
+        # DB 오류와, 거리 조회와 행 조회 사이에 표를 다시 적재해 행이 사라진 경우(KeyError)는 NCS 없이 진행한다
+        try:
+            async with self._sessions() as session:
+                return await search_tasks(session, original, converted, units)
+        except (SQLAlchemyError, KeyError) as error:
+            raise NcsUnavailable(type(error).__name__) from error
 
 
 @cache

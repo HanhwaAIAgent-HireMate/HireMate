@@ -82,7 +82,11 @@ class Settings(BaseSettings):
     # NCS 질의 임베딩 서비스(hiremate_ai.ncs_search). ai 서버는 이 주소로 요청 문장의 벡터를 받는다.
     # 서비스가 꺼져 있으면 공고 수정은 NCS 없이 진행한다
     ncs_embed_url: str = "http://127.0.0.1:8002"
-    ncs_embed_timeout_seconds: float = 20
+    # 임베딩 요청 한 번의 한도. CPU에서 문장 두 개에 0.2초 안팎이라 짧게 둔다
+    ncs_embed_timeout_seconds: float = 5
+    # 공고 수정의 NCS 참고(검색어 만들기와 검색) 전체 한도. 넘으면 NCS 없이 진행한다.
+    # backend가 공고 수정을 60초 기다리므로 본문 쓰기와 출처 판정에 쓸 시간을 남긴다
+    ncs_reference_timeout_seconds: float = 20
     # 서비스가 듣는 주소. 내부망 밖에 열지 않는다
     ncs_embed_host: str = "127.0.0.1"
     ncs_embed_port: int = 8002

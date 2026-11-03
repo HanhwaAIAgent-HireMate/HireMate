@@ -6,6 +6,7 @@
 4. 출처 확인: 줄과 번호를 공고에 들어간 줄과 맞추고, 모델 한 번으로 원문이 줄을 받쳐 주는지 판정한다.
 """
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable
@@ -14,6 +15,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from hiremate_ai.config import settings
 from hiremate_ai.contract import PostingContent
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
@@ -125,9 +127,23 @@ async def find_sources(
 ) -> tuple[NcsSources | None, str | None]:
     """요청에 맞는 NCS 문장과, 찾지 못했을 때의 안내. 안내를 HR에게 보일지는 부르는 쪽이 정한다.
 
-    표가 비어 있으면 모델을 부르지 않는다. 검색어 만들기나 임베딩이 실패해도 예외를 내지 않는다.
+    표가 비어 있으면 모델을 부르지 않는다. DB, 검색어 만들기, 임베딩이 실패하거나 settings.ncs_reference_timeout_seconds
+    안에 끝나지 않아도 예외를 내지 않는다. backend가 공고 수정을 기다리는 시간(60초) 안에 본문 쓰기를 남기기 위해서다.
     """
-    units = await ncs.units()
+    try:
+        async with asyncio.timeout(settings.ncs_reference_timeout_seconds):
+            return await _find(llm, ncs, request, job)
+    except TimeoutError:
+        logger.warning("NCS 참고가 %s초 안에 끝나지 않았습니다.", settings.ncs_reference_timeout_seconds)
+        return None, NCS_UNAVAILABLE
+
+
+async def _find(llm: LlmClient, ncs: NcsReference, request: str, job: str) -> tuple[NcsSources | None, str | None]:
+    try:
+        units = await ncs.units()
+    except NcsUnavailable as error:
+        logger.warning("NCS 능력단위 목록 조회 실패: %s", error)
+        return None, NCS_UNAVAILABLE
     if not units:
         return None, NCS_NOT_FOUND
     user = "\n\n".join(

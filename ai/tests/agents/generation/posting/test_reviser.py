@@ -50,6 +50,7 @@ from hiremate_ai.agents.generation.posting.types import (
     RecruitmentStatus,
     StageDraft,
 )
+from hiremate_ai.config import settings
 from hiremate_ai.contract import DocumentType, PostingContent, PostingRole, StageType
 from hiremate_ai.llm.fake import FakeLlm
 
@@ -1144,3 +1145,23 @@ async def test_each_posting_line_shows_one_source() -> None:
     )
 
     assert result.reply == f"{MADE}\n\n{NCS_HEADER}\n{NCS_LINE}"
+
+
+@pytest.mark.parametrize(("use", "reply"), [("HELPFUL", MADE), ("REQUESTED", f"{MADE} {NCS_UNAVAILABLE}")])
+async def test_ncs_db_failure_keeps_revision(use: NcsUse, reply: str) -> None:
+    llm = FakeLlm(route("CONTENT", ncs=use), content(duties=[*CONTENT.duties, NEW_DUTY]))
+
+    result = await revise_posting(llm, posting(), "", "주요 업무 추천해 줘", ncs=FakeNcs(units_unavailable=True))
+
+    assert result.suggestion is not None
+    assert result.reply == reply
+
+
+async def test_slow_ncs_step_gives_up_and_keeps_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "ncs_reference_timeout_seconds", 0.05)
+    llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), NCS_QUERY, content(duties=[*CONTENT.duties, NEW_DUTY]))
+
+    result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 써 줘", ncs=FakeNcs(delay=5))
+
+    assert result.suggestion is not None
+    assert result.reply == f"{MADE} {NCS_UNAVAILABLE}"
