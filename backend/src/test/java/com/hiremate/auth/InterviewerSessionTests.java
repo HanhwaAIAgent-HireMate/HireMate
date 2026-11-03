@@ -49,7 +49,7 @@ class InterviewerSessionTests extends IntegrationTest {
     private RecruitService recruits;
 
     @Test
-    @DisplayName("배정·질문 우선 정렬·개인 메모·담당별 입력 제한과 종료 후 잠금을 HTTP로 검증한다")
+    @DisplayName("배정·질문 우선 정렬·개인 메모·담당별 입력 제한과 종료 후 답변 잠금을 HTTP로 검증한다")
     void assignedInterviewersHaveScopedPermissions() throws Exception {
         Fixture f = fixture();
         expect(f.hr().put(f.admin(), assignment(f)), 200);
@@ -66,8 +66,9 @@ class InterviewerSessionTests extends IntegrationTest {
         JsonNode scheduled = json(expect(f.people().api().get(f.workspace()), 200));
         assertThat(scheduled.path("session").path("status").asString()).isEqualTo("SCHEDULED");
         assertThat(scheduled.path("questions").get(0).path("canAnswer").asBoolean()).isFalse();
+        // 개인 메모는 면접을 시작하기 전에도 준비용으로 쓴다
         expect(f.people().api().put(f.workspace() + "/memo",
-                Map.of("text", "시작 전 메모", "expectedVersion", 0)), 409);
+                Map.of("text", "시작 전 메모", "expectedVersion", 0)), 200);
         expect(f.unassigned().api().put(f.workspace() + "/memo",
                 Map.of("text", "미배정 메모", "expectedVersion", 0)), 403);
         readyBoth(f);
@@ -118,8 +119,9 @@ class InterviewerSessionTests extends IntegrationTest {
         assertThat(code(f.practical().api().put(answerPath(f, jobId),
                 Map.of("answer", "늦게 도착한 저장", "analyze", false, "expectedVersion", version)), 409))
                 .isEqualTo("INTERVIEWER_ENDED");
-        assertThat(code(f.practical().api().put(f.workspace() + "/memo", Map.of("text", "종료 후 실무 메모",
-                "expectedVersion", mine.path("personalMemoVersion").asLong())), 409)).isEqualTo("INTERVIEWER_ENDED");
+        // 나만 보는 메모는 내 면접을 마친 뒤에도 정리할 수 있다
+        expect(f.practical().api().put(f.workspace() + "/memo", Map.of("text", "종료 후 실무 메모",
+                "expectedVersion", mine.path("personalMemoVersion").asLong())), 200);
         JsonNode attendees = json(expect(f.people().api().get(f.workspace() + "/attendance"), 200))
                 .path("attendees");
         assertThat(attendees.valueStream().map(person -> person.path("role").asString() + ":"
@@ -131,7 +133,7 @@ class InterviewerSessionTests extends IntegrationTest {
         JsonNode ended = json(expect(f.people().api().post(f.workspace() + "/end", null), 200));
         assertThat(ended.path("session").path("status").asString()).isEqualTo("ENDED");
         expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "종료 후 메모",
-                "expectedVersion", noted.path("personalMemoVersion").asLong())), 409);
+                "expectedVersion", noted.path("personalMemoVersion").asLong())), 200);
         assertThat(ended.path("questions").valueStream().allMatch(row -> !row.path("canAnswer").asBoolean()))
                 .isTrue();
         expect(f.hr().put(f.admin(), assignment(f)), 409);
@@ -139,6 +141,35 @@ class InterviewerSessionTests extends IntegrationTest {
                 UUID.fromString(f.stageId()), f.applicationId(),
                 List.of(new InterviewQuestionDraft("종료 후 늦게 온 AI 질문", null, InterviewerRole.PRACTICAL))))
                 .isInstanceOf(com.hiremate.global.ApiException.class);
+    }
+
+    @Test
+    @DisplayName("면접관은 시작 전에 내 담당 질문을 넣고 뺄 수 있지만 답은 적지 못하고, 불참한 지원자에게는 넣지 못한다")
+    void interviewersPrepareTheirQuestionsBeforeStart() throws Exception {
+        Fixture f = fixture(2, false);
+        expect(f.hr().put(f.admin(), assignment(f)), 200);
+        expect(f.practical().api().post(f.workspace() + "/questions",
+                Map.of("text", "준비한 인사 질문", "interviewerRole", "HR")), 403);
+        JsonNode added = json(expect(f.practical().api().post(f.workspace() + "/questions",
+                Map.of("text", "준비한 실무 질문", "interviewerRole", "PRACTICAL")), 200));
+        String id = added.path("questions").valueStream()
+                .filter(item -> item.path("text").asString().equals("준비한 실무 질문"))
+                .findFirst().orElseThrow().path("questionId").asString();
+        JsonNode prepared = json(expect(f.practical().api().get(f.workspace()), 200)).path("questions")
+                .valueStream().filter(row -> row.path("question").path("questionId").asString().equals(id))
+                .findFirst().orElseThrow();
+        assertThat(prepared.path("canAnswer").asBoolean()).isFalse();
+        assertThat(prepared.path("canDelete").asBoolean()).isTrue();
+        assertThat(code(f.practical().api().put(answerPath(f, id), answer(prepared.path("question"), "미리 적은 답")),
+                409)).isEqualTo("INTERVIEW_NOT_RUNNING");
+        expect(f.practical().api().delete(f.questionRoot() + id), 200);
+
+        String other = applicants(f).stream().filter(applicationId -> !applicationId.equals(f.applicationId()
+                .toString())).findFirst().orElseThrow();
+        schedule(f, other, LATER);
+        expect(f.practical().api().post(room(f, other) + "/absent", null), 200);
+        assertThat(code(f.practical().api().post(room(f, other) + "/questions",
+                Map.of("text", "불참자 질문", "interviewerRole", "PRACTICAL")), 409)).isEqualTo("INTERVIEW_NOT_RUNNING");
     }
 
     @Test

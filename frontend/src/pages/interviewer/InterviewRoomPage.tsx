@@ -200,6 +200,10 @@ function Room({
   const status = data?.session.status
   // 먼저 [면접 종료]를 누른 면접관은 상대 면접관이 끝낼 때까지 기다리며 기록을 고칠 수 없다
   const myEnded = !!attendance.data?.attendees.find((attendee) => attendee.me)?.ended
+  const stageActive = attendance.data?.stageActive === true
+  // 내 담당 질문은 시작 전에 미리 넣고, 진행 중에는 내 면접을 마치기 전까지 넣는다
+  const canAddQuestion =
+    stageActive && (status === 'SCHEDULED' || (status === 'IN_PROGRESS' && !myEnded))
   const ownerNames = Object.fromEntries(
     (attendance.data?.attendees ?? []).map((attendee) => [attendee.role, attendee.name]),
   )
@@ -234,12 +238,8 @@ function Room({
                 stageId={stageId}
                 applicationId={applicationId}
                 workspace={data}
-                editable={
-                  status === 'IN_PROGRESS' &&
-                  attendance.data?.stageActive === true &&
-                  !ending &&
-                  !myEnded
-                }
+                // 나만 보는 메모라 면접 전 준비와 면접 뒤 정리에도 쓴다
+                editable={stageActive && !ending}
               />
             )
           }
@@ -300,13 +300,14 @@ function Room({
                 ownerNames={ownerNames}
                 registerSave={saves.register}
                 savingBeforeEnd={ending}
+                canAddQuestion={canAddQuestion}
               />
               {/* 의견은 내 면접을 마친 뒤에 남기고, 불참한 지원자에게는 남기지 않는다 (서버도 같은 조건으로 거절한다) */}
               {status === 'ENDED' || (status === 'IN_PROGRESS' && myEnded) ? (
                 <OpinionCard
                   stageId={stageId}
                   applicationId={applicationId}
-                  editable={attendance.data?.stageActive === true}
+                  editable={stageActive}
                 />
               ) : (
                 status !== 'ABSENT' && (

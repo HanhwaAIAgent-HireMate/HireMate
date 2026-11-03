@@ -38,6 +38,7 @@ function depthOf(item: InterviewerQuestion, items: InterviewerQuestion[]) {
  * 면접관 모드의 질문 대본. 질문별 권한(canAnswer · canDelete · 꼬리질문)은 서버가 정해 준다.
  * 내 담당 질문은 왼쪽 담당 색 선과 답변 칸, 다른 면접관 질문은 흐린 카드에 기록만 보인다.
  * 면접 중 다른 사람이 넣은 질문은 화면을 옮기지 않고 "새 질문" 알림으로 알린다.
+ * 내 질문 추가는 시작 전 준비와 진행 중(내 면접을 마치기 전)에 쓴다 (canAddQuestion).
  */
 export function InterviewerScript({
   stageId,
@@ -47,6 +48,7 @@ export function InterviewerScript({
   ownerNames,
   registerSave,
   savingBeforeEnd = false,
+  canAddQuestion,
 }: {
   stageId: string
   applicationId: string
@@ -56,6 +58,7 @@ export function InterviewerScript({
   ownerNames: Partial<Record<InterviewerRole, string>>
   registerSave?: RegisterAnswerSave
   savingBeforeEnd?: boolean
+  canAddQuestion: boolean
 }) {
   const actions = useWorkspaceActions(stageId, applicationId)
   const answerActions = workspaceAnswerActions(actions)
@@ -154,7 +157,7 @@ export function InterviewerScript({
           </div>
         )
       })}
-      {workspace.session.status === 'IN_PROGRESS' &&
+      {canAddQuestion &&
         !savingBeforeEnd &&
         (draft === null ? (
           <Button size="sm" variant="outline" onClick={() => setDraft('')}>

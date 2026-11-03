@@ -307,13 +307,15 @@ public class InterviewSessions {
                 .forEach(session -> changed(event.companyId(), event.stageId(), session.getApplicationId()));
     }
 
-    /** 개인 메모만 반환한다. 상대 면접관의 메모는 API에 포함하지 않는다. */
+    /**
+     * 개인 메모만 반환한다. 상대 면접관의 메모는 API에 포함하지 않는다. 나만 보는 메모라 면접 전 준비와 면접 뒤 정리에도 쓰도록
+     * 진행 중인 전형이면 면접 상태와 상관없이 고칠 수 있다.
+     */
     @Transactional
     public InterviewerWorkspace memo(UUID companyId, UUID stageId, UUID applicationId, UUID memberId, String memo,
             long expectedVersion) {
         InterviewSession session = lock(companyId, stageId, applicationId);
         InterviewerRole role = requireAssigned(session, memberId);
-        requireRunning(session, role);
         requireActive(companyId, stageId);
         if (session.memoVersion(role) != expectedVersion) {
             throw conflict("MEMO_CONFLICT", "Reload the latest personal memo before saving.");
@@ -350,7 +352,7 @@ public class InterviewSessions {
             }
             if (assignmentRequired || session.getStatus() != InterviewSessionStatus.SCHEDULED) {
                 InterviewerRole actual = requireAssigned(session, memberId);
-                requireRunning(session, actual);
+                requireOpen(session, actual);
                 requireActive(companyId, stageId);
                 if (role != actual) {
                     throw forbidden();
@@ -384,7 +386,7 @@ public class InterviewSessions {
             changed(companyId, stageId, question.getApplicationId());
             return interviews.deleteQuestion(companyId, stageId, questionId);
         }
-        InterviewSession session = writeAccess(companyId, stageId, question, memberId, assignmentRequired);
+        InterviewSession session = writeAccess(companyId, stageId, question, memberId, assignmentRequired, true);
         if (session != null && answeredTree(question, card(companyId, stageId, question.getApplicationId()))) {
             throw conflict("QUESTION_ANSWERED", "Recorded answers cannot be removed in interviewer mode.");
         }
@@ -400,6 +402,12 @@ public class InterviewSessions {
 
     private InterviewSession writeAccess(UUID companyId, UUID stageId, InterviewQuestion question, UUID memberId,
             boolean assignmentRequired) {
+        return writeAccess(companyId, stageId, question, memberId, assignmentRequired, false);
+    }
+
+    /** beforeStart면 시작 전 면접에서도 받는다 (내 담당 질문을 미리 넣고 빼기) */
+    private InterviewSession writeAccess(UUID companyId, UUID stageId, InterviewQuestion question, UUID memberId,
+            boolean assignmentRequired, boolean beforeStart) {
         InterviewSession session = sessions.lock(companyId, stageId, question.getApplicationId()).orElse(null);
         if (session == null) {
             if (assignmentRequired) {
@@ -408,7 +416,11 @@ public class InterviewSessions {
             return null;
         }
         InterviewerRole role = requireAssigned(session, memberId);
-        requireRunning(session, role);
+        if (beforeStart) {
+            requireOpen(session, role);
+        } else {
+            requireRunning(session, role);
+        }
         requireActive(companyId, stageId);
         if (question.getInterviewerRole() != role) {
             throw forbidden();
@@ -434,8 +446,11 @@ public class InterviewSessions {
                             : session.endedBy(role) ? "면접 종료" : null;
                     boolean canFollowUp = reason == null && !question.answer().isBlank()
                             && !hasChild(question, view.questions()) && depth(question, view.questions()) < 2;
+                    // 시작 전에도 내 담당 질문은 미리 빼 둘 수 있다 (답은 면접을 시작한 뒤에 적는다)
+                    boolean preparing = active && question.interviewerRole() == role
+                            && session.getStatus() == InterviewSessionStatus.SCHEDULED;
                     return new InterviewerQuestionAccess(question, reason == null, canFollowUp,
-                            reason == null && !answeredView(question, view.questions()), reason);
+                            (reason == null || preparing) && !answeredView(question, view.questions()), reason);
                 }).toList();
         return new InterviewerWorkspace(toAssignment(session), role, session.memo(role), session.memoVersion(role),
                 questions, view.previous(), view.schedule(), group(session));
@@ -497,6 +512,13 @@ public class InterviewSessions {
         }
         if (session.endedBy(role)) {
             throw conflict("INTERVIEWER_ENDED", "You have already ended this interview.");
+        }
+    }
+
+    /** 면접을 시작하기 전이거나, 진행 중이고 이 면접관이 아직 [면접 종료]를 누르지 않았다. 불참한 지원자는 받지 않는다 */
+    private static void requireOpen(InterviewSession session, InterviewerRole role) {
+        if (session.getStatus() != InterviewSessionStatus.SCHEDULED) {
+            requireRunning(session, role);
         }
     }
 

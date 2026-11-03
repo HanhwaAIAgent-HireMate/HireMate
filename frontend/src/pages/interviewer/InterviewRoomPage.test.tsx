@@ -311,6 +311,13 @@ describe('InterviewRoomPage', () => {
     const { posts } = mockServer()
     renderRoom()
     expect(await screen.findByLabelText('원장 재설계에서 직접 정한 부분은? 답변')).toBeDisabled()
+    // 시작 전에도 내 담당 질문을 미리 넣고 메모로 준비한다
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: '내 질문 추가' })).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '메모' }))
+    expect(await screen.findByRole('textbox', { name: '내 메모' })).toBeEnabled()
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
     expect(screen.queryByRole('button', { name: '면접 입장' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '면접 시작' })).not.toBeInTheDocument()
     expect(screen.getAllByText(/최인사/).length).toBeGreaterThan(0)
@@ -504,8 +511,10 @@ describe('InterviewRoomPage', () => {
     expect(screen.queryByRole('button', { name: '면접 종료' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('원장 재설계에서 직접 정한 부분은? 답변')).toBeDisabled()
     expect(await screen.findByRole('textbox', { name: '의견 이유' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: '내 질문 추가' })).not.toBeInTheDocument()
+    // 나만 보는 메모는 내 면접을 마친 뒤에도 정리할 수 있다
     fireEvent.click(screen.getByRole('button', { name: '메모' }))
-    expect(await screen.findByRole('textbox', { name: '내 메모' })).toBeDisabled()
+    expect(await screen.findByRole('textbox', { name: '내 메모' })).toBeEnabled()
   })
 
   it('결과가 확정된 전형에서는 의견을 읽기만 한다', async () => {
