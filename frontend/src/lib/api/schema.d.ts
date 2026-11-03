@@ -4,22 +4,6 @@
  */
 
 export interface paths {
-    "/api/stages/{stageId}/requirements": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["requirements"];
-        put: operations["updateRequirements"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/stages/{stageId}/notices/{group}": {
         parameters: {
             query?: never;
@@ -366,22 +350,6 @@ export interface paths {
         get: operations["tabs"];
         put?: never;
         post: operations["createTab"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/stages/{stageId}/tabs/{tabId}/selection/restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["restore"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1945,12 +1913,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        RequirementsRequest: {
-            criterionIds: string[];
-        };
-        StageRequirements: {
-            criterionIds: string[];
-        };
         NoticeEditRequest: {
             subject: string;
             greeting: string;
@@ -2450,7 +2412,6 @@ export interface components {
             name: string;
             /** Format: int64 */
             selectedCount: number;
-            canRestore: boolean;
         };
         Targets: {
             applicationIds: string[];
@@ -2813,16 +2774,7 @@ export interface components {
             score: number | null;
             /** @enum {string} */
             analysisStatus: "PENDING" | "DONE" | "FAILED";
-            held: boolean;
             shortfalls: string[];
-            documentScore: number | null;
-            documentScoreLow: number | null;
-            qualificationScore: number | null;
-            /** Format: int32 */
-            qualificationMax: number;
-            preferenceScore: number | null;
-            /** Format: int32 */
-            preferenceMax: number;
             /** Format: int32 */
             metCount: number;
             /** Format: int32 */
@@ -2863,11 +2815,11 @@ export interface components {
             kind: "CONDITION" | "EXPERIENCE";
             label: string;
             text: string;
+            important: boolean;
         };
         ComposedReport: {
             spec: components["schemas"]["JsonNode"];
             skills: string[];
-            specialists: string[];
             fallback: boolean;
             steps: string[];
         };
@@ -2877,26 +2829,26 @@ export interface components {
             null: boolean;
             object: boolean;
             float: boolean;
-            string: boolean;
+            number: boolean;
             pojo: boolean;
-            floatingPointNumber: boolean;
-            short: boolean;
-            int: boolean;
-            long: boolean;
-            valueNode: boolean;
-            container: boolean;
-            missingNode: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            integralNumber: boolean;
-            double: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
+            string: boolean;
             /** @deprecated */
             textual: boolean;
-            boolean: boolean;
             binary: boolean;
-            number: boolean;
+            short: boolean;
+            double: boolean;
+            int: boolean;
+            boolean: boolean;
+            long: boolean;
+            missingNode: boolean;
+            valueNode: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            floatingPointNumber: boolean;
+            integralNumber: boolean;
+            container: boolean;
+            bigDecimal: boolean;
+            bigInteger: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3086,6 +3038,7 @@ export interface components {
             evidence: string;
             reason: string;
             quote: string | null;
+            metric: string;
         };
         TalentFit: {
             items: components["schemas"]["Match"][];
@@ -3133,21 +3086,6 @@ export interface components {
             checks: components["schemas"]["Finding"][];
             holds: components["schemas"]["Finding"][];
             criteriaVersion: string | null;
-            /** @enum {string} */
-            scoreStatus: "CONFIRMED" | "HELD";
-            documentScore: number | null;
-            documentScoreLow: number | null;
-            /** @enum {string} */
-            qualificationStatus: "PASSED" | "FAILED" | "UNDETERMINED";
-            qualificationRate: number | null;
-            qualificationScore: number | null;
-            qualificationScoreLow: number | null;
-            /** Format: int32 */
-            qualificationMax: number;
-            preferenceScore: number | null;
-            preferenceScoreLow: number | null;
-            /** Format: int32 */
-            preferenceMax: number;
             criteria: components["schemas"]["CriterionLine"][];
             summaries: components["schemas"]["SummarySection"][];
             highlights: components["schemas"]["Evidence"][];
@@ -3169,9 +3107,6 @@ export interface components {
             criterionType: "CONDITION" | "SINGLE" | "COMPOSITE";
             /** @enum {string} */
             verdict: "MET" | "PARTIAL" | "NOT_MET" | "UNKNOWN";
-            fulfillment: number | null;
-            allotted: number;
-            earned: number | null;
             reason: string;
             satisfiedParts: string[];
             unsatisfiedParts: string[];
@@ -3183,6 +3118,7 @@ export interface components {
             careerYears: number | null;
             /** @enum {string|null} */
             certificateStatus: "SELF_REPORTED" | "EVIDENCE_SUBMITTED" | "ISSUER_VERIFIED" | null;
+            metric: string;
         };
         Evidence: {
             /** @enum {string} */
@@ -3334,9 +3270,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            headerName: string;
             parameterName: string;
             token: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -3352,54 +3288,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    requirements: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["StageRequirements"];
-                };
-            };
-        };
-    };
-    updateRequirements: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RequirementsRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["StageRequirements"];
-                };
-            };
-        };
-    };
     edit: {
         parameters: {
             query?: never;
@@ -4152,27 +4040,6 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["StageTabView"];
                 };
-            };
-        };
-    };
-    restore: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-                tabId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -5930,7 +5797,9 @@ export interface operations {
             query?: {
                 tabId?: string;
                 query?: string;
-                sort?: "BASIC" | "TALENT";
+                decision?: ("PENDING" | "PASS" | "FAIL")[];
+                criterion?: string[];
+                talent?: string[];
                 page?: number;
                 size?: number;
             };
