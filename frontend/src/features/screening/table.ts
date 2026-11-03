@@ -13,7 +13,10 @@ export type TableFeature = Schemas['Feature']
 export type TalentFit = Schemas['TalentFit']
 export type TalentMatch = Schemas['Match']
 
-/** 칸 표기. 조건형은 O · X, 경험 · 역량형은 상 · 중 · 하이고 근거가 없으면 확인 필요다 */
+/**
+ * 칸 표기. 조건형은 O · X, 경험 · 역량형은 상 · 중 · 하다. 경험과 정량 지표가 함께 있으면 상, 경험만 있으면 중,
+ * 서류에서 경험이 확인되지 않으면 하이고, 판정하지 못했으면 확인 필요다
+ */
 export type Mark = 'O' | 'X' | '상' | '중' | '하' | '확인 필요' | '분석 중' | '분석 실패'
 export type Tone = 'good' | 'mid' | 'bad' | 'unknown' | 'waiting'
 
@@ -59,11 +62,17 @@ export function markTone(mark: Mark): Tone {
   return TONES[mark]
 }
 
-/** 항목 판정의 표기. 조건형은 O · X, 경험형은 상 · 중 · 하, 근거가 없으면 확인 필요다 */
-export function verdictMark(condition: boolean, verdict: CriterionLine['verdict']): Mark {
-  switch (verdict) {
+/**
+ * 항목 판정의 표기. 조건형은 충족이면 O, 아니면 X다. 경험형은 정량 지표가 있는 충족만 상이고,
+ * 지표 없는 충족 · 부분 충족은 중, 서류에서 확인되지 않으면 하다. 판정하지 못했으면 확인 필요다
+ */
+export function criterionMark(
+  condition: boolean,
+  line: Pick<CriterionLine, 'verdict' | 'metric'>,
+): Mark {
+  switch (line.verdict) {
     case 'MET':
-      return condition ? 'O' : '상'
+      return condition ? 'O' : line.metric ? '상' : '중'
     case 'PARTIAL':
       return condition ? 'X' : '중'
     case 'NOT_MET':
@@ -153,8 +162,8 @@ export function criterionCell(feature: TableFeature, line: CriterionLine | undef
         ? (line.unsatisfiedParts[0] ?? '')
         : line.careerYears != null
           ? `관련 경력 ${line.careerYears}년`
-          : (line.satisfiedParts[0] ?? '')
-  return cell(verdictMark(condition, line.verdict), note, line.reason)
+          : line.metric || (line.satisfiedParts[0] ?? '')
+  return cell(criterionMark(condition, line), note, line.reason)
 }
 
 export const TALENT_MARKS: Record<TalentMatch['level'], Mark> = {
@@ -167,7 +176,11 @@ export const TALENT_MARKS: Record<TalentMatch['level'], Mark> = {
 /** 인재상 칸 */
 export function talentCell(match: TalentMatch | undefined): Cell {
   if (!match) return cell('확인 필요', '', '인재상 판정이 없어요.')
-  return cell(TALENT_MARKS[match.level], match.evidence, match.reason)
+  return cell(
+    TALENT_MARKS[match.level],
+    [match.evidence, match.metric].filter(Boolean).join(' · '),
+    match.reason,
+  )
 }
 
 /** 지원자 한 명의 칸들. 분석 중이면 모두 분석 중으로, 열의 순서대로 돌려준다 */

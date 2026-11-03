@@ -20,7 +20,6 @@ import { InterviewViewer } from '@/features/interview/InterviewViewer'
 import { DocumentViewer } from '@/features/screening/DocumentViewer'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
-import { formatMonthDay } from '@/lib/format'
 
 /** 가운데 영역의 지원자 카드. 전형 종류에 맞는 Viewer를 보여 주고, 결정은 위쪽 체크박스와 맨 아래 버튼으로 한다. */
 export function CandidateCard({
@@ -69,20 +68,26 @@ export function CandidateCard({
                   onCheckedChange={(value) => toggleChecked(applicationId, value === true)}
                 />
               )}
-              <div>
-                <h3 className="text-lg font-bold">{detail.data.row.name}</h3>
-                <p className="text-xs text-muted-foreground">
-                  {overview.type === 'INTERVIEW' ? (
+              {overview.type === 'INTERVIEW' ? (
+                <div>
+                  <h3 className="text-lg font-bold">{detail.data.row.name}</h3>
+                  <p className="text-xs text-muted-foreground">
                     <InterviewSubtitle
                       stageId={overview.stageId}
                       applicationId={applicationId}
                       fallback={careerLabel(detail.data.row)}
                     />
-                  ) : (
-                    `${careerLabel(detail.data.row)} · 지원 ${formatMonthDay(detail.data.submittedAt)}`
-                  )}
-                </p>
-              </div>
+                  </p>
+                </div>
+              ) : (
+                // 경력 · 이전 직무는 이름 오른쪽에 둔다
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <h3 className="shrink-0 text-lg font-bold">{detail.data.row.name}</h3>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {careerLabel(detail.data.row)}
+                  </p>
+                </div>
+              )}
             </div>
             {detail.data.row.analysisStatus === 'FAILED' && (
               <RetryAnalysis

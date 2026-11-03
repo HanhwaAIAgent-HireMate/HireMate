@@ -44,8 +44,8 @@ vi.mock('@/features/screening/api', () => ({
     fetchNextPage: vi.fn(),
   }),
   useSelectionActions: () => ({}),
-  useRequirements: () => ({ data: [], isPending: false }),
-  useUpdateRequirements: () => ({ mutate: vi.fn(), isPending: false }),
+  NO_FILTER: { decisions: [], criteria: [], talents: [] },
+  isFiltered: () => false,
 }))
 vi.mock('@/features/screening/table', () => ({
   GROUP_LABELS: {},
