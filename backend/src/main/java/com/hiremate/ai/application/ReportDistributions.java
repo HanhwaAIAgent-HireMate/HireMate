@@ -102,13 +102,13 @@ public class ReportDistributions {
         ReportDistribution.Cut cut = cut(above, goal, key);
         List<ReportDistribution.Group> groups = new ArrayList<>();
         if (cut != null) {
-            groups.add(new ReportDistribution.Group("selection-edge", "선발 경계",
-                    "선 위에서 목표 %d명째와 충족 개수(%d개)가 같은 지원자예요. 개수로는 구분되지 않아요."
+            groups.add(new ReportDistribution.Group("selection-edge", "목표 인원에서 동점인 지원자",
+                    "필수 조건 충족자 중 목표 %d명째와 충족 개수(%d개)가 같은 지원자예요. 개수로는 구분되지 않아요."
                             .formatted(goal, cut.value()),
                     people(above.stream().filter(row -> key.apply(row) == cut.value()).toList(), infos, texts)));
         }
-        groups.add(new ReportDistribution.Group("below-line", "선 아래 다시 볼 사람",
-                "선 아래인데 충족하지 못했거나 확인이 필요한 필수 조건이 %d개 이하인 지원자예요.".formatted(maxMissingRequired),
+        groups.add(new ReportDistribution.Group("below-line", "필수 조건을 조금 못 채운 지원자",
+                "필수 조건 중 못 채웠거나 확인이 필요한 것이 %d개 이하인 지원자예요.".formatted(maxMissingRequired),
                 people(analyzed.stream().filter(row -> !row.aboveLine() && !row.missingRequired().isEmpty()
                         && row.missingRequired().size() <= maxMissingRequired).toList(), infos, texts)));
 

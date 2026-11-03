@@ -43,10 +43,10 @@ FACTS = DistributionFacts.model_validate(
 
 def test_facts_give_the_model_ready_made_ratios_without_people() -> None:
     text = facts_text(FACTS)
-    assert "선 위(필수 조건 모두 충족) 97명 (전체의 32%)" in text
+    assert "필수 조건을 모두 충족한 사람 97명 (전체의 32%)" in text
     assert "확인 필요 비율 65%" in text
-    assert "경계 그룹 '선발 경계' 17명" in text
-    assert "선 위 지원자의 충족 개수별 인원: 5개 35명, 4개 17명" in text
+    assert "다시 볼 지원자 '선발 경계' 17명" in text
+    assert "필수 조건 충족자의 항목 충족 수별 인원: 5개 35명, 4개 17명" in text
     assert "57~73번째가 같은 개수(목표 안 4명)" in text
 
 

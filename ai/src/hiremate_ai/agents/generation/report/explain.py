@@ -58,9 +58,10 @@ class CountBucket(ContractModel):
 
 
 class DistributionFacts(ContractModel):
-    """backend ReportDistribution.forAi(). 경계 그룹은 인원만 있고 지원자는 없다.
+    """backend ReportDistribution.forAi(). 다시 볼 지원자 그룹은 인원만 있고 지원자는 없다.
 
-    counts는 선 위 지원자의 충족 개수별 인원, cut은 목표 인원 자리에서 개수가 같은 구간(value · from · to · inside)이다.
+    counts는 필수 조건 충족자의 항목 충족 수별 인원, cut은 목표 인원 자리에서 개수가 같은 구간
+    (value · from · to · inside)이다.
     """
 
     total: int
@@ -77,7 +78,8 @@ class DistributionFacts(ContractModel):
 
 
 CHARTS = ("funnel", "required", "counts", "criteria", "careers")
-"""화면 분포 차트. 서류 통과까지 남는 인원 · 필수 조건 충족 현황 · 선 위 충족 개수 · 항목별 판정 · 경력 구간이다."""
+"""화면 분포 차트. 서류 통과 목표까지 · 필수 조건 충족 현황 · 필수 조건 충족자의 항목 충족 수 · 항목별로 걸린 지원자 ·
+경력별 필수 조건 충족 비율이다."""
 
 
 class DistributionNote(ContractModel):
@@ -89,11 +91,15 @@ class DistributionNote(ContractModel):
 
 
 class _Charts(BaseModel):
-    funnel: str = Field(description="서류 통과까지 남는 인원(전체 → 분석 완료 → 선 위 → 목표) 차트에서 읽을 점 한 문장")
+    funnel: str = Field(
+        description="지원자에서 서류 통과 목표까지(전체 → 분석 완료 → 필수 조건 충족 → 목표) 차트에서 읽을 점 한 문장"
+    )
     required: str = Field(description="필수 조건 충족 현황(모두 충족 · 미충족 · 확인 필요) 차트에서 읽을 점 한 문장")
-    counts: str = Field(description="선 위 지원자의 충족 개수별 인원과 목표선 차트에서 읽을 점 한 문장")
-    criteria: str = Field(description="항목별 판정 차트에서 읽을 점 한 문장 (걸리는 항목, 확인 필요가 많은 항목)")
-    careers: str = Field(description="경력 구간별 선 위 비율 차트에서 읽을 점 한 문장. 나이로 읽히게 쓰지 않는다")
+    counts: str = Field(description="필수 조건 충족자의 항목 충족 수별 인원과 목표선 차트에서 읽을 점 한 문장")
+    criteria: str = Field(
+        description="항목별로 걸린 지원자 차트에서 읽을 점 한 문장 (걸리는 항목, 확인 필요가 많은 항목)"
+    )
+    careers: str = Field(description="경력별 필수 조건 충족 비율 차트에서 읽을 점 한 문장. 나이로 읽히게 쓰지 않는다")
 
 
 class _Draft(BaseModel):
@@ -105,10 +111,11 @@ SYSTEM = """너는 채용 담당자를 돕는 Report Agent다. 서류 전형 지
 담당자가 무엇을 먼저 보면 좋을지 두세 문장(lines)으로 해석하고, 화면의 차트마다 그 차트에서 읽을 점을 한 문장씩
 (charts) 쓴다. 차트 문장은 그 차트의 자료만 보고 쓴다.
 
-- 숫자를 다시 나열하지 않는다. 숫자 사이의 관계(목표와 선 위의 차이, 많이 걸리는 필수 조건, 서류만으로 판단이
-  어려운 항목, 경계 그룹을 볼 까닭)를 읽어 다음에 할 일로 이어지게 쓴다.
+- 숫자를 다시 나열하지 않는다. 숫자 사이의 관계(목표와 필수 조건 충족자의 차이, 많이 걸리는 필수 조건, 서류만으로 판단이
+  어려운 항목, 다시 볼 지원자를 볼 까닭)를 읽어 다음에 할 일로 이어지게 쓴다.
 - 숫자는 받은 자료에 있는 값만 쓴다. 새로 계산한 숫자는 쓰지 않는다.
 - 항목은 코드(Q-01)가 아니라 짧은 이름(예: Java · Kotlin 경력)으로 쓴다.
+- '선 위', '선 아래', '경계 그룹' 같은 내부 말은 쓰지 않고 '필수 조건을 모두 충족한 사람'처럼 풀어 쓴다.
 - 합격 · 불합격, 순위('가장', '제일'), 누구를 뽑으라는 말은 쓰지 않는다. 지원자 개인은 다루지 않는다.
 - 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 쓰지 않는다.
 - 해요체(~어요 · ~예요)로 짧게 쓴다."""
@@ -122,8 +129,8 @@ def facts_text(facts: DistributionFacts) -> str:
 
     lines = [
         f"전체 지원자 {facts.total}명, 서류 분석 완료 {facts.analyzed}명",
-        f"선 위(필수 조건 모두 충족) {facts.above_line}명 (전체의 {share(facts.above_line, facts.total)})",
-        f"서류 통과 목표 {facts.target}명, 선 위와 목표의 차이 {facts.above_line - facts.target}명",
+        f"필수 조건을 모두 충족한 사람 {facts.above_line}명 (전체의 {share(facts.above_line, facts.total)})",
+        f"서류 통과 목표 {facts.target}명, 필수 조건 충족자와 목표의 차이 {facts.above_line - facts.target}명",
     ]
     if facts.passed is not None:
         lines.append(f"담당자가 합격 처리한 인원 {facts.passed}명")
@@ -145,7 +152,7 @@ def facts_text(facts: DistributionFacts) -> str:
         )
     if facts.counts:
         shown = ", ".join(f"{bucket.value}개 {bucket.count}명" for bucket in facts.counts)
-        lines.append(f"선 위 지원자의 충족 개수별 인원: {shown}")
+        lines.append(f"필수 조건 충족자의 항목 충족 수별 인원: {shown}")
     if facts.cut:
         cut = facts.cut
         lines.append(
@@ -153,10 +160,11 @@ def facts_text(facts: DistributionFacts) -> str:
             f"(목표 안 {cut.get('inside')}명)라 개수로는 선발이 갈리지 않음"
         )
     for group in facts.groups:
-        lines.append(f"경계 그룹 '{group.label}' {group.size}명: {group.reason}")
+        lines.append(f"다시 볼 지원자 '{group.label}' {group.size}명: {group.reason}")
     for band in facts.careers:
         lines.append(
-            f"경력 {band.label}: 전체 {band.all}명 중 선 위 {band.above_line}명({share(band.above_line, band.all)})"
+            f"경력 {band.label}: 전체 {band.all}명 중 필수 조건 충족 {band.above_line}명"
+            f"({share(band.above_line, band.all)})"
         )
     return "\n".join(lines)
 

@@ -75,7 +75,7 @@ def fallback_spec(bundle: ReportBundle) -> ReportSpec:
         drawn = _drawable_blocks(bundle)
         for start in range(0, len(drawn), MAX_SECTION_BLOCKS):
             sections.append(
-                Section(title="기록 구성", takeaway=NO_TAKEAWAY, blocks=drawn[start : start + MAX_SECTION_BLOCKS])
+                Section(title="전형 기록", takeaway=NO_TAKEAWAY, blocks=drawn[start : start + MAX_SECTION_BLOCKS])
             )
     for area in bundle.areas:
         if blocks := _area_blocks(bundle, area, people, numeric, verdicts, current):
@@ -101,12 +101,12 @@ def fallback_spec(bundle: ReportBundle) -> ReportSpec:
     if not bundle.areas and (numeric or verdicts):
         sections.append(
             Section(
-                title="값 정리",
+                title="지원자별 점수와 판정",
                 takeaway=NO_TAKEAWAY,
                 blocks=[
                     TableBlock(
-                        title="값 정리",
-                        caption="지원자별 값이에요.",
+                        title="지원자별 점수와 판정",
+                        caption="지원자마다 점수와 판정을 모았어요.",
                         keys=(numeric + verdicts)[:6],
                         applicants=people[:5],
                     )
@@ -158,10 +158,14 @@ def _overview(bundle: ReportBundle, people: list[str], numeric: list[str], curre
         blocks.append(perspectives)
     if compare and len(scores) >= 2:
         blocks.append(
-            StackedBlock(title="총점 구성", caption="영역 점수를 쌓은 총점이에요.", keys=scores, applicants=people)
+            StackedBlock(
+                title="영역별 점수로 본 총점", caption="영역 점수를 쌓은 총점이에요.", keys=scores, applicants=people
+            )
         )
     elif compare and numeric:
-        blocks.append(BarBlock(title="점수 비교", caption="비교 대상의 점수예요.", keys=numeric[:1], applicants=people))
+        blocks.append(
+            BarBlock(title="지원자별 총점", caption="고른 지원자의 총점이에요.", keys=numeric[:1], applicants=people)
+        )
     total = bundle.total_key
     if total and sum(1 for fact in current if fact.key == total) >= 3:
         blocks.append(
@@ -242,7 +246,7 @@ def perspective_rings(bundle: ReportBundle, people: list[str]) -> RingsBlock | N
         return None
     labels = {fact.key: _short(fact.label) for fact in bundle.facts}
     return RingsBlock(
-        title="항목 묶음별 비교",
+        title="관점별 충족 항목 수",
         caption="항목을 두세 개씩 묶어 충족한 항목 수를 칸으로 채웠어요.",
         views=[
             RingView(label=labels[keys[0]] + (f" 외 {len(keys) - 1}" if len(keys) > 1 else ""), keys=keys)
@@ -307,7 +311,12 @@ def _drawable_blocks(bundle: ReportBundle) -> list[Block]:
     flags = list(data.flags)
     if len(flags) > 1:
         blocks.append(
-            CrossBlock(title="판정 교차", caption="두 판정이 겹치는 인원이에요.", row_key=flags[1], col_key=flags[0])
+            CrossBlock(
+                title="두 판정을 함께 본 인원",
+                caption="두 판정의 조합마다 인원을 셌어요.",
+                row_key=flags[1],
+                col_key=flags[0],
+            )
         )
     if group_key := _pass_key(bundle):
         blocks += [
@@ -328,10 +337,12 @@ def _drawable_blocks(bundle: ReportBundle) -> list[Block]:
     for groups in by_pieces.values():
         if 2 <= len(groups) <= 4:
             rows = [CompositionRow(label=_row_label(bundle, data.groups[g]), metrics=data.groups[g]) for g in groups]
-            blocks.append(CompositionBlock(title="구성 비교", caption="같은 구간의 구성을 견줘요.", rows=rows))
+            blocks.append(
+                CompositionBlock(title="구간별 비율 비교", caption="같은 구간을 나란히 놓고 비율을 견줘요.", rows=rows)
+            )
             continue
         blocks += [
-            DonutBlock(title="구성", caption="조각 지표의 구성이에요.", metrics=data.groups[g])
+            DonutBlock(title="부분별 비율", caption="전체에서 각 부분이 차지하는 비율이에요.", metrics=data.groups[g])
             for g in groups
             if 2 <= len(data.groups[g]) <= MAX_SLICES
         ]
@@ -374,7 +385,14 @@ def _area_blocks(
         )
     if len(items) >= 2:
         if compare:
-            blocks.append(MatrixBlock(title="항목 판정", caption="항목별 판정이에요.", keys=items, applicants=people))
+            blocks.append(
+                MatrixBlock(
+                    title="지원자별 항목 판정",
+                    caption="지원자마다 항목을 충족했는지 보여 줘요.",
+                    keys=items,
+                    applicants=people,
+                )
+            )
         else:
             blocks.append(
                 TallyBlock(title="항목별 판정 비율", caption="항목마다 판정 비율이에요.", keys=items, by="key")

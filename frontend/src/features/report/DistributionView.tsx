@@ -50,7 +50,7 @@ const COUNT_LEGEND = [
 
 const CAREER_LEGEND = [
   { label: '전체', color: SEQ[1] },
-  { label: '선 위', color: ACCENT },
+  { label: '필수 조건 충족', color: ACCENT },
 ]
 
 /** 기준을 다시 볼 항목으로 표시하는 개수 */
@@ -60,7 +60,7 @@ const FLAGGED = 3
  * 분포 리포트. 서류 전형 지원자 전원의 판정을 backend가 센 그대로 보여 준다. 모델은 쓰지 않는다.
  * 맨 위 요약 문장도 코드가 숫자로 만든다.
  * 서류 통과 목표 인원은 처음에 공고 채용 인원 × 배수이고, 바꾸면 바로 다시 센다(저장하지 않는다).
- * 경계 그룹에서 [이 N명 비교]를 누르면 그 그룹의 몇 명으로 비교 리포트를 요청한다.
+ * 다시 볼 지원자 그룹에서 [이 N명 비교]를 누르면 그 그룹의 몇 명으로 비교 리포트를 요청한다.
  */
 export function DistributionView({
   stageId,
@@ -114,9 +114,9 @@ export function DistributionView({
       <Insights data={data} note={note.data?.lines} noteLoading={note.isLoading} />
 
       <Section
-        title="서류 통과까지 남는 인원"
-        caption="전체 지원자 → 서류 분석 완료 → 필수 조건을 모두 충족한 사람(선 위) → 서류 통과 목표 순서로 세고, 담당자가 실제로 합격 처리한 인원을 맨 아래에 두었어요."
-        read="막대 길이는 전체 지원자 대비예요. 선 위와 목표의 차이만큼 담당자가 더 골라내거나 더 올려야 해요."
+        title="지원자에서 서류 통과 목표까지"
+        caption="전체 지원자 → 서류 분석 완료 → 필수 조건을 모두 충족한 사람(전형 화면의 선 위) → 서류 통과 목표 순서로 세고, 담당자가 실제로 합격 처리한 인원을 맨 아래에 두었어요."
+        read="막대 길이는 전체 지원자 대비예요. 필수 조건 충족자와 목표의 차이만큼 담당자가 더 골라내거나 더 올려야 해요."
         ai={charts.funnel}
       >
         <Funnel data={data} />
@@ -126,23 +126,23 @@ export function DistributionView({
         title="필수 조건 충족 현황"
         caption={
           data.required.criterionIds.length === 0
-            ? '체크한 필수 조건이 없어 분석이 끝난 지원자가 모두 선 위에 올라요.'
+            ? '체크한 필수 조건이 없어 분석이 끝난 지원자를 모두 충족으로 세었어요.'
             : `필수 조건(${data.required.criterionIds.join(' · ')})을 모두 충족했는지로 지원자를 세 갈래로 나눴어요.`
         }
-        read="가운데 %가 선 위에 오른 비율이에요. 확인 필요가 많으면 서류만으로는 판단하기 어려운 사람이 많다는 뜻이에요."
+        read="가운데 %가 필수 조건을 모두 충족한 비율이에요. 확인 필요가 많으면 서류만으로는 판단하기 어려운 사람이 많다는 뜻이에요."
         ai={charts.required}
       >
         <RequiredView data={data} />
       </Section>
 
       <Section
-        title="선 위 지원자의 충족 개수"
+        title="필수 조건 충족자의 항목 충족 수"
         caption={
           data.cut
             ? `목표 ${data.target}명째가 충족 ${data.cut.value}개예요. ${data.cut.from}~${data.cut.to}번째 ${
                 data.cut.to - data.cut.from + 1
               }명이 모두 ${data.cut.value}개라 개수로는 구분되지 않아요. 이 중 ${data.cut.inside}명만 목표 안에 들어요.`
-            : '선 위가 목표 인원 이하라 개수로 갈리는 구간이 없어요. 선 아래 다시 볼 사람을 먼저 보세요.'
+            : '필수 조건 충족자가 목표 인원 이하라 개수로 갈리는 구간이 없어요. 필수 조건을 못 채운 사람 중 다시 볼 사람을 먼저 보세요.'
         }
         read="막대는 충족 개수가 같은 사람 수, 회색 선은 왼쪽부터 더한 누적 인원이에요. 누적선이 보라 점선(목표)을 넘는 주황 막대에서 선발이 갈려요."
         legend={<Legend items={COUNT_LEGEND} />}
@@ -152,7 +152,7 @@ export function DistributionView({
       </Section>
 
       <Section
-        title="경계 그룹"
+        title="다시 볼 지원자"
         caption="코드가 정한 임시 기준으로 모은 사람이에요. 추천이나 순위가 아니고, 담당자가 다시 볼 사람이에요."
         read={`${data.deepSize}명씩 [이 ${data.deepSize}명 비교]를 누르면 항목 판정과 원문 근거를 나란히 볼 수 있어요.`}
       >
@@ -170,7 +170,7 @@ export function DistributionView({
       </Section>
 
       <Section
-        title="항목별 판정"
+        title="항목별로 걸린 지원자"
         caption="분석이 끝난 지원자의 항목별 판정이에요. 충족이 아닌 판정이 많은 항목부터 놓았어요."
         read="오른쪽 %가 높을수록 많은 지원자가 걸리는 항목이에요. 표시한 항목은 공고 문구나 기준을 다시 볼 곳이에요."
         legend={<Legend items={BANDS} />}
@@ -180,9 +180,9 @@ export function DistributionView({
       </Section>
 
       <Section
-        title="경력 구간별 선 위 비율"
-        caption="경력 구간마다 전체 지원자와 선 위 인원을 나란히 세었어요."
-        read="괄호 안 %는 그 구간 지원자 중 선 위에 오른 비율이에요. 구간끼리 비율을 견줘 보세요."
+        title="경력별 필수 조건 충족 비율"
+        caption="경력 구간마다 전체 지원자와 필수 조건 충족 인원을 나란히 세었어요."
+        read="괄호 안 %는 그 구간 지원자 중 필수 조건을 모두 충족한 비율이에요. 구간끼리 비율을 견줘 보세요."
         legend={<Legend items={CAREER_LEGEND} />}
         ai={charts.careers}
       >
@@ -333,14 +333,14 @@ function Insights({
   )
 }
 
-/** 전체 → 분석 완료 → 선 위 → 목표. 막대 폭은 전체 지원자 대비다 */
+/** 전체 → 분석 완료 → 필수 조건 충족 → 목표. 막대 폭은 전체 지원자 대비다 */
 function Funnel({ data }: { data: ReportDistribution }) {
   const gap = data.aboveLine - data.target
   const passed = data.passed ?? null
   const steps = [
     { label: '전체 지원자', value: data.total, color: SEQ[1] },
     { label: '서류 분석 완료', value: data.analyzed, color: SEQ[2] },
-    { label: '선 위 (필수 조건 충족)', value: data.aboveLine, color: SEQ[4] },
+    { label: '필수 조건 충족', value: data.aboveLine, color: SEQ[4] },
     { label: '서류 통과 목표', value: data.target, color: ACCENT },
     // 담당자가 실제로 합격 처리한 인원. 목표를 넘겨도 막지 않고 차이만 보여 준다
     ...(passed === null ? [] : [{ label: '합격 처리', value: passed, color: STATUS.MET.fg }]),
@@ -378,10 +378,10 @@ function Funnel({ data }: { data: ReportDistribution }) {
           )}
         >
           {gap > 0
-            ? `선 위가 목표보다 ${gap}명 많아요`
+            ? `필수 조건 충족자가 목표보다 ${gap}명 많아요`
             : gap < 0
-              ? `선 위가 목표보다 ${-gap}명 적어요`
-              : '선 위가 목표와 같아요'}
+              ? `필수 조건 충족자가 목표보다 ${-gap}명 적어요`
+              : '필수 조건 충족자가 목표와 같아요'}
         </span>
         {passed !== null && passed > 0 && (
           <span
@@ -528,7 +528,7 @@ function StackBar({
   )
 }
 
-/** 선 위 지원자의 개수별 인원과 누적 인원. 누적이 목표선을 넘는 개수가 선발이 갈리는 곳이다 */
+/** 필수 조건 충족자의 개수별 인원과 누적 인원. 누적이 목표선을 넘는 개수가 선발이 갈리는 곳이다 */
 function CountChart({ data }: { data: ReportDistribution }) {
   const option = useMemo<EChartsCoreOption>(() => {
     const bars = data.counts.map((bucket, index) => {
@@ -600,9 +600,11 @@ function CountChart({ data }: { data: ReportDistribution }) {
   }, [data.counts, data.cut, data.target])
 
   if (data.counts.length === 0) {
-    return <p className="text-xs text-muted-foreground">선 위 지원자가 아직 없어요.</p>
+    return (
+      <p className="text-xs text-muted-foreground">필수 조건을 모두 충족한 지원자가 아직 없어요.</p>
+    )
   }
-  return <EChart option={option} height={280} label="선 위 충족 개수별 인원" />
+  return <EChart option={option} height={280} label="필수 조건 충족자의 항목 충족 수별 인원" />
 }
 
 /** 항목별 판정. 충족이 아닌 판정이 많은 순으로 놓고 앞 몇 개를 표시한다 */
@@ -655,7 +657,7 @@ function CriteriaView({ criteria }: { criteria: Criterion[] }) {
   )
 }
 
-/** 경력 구간별 전체와 선 위 인원. 선 위 막대 위에 그 구간의 선 위 비율을 적는다 */
+/** 경력 구간별 전체와 필수 조건 충족 인원. 충족 막대 위에 그 구간의 충족 비율을 적는다 */
 function CareerChart({ data }: { data: ReportDistribution }) {
   const option = useMemo<EChartsCoreOption>(
     () => ({
@@ -683,7 +685,7 @@ function CareerChart({ data }: { data: ReportDistribution }) {
           data: data.careers.map((band) => band.all),
         },
         {
-          name: '선 위',
+          name: '필수 조건 충족',
           type: 'bar',
           barMaxWidth: 36,
           itemStyle: { color: ACCENT, borderRadius: [3, 3, 0, 0] },
@@ -707,7 +709,7 @@ function CareerChart({ data }: { data: ReportDistribution }) {
   return <EChart option={option} height={240} label="경력 구간별 인원" />
 }
 
-/** 경계 그룹 한 칸. 비교는 한 번에 size명씩 보고, 이전 · 다음으로 넘긴다 */
+/** 다시 볼 지원자 그룹 한 칸. 비교는 한 번에 size명씩 보고, 이전 · 다음으로 넘긴다 */
 function GroupCard({
   group,
   size,

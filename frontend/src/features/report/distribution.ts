@@ -21,17 +21,17 @@ export function insightLines(data: ReportDistribution): string[] {
   const gap = data.aboveLine - data.target
   if (gap > 0) {
     lines.push(
-      `필수 조건을 모두 충족한 선 위 ${data.aboveLine}명이 목표 ${data.target}명보다 ${gap}명 많아요.` +
+      `필수 조건을 모두 충족한 ${data.aboveLine}명이 목표 ${data.target}명보다 ${gap}명 많아요.` +
         (data.cut
           ? ` 충족 ${data.cut.value}개인 ${data.cut.to - data.cut.from + 1}명 사이에서 선발이 갈려요.`
           : ''),
     )
   } else if (gap < 0) {
     lines.push(
-      `선 위 ${data.aboveLine}명으로 목표 ${data.target}명에 ${-gap}명 모자라요. 선 아래 다시 볼 사람을 먼저 보세요.`,
+      `필수 조건을 모두 충족한 사람이 ${data.aboveLine}명으로 목표 ${data.target}명에 ${-gap}명 모자라요. 필수 조건을 못 채운 사람 중 다시 볼 사람을 먼저 보세요.`,
     )
   } else {
-    lines.push(`선 위 ${data.aboveLine}명이 목표 ${data.target}명과 같아요.`)
+    lines.push(`필수 조건을 모두 충족한 ${data.aboveLine}명이 목표 ${data.target}명과 같아요.`)
   }
   // 화면의 '많이 걸리는 필수 조건'과 같은 기준(충족이 아닌 판정 비율)으로 고른다
   const required = data.criteria
