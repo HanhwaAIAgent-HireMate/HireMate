@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from typing import Any, NotRequired, TypedDict
 from uuid import UUID
 
+from hiremate_ai.agents.root.progress import Step
 from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent, SelectionMode
 
 
@@ -33,7 +34,8 @@ class Turn(TypedDict):
     result_before: NotRequired[list[str] | None]
     subject_before: NotRequired[list[str]]
     proposed_plan: NotRequired[dict[str, Any]]  # 업무 서버가 보정하기 전 계획. 중복 응답을 구분한다
-    steps: NotRequired[list[str]]  # 그때 화면에 낸 단계 문구 (코드 상수). 예전 체크포인트에는 없다
+    # 그때 화면에 낸 단계 (코드 상수 문구와 깊이). 예전 체크포인트에는 없거나 문구만 있다
+    steps: NotRequired[list[Step] | list[str]]
     seconds: NotRequired[int]  # 요청 확인부터 턴을 남기기까지 걸린 시간
     asker: NotRequired[dict[str, str] | None]  # 질문한 담당자 (member_id, name). 탭 대화방을 함께 쓴다
 

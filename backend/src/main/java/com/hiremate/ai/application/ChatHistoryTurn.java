@@ -10,11 +10,11 @@ import java.util.UUID;
  * @param plan 그때의 계획. message의 {count}는 대상 수, {total}은 total로 바꿔 보여 준다
  * @param total 그때 전형 인원
  * @param mentions 그때 멘션한 지원자
- * @param steps 그때 화면에 낸 처리 단계 문구. 예전 턴은 비어 있다
+ * @param steps 그때 화면에 낸 처리 단계 문구와 깊이. 예전 턴은 비어 있다
  * @param seconds 처리에 걸린 시간. 예전 턴은 null이다
  * @param asker 질문한 담당자. 예전 턴은 null이다
  */
-public record ChatHistoryTurn(String message, ChatPlan plan, int total, List<UUID> mentions, List<String> steps,
+public record ChatHistoryTurn(String message, ChatPlan plan, int total, List<UUID> mentions, List<ChatStatus> steps,
         @Schema(nullable = true) Integer seconds, @Schema(nullable = true) ChatAsker asker) {
 
     public ChatHistoryTurn {
@@ -22,7 +22,7 @@ public record ChatHistoryTurn(String message, ChatPlan plan, int total, List<UUI
         steps = steps == null ? List.of() : List.copyOf(steps);
     }
 
-    public ChatHistoryTurn(String message, ChatPlan plan, int total, List<UUID> mentions, List<String> steps,
+    public ChatHistoryTurn(String message, ChatPlan plan, int total, List<UUID> mentions, List<ChatStatus> steps,
             Integer seconds) {
         this(message, plan, total, mentions, steps, seconds, null);
     }

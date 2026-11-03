@@ -11,6 +11,11 @@ public interface ChatProgress {
 
     void status(String text);
 
+    /** 깊이가 있는 단계. 깊이를 모르는 구현은 Root 단계로 받는다. */
+    default void status(String text, int depth) {
+        status(text);
+    }
+
     void item(ChatItem item);
 
     /** 보내기 실패를 무시한다. Root가 답한 뒤에는 연결이 끊겨도 반영까지 마쳐야 대화 기록과 화면이 어긋나지 않는다. */
@@ -19,6 +24,11 @@ public interface ChatProgress {
             @Override
             public void status(String text) {
                 ignoringFailure(() -> progress.status(text));
+            }
+
+            @Override
+            public void status(String text, int depth) {
+                ignoringFailure(() -> progress.status(text, depth));
             }
 
             @Override

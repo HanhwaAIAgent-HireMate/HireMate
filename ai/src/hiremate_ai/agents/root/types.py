@@ -177,9 +177,13 @@ class ChatItem(ContractModel):
 
 
 class ChatStatus(ContractModel):
-    """처리 단계 문구 (ai.application.ChatStatus). Root plan SSE의 status 이벤트 data다. 문구는 코드 상수다."""
+    """처리 단계 문구 (ai.application.ChatStatus). Root plan SSE의 status 이벤트 data다. 문구는 코드 상수다.
+
+    depth는 단계의 깊이다. 0은 Root의 단계, 1은 그 아래에서 부른 도구나 하위 Agent의 일, 2는 그 일의 결과다.
+    """
 
     text: str
+    depth: int = 0
 
 
 class ReportRequestKind(StrEnum):
@@ -261,7 +265,7 @@ class ChatHistoryTurn(ContractModel):
     """대화방의 지난 턴 하나 (ai.application.ChatHistoryTurn). 화면이 대화 기록을 다시 보여 줄 때 쓴다.
 
     plan.message의 {count}는 backend가 대상 수로, {total}은 그때 전형 인원(total)으로 바꾼다.
-    mentions는 그때 멘션한 지원자, steps는 그때 낸 단계 문구, seconds는 걸린 시간, asker는 질문한 담당자다.
+    mentions는 그때 멘션한 지원자, steps는 그때 낸 단계(문구와 깊이), seconds는 걸린 시간, asker는 질문한 담당자다.
     예전 턴에는 없다.
     """
 
@@ -269,6 +273,6 @@ class ChatHistoryTurn(ContractModel):
     plan: ChatPlan
     total: int
     mentions: list[UUID] = []
-    steps: list[str] = []
+    steps: list[ChatStatus] = []
     seconds: int | None = None
     asker: ChatAsker | None = None

@@ -12,6 +12,7 @@ from hiremate_ai.agents.root.graph import (
     CHECKING,
     NOT_FINISHED,
     NOT_IN_STAGE,
+    REVIEWING,
     VALIDATION_FAILED,
     RootThread,
     build_root_graph,
@@ -288,7 +289,11 @@ async def test_graph_records_streamed_steps_and_seconds(
     saved = await saver.aget_tuple({"configurable": {"thread_id": thread.id}})
     assert saved is not None
     turn = saved.checkpoint["channel_values"]["turns"][-1]
-    assert turn["steps"][0] == CHECKING and "요청에 맞는 답변을 준비하고 있어요" in turn["steps"]
+    # Root 단계는 깊이 0, 그 아래 도구와 근거 검토 결과는 한 칸 들여 남는다
+    assert turn["steps"][0] == {"text": CHECKING, "depth": 0}
+    assert {"text": "요청에 맞는 답변을 준비하고 있어요", "depth": 0} in turn["steps"]
+    assert {"text": REVIEWING, "depth": 0} in turn["steps"]
+    assert turn["steps"][-1]["depth"] == 1 and turn["steps"][-1]["text"].startswith("항목 1개 중 근거 확인")
     assert isinstance(turn["seconds"], int)
 
 

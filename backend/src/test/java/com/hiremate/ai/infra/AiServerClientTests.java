@@ -91,6 +91,8 @@ class AiServerClientTests {
     }
 
     private static final String STATUS = "event:status\ndata:{\"text\":\"요청을 확인하고 있어요\"}\n\n";
+    private static final String NESTED_STATUS =
+            "event:status\ndata:{\"text\":\"정유민의 프로필을 읽고 있어요\",\"depth\":1}\n\n";
     private static final String ITEM = "event:item\ndata:{\"applicationId\":null,\"label\":\"RDBMS\","
             + "\"text\":\"Oracle 원장 설계\",\"status\":\"OK\"}\n\n";
     private static final String DONE = "event:done\ndata:{\"reply\":\"ok\"}\n\n";
@@ -100,14 +102,16 @@ class AiServerClientTests {
     void streamsStatusItemAndDone() {
         AiServerClient client = client(request -> {
             sent.set(request);
-            return Mono.just(sse(Flux.just(STATUS, ITEM, DONE)));
+            return Mono.just(sse(Flux.just(STATUS, NESTED_STATUS, ITEM, DONE)));
         }, Duration.ofSeconds(1));
         Recorded progress = new Recorded();
 
         Reply reply = client.stream(AiAgent.ROOT, "plan", Map.of("message", "hi"), Reply.class, progress);
 
         assertThat(reply).isEqualTo(new Reply("ok"));
-        assertThat(progress.events).containsExactly("status:요청을 확인하고 있어요", "item:RDBMS");
+        // 단계의 깊이도 넘긴다. 깊이가 없는 이벤트는 Root 단계(0)다
+        assertThat(progress.events).containsExactly("status:0:요청을 확인하고 있어요", "status:1:정유민의 프로필을 읽고 있어요",
+                "item:RDBMS");
         assertThat(sent.get().url()).hasToString("http://ai.test/agents/root/plan");
         assertThat(sent.get().headers().getAccept()).containsExactly(MediaType.TEXT_EVENT_STREAM);
     }
@@ -213,6 +217,12 @@ class AiServerClientTests {
         @Override
         public void status(String text) {
             events.add("status:" + text);
+        }
+
+        /** 깊이를 문구 앞에 붙여 한 칸짜리 status로 넘긴다. status(String)를 덮어쓴 테스트도 그대로 불린다. */
+        @Override
+        public void status(String text, int depth) {
+            status(depth + ":" + text);
         }
 
         @Override

@@ -16,10 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
 from hiremate_ai.agents.root.delegation import KEEP_CALLS, Delegation
-from hiremate_ai.agents.root.find import SearchQuery, plan_find, search_criteria
+from hiremate_ai.agents.root.find import SEARCH_STATUS, SearchQuery, plan_find, search_criteria
 from hiremate_ai.agents.root.ledger import Ledger
 from hiremate_ai.agents.root.plan import EMPTY_FIND, NO_MESSAGE, Form, has_condition
-from hiremate_ai.agents.root.progress import Progress
+from hiremate_ai.agents.root.progress import Progress, names, nested
 from hiremate_ai.agents.root.toolkit import (
     OUT_OF_SCOPE,
     RootToolContext,
@@ -42,9 +42,16 @@ from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import data_block
 
 FEW_TARGETS = 5
-READING = "지원자 자료를 확인하고 있어요"
-SEARCHING = "조건에 맞는 지원자를 찾고 있어요"
 THINKING = "요청에 맞는 답변을 준비하고 있어요"
+# 분석 루프의 도구가 내는 단계. Root 단계(THINKING) 아래 한 칸 들여 보인다
+READING = {
+    "profile": "{names}의 프로필을 읽고 있어요",
+    "application": "{names}의 서류 분석을 읽고 있어요",
+    "interview": "{names}의 면접 기록을 읽고 있어요",
+}
+READING_STAGE = "전형 전체 현황을 읽고 있어요"
+READING_COMPANY = "회사 소개와 공고 기준을 읽고 있어요"
+SEARCHING_POOL = "후보 {count}명 안에서 조건에 맞는 지원자를 찾고 있어요"
 UNKNOWN_REFS = "refs에는 자료에 나온 E번호만 쓰세요."
 FOREIGN_REFS = "항목의 refs는 그 항목 지원자의 근거만 쓰세요."
 UNKNOWN_CANDIDATE = "candidate에는 현재 전형 지원자의 C번호를 쓰세요."
@@ -190,8 +197,10 @@ async def run_analysis(
     progress: Progress,
 ) -> AnalysisReply:
     """모델 호출은 요청의 호출 예산을 같이 쓴다. 답이 검증에 실패하면 같은 자료로 한 번 고쳐 쓰게 한다."""
-    delegation = Delegation(llm, progress, artifacts=toolkit.artifacts, ledger=run.ledger)
-    tools = [*_tools(llm, toolkit, progress), *delegation.review_tools()]
+    # 도구와 하위 Agent의 일은 Root 단계 아래에 들여 보인다
+    inner = nested(progress)
+    delegation = Delegation(llm, inner, artifacts=toolkit.artifacts, ledger=run.ledger)
+    tools = [*_tools(llm, toolkit, inner), *delegation.review_tools()]
     forms = ANSWER_FORMS if task == "answer" else QUESTION_FORMS
     progress.status(THINKING)
     agent = llm.tool_agent(
@@ -291,7 +300,7 @@ def _tools(llm: LlmClient, toolkit: RootToolkit, progress: Progress) -> list[Bas
         rows = [resolve_ref(run.chat, ref) for ref in candidates]
         if not rows or any(row is None for row in rows):
             return OUT_OF_SCOPE
-        progress.status(READING)
+        progress.status(READING[detail].format(names=names([row for row in rows if row is not None])))
         texts = []
         for row in rows:
             if row is None:
@@ -309,11 +318,13 @@ def _tools(llm: LlmClient, toolkit: RootToolkit, progress: Progress) -> list[Bas
     @tool
     async def stage_overview(runtime: ToolRuntime[AnalysisRun]) -> str:
         """전형 전체의 공식 집계(인원, 결정별 인원, 선택, 경력)와 지원자별 한 줄을 읽는다."""
+        progress.status(READING_STAGE)
         return stage_block(runtime.context.ledger, runtime.context.chat)
 
     @tool
     async def company_and_posting(runtime: ToolRuntime[AnalysisRun]) -> str:
         """회사 소개, 문화, 인재상과 공고(담당 업무, 자격 요건, 우대 사항)를 읽는다."""
+        progress.status(READING_COMPANY)
         return company_block(runtime.context.ledger, runtime.context.chat)
 
     @tool
@@ -337,12 +348,12 @@ def _tools(llm: LlmClient, toolkit: RootToolkit, progress: Progress) -> list[Bas
         rows = [resolve_ref(run.chat, ref) for ref in pool] if pool is not None else None
         if rows is not None and any(row is None for row in rows):
             return OUT_OF_SCOPE
-        progress.status(SEARCHING)
         ids = [row.application_id for row in rows if row is not None] if rows is not None else None
+        progress.status(SEARCH_STATUS if ids is None else SEARCHING_POOL.format(count=len(ids)))
         try:
             # 후보 재확인은 루프의 최종 답과 근거 검토가 쓸 호출을 남긴다
             with reserve_model_calls(KEEP_CALLS):
-                found = await plan_find(llm, query, run.chat, toolkit, pool=ids)
+                found = await plan_find(llm, query, run.chat, toolkit, pool=ids, progress=nested(progress))
         except LlmOutputError as error:
             if error.reason is not LlmFailureReason.BUDGET:
                 raise

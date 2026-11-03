@@ -111,7 +111,10 @@ class AiServerClient {
             return;
         }
         switch (event.event()) {
-            case "status" -> progress.status(json.readValue(event.data(), ChatStatus.class).text());
+            case "status" -> {
+                ChatStatus status = json.readValue(event.data(), ChatStatus.class);
+                progress.status(status.text(), status.depth());
+            }
             case "item" -> progress.item(json.readValue(event.data(), ChatItem.class));
             case "done" -> done.set(json.readValue(event.data(), type));
             default -> {}
