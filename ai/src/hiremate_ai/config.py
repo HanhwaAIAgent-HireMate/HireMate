@@ -79,6 +79,16 @@ class Settings(BaseSettings):
     worker_attempts: int = 2
     # 작업을 가진 워커가 이 시간 동안 소식이 없으면(멈췄으면) 다른 워커가 가져간다. 처리 중에는 주기적으로 알린다
     worker_claim_idle_seconds: float = 120
+    # NCS 질의 임베딩 서비스(hiremate_ai.ncs_search). ai 서버는 이 주소로 요청 문장의 벡터를 받는다.
+    # 서비스가 꺼져 있으면 공고 수정은 NCS 없이 진행한다
+    ncs_embed_url: str = "http://127.0.0.1:8002"
+    ncs_embed_timeout_seconds: float = 20
+    # 서비스가 듣는 주소. 내부망 밖에 열지 않는다
+    ncs_embed_host: str = "127.0.0.1"
+    ncs_embed_port: int = 8002
+    # 질의 임베딩 모델(이름이나 로컬 경로)과 장치. 표의 벡터를 만든 BGE-M3와 같아야 한다
+    ncs_model: str = "BAAI/bge-m3"
+    ncs_device: Literal["cpu", "mps", "cuda"] = "cpu"
 
     @field_validator("llm_temperature", mode="before")
     @classmethod
