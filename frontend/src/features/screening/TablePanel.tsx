@@ -1,14 +1,9 @@
 import { cn } from 'cn'
-import { ArrowDown, ArrowLeft, MessageSquare } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, MessageSquare } from 'lucide-react'
 import { useState, type ThHTMLAttributes } from 'react'
 
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  careerLabel,
-  useRequirements,
-  useSelection,
-  type StageOverview,
-} from '@/features/screening/api'
+import { careerLabel, useSelection, type StageOverview } from '@/features/screening/api'
 import { useStageUi } from '@/features/screening/store'
 import {
   followUps,
@@ -24,8 +19,16 @@ import {
 } from '@/features/screening/table'
 import type { StageTab } from '@/features/screening/tabs'
 
-/** 열 이름을 눌러 정렬할 때의 순서: O · 상 → 중 → X · 하 → 확인 필요 → 분석 중 */
-const TONE_ORDER: Record<Tone, number> = { good: 0, mid: 1, bad: 2, unknown: 3, waiting: 4 }
+type SortDirection = 'desc' | 'asc'
+
+/**
+ * 열 이름을 눌러 정렬할 때의 순서. 내림차순은 O · 상 → 중 → X · 하, 오름차순은 그 반대다.
+ * 확인 필요 · 분석 중은 어느 쪽이든 맨 뒤에 둔다
+ */
+const TONE_ORDER: Record<SortDirection, Record<Tone, number>> = {
+  desc: { good: 0, mid: 1, bad: 2, unknown: 3, waiting: 4 },
+  asc: { bad: 0, mid: 1, good: 2, unknown: 3, waiting: 4 },
+}
 
 /** 열 너비(rem). 능력 열은 모두 같은 너비이고, 화면이 더 넓으면 같은 비율로 늘어난다 */
 const NAME_WIDTH = 6
@@ -35,15 +38,14 @@ const FOLLOW_UP_WIDTH = 10
 
 // 선택 지원자 표 보기 (대시보드). 저장된 분석을 그대로 옮겨 몇 초 안에 보여 준다.
 // 가로 한 줄이 지원자 한 명, 세로 한 열이 같은 능력이다. 칸에는 판정만 보이고, 무엇을 했는지는 마우스를 올리면 보인다.
-// 처음에는 상이 많은 순(같으면 중이 많은 순)이다. 열 이름을 누르면 그 열의 상 · 중 · 하 순으로 줄을 세우고(같으면 처음 순서),
-// 한 번 더 누르면 처음 순서로 돌아간다
+// 처음에는 상이 많은 순(같으면 중이 많은 순)이다. 열 이름을 누르면 그 열의 상 → 하(내림차순), 한 번 더 누르면 하 → 상(오름차순)으로
+// 줄을 세우고(같으면 처음 순서), 세 번째로 누르면 처음 순서로 돌아간다
 export function TablePanel({ overview, tab }: { overview: StageOverview; tab: StageTab }) {
   const stageId = overview.stageId
   const selection = useSelection(stageId, tab.id)
   const table = useCandidateTable(stageId)
-  const required = useRequirements(stageId, overview.type === 'DOCUMENT')
   const { showTable, open, tableChat, showTableChat } = useStageUi()
-  const [sortBy, setSortBy] = useState<string | null>(null)
+  const [sort, setSort] = useState<{ id: string; direction: SortDirection } | null>(null)
   const rows = selection.data?.items ?? []
   const features = table.data?.features ?? []
   const analyses = useTableAnalyses(stageId, rows)
@@ -55,21 +57,31 @@ export function TablePanel({ overview, tab }: { overview: StageOverview; tab: St
   const cells = rows.map((row, index) =>
     rowCells(row, features, analyses[index]?.data, talents[index]?.data),
   )
-  const sortColumn = features.findIndex((feature) => feature.id === sortBy)
+  const sortColumn = features.findIndex((feature) => feature.id === sort?.id)
   // 처음 순서: 상(O)이 많은 사람, 같으면 중이 많은 사람, 그것도 같으면 선택 지원자에 넣은 순서
   const tally = (index: number, tone: Tone) =>
     (cells[index] ?? []).filter((item) => item.tone === tone).length
   const order = rows
     .map((_, index) => index)
     .sort((a, b) => tally(b, 'good') - tally(a, 'good') || tally(b, 'mid') - tally(a, 'mid'))
-  if (sortColumn >= 0) {
+  if (sort && sortColumn >= 0) {
     // Array.prototype.sort는 안정 정렬이라 같은 판정이면 처음 순서가 남는다
+    const rank = TONE_ORDER[sort.direction]
     order.sort(
       (a, b) =>
-        TONE_ORDER[cells[a]?.[sortColumn]?.tone ?? 'waiting'] -
-        TONE_ORDER[cells[b]?.[sortColumn]?.tone ?? 'waiting'],
+        rank[cells[a]?.[sortColumn]?.tone ?? 'waiting'] -
+        rank[cells[b]?.[sortColumn]?.tone ?? 'waiting'],
     )
   }
+  // 내림차순 → 오름차순 → 처음 순서
+  const toggleSort = (id: string) =>
+    setSort(
+      sort?.id !== id
+        ? { id, direction: 'desc' }
+        : sort.direction === 'desc'
+          ? { id, direction: 'asc' }
+          : null,
+    )
   const groups = groupSpans(features)
 
   return (
@@ -83,12 +95,13 @@ export function TablePanel({ overview, tab }: { overview: StageOverview; tab: St
           선택 지원자 {rows.length}
         </button>
         <h2 className="text-sm font-bold">표 보기</h2>
-        <div className="ml-auto">
+        <div className="ml-auto flex min-w-0 items-center gap-4">
+          <MarkLegend />
           <button
             type="button"
             onClick={() => showTableChat(!tableChat)}
             title="AI Chat은 표 오른쪽 끝에 접혀 있어요"
-            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-ai/40 bg-ai-soft px-2 text-xs font-medium text-ai hover:border-ai"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-ai/40 bg-ai-soft px-2 text-xs font-medium text-ai hover:border-ai"
           >
             <MessageSquare className="size-3.5" />
             {tableChat ? 'AI Chat 접기' : 'AI Chat 열기 →'}
@@ -143,26 +156,37 @@ export function TablePanel({ overview, tab }: { overview: StageOverview; tab: St
                 </tr>
                 <tr>
                   {features.map((feature) => {
-                    const mandatory = required.data?.includes(feature.id) ?? false
+                    // 공고 평가 기준에서 필수로 표시한 자격요건
+                    const mandatory = feature.important
                     return (
                       <HeaderCell
                         key={feature.id}
-                        aria-sort={sortBy === feature.id ? 'descending' : undefined}
+                        aria-sort={
+                          sort?.id === feature.id
+                            ? sort.direction === 'desc'
+                              ? 'descending'
+                              : 'ascending'
+                            : undefined
+                        }
                         className="p-0"
                       >
                         <button
                           type="button"
-                          title={`${mandatory ? '필수 조건 · ' : ''}${feature.text}\n누르면 상 · 중 · 하 순으로 정렬해요`}
-                          onClick={() => setSortBy(sortBy === feature.id ? null : feature.id)}
+                          title={`${mandatory ? '필수 자격요건 · ' : ''}${feature.text}\n누르면 상 → 하, 한 번 더 누르면 하 → 상으로 정렬해요`}
+                          onClick={() => toggleSort(feature.id)}
                           className={cn(
-                            'inline-flex size-full items-center justify-center gap-0.5 px-1.5 py-2 font-semibold break-keep whitespace-normal hover:text-foreground',
-                            sortBy === feature.id && 'text-foreground',
-                            // 필수 조건 열은 보라색 이름으로 구분한다
+                            // 정렬 표시는 칸마다 같은 자리(오른쪽 끝)에 두고, 이름은 그와 상관없이 칸 가운데에 둔다.
+                            // 좌우 여백을 같게 둬 이름이 표시 쪽으로 밀리지 않게 한다
+                            'relative size-full px-5 py-2 text-center font-semibold break-keep whitespace-normal hover:text-foreground',
+                            sort?.id === feature.id && 'text-foreground',
+                            // 필수 자격요건 열은 보라색 이름으로 구분한다
                             mandatory && 'text-ai hover:text-ai',
                           )}
                         >
-                          {feature.label}
-                          {sortBy === feature.id && <ArrowDown className="size-3 shrink-0" />}
+                          <SortLabel
+                            label={feature.label}
+                            direction={sort?.id === feature.id ? sort.direction : null}
+                          />
                         </button>
                       </HeaderCell>
                     )
@@ -194,7 +218,14 @@ export function TablePanel({ overview, tab }: { overview: StageOverview; tab: St
                       {rowCellsHere.map((item, column) => (
                         <MarkCell key={features[column]?.id ?? column} cell={item} />
                       ))}
-                      <td className="border-r border-b px-2 py-2 text-muted-foreground">
+                      {/* 길면 한 줄에서 잘라 …로 두고, 전체는 마우스를 올리면 보인다 (줄 높이가 늘지 않게) */}
+                      <td
+                        title={checks.length > 0 ? checks.join('\n') : undefined}
+                        className={cn(
+                          'truncate border-r border-b px-2 py-2 text-muted-foreground',
+                          checks.length > 0 && 'cursor-help',
+                        )}
+                      >
                         {checks.length > 0 ? checks.join(', ') : '-'}
                       </td>
                     </tr>
@@ -221,6 +252,26 @@ function HeaderCell({ children, className, ...props }: ThHTMLAttributes<HTMLTabl
     >
       {children}
     </th>
+  )
+}
+
+/**
+ * 열 이름과 정렬 표시. 이름은 칸 가운데에 두고 길면 두 줄로 넘어간다. 정렬 표시는 모든 칸에서 오른쪽 끝 같은 자리다.
+ * 정렬 전에는 위아래 화살표를 연하게, 정렬한 열은 내림차순(상 → 하)이면 아래, 오름차순(하 → 상)이면 위 화살표를 진하게 둔다
+ */
+function SortLabel({ label, direction }: { label: string; direction: SortDirection | null }) {
+  const Icon = direction === 'desc' ? ArrowDown : direction === 'asc' ? ArrowUp : ArrowUpDown
+  return (
+    <>
+      {label}
+      <Icon
+        aria-hidden
+        className={cn(
+          'absolute top-1/2 right-1.5 size-3 -translate-y-1/2',
+          !direction && 'opacity-40',
+        )}
+      />
+    </>
   )
 }
 
@@ -251,4 +302,19 @@ function groupSpans(features: TableFeature[]) {
     else spans.push({ group: feature.group, span: 1 })
   }
   return spans
+}
+
+/** 칸 표기의 기준. 표 위 오른쪽(AI Chat 버튼 왼쪽)에 작은 회색 글씨로 둔다 */
+function MarkLegend() {
+  return (
+    <div className="min-w-0 text-[11px] leading-4 text-muted-foreground">
+      <p>
+        <b>O</b> 요건이 서류에서 확인됨 · <b>X</b> 요건이 없거나 일부만 확인됨
+      </p>
+      <p>
+        <b>상</b> 본인 경험 + 정량 지표 확인 · <b>중</b> 경험만 확인(일부 충족 포함) · <b>하</b>{' '}
+        서류에서 확인 안 됨
+      </p>
+    </div>
+  )
 }

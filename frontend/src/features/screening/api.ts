@@ -6,13 +6,21 @@ export type StageOverview = Schemas['StageOverview']
 export type CandidateRow = Schemas['CandidateRow']
 export type CandidateDetail = Schemas['CandidateDetail']
 export type CandidateAnalysis = Schemas['CandidateAnalysis']
-export type CandidateProfileView = Schemas['CandidateProfileView']
-export type ProfileItemView = Schemas['ProfileItemView']
 export type CriterionLine = Schemas['CriterionLine']
 export type SummarySection = Schemas['SummarySection']
 export type Decision = CandidateRow['decision']
-/** 서류 전형 전체 지원자 정렬: 기본(자격요건 + 우대사항 충족 개수, 처음) · 인재상 포함(상인 인재상 개수를 더함) */
-export type CandidateSort = 'BASIC' | 'TALENT'
+/**
+ * 전체 지원자 거르기. 결정 상태는 하나라도 맞으면 남고, 평가 항목(ID)과 인재상(표 보기 열 ID)은 고른 것이 모두
+ * O 또는 중 이상이어야 남는다. 비어 있는 칸은 거르지 않는다
+ */
+export type CandidateFilter = { decisions: Decision[]; criteria: string[]; talents: string[] }
+
+export const NO_FILTER: CandidateFilter = { decisions: [], criteria: [], talents: [] }
+
+/** 거르기 조건이 하나라도 있는가 */
+export function isFiltered(filter: CandidateFilter) {
+  return filter.decisions.length + filter.criteria.length + filter.talents.length > 0
+}
 
 const PAGE_SIZE = 30
 /** 분석 중인 지원자가 있으면 이 간격으로 다시 불러온다. 분석은 AI 워커가 대기열에서 하나씩 처리해 몇 분 걸린다 */
@@ -27,16 +35,13 @@ export const stageKeys = {
   all: (stageId: string) => ['stage', stageId] as const,
   overview: (stageId: string) => ['stage', stageId, 'overview'] as const,
   tabs: (stageId: string) => ['stage', stageId, 'tabs'] as const,
-  candidates: (stageId: string, tabId: string | null, query: string, sort: CandidateSort) =>
-    ['stage', stageId, 'candidates', tabId, query, sort] as const,
+  candidates: (stageId: string, tabId: string | null, query: string, filter: CandidateFilter) =>
+    ['stage', stageId, 'candidates', tabId, query, filter] as const,
   selection: (stageId: string, tabId: string) => ['stage', stageId, 'selection', tabId] as const,
-  requirements: (stageId: string) => ['stage', stageId, 'requirements'] as const,
   detail: (stageId: string, applicationId: string) =>
     ['stage', stageId, 'detail', applicationId] as const,
   analysis: (stageId: string, applicationId: string) =>
     ['stage', stageId, 'analysis', applicationId] as const,
-  profile: (stageId: string, applicationId: string) =>
-    ['stage', stageId, 'profile', applicationId] as const,
 }
 
 const path = (stageId: string) => ({ params: { path: { stageId } } })
@@ -49,17 +54,17 @@ export function useStageOverview(stageId: string) {
 }
 
 /**
- * 전체 지원자. 스크롤하면 이어서 불러온다. sort는 서류 전형에서만 쓰고 다른 전형은 점수 높은 순이다.
- * 선택 표시와 AI 테두리는 tabId 탭 기준이다.
+ * 전체 지원자. 스크롤하면 이어서 불러온다. 서류 전형은 자격요건 + 우대사항 충족 개수에 상인 인재상 개수를 더한 순,
+ * 평가 전형은 점수 높은 순이다. filter는 서버가 거른다. 선택 표시와 AI 테두리는 tabId 탭 기준이다.
  */
 export function useCandidates(
   stageId: string,
   tabId: string | null,
   query: string,
-  sort: CandidateSort,
+  filter: CandidateFilter,
 ) {
   return useInfiniteQuery({
-    queryKey: stageKeys.candidates(stageId, tabId, query, sort),
+    queryKey: stageKeys.candidates(stageId, tabId, query, filter),
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       unwrap(
@@ -69,7 +74,9 @@ export function useCandidates(
             query: {
               tabId: tabId ?? undefined,
               query: query || undefined,
-              sort,
+              decision: filter.decisions.length > 0 ? filter.decisions : undefined,
+              criterion: filter.criteria.length > 0 ? filter.criteria : undefined,
+              talent: filter.talents.length > 0 ? filter.talents : undefined,
               page: pageParam,
               size: PAGE_SIZE,
             },
@@ -85,27 +92,6 @@ export function useCandidates(
         ? ANALYSIS_POLL_MS
         : false,
   })
-}
-
-/** 서류 전형의 필수 조건. 모두 충족한 지원자만 선 위(AI 단계)에 오른다 */
-export function useRequirements(stageId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: stageKeys.requirements(stageId),
-    enabled,
-    queryFn: () =>
-      unwrap(api.GET('/api/stages/{stageId}/requirements', path(stageId))).then(
-        (data) => data.criterionIds,
-      ),
-  })
-}
-
-/** 필수 조건 바꾸기. 끝나면 리스트(선 위 · 순서)를 다시 불러온다 */
-export function useUpdateRequirements(stageId: string) {
-  return useStageMutation(stageId, (criterionIds: string[]) =>
-    unwrap(
-      api.PUT('/api/stages/{stageId}/requirements', { ...path(stageId), body: { criterionIds } }),
-    ),
-  )
 }
 
 /** 탭의 선택 지원자 */
@@ -158,20 +144,6 @@ export function useCandidateAnalysis(
   })
 }
 
-/** 카드의 프로필 탭. 분석 Agent들이 쌓은 항목과 확인 상태(확인됨 · 근거 있음 · 미확인 · 상충) */
-export function useCandidateProfile(stageId: string, applicationId: string) {
-  return useQuery({
-    queryKey: stageKeys.profile(stageId, applicationId),
-    queryFn: () =>
-      unwrap(
-        api.GET('/api/stages/{stageId}/candidates/{applicationId}/profile', {
-          params: { path: { stageId, applicationId } },
-        }),
-      ),
-    staleTime: 60 * 1000,
-  })
-}
-
 /** 전형 화면의 변경 요청. 끝나면 리스트 · 선택 지원자 · 현황을 다시 불러온다. */
 export function useStageMutation<T, R = unknown>(
   stageId: string,
@@ -203,9 +175,6 @@ export function useSelectionActions(stageId: string, tabId: string) {
     ),
     clear: useStageMutation(stageId, () =>
       unwrap(api.POST('/api/stages/{stageId}/tabs/{tabId}/selection/clear', tabPath)),
-    ),
-    restore: useStageMutation(stageId, () =>
-      unwrap(api.POST('/api/stages/{stageId}/tabs/{tabId}/selection/restore', tabPath)),
     ),
     promote: useStageMutation(stageId, (applicationId: string) =>
       unwrap(
@@ -268,36 +237,6 @@ export function useSaveMemo(stageId: string, applicationId: string) {
       }),
     ),
   )
-}
-
-/** 서류 평가 점수 같은 소수 첫째 자리 점수 (예: 73.3) */
-export function formatScore(value: number) {
-  return value.toFixed(1)
-}
-
-/** 보류 점수: 확인 필요를 0점으로 넣어 계산한 점수. 서류를 읽지 못해 계산할 판정이 없으면 0점이다 */
-export function heldScore(low: number | null) {
-  return formatScore(low ?? 0)
-}
-
-/** "자격 33.3 · 우대 40.0" (영역 만점 50). 한 영역만 있으면 "자격 77.8/100". 확인 필요가 남은 영역은 "확인 필요" */
-export function scoreBreakdown(
-  row: Pick<
-    CandidateRow,
-    'qualificationScore' | 'qualificationMax' | 'preferenceScore' | 'preferenceMax'
-  >,
-) {
-  const parts = [
-    ['자격', row.qualificationScore, row.qualificationMax] as const,
-    ['우대', row.preferenceScore, row.preferenceMax] as const,
-  ]
-    .filter(([, , max]) => max > 0)
-    .map(([label, score, max]) =>
-      score === null
-        ? `${label} 확인 필요`
-        : `${label} ${formatScore(score)}${max === 50 ? '' : `/${max}`}`,
-    )
-  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 /** "경력 5년 · OO카드", 신입은 "신입". 분석은 끝났는데 서류에서 경력을 읽지 못하면 "경력 확인 필요" */
