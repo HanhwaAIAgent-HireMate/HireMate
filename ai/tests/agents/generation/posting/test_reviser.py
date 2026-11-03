@@ -2,7 +2,21 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from ncs_context import UNIT, FakeNcs
+from pydantic import BaseModel
 
+from hiremate_ai.agents.generation.posting.ncs import (
+    NCS_HEADER,
+    NCS_NOT_FOUND,
+    NCS_SOURCES_DROPPED,
+    NCS_UNAVAILABLE,
+    SOURCES_STEP,
+    LineCitation,
+    NcsQuery,
+    NcsUse,
+    SupportReview,
+    SupportVerdict,
+)
 from hiremate_ai.agents.generation.posting.reviser import (
     ANSWER_ONLY_REPLY,
     BLOCKED_REPLY,
@@ -18,6 +32,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
     ROUTE_STEP,
     SYSTEM,
     UNCHANGED_LINE,
+    CitedContentChanges,
     ContentChanges,
     ExtrasPlan,
     FieldChange,
@@ -66,8 +81,8 @@ def posting(**overrides: Any) -> PostingDraftContext:
     return PostingDraftContext(**{**fields, **overrides})
 
 
-def route(*targets: Any, question: str | None = None, writes_posting: bool = False) -> Route:
-    return Route(targets=list(targets), question=question, writes_posting=writes_posting)
+def route(*targets: Any, question: str | None = None, writes_posting: bool = False, ncs: NcsUse = "SKIP") -> Route:
+    return Route(targets=list(targets), question=question, writes_posting=writes_posting, ncs=ncs)
 
 
 async def test_multiple_roles_are_separate_proposals_and_keep_common_data() -> None:
@@ -941,3 +956,176 @@ async def test_context_tells_model_when_process_is_locked_and_marks_empty_fields
     assert "근무지: (비어 있음)" in user
     assert "복지:\n(비어 있음)" in user
     assert "공고 작성 스타일: (없음)" in user
+
+
+# NCS 참고
+
+NCS_QUERY = NcsQuery(tasks=["서버 프로그램을 구현 한다"], units=[UNIT])
+NEW_DUTY = "주문 · 결제 서버 프로그램 구현"
+NCS_LINE = '주요 업무 2번 ← 응용SW엔지니어링 › 서버프로그램 구현 › 서버 프로그램 구현하기: "서버 프로그램을 구현 한다"'
+MADE = "주요 업무 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
+
+
+class Malformed(BaseModel):
+    """모델이 형식에 맞지 않는 답을 냈을 때. FakeLlm이 다른 형식을 받으면 예외를 낸다."""
+
+
+def cited(duty: str = NEW_DUTY, *, cite: bool = True, **fields: str | list[str]) -> CitedContentChanges:
+    citations = [LineCitation(field="주요 업무", line=duty, sources=["S1"])] if cite else []
+    changes = content(duties=[*CONTENT.duties, duty], **fields).changes
+    return CitedContentChanges(changes=changes, citations=citations)
+
+
+def review(*verdicts: str) -> SupportReview:
+    return SupportReview(
+        verdicts=[SupportVerdict.model_validate({"index": i, "verdict": v}) for i, v in enumerate(verdicts)]
+    )
+
+
+async def test_skip_makes_no_ncs_calls() -> None:
+    ncs = FakeNcs()
+    llm = FakeLlm(route("CONTENT"), content(duties=[*CONTENT.duties, NEW_DUTY]))
+
+    result = await revise_posting(llm, posting(), "", "주요 업무에 주문 결제 서버 구현 추가해 줘", ncs=ncs)
+
+    assert [call.output for call in llm.calls] == [Route, ContentChanges]
+    assert ncs.searches == []
+    assert result.reply == MADE
+
+
+async def test_requested_call_order_and_reply() -> None:
+    ncs = FakeNcs()
+    llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), NCS_QUERY, cited(), review("supports"))
+
+    result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 추가해 줘", ncs=ncs)
+
+    assert [call.output for call in llm.calls] == [Route, NcsQuery, CitedContentChanges, SupportReview]
+    assert ncs.searches == [("NCS 참고해서 주요 업무 추가해 줘", NCS_QUERY.tasks, [UNIT])]
+    assert "[S1] 응용SW엔지니어링" in llm.calls[2].user
+    assert SOURCES_STEP in llm.calls[2].user
+    assert llm.calls[2].system == SYSTEM
+    assert result.reply == f"{MADE}\n\n{NCS_HEADER}\n{NCS_LINE}"
+    assert result.suggestion is not None
+    assert result.suggestion.content.duties == [*CONTENT.duties, NEW_DUTY]
+    assert "NCS" not in result.suggestion.content.model_dump_json()
+
+
+async def test_helpful_without_results_has_no_notice() -> None:
+    llm = FakeLlm(route("CONTENT", ncs="HELPFUL"), NCS_QUERY, content(duties=[*CONTENT.duties, NEW_DUTY]))
+
+    result = await revise_posting(llm, posting(), "", "주요 업무 추천해 줘", ncs=FakeNcs(found=[]))
+
+    assert [call.output for call in llm.calls] == [Route, NcsQuery, ContentChanges]
+    assert result.reply == MADE
+
+
+async def test_requested_without_results_notices() -> None:
+    llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), NCS_QUERY, content(duties=[*CONTENT.duties, NEW_DUTY]))
+
+    result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 써 줘", ncs=FakeNcs(found=[]))
+
+    assert result.reply == f"{MADE} {NCS_NOT_FOUND}"
+
+
+async def test_empty_ncs_table_skips_query_call() -> None:
+    llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), content(duties=[*CONTENT.duties, NEW_DUTY]))
+
+    result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 써 줘", ncs=FakeNcs(unit_list=[]))
+
+    assert [call.output for call in llm.calls] == [Route, ContentChanges]
+    assert result.suggestion is not None
+    assert result.reply == f"{MADE} {NCS_NOT_FOUND}"
+
+
+async def test_embed_failure_keeps_revision() -> None:
+    llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), NCS_QUERY, content(duties=[*CONTENT.duties, NEW_DUTY]))
+
+    result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 써 줘", ncs=FakeNcs(unavailable=True))
+
+    assert result.suggestion is not None
+    assert result.reply == f"{MADE} {NCS_UNAVAILABLE}"
+
+
+async def test_query_call_failure_keeps_revision() -> None:
+    llm = FakeLlm(route("CONTENT", ncs="HELPFUL"), Malformed(), content(duties=[*CONTENT.duties, NEW_DUTY]))
+
+    result = await revise_posting(llm, posting(), "", "주요 업무 추천해 줘", ncs=FakeNcs())
+
+    assert result.suggestion is not None
+    assert result.reply == MADE
+
+
+async def test_retry_uses_last_attempt_citations() -> None:
+    llm = FakeLlm(
+        route("CONTENT", ncs="REQUESTED"),
+        NCS_QUERY,
+        cited("첫 번째 업무", title="가" * 201),
+        cited(NEW_DUTY),
+        review("supports"),
+    )
+
+    result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 추가해 줘", ncs=FakeNcs())
+
+    assert llm.calls[3].output is CitedContentChanges
+    assert SOURCES_STEP in llm.calls[3].user
+    assert result.reply.endswith(NCS_LINE)
+    assert "첫 번째 업무" not in result.reply
+
+
+async def test_unrelated_source_removed_with_notice() -> None:
+    llm = FakeLlm(route("CONTENT", ncs="HELPFUL"), NCS_QUERY, cited(), review("unrelated"))
+
+    result = await revise_posting(llm, posting(), "", "주요 업무 추천해 줘", ncs=FakeNcs())
+
+    assert result.reply == f"{MADE} {NCS_SOURCES_DROPPED}"
+
+
+async def test_requested_with_every_source_removed_says_not_found_once() -> None:
+    llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), NCS_QUERY, cited(), review("unrelated"))
+
+    result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 추가해 줘", ncs=FakeNcs())
+
+    assert result.reply == f"{MADE} {NCS_NOT_FOUND}"
+
+
+async def test_requested_without_citations_says_not_found() -> None:
+    llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), NCS_QUERY, cited(cite=False))
+
+    result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 추가해 줘", ncs=FakeNcs())
+
+    assert [call.output for call in llm.calls] == [Route, NcsQuery, CitedContentChanges]
+    assert result.reply == f"{MADE} {NCS_NOT_FOUND}"
+
+
+async def test_no_suggestion_reply_has_no_ncs_text() -> None:
+    llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), NCS_QUERY, cited(title="가" * 201), cited(title="가" * 201))
+
+    result = await revise_posting(llm, posting(), "", "NCS 참고해서 채용명 길게", ncs=FakeNcs())
+
+    assert result.reply == CHECK_FAILED_REPLY
+
+
+async def test_focus_line_request_never_uses_ncs() -> None:
+    ncs = FakeNcs()
+    llm = FakeLlm(rewrite("카드 결제 · 정산 시스템 개발 경험"))
+
+    await revise_posting(
+        llm, posting(content=TWO_PREFERRED), "", "NCS 참고해서 고쳐 줘", focus("preferred", 0), ncs=ncs
+    )
+
+    assert [call.output for call in llm.calls] == [LineEdit]
+    assert ncs.searches == []
+
+
+async def test_roles_request_never_uses_ncs() -> None:
+    ncs = FakeNcs()
+    roles = [
+        PostingRole(name=name, career="신입", duties=["기초 업무 수행"], qualifications=[], preferred=[])
+        for name in ["백엔드", "인사"]
+    ]
+    llm = FakeLlm(route("ROLES", writes_posting=True, ncs="HELPFUL"), RoleChanges(roles=roles))
+
+    result = await revise_posting(llm, posting(), "", "신입 백엔드, 인사 두 직무 표로 만들어 줘", ncs=ncs)
+
+    assert result.suggestion is not None
+    assert ncs.searches == []

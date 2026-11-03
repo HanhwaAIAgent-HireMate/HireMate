@@ -2,7 +2,15 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from ncs_context import UNIT, FakeNcs
 
+from hiremate_ai.agents.generation.posting.ncs import (
+    NCS_HEADER,
+    LineCitation,
+    NcsQuery,
+    SupportReview,
+    SupportVerdict,
+)
 from hiremate_ai.agents.generation.posting.poster import (
     PosterContext,
     PosterDesign,
@@ -12,6 +20,7 @@ from hiremate_ai.agents.generation.posting.poster import (
 from hiremate_ai.agents.generation.posting.poster_chat import PosterChatReply
 from hiremate_ai.agents.generation.posting.reviser import (
     NOTHING_CHANGED_REPLY,
+    CitedContentChanges,
     ContentChanges,
     FieldChange,
     LineEdit,
@@ -21,6 +30,7 @@ from hiremate_ai.agents.generation.posting.router import router
 from hiremate_ai.contract import CompanyProfile, PostingContent
 from hiremate_ai.llm.client import get_llm
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
+from hiremate_ai.ncs_search.reference import get_ncs
 
 CONTENT = {
     "roles": [],
@@ -58,10 +68,11 @@ def body(request: str) -> dict[str, Any]:
     }
 
 
-def client(llm: FakeLlm) -> TestClient:
+def client(llm: FakeLlm, ncs: FakeNcs | None = None) -> TestClient:
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_llm] = lambda: llm
+    app.dependency_overrides[get_ncs] = lambda: ncs or FakeNcs(unit_list=[])
     return TestClient(app)
 
 
@@ -106,7 +117,7 @@ def test_design_keeps_existing_endpoint_and_runs_inside_posting_agent(sample_com
 
 def test_revise_returns_backend_result_shape() -> None:
     llm = FakeLlm(
-        Route(targets=["CONTENT"], question=None, writes_posting=False),
+        Route(targets=["CONTENT"], question=None, writes_posting=False, ncs="SKIP"),
         ContentChanges(
             changes=[
                 FieldChange(field="우대 사항", text=None, items=["금융 도메인 경험", "결제 · 정산 시스템 운영 경험"])
@@ -128,6 +139,24 @@ def test_revise_returns_backend_result_shape() -> None:
     }
 
 
+def test_revise_passes_ncs_dependency() -> None:
+    duty = "주문 · 결제 서버 프로그램 구현"
+    llm = FakeLlm(
+        Route(targets=["CONTENT"], question=None, writes_posting=False, ncs="REQUESTED"),
+        NcsQuery(tasks=["서버 프로그램을 구현 한다"], units=[UNIT]),
+        CitedContentChanges(
+            changes=[FieldChange(field="주요 업무", text=None, items=["결제 승인 · 정산 API 개발", duty])],
+            citations=[LineCitation(field="주요 업무", line=duty, sources=["S1"])],
+        ),
+        SupportReview(verdicts=[SupportVerdict(index=0, verdict="supports")]),
+    )
+
+    response = client(llm, FakeNcs()).post("/agents/posting/revise", json=body("NCS 참고해서 주요 업무 추가해 줘"))
+
+    assert response.status_code == 200
+    assert f"\n\n{NCS_HEADER}\n주요 업무 2번 ← " in response.json()["reply"]
+
+
 def test_revise_changes_only_the_line_hr_picked() -> None:
     llm = FakeLlm(LineEdit(action="REWRITE", text="카드 결제 · 정산 도메인 경험"))
     request = {**body("결제 쪽으로 구체적으로"), "focus": {"field": "preferred", "index": 0}}
@@ -145,7 +174,7 @@ def test_revise_changes_only_the_line_hr_picked() -> None:
 
 
 def test_revise_returns_null_suggestion_when_nothing_changes() -> None:
-    llm = FakeLlm(Route(targets=[], question=None, writes_posting=False))
+    llm = FakeLlm(Route(targets=[], question=None, writes_posting=False, ncs="SKIP"))
 
     response = client(llm).post("/agents/posting/revise", json=body("음"))
 

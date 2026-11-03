@@ -12,6 +12,7 @@ from hiremate_ai.agents.generation.posting.reviser import revise_posting
 from hiremate_ai.agents.generation.posting.types import PostingDraftContext, PostingFocus, RevisionResult
 from hiremate_ai.contract import ContractModel
 from hiremate_ai.llm.client import LlmDep
+from hiremate_ai.ncs_search.reference import NcsDep
 
 router = APIRouter(prefix="/agents/posting", tags=["posting"])
 
@@ -26,8 +27,8 @@ class ReviseRequest(ContractModel):
 
 
 @router.post("/revise")
-async def revise(body: ReviseRequest, llm: LlmDep) -> RevisionResult:
-    return await revise_posting(llm, body.posting, body.writing_style, body.request, body.focus)
+async def revise(body: ReviseRequest, llm: LlmDep, ncs: NcsDep) -> RevisionResult:
+    return await revise_posting(llm, body.posting, body.writing_style, body.request, body.focus, ncs=ncs)
 
 
 class DesignRequest(ContractModel):
