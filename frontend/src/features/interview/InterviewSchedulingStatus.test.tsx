@@ -38,7 +38,7 @@ it('배정 실패를 알리고 재시도한 뒤 준비 중 상태에서 완료�
     </QueryClientProvider>,
   )
   expect(await screen.findByText(/배정할 시간이 부족해요/)).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: '공고의 전형 날짜 확인' })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: '다음 전형 안내 확인' })).toHaveAttribute(
     'href',
     '/posting#stage-guides',
   )

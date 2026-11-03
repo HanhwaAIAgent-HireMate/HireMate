@@ -33,7 +33,7 @@ export function InterviewSchedulingStatus({
             : status === 'READY'
               ? '면접 일정 배정 완료. 면접 화면에 지원자별 일정을 반영했어요.'
               : status === 'DATE_REQUIRED'
-                ? '공고의 전형별 안내에 면접 날짜를 설정한 뒤 다시 배정해 주세요.'
+                ? '다음 전형 안내에 면접 날짜를 설정한 뒤 다시 배정해 주세요.'
                 : status === 'FAILED'
                   ? errorMessage(
                       new ApiError(409, state.data.errorCode ?? 'INTERVIEW_SCHEDULE_FAILED', ''),
@@ -50,7 +50,7 @@ export function InterviewSchedulingStatus({
       {['DATE_REQUIRED', 'FAILED', 'NOT_REQUESTED', 'PENDING'].includes(status ?? '') && (
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" asChild>
-            <Link to={guidesPath}>공고의 전형 날짜 확인</Link>
+            <Link to={guidesPath}>다음 전형 안내 확인</Link>
           </Button>
           <Button
             size="sm"
