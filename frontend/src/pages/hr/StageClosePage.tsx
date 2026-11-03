@@ -161,6 +161,14 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
         )}
       >
         <div className="flex flex-col gap-4">
+          {/* 다음 전형 안내(일정 · 장소 등)는 합격 안내 메일을 쓰기 전에 채우도록 메일 카드 위에 둔다 */}
+          {next && (
+            <NextStageGuide
+              recruitmentId={overview.recruitmentId}
+              stageId={next.stageId}
+              editable={!done}
+            />
+          )}
           <StepCard
             title="합격·불합격 안내"
             active={step === 2}
@@ -216,14 +224,59 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
               </p>
             )}
           </StepCard>
-          {/* 다음 전형 안내(일정 · 장소 등)는 결과를 확정한 뒤 합격 안내 메일을 보내기 전에 여기서 채운다 */}
-          {next && (
-            <NextStageGuide
-              recruitmentId={overview.recruitmentId}
-              stageId={next.stageId}
-              editable={!done}
-            />
-          )}
+        </div>
+        {hasReport && (
+          <ReportStep
+            stageId={overview.stageId}
+            open={allSent}
+            latest={latest}
+            active={step === 3}
+            onRequested={() => void reports.refetch()}
+          />
+        )}
+        {/* 이미 끝난 결과 확정은 안내 · 메일 열이 길어지지 않게 전형 종료 아래에 둔다 */}
+        <div className="flex flex-col gap-4">
+          <StepCard
+            title={overview.last ? '채용 종료' : '전형 종료'}
+            active={step === finishStep}
+            badge={
+              done ? (
+                <Badge done>완료</Badge>
+              ) : allSent ? (
+                <Badge active>진행 중</Badge>
+              ) : (
+                <Badge>대기</Badge>
+              )
+            }
+          >
+            <dl className="space-y-2 text-sm">
+              <Row label="지원" value={`${counts.total}명`} />
+              <Row
+                label={overview.last ? '최종 합격' : `합격 → ${next?.name ?? '다음 전형'}`}
+                value={`${counts.pass}명`}
+              />
+              <Row
+                label={overview.last ? `${overview.name} 불합격` : '불합격'}
+                value={`${counts.fail}명`}
+              />
+            </dl>
+            <Button
+              className="mt-4 w-full"
+              disabled={!allSent || done || finish.isPending}
+              onClick={onFinish}
+            >
+              {done
+                ? '종료한 전형이에요'
+                : overview.last
+                  ? '채용 종료'
+                  : '전형 종료 · 다음 전형 시작'}
+            </Button>
+            {!allSent && !done && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                안내를 모두 보내면 종료할 수 있어요.
+              </p>
+            )}
+          </StepCard>
           <StepCard title="결과 확정" badge={<Badge done>완료</Badge>}>
             <div className="grid grid-cols-3 gap-2">
               <Stat label="대상" value={counts.total} />
@@ -249,56 +302,6 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
             </p>
           </StepCard>
         </div>
-        {hasReport && (
-          <ReportStep
-            stageId={overview.stageId}
-            open={allSent}
-            latest={latest}
-            active={step === 3}
-            onRequested={() => void reports.refetch()}
-          />
-        )}
-        <StepCard
-          title={overview.last ? '채용 종료' : '전형 종료'}
-          active={step === finishStep}
-          badge={
-            done ? (
-              <Badge done>완료</Badge>
-            ) : allSent ? (
-              <Badge active>진행 중</Badge>
-            ) : (
-              <Badge>대기</Badge>
-            )
-          }
-        >
-          <dl className="space-y-2 text-sm">
-            <Row label="지원" value={`${counts.total}명`} />
-            <Row
-              label={overview.last ? '최종 합격' : `합격 → ${next?.name ?? '다음 전형'}`}
-              value={`${counts.pass}명`}
-            />
-            <Row
-              label={overview.last ? `${overview.name} 불합격` : '불합격'}
-              value={`${counts.fail}명`}
-            />
-          </dl>
-          <Button
-            className="mt-4 w-full"
-            disabled={!allSent || done || finish.isPending}
-            onClick={onFinish}
-          >
-            {done
-              ? '종료한 전형이에요'
-              : overview.last
-                ? '채용 종료'
-                : '전형 종료 · 다음 전형 시작'}
-          </Button>
-          {!allSent && !done && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              안내를 모두 보내면 종료할 수 있어요.
-            </p>
-          )}
-        </StepCard>
       </div>
     </div>
   )
