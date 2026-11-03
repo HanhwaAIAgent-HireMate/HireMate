@@ -39,6 +39,9 @@ export function resolvedStageIcon(
   if (icon && icon !== 'AUTO') return icon
   if (name.includes('검진')) return 'HEALTH'
   if (name.includes('코딩')) return 'CODE'
+  if (type === 'INTERVIEW' && (name.replace(/\s/g, '').includes('2차') || name.includes('최종'))) {
+    return 'USERS'
+  }
   if (name.includes('실무') && type === 'INTERVIEW') return 'CHAIR'
   const defaults: Record<StageType, StageIconName> = {
     DOCUMENT: 'FILE_TEXT',
