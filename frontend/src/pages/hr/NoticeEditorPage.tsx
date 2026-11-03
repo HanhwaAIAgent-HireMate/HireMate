@@ -36,7 +36,7 @@ import { emptyFields, type GuideField } from '@/features/notice/guide'
 import { GuideFields } from '@/features/notice/GuideFields'
 import { MailFrame } from '@/features/notice/MailFrame'
 import { sentenceDiff } from '@/features/notice/sentenceDiff'
-import { STAGE_GUIDES_ID } from '@/features/notice/StageGuides'
+import { NEXT_STAGE_GUIDE_ID } from '@/features/notice/StageGuides'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import { useStageOverview } from '@/features/screening/api'
@@ -120,7 +120,7 @@ export function NoticeEditorPage() {
       notices={notices.data ?? []}
       stageName={overview.data.name}
       closePath={closePath}
-      guidesPath={`/hr/recruitments/${overview.data.recruitmentId}/posting#${STAGE_GUIDES_ID}`}
+      guidesPath={`${closePath}#${NEXT_STAGE_GUIDE_ID}`}
     />
   )
 }
@@ -187,7 +187,7 @@ function Editor({
   notices: Notice[]
   stageName: string
   closePath: string
-  /** 공고 작성 화면의 전형별 안내 칸 */
+  /** 전형 결과 화면의 다음 전형 안내 칸 */
   guidesPath: string
 }) {
   const navigate = useNavigate()
@@ -339,7 +339,7 @@ function Editor({
                   ? `비어 있는 칸: ${guideMissing.join(', ')}. 그대로 보내면 이 칸은 메일에서 빠져요.`
                   : final
                     ? `그대로 보내면 '${ONBOARDING_LATER}'라고 보내요.`
-                    : '공고 작성의 전형별 안내에 일정, 장소 같은 안내를 입력하면 메일 아래에 함께 보내요. 그대로 보내면 합격 결과와 다음 전형 이름만 보내요.'}
+                    : '전형 결과 화면의 다음 전형 안내에 일정, 장소 같은 안내를 입력하면 메일 아래에 함께 보내요. 그대로 보내면 합격 결과와 다음 전형 이름만 보내요.'}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -475,7 +475,7 @@ function Editor({
                           <>
                             보낼 때 붙는 다음 전형 안내 ·
                             <Link to={guidesPath} className="underline">
-                              공고 작성에서 고치기
+                              전형 결과 화면에서 고치기
                             </Link>
                           </>
                         )}

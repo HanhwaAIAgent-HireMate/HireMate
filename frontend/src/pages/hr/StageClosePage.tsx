@@ -14,6 +14,7 @@ import {
   useNotices,
   type Notice,
 } from '@/features/notice/api'
+import { NEXT_STAGE_GUIDE_ID, NextStageGuide } from '@/features/notice/StageGuides'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import {
   toReportView,
@@ -166,10 +167,18 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
             badge={step > 2 ? <Badge done>완료</Badge> : <Badge active>진행 중</Badge>}
           >
             <div className="space-y-2.5">
+              {/* 다음 전형 안내(일정 · 장소 등)는 결과를 확정한 뒤 합격 안내 메일을 쓰기 전에 여기서 채운다 */}
+              {next && (
+                <NextStageGuide
+                  recruitmentId={overview.recruitmentId}
+                  stageId={next.stageId}
+                  editable={!done}
+                />
+              )}
               {next?.type === 'INTERVIEW' && counts.pass > 0 && (
                 <InterviewSchedulingStatus
                   stageId={overview.stageId}
-                  guidesPath={`/hr/recruitments/${overview.recruitmentId}/posting#stage-guides`}
+                  guidesPath={`${base}/close#${NEXT_STAGE_GUIDE_ID}`}
                 />
               )}
               {!notices && <Skeleton className="h-20 w-full" />}
