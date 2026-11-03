@@ -86,9 +86,18 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
   const next = overview.steps[index + 1]
   const { counts } = overview
   // 리포트는 안내를 모두 보낸 뒤 열린다. 다 쓴 리포트가 있으면 리포트 단계도 끝난 것으로 본다
+  // 평가 · 면접 전형은 전형 결과 리포트를 쓰지 않는다. 전형 흐름은 채용 최종 리포트가 모아 보여 준다
+  const hasReport = overview.type === 'DOCUMENT'
   const reports = useStageReports(overview.stageId)
   const latest = reports.data?.find((report) => report.status !== 'FAILED') ?? null
-  const step = done ? 5 : !allSent ? 2 : latest?.status === 'DONE' ? 4 : 3
+  const finishStep = hasReport ? 4 : 3
+  const step = done
+    ? finishStep + 1
+    : !allSent
+      ? 2
+      : !hasReport || latest?.status === 'DONE'
+        ? finishStep
+        : 3
   const sentGroups =
     notices?.filter((notice) => notice.status === 'SENT' || notice.status === 'EMPTY').length ?? 0
   const sentPeople = notices?.reduce((sum, notice) => sum + notice.sentCount, 0) ?? 0
@@ -120,7 +129,7 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
           {[
             '결과 확정',
             '합격·불합격 안내',
-            '전형 결과 리포트',
+            ...(hasReport ? ['전형 결과 리포트'] : []),
             overview.last ? '채용 종료' : '전형 종료',
           ].map((label, i) => (
             <li key={label} className="flex items-center gap-2">
@@ -144,7 +153,12 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
           ))}
         </ol>
       </div>
-      <div className="mx-auto grid max-w-[1200px] grid-cols-3 items-start gap-4 p-6">
+      <div
+        className={cn(
+          'mx-auto grid max-w-[1200px] items-start gap-4 p-6',
+          hasReport ? 'grid-cols-3' : 'grid-cols-2',
+        )}
+      >
         <div className="flex flex-col gap-4">
           <StepCard
             title="합격·불합격 안내"
@@ -226,16 +240,18 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
             </p>
           </StepCard>
         </div>
-        <ReportStep
-          stageId={overview.stageId}
-          open={allSent}
-          latest={latest}
-          active={step === 3}
-          onRequested={() => void reports.refetch()}
-        />
+        {hasReport && (
+          <ReportStep
+            stageId={overview.stageId}
+            open={allSent}
+            latest={latest}
+            active={step === 3}
+            onRequested={() => void reports.refetch()}
+          />
+        )}
         <StepCard
           title={overview.last ? '채용 종료' : '전형 종료'}
-          active={step === 4}
+          active={step === finishStep}
           badge={
             done ? (
               <Badge done>완료</Badge>

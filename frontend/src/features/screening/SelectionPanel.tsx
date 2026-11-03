@@ -74,27 +74,28 @@ export function SelectionPanel({
           <span className="ml-1 text-muted-foreground">{selection.data?.total ?? 0}</span>
         </h2>
         <div className="flex-1" />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
-              <button
-                onClick={createReport}
-                disabled={(!comparable && !isDocument) || requestReport.isPending}
-                className="inline-flex items-center gap-1 text-xs font-medium text-ai hover:text-ai/80 disabled:opacity-50"
-              >
-                <FileChartColumn className="size-3.5" />
-                리포트 생성
-              </button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            {comparable
-              ? `${compared.length}명을 비교하는 리포트를 Report Agent가 만들어요${isDocument ? '. 분포도 바꿔 볼 수 있어요' : ''}`
-              : isDocument
-                ? `서류 지원자 전체 화면을 열어요. 선택 지원자 ${MIN_COMPARED}~${MAX_COMPARED}명을 체크하면 비교 리포트도 만들어요`
-                : `선택 지원자 ${MIN_COMPARED}~${MAX_COMPARED}명을 체크하면 비교 리포트를 만들 수 있어요`}
-          </TooltipContent>
-        </Tooltip>
+        {/* 평가 · 면접 전형은 리포트를 쓰지 않는다. 전형 흐름은 채용 최종 리포트가 모아 보여 준다 */}
+        {isDocument && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <button
+                  onClick={createReport}
+                  disabled={requestReport.isPending}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-ai hover:text-ai/80 disabled:opacity-50"
+                >
+                  <FileChartColumn className="size-3.5" />
+                  리포트 생성
+                </button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {comparable
+                ? `${compared.length}명을 비교하는 리포트를 Report Agent가 만들어요. 분포도 바꿔 볼 수 있어요`
+                : `서류 지원자 전체 화면을 열어요. 선택 지원자 ${MIN_COMPARED}~${MAX_COMPARED}명을 체크하면 비교 리포트도 만들어요`}
+            </TooltipContent>
+          </Tooltip>
+        )}
         {/* 표 보기는 서류 전형의 지원서 분석(평가 기준 · 인재상)으로 만든다 */}
         {overview.type === 'DOCUMENT' && (
           <Tooltip>
