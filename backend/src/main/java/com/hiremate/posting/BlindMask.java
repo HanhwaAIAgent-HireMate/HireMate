@@ -13,11 +13,11 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * 블라인드 채용에서 지원 서류의 학교 이름을 가린다. 지원서를 받을 때 추출한 본문에 쓰고, 원본 PDF는 바꾸지 않는다.
+ * 블라인드 채용에서 지원 서류의 학교 이름과 학점 숫자를 가린다. 지원서를 받을 때 추출한 본문에 쓰고, 원본 PDF는 바꾸지 않는다.
  * 학교 이름 모양(한빛대학교, 한빛고등학교, Hanbit University), 전국 대학 · 전문대학 이름과 줄임말(school-names.txt),
  * 학과 · 졸업 같은 말 앞의 "○○대"를 찾는다. 연대, 고대, 홍대, 교대처럼 다른 뜻으로 많이 쓰는 줄임말은 문맥이 있을 때만 가린다.
  */
-public final class SchoolNames {
+public final class BlindMask {
 
     /** 가린 자리에 넣는 말. 학교 수준(대학, 고등학교)도 드러나지 않게 하나로 쓴다. */
     public static final String MASK = "○○학교";
@@ -52,12 +52,22 @@ public final class SchoolNames {
             "\\bUniversity of(?:\\s+[A-Z][A-Za-z.&'-]*){1,4}",
             "\\b(?:KAIST|POSTECH|UNIST|DGIST|GIST|SNU)\\b"));
 
-    private SchoolNames() {
+    /** 학점 숫자. "학점 4.1/4.5", "GPA: 3.9"처럼 이름 뒤의 숫자와, 이름 없이 쓴 "4.1/4.5" 같은 만점 표기를 찾는다. */
+    private static final Pattern GRADE = Pattern.compile(
+            "(학점|평점|GPA)(\\s*[:：]?\\s*)\\d(?:\\.\\d{1,2})?(?:\\s*/\\s*\\d(?:\\.\\d{1,2})?)?"
+                    + "|(?<![\\d.])\\d\\.\\d{1,2}\\s*/\\s*4\\.[035]\\d?(?![\\d.])");
+
+    /** 가린 학점 자리에 넣는 말. */
+    private static final String GRADE_MASK = "○○";
+
+    private BlindMask() {
     }
 
-    /** 학교 이름을 MASK로 바꾼 본문. 학교 이름이 없으면 그대로 돌려준다. */
+    /** 학교 이름을 MASK로, 학점 숫자를 GRADE_MASK로 바꾼 본문. 가릴 것이 없으면 그대로 돌려준다. */
     public static String mask(String text) {
-        return SCHOOL.matcher(text).replaceAll(MASK);
+        String masked = SCHOOL.matcher(text).replaceAll(MASK);
+        return GRADE.matcher(masked).replaceAll(match -> match.group(1) == null ? GRADE_MASK
+                : match.group(1) + (match.group(2).isEmpty() ? " " : match.group(2)) + GRADE_MASK);
     }
 
     /** 목록의 이름과 줄임말. 같은 자리에서 긴 이름을 먼저 본다 (한국외대를 외대보다 먼저). */
@@ -90,7 +100,7 @@ public final class SchoolNames {
     }
 
     private static List<String> listed() {
-        try (InputStream in = SchoolNames.class.getResourceAsStream("/school-names.txt")) {
+        try (InputStream in = BlindMask.class.getResourceAsStream("/school-names.txt")) {
             if (in == null) {
                 throw new IllegalStateException("school-names.txt is missing.");
             }
