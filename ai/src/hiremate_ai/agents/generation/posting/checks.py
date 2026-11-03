@@ -35,18 +35,18 @@ _FOREIGN = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿]+")
 _MONEY = re.compile(r"\d[\d,.]*\s*(?:천|만|억)?\s*원")
 
 
-def blocked_terms(content: PostingContent, changed: list[str]) -> list[str]:
-    """바뀐 자격 요건 · 우대 사항에 들어간 차별 조건 낱말."""
+def blocked_terms(content: PostingContent, changed: list[str], blind: bool = False) -> list[str]:
+    """바뀐 자격 요건 · 우대 사항에 들어간 차별 조건 낱말. 블라인드 채용이면 학력 · 출신 학교 조건도 막는다."""
     terms = []
     for name in JUDGED_FIELDS:
         if name in changed:
-            terms += [term for item in getattr(content, name) if (term := blocked_attribute(item))]
+            terms += [term for item in getattr(content, name) if (term := blocked_attribute(item, blind=blind))]
     if "roles" in changed:
         terms += [
             term
             for role in content.roles
             for item in [role.name, role.career, *role.qualifications, *role.preferred]
-            if (term := blocked_attribute(item))
+            if (term := blocked_attribute(item, blind=blind))
         ]
     return list(dict.fromkeys(terms))
 

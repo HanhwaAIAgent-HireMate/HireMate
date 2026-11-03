@@ -5,6 +5,7 @@ import { focusLabel, hasLine, toServerFocus } from './focus'
 
 const content: PostingContent = {
   roles: [],
+  blind: false,
   title: '결제 백엔드 개발자',
   jobCategory: '',
   employmentType: '',

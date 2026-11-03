@@ -46,6 +46,16 @@ export function CareersHeader({
 }
 
 // APL-01 자체 채용 페이지. HR이 게시한 공고 그대로, 필수 안내 문구까지 보여 준다
+/** 블라인드 채용 안내. 채용 페이지와 지원서 화면에 보여 준다 */
+export function BlindNotice() {
+  return (
+    <p className="rounded-lg bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
+      블라인드 채용이에요. 이력서와 자기소개서에 사진, 출신 학교, 나이, 가족 관계처럼 직무와
+      관계없는 개인 정보를 쓰지 말아 주세요.
+    </p>
+  )
+}
+
 export function CareersPosting({
   posting,
   applyPath,
@@ -106,7 +116,13 @@ export function CareersPosting({
             <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium">
               접수 ~{formatMonthDay(posting.closeAt)} ({dDay(posting.closeAt)})
             </span>
+            {content.blind && (
+              <span className="rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background">
+                블라인드 채용
+              </span>
+            )}
           </div>
+          {content.blind && <BlindNotice />}
         </div>
         {posting.poster?.enabled ? (
           <div ref={posterRef}>

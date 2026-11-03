@@ -20,6 +20,7 @@ import com.hiremate.recruit.RecruitmentStatus;
 import com.hiremate.recruit.StageDraft;
 import com.hiremate.recruit.StageType;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
@@ -138,8 +139,18 @@ public class PostingService {
     @Transactional
     public PostingView updateContent(UUID companyId, UUID recruitmentId, PostingContent content,
             RequiredCriteria required) {
+        return updateContent(companyId, recruitmentId, content, required, null);
+    }
+
+    /** blind가 null이면 블라인드 여부를 그대로 둔다. 블라인드면 학력 칸은 비워 저장한다. */
+    @Transactional
+    public PostingView updateContent(UUID companyId, UUID recruitmentId, PostingContent content,
+            RequiredCriteria required, Boolean blind) {
         JobPosting posting = posting(companyId, recruitmentId);
         requireDraft(recruits.get(companyId, recruitmentId));
+        if (blind != null) {
+            posting.changeBlind(blind);
+        }
         posting.update(content);
         if (required != null) {
             posting.markRequired(required);
@@ -304,7 +315,7 @@ public class PostingService {
                 pick(fields, "education", current.education(), suggested.education()),
                 pick(fields, "workHours", current.workHours(), suggested.workHours()),
                 pick(fields, "salary", current.salary(), suggested.salary()),
-                pick(fields, "roles", current.roles(), suggested.roles()));
+                pick(fields, "roles", current.roles(), suggested.roles()), current.blind());
     }
 
     private static <T> T pick(Set<String> fields, String name, T current, T suggested) {
@@ -337,9 +348,24 @@ public class PostingService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PERIOD", "Check the application period.");
         }
         JobPosting posting = lockPosting(companyId, recruitmentId);
+        requireBlindConditions(posting);
         recruits.publish(companyId, recruitmentId);
         posting.publish(openAt.isBefore(now) ? now : openAt, closeAt, memberId);
         return view(companyId, recruitmentId);
+    }
+
+    /** 블라인드 채용은 자격 요건 · 우대 사항에 학력 · 출신 학교 조건이 있으면 게시하지 않는다. */
+    private static void requireBlindConditions(JobPosting posting) {
+        if (!posting.isBlind()) {
+            return;
+        }
+        PostingContent content = posting.content();
+        List<String> lines = new ArrayList<>(BlindTerms.linesWithBlindTerms(content.qualifications()));
+        lines.addAll(BlindTerms.linesWithBlindTerms(content.preferred()));
+        if (!lines.isEmpty()) {
+            throw new ApiException(HttpStatus.CONFLICT, "BLIND_CONDITION",
+                    "A blind posting cannot use education or school conditions: " + String.join(" / ", lines));
+        }
     }
 
     /** 접수를 마감하고 첫 전형을 시작한다. 이미 마감했으면 그대로 둔다. */

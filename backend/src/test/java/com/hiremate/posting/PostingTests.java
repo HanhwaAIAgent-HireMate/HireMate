@@ -258,6 +258,44 @@ class PostingTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("블라인드 채용은 학력 칸을 비우고, 학력 · 출신 학교 조건이 있으면 게시하지 않으며, 채용 페이지에 알린다")
+    void blindPostingHidesEducationConditions() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String id = draft.path("recruitmentId").asString();
+        String base = "/api/recruitments/" + id + "/posting";
+        Map<String, Object> content = new HashMap<>(Map.of("title", "백엔드 개발자", "jobCategory", "개발",
+                "employmentType", "정규직", "career", "신입", "location", "서울", "intro", "",
+                "duties", List.of("결제 개발"), "qualifications", List.of("Java 기초 지식", "4년제 대학교 졸업자"),
+                "preferred", List.of("컴퓨터공학 전공"), "benefits", List.of()));
+        content.put("education", "대졸 이상");
+        assertThat(json(expect(hr.put(base, content), 200)).path("content").path("blind").asBoolean()).isFalse();
+
+        content.put("blind", true);
+        JsonNode blind = json(expect(hr.put(base, content), 200));
+        assertThat(blind.path("content").path("blind").asBoolean()).isTrue();
+        assertThat(blind.path("content").path("education").asString()).isEmpty();
+        // 블라인드 여부를 빼고 보내면 그대로 둔다
+        content.remove("blind");
+        assertThat(json(expect(hr.put(base, content), 200)).path("content").path("blind").asBoolean()).isTrue();
+
+        Instant now = Instant.now();
+        Map<String, Object> period = Map.of("openAt", now.minus(1, ChronoUnit.HOURS).toString(),
+                "closeAt", now.plus(3, ChronoUnit.DAYS).toString());
+        assertThat(json(expect(hr.post(base + "/publish", period), 409)).path("code").asString())
+                .isEqualTo("BLIND_CONDITION");
+
+        // 직무와 관련된 전공은 블라인드여도 쓸 수 있다
+        content.put("qualifications", List.of("Java 기초 지식"));
+        expect(hr.put(base, content), 200);
+        expect(hr.post(base + "/publish", period), 200);
+        JsonNode careers = json(expect(anonymous().get("/api/public/postings/" + draft.path("postingId").asString()),
+                200));
+        assertThat(careers.path("content").path("blind").asBoolean()).isTrue();
+        assertThat(careers.path("content").path("preferred").get(0).asString()).isEqualTo("컴퓨터공학 전공");
+    }
+
+    @Test
     @DisplayName("서류 필수 조건은 공고에 있는 줄만 저장하고, 줄이 빠지거나 AI 수정안으로 바뀌면 표시도 빠지며, 지원자에게는 보내지 않는다")
     void requiredCriteriaFollowLinesAndStayHidden() throws Exception {
         TestApi hr = newHr();

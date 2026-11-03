@@ -71,6 +71,8 @@ const MESSAGES: Record<string, string> = {
   ANSWER_CONFLICT:
     '다른 곳에서 답변이 변경됐어요. 작성한 내용을 보관하고 최신 답변을 다시 확인해 주세요.',
   UPDATE_CONFLICT: '기록이 변경됐어요. 최신 내용을 확인해 주세요.',
+  BLIND_CONDITION:
+    '블라인드 채용이라 자격 요건 · 우대 사항에 학력이나 출신 학교 조건을 쓸 수 없어요. 공고 작성에서 고쳐 주세요.',
   ANSWER_VERSION_REQUIRED: '최신 질문을 다시 불러온 뒤 저장해 주세요.',
   INTERVIEW_ACCESS_DENIED: '배정된 면접관만 본인 담당 질문을 수정할 수 있어요.',
   INTERVIEW_SCHEDULE_FAILED: '면접 일정을 배정하지 못했어요. 날짜를 확인한 뒤 다시 시도해 주세요.',

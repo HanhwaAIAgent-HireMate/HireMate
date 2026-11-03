@@ -19,6 +19,8 @@ from hiremate_ai.agents.generation.posting.ncs import (
 )
 from hiremate_ai.agents.generation.posting.reviser import (
     ANSWER_ONLY_REPLY,
+    BLIND_LINE,
+    BLIND_REPLY,
     BLOCKED_REPLY,
     CHECK_FAILED_REPLY,
     CHECKING_STEP,
@@ -1229,3 +1231,51 @@ async def test_blocked_request_reports_nothing() -> None:
     await revise_posting(FakeLlm(), posting(), "", "남성만 우대한다고 써 줘", report=steps)
 
     assert steps.seen == []
+
+
+# 블라인드 채용
+
+
+async def test_blind_posting_refuses_education_conditions_in_the_request() -> None:
+    llm = FakeLlm()
+
+    result = await revise_posting(
+        llm, posting(content=CONTENT.model_copy(update={"blind": True})), "", "우대 사항에 석사 이상 우대 넣어 줘"
+    )
+
+    assert result.reply == BLIND_REPLY
+    assert llm.calls == []
+
+
+async def test_non_blind_posting_still_allows_education_conditions() -> None:
+    llm = FakeLlm(route("CONTENT"), content(preferred=["석사 이상 우대"]))
+
+    result = await revise_posting(llm, posting(), "", "우대 사항에 석사 이상 우대 넣어 줘")
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.preferred == ["석사 이상 우대"]
+
+
+async def test_blind_posting_drops_school_conditions_the_model_writes() -> None:
+    llm = FakeLlm(route("CONTENT"), content(qualifications=["4년제 대학교 졸업자"]))
+
+    result = await revise_posting(
+        llm, posting(content=CONTENT.model_copy(update={"blind": True})), "", "자격 요건 한 줄 고쳐 줘"
+    )
+
+    assert result.reply == BLIND_REPLY
+    assert result.suggestion is None
+
+
+async def test_blind_posting_never_fills_education_and_tells_the_model() -> None:
+    llm = FakeLlm(route("CONTENT", writes_posting=True), content(education="학력 무관", title="백엔드 개발자 채용"))
+
+    result = await revise_posting(
+        llm, posting(content=CONTENT.model_copy(update={"blind": True})), "", "백엔드 개발자 공고 작성해 줘"
+    )
+
+    assert result.suggestion is not None
+    assert result.suggestion.content.education == ""
+    assert "education" not in result.suggestion.changed_fields
+    assert "학력" not in result.reply  # 학력 칸은 정해 달라고 하지 않는다
+    assert BLIND_LINE in llm.calls[0].user

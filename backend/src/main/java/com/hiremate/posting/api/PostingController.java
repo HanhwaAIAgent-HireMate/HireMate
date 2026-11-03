@@ -54,7 +54,8 @@ public class PostingController {
     @PutMapping("/api/recruitments/{recruitmentId}/posting")
     public PostingView update(AuthenticatedMember member, @PathVariable UUID recruitmentId,
             @Valid @RequestBody PostingContentRequest request) {
-        return postings.updateContent(member.companyId(), recruitmentId, request.toContent(), request.required());
+        return postings.updateContent(member.companyId(), recruitmentId, request.toContent(), request.required(),
+                request.blind());
     }
 
     @PutMapping("/api/recruitments/{recruitmentId}/posting/poster")

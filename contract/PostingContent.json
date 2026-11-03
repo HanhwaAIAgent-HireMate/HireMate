@@ -34,5 +34,6 @@
       "qualifications": ["서버 개발 경험"],
       "preferred": ["금융 도메인 경험"]
     }
-  ]
+  ],
+  "blind": false
 }
