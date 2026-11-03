@@ -15,8 +15,7 @@
         "partial": null,
         "unmet": "Java · Kotlin 서버 개발 재직 경력이 3년에 못 미치거나 서류에서 확인되지 않는다."
       },
-      "certificates": [],
-      "ncsUnitCode": null
+      "certificates": []
     },
     {
       "criterionId": "P-01",
@@ -29,8 +28,7 @@
         "partial": "인터페이스 설계의 일부만 본인이 했다.",
         "unmet": "설계한 기록이 서류에서 확인되지 않는다."
       },
-      "certificates": [],
-      "ncsUnitCode": "2001020218_23v6"
+      "certificates": []
     },
     {
       "criterionId": "P-02",
@@ -45,8 +43,7 @@
       },
       "certificates": [
         "SQLD"
-      ],
-      "ncsUnitCode": null
+      ]
     }
   ]
 }

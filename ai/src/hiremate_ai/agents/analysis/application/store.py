@@ -1,6 +1,6 @@
 """분석 결과 저장 · 재사용. ai.application_reviews에 원본을, ai.candidate_profiles에 요약과 항목을 넣는다.
 
-같은 입력(공고 · 서류 · 평가 기준 · NCS 평가 조건 · 분석 버전)이면 저장된 결과를 쓰고 모델을 다시 부르지 않는다.
+같은 입력(공고 · 서류 · 평가 기준 · 분석 버전)이면 저장된 결과를 쓰고 모델을 다시 부르지 않는다.
 """
 
 from collections.abc import Callable, Mapping

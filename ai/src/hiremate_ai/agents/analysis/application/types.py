@@ -45,7 +45,6 @@ class Criterion(ContractModel):
     criterion_type: CriterionType
     evaluation_rules: EvaluationRules
     certificates: list[str] = []  # 자격증 보유 조건이면 인정하는 자격증 이름. 코드가 이름으로 확인한다
-    ncs_unit_code: str | None = None  # 기준 초안을 쓸 때 참고한 NCS 능력단위 (출처로만 보관한다)
 
 
 class ScreeningRubric(ContractModel):
