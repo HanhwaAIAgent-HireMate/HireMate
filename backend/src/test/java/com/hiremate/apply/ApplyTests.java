@@ -3,7 +3,9 @@ package com.hiremate.apply;
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static com.hiremate.TestFixtures.form;
+import static com.hiremate.TestFixtures.pdf;
 import static com.hiremate.TestFixtures.publish;
+import static com.hiremate.TestFixtures.publishBlind;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.IntegrationTest;
@@ -58,6 +60,25 @@ class ApplyTests extends IntegrationTest {
         assertThat(new String(pdf, 0, 5)).isEqualTo("%PDF-");
         expect(newHr().get("/api/recruitments/" + posting.recruitmentId() + "/applications/" + applicationId
                 + "/documents/RESUME"), 404);
+    }
+
+    @Test
+    @DisplayName("블라인드 채용이면 서류 본문의 학교 이름을 가려 저장하고, 원본 PDF는 그대로 둔다")
+    void masksSchoolNamesForBlindPosting() throws Exception {
+        TestApi hr = newHr();
+        Posting posting = publishBlind(hr);
+        Map<String, Object> form = form("blind@example.com", false);
+        byte[] resume = pdf("Graduated from Hanbit University. Java Spring payment 5 years");
+        form.put("resume", new TestApi.FilePart("resume.pdf", "application/pdf", resume));
+        expect(anonymous().multipart(posting.applyPath(), form), 201);
+
+        String applicationId = json(expect(hr.get("/api/recruitments/" + posting.recruitmentId() + "/applications"),
+                200)).path("items").get(0).path("applicationId").asString();
+        assertThat(applications.detail(hr.companyId(), UUID.fromString(applicationId)).documents().getFirst().text())
+                .contains("Graduated from ○○학교", "Java Spring")
+                .doesNotContain("Hanbit");
+        assertThat(hr.getBytes("/api/recruitments/" + posting.recruitmentId() + "/applications/" + applicationId
+                + "/documents/RESUME").body()).isEqualTo(resume);
     }
 
     @Test

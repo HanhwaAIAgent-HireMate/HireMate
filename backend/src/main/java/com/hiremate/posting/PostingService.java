@@ -417,7 +417,7 @@ public class PostingService {
         }
         JobPosting posting = postings.findById(postingId).orElseThrow();
         return new ApplicationTarget(posting.getId(), posting.getRecruitmentId(), posting.getCompanyId(),
-                view.companyName(), posting.getTitle(), requiredExtras(posting));
+                view.companyName(), posting.getTitle(), requiredExtras(posting), posting.isBlind());
     }
 
     static PublicPostingView.State state(JobPosting posting, Instant now) {
