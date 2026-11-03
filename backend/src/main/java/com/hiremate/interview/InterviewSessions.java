@@ -263,22 +263,29 @@ public class InterviewSessions {
         return null;
     }
 
-    /** [면접 종료]. 같은 시간 면접자 중 진행 중인 지원자를 모두 함께 끝낸다. */
+    /**
+     * 면접관의 [면접 종료]. 같은 시간 면접자 중 진행 중인 지원자 모두에 대해 이 면접관이 마친 것으로 남기고, 두 면접관이
+     * 모두 마치면 그 지원자들의 면접을 함께 끝낸다. 먼저 마친 면접관은 상대 면접관이 끝낼 때까지 기록을 고칠 수 없다.
+     */
     @Transactional
     public InterviewerWorkspace end(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {
         recruits.lockStage(companyId, stageId);
         InterviewSession session = lock(companyId, stageId, applicationId);
-        requireAssigned(session, memberId);
+        InterviewerRole role = requireAssigned(session, memberId);
         List<InterviewSession> members = groups.members(session);
         InterviewSessionStatus status = InterviewGroups.status(members);
         if (status == InterviewSessionStatus.SCHEDULED) {
             throw conflict("INTERVIEW_NOT_STARTED", "Start the interview first.");
         }
-        if (status == InterviewSessionStatus.IN_PROGRESS) {
+        if (status == InterviewSessionStatus.IN_PROGRESS && !InterviewGroups.endedBy(members, role)) {
             requireActive(companyId, stageId);
             Instant now = Instant.now();
-            for (InterviewSession member : members) {
-                if (member.getStatus() == InterviewSessionStatus.IN_PROGRESS) {
+            List<InterviewSession> running = members.stream()
+                    .filter(member -> member.getStatus() == InterviewSessionStatus.IN_PROGRESS).toList();
+            running.forEach(member -> member.endBy(role, now));
+            if (running.stream().allMatch(member -> member.endedBy(InterviewerRole.HR)
+                    && member.endedBy(InterviewerRole.PRACTICAL))) {
+                for (InterviewSession member : running) {
                     interviews.submitPendingAnswers(companyId, stageId, member.getApplicationId());
                     member.end(now);
                 }
@@ -306,7 +313,7 @@ public class InterviewSessions {
             long expectedVersion) {
         InterviewSession session = lock(companyId, stageId, applicationId);
         InterviewerRole role = requireAssigned(session, memberId);
-        requireRunning(session);
+        requireRunning(session, role);
         requireActive(companyId, stageId);
         if (session.memoVersion(role) != expectedVersion) {
             throw conflict("MEMO_CONFLICT", "Reload the latest personal memo before saving.");
@@ -343,7 +350,7 @@ public class InterviewSessions {
             }
             if (assignmentRequired || session.getStatus() != InterviewSessionStatus.SCHEDULED) {
                 InterviewerRole actual = requireAssigned(session, memberId);
-                requireRunning(session);
+                requireRunning(session, actual);
                 requireActive(companyId, stageId);
                 if (role != actual) {
                     throw forbidden();
@@ -401,7 +408,7 @@ public class InterviewSessions {
             return null;
         }
         InterviewerRole role = requireAssigned(session, memberId);
-        requireRunning(session);
+        requireRunning(session, role);
         requireActive(companyId, stageId);
         if (question.getInterviewerRole() != role) {
             throw forbidden();
@@ -423,8 +430,8 @@ public class InterviewSessions {
                             : question.interviewerRole() != role ? "다른 면접관 담당"
                             : !active ? "진행 중인 전형이 아님"
                             : session.getStatus() == InterviewSessionStatus.SCHEDULED ? "면접 시작 전"
-                            : session.getStatus() == InterviewSessionStatus.ENDED ? "면접 종료"
-                            : session.getStatus() == InterviewSessionStatus.ABSENT ? "불참" : null;
+                            : session.getStatus() == InterviewSessionStatus.ABSENT ? "불참"
+                            : session.endedBy(role) ? "면접 종료" : null;
                     boolean canFollowUp = reason == null && !question.answer().isBlank()
                             && !hasChild(question, view.questions()) && depth(question, view.questions()) < 2;
                     return new InterviewerQuestionAccess(question, reason == null, canFollowUp,
@@ -483,9 +490,13 @@ public class InterviewSessions {
         }
     }
 
-    private static void requireRunning(InterviewSession session) {
+    /** 면접이 진행 중이고 이 면접관이 아직 [면접 종료]를 누르지 않았다 */
+    private static void requireRunning(InterviewSession session, InterviewerRole role) {
         if (session.getStatus() != InterviewSessionStatus.IN_PROGRESS) {
             throw conflict("INTERVIEW_NOT_RUNNING", "The interview must be in progress.");
+        }
+        if (session.endedBy(role)) {
+            throw conflict("INTERVIEWER_ENDED", "You have already ended this interview.");
         }
     }
 

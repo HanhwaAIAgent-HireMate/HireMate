@@ -46,6 +46,10 @@ public class InterviewSession {
     private Instant startedAt;
     private Instant endedAt;
 
+    /** 면접관마다 [면접 종료]를 누른 때. 두 면접관이 모두 누르면 면접이 끝난다 */
+    private Instant hrEndedAt;
+    private Instant practicalEndedAt;
+
     @Column(nullable = false, columnDefinition = "text")
     private String hrMemo = "";
 
@@ -96,6 +100,23 @@ public class InterviewSession {
         status = groupStatus;
         startedAt = groupStatus == InterviewSessionStatus.IN_PROGRESS ? groupStartedAt : null;
         endedAt = null;
+        hrEndedAt = null;
+        practicalEndedAt = null;
+    }
+
+    /** 면접관 한 명이 이 지원자의 면접을 마쳤다 */
+    public void endBy(InterviewerRole role, Instant at) {
+        if (role == InterviewerRole.HR) {
+            hrEndedAt = at;
+        } else {
+            practicalEndedAt = at;
+        }
+    }
+
+    /** 이 담당 면접관이 면접을 마쳤나. 면접이 끝났으면 모두 마친 것이다 */
+    public boolean endedBy(InterviewerRole role) {
+        return status == InterviewSessionStatus.ENDED
+                || (role == InterviewerRole.HR ? hrEndedAt : practicalEndedAt) != null;
     }
 
     public void end(Instant at) {
