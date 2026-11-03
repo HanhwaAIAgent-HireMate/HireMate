@@ -67,7 +67,7 @@ const TAGS: {
 }[] = [
   { key: 'jobCategory', placeholder: '직무 (예: 개발 › 백엔드)' },
   { key: 'employmentType', placeholder: '고용 형태' },
-  { key: 'career', placeholder: '경력' },
+  { key: 'career', placeholder: '경력 구분' },
   { key: 'education', placeholder: '학력' },
 ]
 
@@ -812,13 +812,13 @@ function CareerField({
       >
         <SelectTrigger
           size="sm"
-          aria-label="경력"
+          aria-label="경력 구분"
           className={cn(
             'h-7 gap-1 border-0 bg-muted px-2 text-xs focus-visible:ring-1',
             changed && 'bg-pass',
           )}
         >
-          <SelectValue placeholder="경력" />
+          <SelectValue placeholder="경력 구분" />
         </SelectTrigger>
         <SelectContent>
           {options.map((option) => (
@@ -876,7 +876,7 @@ function CareerNudge({
       className="mb-2 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs"
     >
       <span className="flex-1">
-        경력이 바뀌었어요. 자격 요건 · 우대 사항을 경력에 맞게 다시 쓸까요?
+        경력 구분이 바뀌었어요. 자격 요건 · 우대 사항을 바뀐 기준에 맞게 다시 쓸까요?
       </span>
       <Button size="sm" variant="outline" className="h-7" disabled={disabled} onClick={onRewrite}>
         다시 쓰기

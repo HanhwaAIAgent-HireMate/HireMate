@@ -1107,7 +1107,7 @@ async def test_revise_fills_only_the_salary_and_lists_fields_left_for_hr() -> No
     assert (filled.employment_type, filled.career, filled.education, filled.work_hours) == ("", "", "", "")
     assert filled.salary == "회사 내규에 따름"
     assert "급여 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요." in result.reply
-    assert "고용 형태, 경력, 채용 인원, 학력, 근무 요일 · 시간 칸은 정해 주세요." in result.reply
+    assert "고용 형태, 경력 구분, 채용 인원, 학력, 근무 요일 · 시간 칸은 정해 주세요." in result.reply
     assert CAREER_UNSET_NOTE not in result.reply
 
 
