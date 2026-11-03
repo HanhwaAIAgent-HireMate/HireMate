@@ -130,9 +130,6 @@
     "compare",
     "evidence"
   ],
-  "specialists": [
-    "Application Agent"
-  ],
   "fallback": false,
   "bundle": {
     "kind": "COMPARE",

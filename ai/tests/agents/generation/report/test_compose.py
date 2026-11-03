@@ -44,7 +44,6 @@ from hiremate_ai.agents.generation.report.spec import (
     TallyBlock,
     TextBlock,
 )
-from hiremate_ai.agents.generation.report.tools import SpecialistAnswer, SpecialistFinding, check_candidates
 from hiremate_ai.config import settings
 from hiremate_ai.contract import StageType
 from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
@@ -559,32 +558,6 @@ def test_splits_must_be_on_split_items() -> None:
     assert any("없는 근거 id: e-nope" in p for p in found)
 
 
-def test_weak_strengths_on_split_items_go_to_the_document_agent() -> None:
-    base = bundle()
-
-    def evidence(number: str, verdict: str, strength: Strength, role: str | None) -> Evidence:
-        return Evidence(
-            id=f"e-{number}-Q-05",
-            applicant=number,
-            stage_id=STAGE,
-            agent="application",
-            text="판단",
-            source="이력서",
-            quote="원문",
-            verdict=verdict,
-            strength=strength,
-            role=role,
-        )
-
-    items = [
-        evidence("A-0012", "PARTIAL", Strength.CLAIM, "SELF"),
-        evidence("A-0007", "NOT_MET", Strength.CLAIM, "TEAM"),  # 미충족은 강점이 아니라 맡기지 않는다
-        evidence("A-0021", "MET", Strength.QUANT, "TEAM"),  # 숫자가 있어도 팀 성과면 맡긴다
-    ]
-    picked = check_candidates(base.model_copy(update={"evidence": items}))
-    assert [item.id for item in picked] == ["e-A-0021-Q-05", "e-A-0012-Q-05"]
-
-
 def test_compare_fallback_lists_split_items_by_verdict() -> None:
     spec = fallback_spec(bundle())
     assert [split.key for split in spec.splits] == ["document.criterion.Q-01", "document.criterion.Q-05"]
@@ -747,23 +720,12 @@ def test_skills_have_name_and_description() -> None:
     assert "source" not in all_skills()["visual-guide"].body  # 출처는 앞머리에만 두고 모델에 보내지 않는다
 
 
-async def test_agent_loads_skills_reads_tools_and_asks_specialist() -> None:
-    def specialist(call: LlmCall) -> SpecialistAnswer:
-        assert "Application Agent" in call.system
-        assert "e-A-0012" in call.user
-        return SpecialistAnswer(
-            findings=[
-                SpecialistFinding(text="코드 리뷰를 주도했어요.", evidence=["e-A-0012"]),
-                SpecialistFinding(text="지어낸 근거", evidence=["e-nope"]),
-            ]
-        )
-
+async def test_agent_loads_skills_and_reads_tools_without_other_agents() -> None:
     llm = FakeLlm(
         READ_SKILLS,
         ToolCall("get_overview"),
         ToolCall("get_values", {"keys": ["document.*"], "applicants": list(SCORES)}),
-        ToolCall("ask_specialist", {"specialist": "application", "applicant": "A-0012", "question": "협업"}),
-        specialist,
+        ToolCall("get_evidence", {"applicant": "A-0012"}),
         good_spec(),
     )
     composed = await compose_report(bundle(focus="협업"), llm)
@@ -771,16 +733,15 @@ async def test_agent_loads_skills_reads_tools_and_asks_specialist() -> None:
     # 같은 단계의 도구 호출은 함께 돌아 순서가 정해지지 않는다
     assert sorted(composed.skills) == ["compare", "evidence", "visual-guide"]
     assert composed.spec.skills == composed.skills
-    assert composed.specialists == ["Application Agent"]
+    # 다른 Agent를 부르지 않는다. 모델 호출은 모두 Report Agent 도구 루프다
+    assert {call.agent for call in llm.calls} == {"report"}
     final = llm.calls[-1]
     assert "요청 관점: 협업" in final.user
     assert "A-0012-t · A-0012 · document.total (총점) = 85/100" in final.user
-    assert "코드 리뷰를 주도했어요. (근거: e-A-0012)" in final.user
-    assert "지어낸 근거" not in final.user
-    # 화면의 AI 작업 과정: 읽은 지침, 도구로 읽은 자료, 맡긴 확인, 검사 결과
+    assert "e-A-0012 · " in final.user
+    # 화면의 AI 작업 과정: 읽은 지침, 도구로 읽은 자료, 검사 결과
     assert composed.steps[0].startswith("지침 3개를 읽음")
     assert "판정 · 값 30개를 읽음 (3명)" in composed.steps
-    assert "Application Agent에게 A-0012 근거 확인을 맡김 → 1건 확인" in composed.steps
     assert "설계서 검사 1번째에 통과" in composed.steps
 
 
@@ -802,18 +763,6 @@ async def test_model_server_error_falls_back_instead_of_failing() -> None:
     assert composed.fallback
     assert composed.spec.summary == NO_SUMMARY
     assert composed.steps[-1] == "모델 서버 오류로 설계서를 받지 못해 코드가 기본 구성을 만듦"
-
-
-async def test_specialist_server_error_does_not_stop_the_report() -> None:
-    llm = FakeLlm(
-        READ_SKILLS,
-        ToolCall("ask_specialist", {"specialist": "application", "applicant": "A-0012", "question": "협업"}),
-        server_down,
-        good_spec(),
-    )
-    composed = await compose_report(bundle(focus="협업"), llm)
-    assert not composed.fallback
-    assert "Application Agent: 확인하지 못했어요." in llm.calls[-1].user
 
 
 async def test_agent_fixes_on_retry() -> None:

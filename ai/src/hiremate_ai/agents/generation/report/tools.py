@@ -1,64 +1,31 @@
 """Report Agent 도구. 모두 묶음(ReportBundle) 안에서만 읽는다. 범위는 ToolRuntime의 context로 받아 모델이 바꿀 수 없다.
 
-ask_specialist는 그 전형의 분석 Agent(서류 · 평가 · 면접)에게 근거 확인을 맡긴다. 분석 Agent는 묶음의 근거 문장만
-읽고, 돌려준 근거 id가 묶음에 없으면 버린다.
+Report Agent는 다른 Agent를 부르지 않는다. 분석 Agent가 미리 남긴 판정 · 근거는 묶음으로만 읽는다.
 """
 
 from dataclasses import dataclass, field
-from enum import StrEnum
-from typing import Any
 
 from langchain.tools import ToolRuntime, tool
-from openai import APIError
-from pydantic import BaseModel, Field
 
-from hiremate_ai.agents.generation.report.bundle import Evidence, ReportBundle, Strength
+from hiremate_ai.agents.generation.report.bundle import ReportBundle
 from hiremate_ai.agents.generation.report.derive import scope_of, split_keys, tally
 from hiremate_ai.agents.generation.report.skills import all_skills
-from hiremate_ai.llm.chat import LlmOutputError
-from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
+from hiremate_ai.llm.prompt import data_block
 
 NO_SUCH_APPLICANT = "범위 밖 지원자번호예요. get_overview의 지원자번호만 쓸 수 있어요."
 
 
 @dataclass
 class ReportScope:
-    """도구의 조회 범위와 기록. skills · specialists는 읽은 스킬과 맡긴 분석 Agent로, 진행 표시와 실행 기록에 쓴다.
+    """도구의 조회 범위와 기록. skills는 읽은 스킬로, 진행 표시와 실행 기록에 쓴다.
 
-    log는 화면의 AI 작업 과정에 보일 도구 사용 기록, read는 근거를 읽은 지원자별 근거 수,
-    checks는 분석 Agent가 지원자별로 확인해 준 점이다 (get_evidence가 함께 보여 준다).
+    log는 화면의 AI 작업 과정에 보일 도구 사용 기록, read는 근거를 읽은 지원자별 근거 수다.
     """
 
     bundle: ReportBundle
-    # LlmClient. Protocol은 도구 스키마가 isinstance로 검사하지 못해 Any로 둔다
-    llm: Any
     skills: list[str] = field(default_factory=list)
-    specialists: list[str] = field(default_factory=list)
     log: list[str] = field(default_factory=list)
     read: dict[str, int] = field(default_factory=dict)
-    checks: dict[str, list[str]] = field(default_factory=dict)
-
-
-class Specialist(StrEnum):
-    APPLICATION = "application"
-    ASSESSMENT = "assessment"
-    INTERVIEW = "interview"
-
-
-SPECIALIST_ROLES = {
-    Specialist.APPLICATION: "Application Agent. 서류(이력서 · 자기소개서 · 포트폴리오) 분석 근거를 확인한다",
-    Specialist.ASSESSMENT: "Assessment Agent. 평가 결과 · 과제 제출물 분석 근거를 확인한다",
-    Specialist.INTERVIEW: "Interview Agent. 면접 답변 기록 분석 근거를 확인한다",
-}
-
-
-class SpecialistFinding(BaseModel):
-    text: str = Field(description="질문 관점에서 확인한 점 한 문장")
-    evidence: list[str] = Field(description="그 문장의 근거 id. 자료에 있는 id만")
-
-
-class SpecialistAnswer(BaseModel):
-    findings: list[SpecialistFinding] = Field(description="확인한 점. 근거가 없으면 빈 목록")
 
 
 @tool
@@ -189,71 +156,7 @@ async def get_evidence(applicant: str, runtime: ToolRuntime[ReportScope]) -> str
     for item in items:
         stage = bundle.stage(item.stage_id)
         lines.append(f"{item.id} · [{stage.name if stage else '?'} · {item.agent}] {item.line()}")
-    lines += [f"분석 Agent 확인: {check}" for check in runtime.context.checks.get(applicant, [])]
     return data_block("evidence", "\n".join(lines), applicant=applicant)
 
 
-@tool
-async def ask_specialist(
-    specialist: Specialist, applicant: str, question: str, runtime: ToolRuntime[ReportScope]
-) -> str:
-    """그 전형의 분석 Agent에게 지원자 한 명의 근거 확인을 맡긴다 (예: '협업 경험이 드러나는가').
-
-    분석 Agent는 자기 전형의 근거 문장만 읽고 확인한 점과 근거 id를 돌려준다.
-    """
-    if applicant not in {item.number for item in runtime.context.bundle.applicants}:
-        return NO_SUCH_APPLICANT
-    return await consult(runtime.context, specialist, applicant, question)
-
-
-async def consult(scope: ReportScope, specialist: Specialist, applicant: str, question: str) -> str:
-    """분석 Agent에게 지원자 한 명의 근거 확인을 맡긴다. 모델의 ask_specialist와 코드의 사전 확인이 같이 쓴다."""
-    bundle = scope.bundle
-    items = [item for item in bundle.evidence if item.applicant == applicant and item.agent == specialist.value]
-    label = SPECIALIST_ROLES[specialist].split(".")[0]
-    if label not in scope.specialists:
-        scope.specialists.append(label)
-    if not items:
-        return f"{label}: {applicant}의 근거 문장이 없어요."
-    lines = "\n".join(f"{item.id} · {item.line()}" for item in items)
-    system = (
-        f"너는 {SPECIALIST_ROLES[specialist]}. 받은 근거 문장만으로 질문에 답한다. "
-        "근거가 없으면 빈 목록을 돌려준다. 합격 여부나 순위는 판단하지 않는다.\n\n" + UNTRUSTED_RULE
-    )
-    user = f"질문: {question}\n지원자: {applicant}\n\n" + data_block("evidence", lines, applicant=applicant)
-    try:
-        answer = await scope.llm.structured(
-            SpecialistAnswer, agent=f"report-{specialist.value}", system=system, user=user
-        )
-    except (LlmOutputError, APIError):
-        # 확인 하나가 실패해도 리포트 전체를 멈추지 않는다. 묶음의 근거로 계속 쓴다
-        return f"{label}: 확인하지 못했어요."
-    ids = {item.id for item in items}
-    findings = [finding for finding in answer.findings if finding.evidence and set(finding.evidence) <= ids]
-    scope.log.append(f"{label}에게 {applicant} 근거 확인을 맡김 → {len(findings)}건 확인")
-    if not findings:
-        return f"{label}: 질문 관점의 근거를 찾지 못했어요."
-    return "\n".join(f"- {finding.text} (근거: {', '.join(finding.evidence)})" for finding in findings)
-
-
-MAX_CHECKS = 2
-"""비교 리포트에서 코드가 미리 분석 Agent에게 확인을 맡기는 근거 수."""
-
-
-def check_candidates(bundle: ReportBundle) -> list[Evidence]:
-    """분석 Agent에게 다시 확인할 근거. 판정이 갈린 항목에서 충족 · 부분 충족인데 정량 원문이 없거나 본인 역할이
-    불분명한 근거다. 강점이 서술로만 받쳐질 때만 확인을 맡기고, 역할이 불분명한 근거를 먼저 고른다."""
-    found = []
-    for key in split_keys(bundle):
-        criterion = key.rsplit(".", 1)[-1]
-        for number in bundle.targets:
-            item = next((item for item in bundle.evidence if item.id == f"e-{number}-{criterion}"), None)
-            if item is None or item.verdict not in ("MET", "PARTIAL"):
-                continue
-            if item.role in ("TEAM", "UNCLEAR") or item.strength is not Strength.QUANT:
-                found.append(item)
-    found.sort(key=lambda item: 0 if item.role in ("TEAM", "UNCLEAR") else 1)
-    return found[:MAX_CHECKS]
-
-
-TOOLS = [load_skill, get_overview, get_values, count_values, get_evidence, ask_specialist]
+TOOLS = [load_skill, get_overview, get_values, count_values, get_evidence]

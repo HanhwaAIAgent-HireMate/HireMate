@@ -55,7 +55,7 @@ class StubReportAgent implements ReportAgent {
             distribution.putArray("reference");
             distribution.putNull("split");
         }
-        return Optional.of(new ComposedReport(spec, List.of(), List.of(), true, null, List.of()));
+        return Optional.of(new ComposedReport(spec, List.of(), true, null, List.of()));
     }
 
     /** 개발용은 모델을 부르지 않아 해설이 없다. 화면은 숫자 요약만 보여 준다. */

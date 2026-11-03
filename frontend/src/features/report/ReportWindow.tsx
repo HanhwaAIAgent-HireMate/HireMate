@@ -104,8 +104,7 @@ export function ReportWindow({
 }
 
 /**
- * AI 작업 과정. Report Agent가 이 리포트를 만들며 읽은 지침 · 자료, 서류 Agent에게 맡긴 확인, 검사 횟수,
- * 코드가 고친 것을 순서대로 보여 준다. 무엇을 AI가 했고 무엇을 코드가 보완했는지 그대로 드러낸다
+ * AI 작업 과정. Report Agent가 이 리포트를 만들며 읽은 지침 · 자료, 검사 횟수, 코드가 고친 것을 순서대로 보여 준다. 무엇을 AI가 했고 무엇을 코드가 보완했는지 그대로 드러낸다
  */
 function AiSteps({ steps }: { steps: string[] }) {
   const [open, setOpen] = useState(true)
