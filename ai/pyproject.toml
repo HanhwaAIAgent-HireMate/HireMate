@@ -29,6 +29,10 @@ dev = [
     "ruff>=0.17.0",
     "testcontainers[postgres]>=4.15.0",
 ]
+# NCS 질의 임베딩 서비스(hiremate_ai.ncs_search)만 쓴다. ai 서버 · 워커 기본 설치에는 넣지 않는다
+ncs = [
+    "FlagEmbedding>=1.4.2",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.9,<0.13.0"]
