@@ -46,12 +46,15 @@ public class InterviewAttendances {
         this.live = live;
     }
 
-    /** 배정된 면접관 한 명. name은 인증 진입 계층이 채운다 (업무 모듈은 계정 이름을 모른다). */
+    /**
+     * 배정된 면접관 한 명. ended는 그 면접관이 [면접 종료]를 눌렀는지다. name은 인증 진입 계층이 채운다
+     * (업무 모듈은 계정 이름을 모른다).
+     */
     public record Attendee(InterviewerRole role, UUID memberId, String name, boolean ready, boolean online,
-            boolean me) {
+            boolean ended, boolean me) {
 
         public Attendee named(String name) {
-            return new Attendee(role, memberId, name, ready, online, me);
+            return new Attendee(role, memberId, name, ready, online, ended, me);
         }
     }
 
@@ -128,13 +131,13 @@ public class InterviewAttendances {
                 .collect(Collectors.toSet());
         Instant fresh = Instant.now().minus(ONLINE);
         return List.of(
-                attendee(session, InterviewerRole.HR, session.getHrMemberId(), present, rows, fresh, viewer),
-                attendee(session, InterviewerRole.PRACTICAL, session.getPracticalMemberId(), present, rows, fresh,
-                        viewer));
+                attendee(session, members, InterviewerRole.HR, session.getHrMemberId(), present, rows, fresh, viewer),
+                attendee(session, members, InterviewerRole.PRACTICAL, session.getPracticalMemberId(), present, rows,
+                        fresh, viewer));
     }
 
-    private Attendee attendee(InterviewSession session, InterviewerRole role, UUID memberId, Set<UUID> present,
-            List<InterviewAttendance> rows, Instant fresh, UUID viewer) {
+    private Attendee attendee(InterviewSession session, List<InterviewSession> members, InterviewerRole role,
+            UUID memberId, Set<UUID> present, List<InterviewAttendance> rows, Instant fresh, UUID viewer) {
         List<InterviewAttendance> mine = rows.stream()
                 .filter(row -> row.getMemberId().equals(memberId) && present.contains(row.getApplicationId()))
                 .toList();
@@ -142,7 +145,8 @@ public class InterviewAttendances {
                 .collect(Collectors.toSet()).containsAll(present);
         boolean online = live.connected(session.getStageId(), memberId)
                 || mine.stream().anyMatch(row -> row.getLastSeenAt().isAfter(fresh));
-        return new Attendee(role, memberId, "", ready, online, memberId.equals(viewer));
+        return new Attendee(role, memberId, "", ready, online, InterviewGroups.endedBy(members, role),
+                memberId.equals(viewer));
     }
 
     private InterviewSession assigned(UUID companyId, UUID stageId, UUID applicationId, UUID memberId) {

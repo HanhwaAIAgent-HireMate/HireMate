@@ -110,14 +110,30 @@ class InterviewerSessionTests extends IntegrationTest {
         assertThat(noted.path("personalMemo").asString()).isEqualTo("PRIVATE-HR-NOTE");
         String other = expect(f.practical().api().get(f.workspace()), 200).body();
         assertThat(other).doesNotContain("PRIVATE-HR-NOTE", "hrMemo", "practicalMemo");
-        JsonNode ended = json(expect(f.practical().api().post(f.workspace() + "/end", null), 200));
+        // 먼저 [면접 종료]를 누른 면접관은 기록이 잠기고, 상대 면접관은 계속 진행한다
+        JsonNode mine = json(expect(f.practical().api().post(f.workspace() + "/end", null), 200));
+        assertThat(mine.path("session").path("status").asString()).isEqualTo("IN_PROGRESS");
+        assertThat(mine.path("questions").valueStream().allMatch(row -> !row.path("canAnswer").asBoolean()))
+                .isTrue();
+        assertThat(code(f.practical().api().put(answerPath(f, jobId),
+                Map.of("answer", "늦게 도착한 저장", "analyze", false, "expectedVersion", version)), 409))
+                .isEqualTo("INTERVIEWER_ENDED");
+        assertThat(code(f.practical().api().put(f.workspace() + "/memo", Map.of("text", "종료 후 실무 메모",
+                "expectedVersion", mine.path("personalMemoVersion").asLong())), 409)).isEqualTo("INTERVIEWER_ENDED");
+        JsonNode attendees = json(expect(f.people().api().get(f.workspace() + "/attendance"), 200))
+                .path("attendees");
+        assertThat(attendees.valueStream().map(person -> person.path("role").asString() + ":"
+                + person.path("ended").asBoolean())).containsExactly("HR:false", "PRACTICAL:true");
+        noted = json(expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "상대가 끝낸 뒤 메모",
+                "expectedVersion", noted.path("personalMemoVersion").asLong())), 200));
+
+        // 두 면접관이 모두 마치면 면접이 끝난다
+        JsonNode ended = json(expect(f.people().api().post(f.workspace() + "/end", null), 200));
         assertThat(ended.path("session").path("status").asString()).isEqualTo("ENDED");
         expect(f.people().api().put(f.workspace() + "/memo", Map.of("text", "종료 후 메모",
                 "expectedVersion", noted.path("personalMemoVersion").asLong())), 409);
         assertThat(ended.path("questions").valueStream().allMatch(row -> !row.path("canAnswer").asBoolean()))
                 .isTrue();
-        expect(f.practical().api().put(answerPath(f, jobId),
-                Map.of("answer", "늦게 도착한 저장", "analyze", false, "expectedVersion", version)), 409);
         expect(f.hr().put(f.admin(), assignment(f)), 409);
         assertThatThrownBy(() -> interviews.addGeneratedQuestions(f.hr().companyId(),
                 UUID.fromString(f.stageId()), f.applicationId(),
@@ -186,6 +202,9 @@ class InterviewerSessionTests extends IntegrationTest {
         JsonNode rejected = json(expect(f.hr().post(f.legacy() + "/confirm", null), 409));
         assertThat(rejected.path("code").asString()).isEqualTo("INTERVIEW_IN_PROGRESS");
         expect(f.people().api().post(f.workspace() + "/end", null), 200);
+        // 한 면접관만 마쳤으면 아직 진행 중이다
+        assertThat(code(f.hr().post(f.legacy() + "/confirm", null), 409)).isEqualTo("INTERVIEW_IN_PROGRESS");
+        expect(f.practical().api().post(f.workspace() + "/end", null), 200);
         expect(f.hr().post(f.legacy() + "/confirm", null), 200);
         JsonNode ended = json(expect(f.people().api().post(f.workspace() + "/end", null), 200));
         assertThat(ended.path("session").path("status").asString()).isEqualTo("ENDED");
@@ -418,8 +437,14 @@ class InterviewerSessionTests extends IntegrationTest {
         assertThat(code(scheduleRequest(f, unscheduled, SLOT), 409)).isEqualTo("INTERVIEW_SLOT_STARTED");
         assertThat(code(scheduleRequest(f, a, LATER), 409)).isEqualTo("INTERVIEW_STARTED");
 
-        // 한 지원자 화면에서 끝내면 같은 시간 면접자가 모두 끝난다
+        // 한 지원자 화면에서 누른 면접 종료는 같은 시간 면접자 모두에 대해 그 면접관이 마친 것이다
         expect(f.people().api().post(room(f, b) + "/end", null), 200);
+        assertThat(status(f, a)).isEqualTo("IN_PROGRESS");
+        JsonNode fromA = json(expect(f.practical().api().get(room(f, a) + "/attendance"), 200));
+        assertThat(fromA.path("attendees").valueStream().map(person -> person.path("role").asString() + ":"
+                + person.path("ended").asBoolean())).containsExactly("HR:true", "PRACTICAL:false");
+        // 두 면접관이 모두 마치면 같은 시간 면접자가 모두 끝난다
+        expect(f.practical().api().post(room(f, a) + "/end", null), 200);
         assertThat(status(f, a)).isEqualTo("ENDED");
         assertThat(status(f, b)).isEqualTo("ENDED");
     }
@@ -457,6 +482,7 @@ class InterviewerSessionTests extends IntegrationTest {
                 .isEqualTo("INTERVIEW_ANSWERED");
 
         expect(f.people().api().post(room(f, a) + "/end", null), 200);
+        expect(f.practical().api().post(room(f, b) + "/end", null), 200);
         assertThat(status(f, b)).isEqualTo("ENDED");
         assertThat(code(f.practical().api().post(room(f, b) + "/absent", null), 409)).isEqualTo("INTERVIEW_ENDED");
     }

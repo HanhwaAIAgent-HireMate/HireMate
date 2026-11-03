@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 면접 시간 묶음. 같은 전형에서 면접 일시가 같은 지원자는 한 면접(1:1이든 다대다든)으로 함께 준비 완료하고,
- * 함께 시작하고, 함께 끝낸다. 일정이 없는 지원자는 어느 묶음에도 들지 않아 면접을 시작할 수 없다.
+ * 함께 시작하고, 두 면접관이 모두 [면접 종료]를 누르면 함께 끝난다. 일정이 없는 지원자는 어느 묶음에도 들지 않아 면접을 시작할 수 없다.
  * 지원자마다의 질문 · 답변 · 메모 · 의견은 지금처럼 지원자 한 명의 면접(InterviewSession)에 남는다.
  */
 @Component
@@ -81,6 +81,12 @@ class InterviewGroups {
             return InterviewSessionStatus.ENDED;
         }
         return present.isEmpty() ? InterviewSessionStatus.ABSENT : InterviewSessionStatus.SCHEDULED;
+    }
+
+    /** 이 담당 면접관이 같은 시간 면접(불참 제외)을 모두 마쳤나 */
+    static boolean endedBy(List<InterviewSession> members, InterviewerRole role) {
+        List<InterviewSession> present = present(members);
+        return !present.isEmpty() && present.stream().allMatch(session -> session.endedBy(role));
     }
 
     /** 같은 시간 면접의 시작 시각 (진행 중이거나 끝난 지원자 중 하나) */
