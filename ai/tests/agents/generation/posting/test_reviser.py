@@ -2,7 +2,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from ncs_context import UNIT, FakeNcs
+from ncs_context import UNIT, FakeNcs, task
 from pydantic import BaseModel
 
 from hiremate_ai.agents.generation.posting.ncs import (
@@ -1129,3 +1129,18 @@ async def test_roles_request_never_uses_ncs() -> None:
 
     assert result.suggestion is not None
     assert ncs.searches == []
+
+
+async def test_each_posting_line_shows_one_source() -> None:
+    sentences = ["서버 프로그램을 구현 한다", "서버 프로그램을 테스트 한다"]
+    two = CitedContentChanges(
+        changes=content(duties=[*CONTENT.duties, NEW_DUTY]).changes,
+        citations=[LineCitation(field="주요 업무", line=NEW_DUTY, sources=["S1", "S2"])],
+    )
+    llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), NCS_QUERY, two, review("supports", "supports"))
+
+    result = await revise_posting(
+        llm, posting(), "", "NCS 참고해서 주요 업무 추가해 줘", ncs=FakeNcs(found=[task(sentences=sentences)])
+    )
+
+    assert result.reply == f"{MADE}\n\n{NCS_HEADER}\n{NCS_LINE}"
