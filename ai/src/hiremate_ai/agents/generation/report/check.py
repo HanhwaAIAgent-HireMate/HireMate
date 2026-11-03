@@ -97,6 +97,8 @@ _VERDICT_CODE = re.compile(
 )
 """판정 코드. 문장에는 충족 · 미충족 · 보류처럼 화면에 보이는 말로 쓴다."""
 _FORMAL = re.compile(r"[가-힣]니다(?![가-힣])")
+_HANJA = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿]+")
+"""한자 · 일본 가나. 모델이 '項目', '조건を'처럼 낱말 하나를 섞어 쓰는 일이 있다. 리포트 문장은 한글로 쓴다."""
 """합니다체. 리포트 문장은 해요체로 쓴다."""
 _VAGUE = re.compile(r"대부분|대다수")
 """세지 않은 양. 요약 · 읽을 점에서 쓰면 센 개수나 비율을 같이 쓴다."""
@@ -543,6 +545,8 @@ def sentence_problems(label: str, text: str, allowed_numbers: set[str]) -> list[
         )
     if formal := _FORMAL.search(text):
         found.append(f"{label}는 해요체(~어요 · ~예요)로 쓴다: {formal.group()}")
+    if hanja := _HANJA.search(text):
+        found.append(f"{label}에 한자가 있다: {hanja.group()}. 한글로 쓴다")
     if unknown := sorted(set(_NUMBER.findall(_CODE.sub("", text))) - allowed_numbers):
         found.append(f"{label}에 묶음에 없는 숫자가 있다: {', '.join(unknown)}")
     return found
