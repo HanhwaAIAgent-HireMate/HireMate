@@ -7,7 +7,7 @@ import type { StageTab } from '@/features/screening/tabs'
 import { TabBar } from '@/features/screening/TabBar'
 
 function tab(id: string, name: string, selectedCount = 0): StageTab {
-  return { id, name, selectedCount, canRestore: false }
+  return { id, name, selectedCount }
 }
 
 function mockServer() {

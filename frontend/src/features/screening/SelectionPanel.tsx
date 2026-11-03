@@ -1,4 +1,4 @@
-import { Eraser, FileChartColumn, RotateCcw, Table2 } from 'lucide-react'
+import { Eraser, FileChartColumn, Table2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -73,18 +73,7 @@ export function SelectionPanel({
           선택 지원자{' '}
           <span className="ml-1 text-muted-foreground">{selection.data?.total ?? 0}</span>
         </h2>
-        {/* 되돌리기는 교체 · 좁히기 · 비우기 뒤에만 생긴다. 오른쪽 버튼 줄이 밀리지 않게 제목 옆에 둔다 */}
-        <div className="flex-1">
-          {editable && tab.canRestore && (
-            <button
-              onClick={() => actions.restore.mutate(undefined, { onError: fail })}
-              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-            >
-              <RotateCcw className="size-3.5" />
-              되돌리기
-            </button>
-          )}
-        </div>
+        <div className="flex-1" />
         <Tooltip>
           <TooltipTrigger asChild>
             <span>
@@ -106,24 +95,27 @@ export function SelectionPanel({
                 : `선택 지원자 ${MIN_COMPARED}~${MAX_COMPARED}명을 체크하면 비교 리포트를 만들 수 있어요`}
           </TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
-              <button
-                onClick={() => showTable(true)}
-                disabled={rows.length === 0}
-                className="inline-flex items-center gap-1 text-xs font-medium text-ai hover:text-ai/80 disabled:opacity-50"
-              >
-                <Table2 className="size-3.5" />표 보기
-              </button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            {rows.length > 0
-              ? `선택 지원자 ${rows.length}명을 평가 기준 · 인재상별 표로 바로 비교해요`
-              : '선택 지원자를 넣으면 표로 비교할 수 있어요'}
-          </TooltipContent>
-        </Tooltip>
+        {/* 표 보기는 서류 전형의 지원서 분석(평가 기준 · 인재상)으로 만든다 */}
+        {overview.type === 'DOCUMENT' && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <button
+                  onClick={() => showTable(true)}
+                  disabled={rows.length === 0}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-ai hover:text-ai/80 disabled:opacity-50"
+                >
+                  <Table2 className="size-3.5" />표 보기
+                </button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {rows.length > 0
+                ? `선택 지원자 ${rows.length}명을 평가 기준 · 인재상별 표로 바로 비교해요`
+                : '선택 지원자를 넣으면 표로 비교할 수 있어요'}
+            </TooltipContent>
+          </Tooltip>
+        )}
         {editable && (
           <button
             onClick={() => actions.clear.mutate(undefined, { onError: fail })}

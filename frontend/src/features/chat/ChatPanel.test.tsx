@@ -143,8 +143,8 @@ describe('ChatPanel', () => {
     )
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     client.setQueryData(stageKeys.tabs('s1'), [
-      { id: 't1', name: '탭 1', selectedCount: 0, canRestore: false },
-      { id: 't2', name: '탭 2', selectedCount: 0, canRestore: false },
+      { id: 't1', name: '탭 1', selectedCount: 0 },
+      { id: 't2', name: '탭 2', selectedCount: 0 },
     ])
     render(
       <QueryClientProvider client={client}>
@@ -168,8 +168,8 @@ describe('ChatPanel', () => {
 
   it('선택 지원자가 바뀐 답 뒤에 늦게 온 탭 목록이 자동 제목을 예전 이름으로 덮어쓰지 않는다', async () => {
     const named = [
-      { id: 't1', name: '금융 경험 찾기', selectedCount: 2, canRestore: false },
-      { id: 't2', name: '탭 2', selectedCount: 0, canRestore: false },
+      { id: 't1', name: '금융 경험 찾기', selectedCount: 2 },
+      { id: 't2', name: '탭 2', selectedCount: 0 },
     ]
     let staleTabs: ((response: Response) => void) | undefined
     let tabReads = 0

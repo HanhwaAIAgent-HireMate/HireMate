@@ -231,7 +231,7 @@ function mockServer(
             unassigned: false,
           },
         ],
-        '/api/stages/s1/tabs': [{ id: 't1', name: '새 탭', selectedCount: 0, canRestore: false }],
+        '/api/stages/s1/tabs': [{ id: 't1', name: '새 탭', selectedCount: 0 }],
         '/api/stages/s1/tabs/t1/chat': [],
       }
       return Promise.resolve(
