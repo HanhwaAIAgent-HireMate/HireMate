@@ -9,6 +9,7 @@ import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
+import com.hiremate.apply.CriterionMark;
 import com.hiremate.job.JobResult;
 import com.hiremate.job.JobStatus;
 import com.hiremate.report.AgentReportKind;
@@ -17,6 +18,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -71,6 +73,40 @@ class AgentReportTests extends IntegrationTest {
         expect(newHr().get(stage.path() + "/reports/" + reportId), 404);
         expect(stage.hr().post(stage.path() + "/reports/compare",
                 Map.of("applicationIds", stage.ids().subList(0, 1), "focus", "", "brief", false)), 400);
+    }
+
+    @Test
+    @DisplayName("비교 리포트 묶음에 지원서에 저장한 항목 판정을 넣고, 지금 평가 기준에 없는 항목은 넣지 않는다")
+    void compareReportBundleHasStoredCriterionMarks() throws Exception {
+        Stage stage = startDocumentStage(2);
+        UUID first = UUID.fromString(stage.ids().getFirst());
+        ApplicationAnalysis base = ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(80), true, false,
+                List.of());
+        applications.recordAnalysis(first, new ApplicationAnalysis(base.careerYears(), base.lastCompany(),
+                base.criteriaVersion(), base.qualificationStatus(), base.qualificationRate(),
+                base.qualificationScore(), base.qualificationMax(), base.preferenceScore(), base.preferenceMax(),
+                base.documentScore(), base.documentScoreLow(), base.qualificationScoreLow(), base.passed(),
+                base.held(), base.shortfalls(),
+                Map.of("Q-01", CriterionMark.MET, "Q-02", CriterionMark.PARTIAL, "Z-99", CriterionMark.MET)));
+
+        JsonNode requested = json(expect(stage.hr().post(stage.path() + "/reports/compare",
+                Map.of("applicationIds", stage.ids(), "focus", "", "brief", false)), 202));
+        JsonNode bundle = json(expect(stage.hr().get(stage.path() + "/reports/" + requested.path("reportId")
+                .asString()), 200)).path("bundle");
+
+        String number = bundle.path("targets").get(0).asString();
+        Map<String, JsonNode> marks = new HashMap<>();
+        for (JsonNode fact : bundle.path("facts")) {
+            if (fact.path("applicant").asString().equals(number)
+                    && fact.path("key").asString().startsWith("document.criterion.")) {
+                marks.put(fact.path("key").asString(), fact);
+            }
+        }
+        assertThat(marks).containsOnlyKeys("document.criterion.Q-01", "document.criterion.Q-02");
+        assertThat(marks.get("document.criterion.Q-01").path("value").asString()).isEqualTo("MET");
+        assertThat(marks.get("document.criterion.Q-02").path("value").asString()).isEqualTo("PARTIAL");
+        assertThat(marks.get("document.criterion.Q-01").path("label").asString()).startsWith("Q-01 ");
+        assertThat(marks.get("document.criterion.Q-01").path("stageId").asString()).isEqualTo(stage.stageId());
     }
 
     @Test
