@@ -13,6 +13,7 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,6 +37,13 @@ public class PostingController {
     @ResponseStatus(HttpStatus.CREATED)
     public PostingView create(AuthenticatedMember member) {
         return postings.createDraft(member.companyId());
+    }
+
+    /** 작성 중이거나 종료된 채용만 삭제한다. */
+    @DeleteMapping("/api/recruitments/{recruitmentId}/posting")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteRecruitment(AuthenticatedMember member, @PathVariable UUID recruitmentId) {
+        postings.deleteRecruitment(member.companyId(), recruitmentId);
     }
 
     @GetMapping("/api/recruitments/{recruitmentId}/posting")

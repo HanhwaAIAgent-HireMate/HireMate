@@ -41,6 +41,12 @@ public class Recruitment {
 
     private Instant closedAt;
 
+    private Instant deletedAt;
+
+    public void archive() {
+        this.deletedAt = Instant.now();
+    }
+
     public Recruitment(UUID companyId, String title) {
         this.id = UUID.randomUUID();
         this.companyId = companyId;

@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface RecruitmentRepository extends JpaRepository<Recruitment, UUID> {
 
-    Optional<Recruitment> findByIdAndCompanyId(UUID id, UUID companyId);
+    Optional<Recruitment> findByIdAndCompanyIdAndDeletedAtIsNull(UUID id, UUID companyId);
 
-    List<Recruitment> findByCompanyIdOrderByCreatedAtDesc(UUID companyId);
+    List<Recruitment> findByCompanyIdAndDeletedAtIsNullOrderByCreatedAtDesc(UUID companyId);
 }

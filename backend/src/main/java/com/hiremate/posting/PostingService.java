@@ -79,6 +79,26 @@ public class PostingService {
         return toView(posting, recruitment, profile.name());
     }
 
+    /** 작성 중이면 초안을 지우고, 종료된 채용은 기록을 보존하며 목록에서 제거한다. */
+    @Transactional
+    public void deleteRecruitment(UUID companyId, UUID recruitmentId) {
+        JobPosting posting = lockPosting(companyId, recruitmentId);
+        RecruitmentInfo recruitment = recruits.get(companyId, recruitmentId);
+        if (recruitment.status() == RecruitmentStatus.CLOSED) {
+            recruits.archiveClosed(companyId, recruitmentId);
+            return;
+        }
+        requireDraft(recruitment);
+        postings.delete(posting);
+        postings.flush();
+        recruits.deleteDraft(companyId, recruitmentId);
+    }
+
+    private JobPosting lockPosting(UUID companyId, UUID recruitmentId) {
+        return postings.lockPosting(recruitmentId, companyId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "POSTING_NOT_FOUND", "Posting not found."));
+    }
+
     /** 새 공고의 근무지는 회사 주소로 채운다. 근무지 칸(100자)에 들어가지 않으면 비워 둔다. */
     private static String defaultLocation(String address) {
         return address.length() <= MAX_LOCATION ? address : "";
@@ -315,7 +335,7 @@ public class PostingService {
         if (!closeAt.isAfter(openAt) || !closeAt.isAfter(Instant.now())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PERIOD", "Check the application period.");
         }
-        JobPosting posting = posting(companyId, recruitmentId);
+        JobPosting posting = lockPosting(companyId, recruitmentId);
         recruits.publish(companyId, recruitmentId);
         posting.publish(openAt, closeAt, memberId);
         return view(companyId, recruitmentId);

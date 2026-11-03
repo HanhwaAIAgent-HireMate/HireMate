@@ -158,7 +158,7 @@ export interface paths {
         get: operations["get"];
         put: operations["update"];
         post?: never;
-        delete?: never;
+        delete: operations["deleteRecruitment"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2829,26 +2829,26 @@ export interface components {
             null: boolean;
             object: boolean;
             float: boolean;
-            number: boolean;
+            container: boolean;
+            missingNode: boolean;
             pojo: boolean;
-            string: boolean;
+            int: boolean;
             /** @deprecated */
             textual: boolean;
+            number: boolean;
+            double: boolean;
             binary: boolean;
             short: boolean;
-            double: boolean;
-            int: boolean;
-            boolean: boolean;
             long: boolean;
-            missingNode: boolean;
+            boolean: boolean;
+            string: boolean;
+            bigInteger: boolean;
+            floatingPointNumber: boolean;
+            bigDecimal: boolean;
             valueNode: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            floatingPointNumber: boolean;
             integralNumber: boolean;
-            container: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3270,8 +3270,8 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            parameterName: string;
             token: string;
+            parameterName: string;
             headerName: string;
         };
         CsrfResponse: {
@@ -3617,6 +3617,26 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["PostingView"];
                 };
+            };
+        };
+    };
+    deleteRecruitment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

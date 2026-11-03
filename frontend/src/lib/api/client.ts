@@ -66,6 +66,8 @@ export async function unwrap<T>(request: Promise<FetchResult<T>>): Promise<T> {
 }
 
 const MESSAGES: Record<string, string> = {
+  RECRUITMENT_LOCKED:
+    '공고 게시 중이거나 전형 진행 중에는 수정하거나 삭제할 수 없어요. 목록을 새로고침해 주세요.',
   ANSWER_CONFLICT:
     '다른 곳에서 답변이 변경됐어요. 작성한 내용을 보관하고 최신 답변을 다시 확인해 주세요.',
   UPDATE_CONFLICT: '기록이 변경됐어요. 최신 내용을 확인해 주세요.',
