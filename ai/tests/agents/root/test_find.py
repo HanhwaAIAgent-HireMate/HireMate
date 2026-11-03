@@ -10,14 +10,14 @@ from hiremate_ai.agents.root.find import (
     CONFIRMED_STATUS,
     DEFAULT_CLARIFY,
     JUDGED_LIMIT,
-    LIMIT_NOTE,
     LOCKED,
     NO_ASSESSMENT,
     NO_POSTING_ITEMS,
     NONE_ALL,
     NOT_FOUND,
     NOT_UNDERSTOOD,
-    RECHECK_LIMIT,
+    PARTIAL_NOTE,
+    RECHECK_BATCH,
     RECHECK_STATUS,
     AreaScore,
     CriteriaItem,
@@ -32,7 +32,7 @@ from hiremate_ai.agents.root.find import (
 from hiremate_ai.agents.root.toolkit import AgentEvidence, RootToolkit, default_toolkit
 from hiremate_ai.agents.root.types import AssessmentScores, ChatContext, ChatPlan, Decision, Intent, SelectionMode
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
-from hiremate_ai.llm.chat import LlmOutputError
+from hiremate_ai.llm.chat import LlmOutputError, new_model_call_budget, using_model_call_budget
 from hiremate_ai.llm.fake import FakeLlm, LlmCall
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE
 from hiremate_ai.tools.candidates import CandidateMatch, SourcedSentence
@@ -510,32 +510,60 @@ async def test_recheck_error_clarifies(
     assert plan == ChatPlan.answer(Intent.CLARIFY, NOT_UNDERSTOOD)
 
 
-async def test_recheck_limit(
-    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
-) -> None:
-    rows = [extra_row(f"지원자{number}") for number in range(30)]
-    context = make_context(
-        sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘", extra_rows=rows
-    )
-    first = sample_applicants["정유민"].info.application_id
-    matches = [CandidateMatch(application_id=first, sentences=[SourcedSentence(SENTENCES["정유민"], "이력서")], hits=2)]
-    matches += [
+def wide_context(applicants: Applicants, company: CompanyProfile, posting: PostingContent) -> ChatContext:
+    """재확인 한 묶음보다 후보가 많은 전형."""
+    rows = [extra_row(f"지원자{number}") for number in range(RECHECK_BATCH)]
+    return make_context(applicants, company, posting, message="금융 경험 있는 사람 찾아줘", extra_rows=rows)
+
+
+def wide_matches(applicants: Applicants, context: ChatContext, *, target_last: bool) -> list[CandidateMatch]:
+    """모든 후보가 걸린 검색 결과. 정유민만 원문 문장이고, 검색 순서 맨 앞이나 맨 끝에 둔다."""
+    target = applicants["정유민"].info.application_id
+    others = [
         CandidateMatch(
             application_id=row.application_id,
             sentences=[SourcedSentence("결제 시스템을 만들었습니다", "이력서")],
             hits=1,
         )
         for row in context.candidates
-        if row.application_id != first
+        if row.application_id != target
     ]
-    llm = FakeLlm(rechecked(["정유민"], {"정유민": [1]}))
+    found = CandidateMatch(application_id=target, sentences=[SourcedSentence(SENTENCES["정유민"], "이력서")], hits=1)
+    return [*others, found] if target_last else [found, *others]
+
+
+async def test_recheck_checks_every_candidate_in_batches(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 검색 순서가 한 묶음 뒤인 후보도 재확인한다. 앞 묶음만 보면 조건을 충족한 정유민이 빠진다
+    context = wide_context(sample_applicants, sample_company, sample_posting)
+    matches = wide_matches(sample_applicants, context, target_last=True)
+    last = len(matches) - RECHECK_BATCH
+    met = RecheckItem(candidate_no=last, met=True, sentence_nos=[1])
+    llm = FakeLlm(RecheckResult(results=[]), RecheckResult(results=[met]))
 
     plan = await plan_find(llm, FINANCE, context, RootToolkit(search=SpySearch(matches)))
 
-    assert len(matches) > RECHECK_LIMIT
-    assert llm.calls[0].user.count("<data") == RECHECK_LIMIT
+    assert RECHECK_BATCH < len(matches) <= 2 * RECHECK_BATCH
+    assert [call.user.count("<data") for call in llm.calls] == [RECHECK_BATCH, last]
     assert names(context, plan) == ["정유민"]
-    assert plan.message.endswith(LIMIT_NOTE)
+    assert not plan.message.endswith(PARTIAL_NOTE.format(total=len(matches), checked=RECHECK_BATCH))
+
+
+async def test_recheck_keeps_checked_batches_when_budget_runs_out(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 예산이 한 번뿐이면 앞 묶음만 확인하고, 확인하지 못한 후보가 있다고 알린다
+    context = wide_context(sample_applicants, sample_company, sample_posting)
+    matches = wide_matches(sample_applicants, context, target_last=False)
+    llm = FakeLlm(rechecked(["정유민"], {"정유민": [1]}))
+
+    with using_model_call_budget(new_model_call_budget(1)):
+        plan = await plan_find(llm, FINANCE, context, RootToolkit(search=SpySearch(matches)))
+
+    assert len(llm.calls) == 1
+    assert names(context, plan) == ["정유민"]
+    assert plan.message.endswith(PARTIAL_NOTE.format(total=len(matches), checked=RECHECK_BATCH))
 
 
 async def test_use_talents_adds_concepts(

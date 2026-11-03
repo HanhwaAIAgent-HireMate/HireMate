@@ -4,7 +4,8 @@
 결과는 계획 형태로 반환하고 선택 변경은 실행하지 않는다.
 """
 
-from collections.abc import Iterable, Sequence
+import asyncio
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from hashlib import sha256
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -32,11 +33,14 @@ from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 from hiremate_ai.tools.candidates import CandidateMatch, SourcedSentence
 
 ITEM_LIMIT = 5
-RECHECK_LIMIT = 30
+# 재확인 모델 호출 한 번에 넣는 후보 수. 후보가 더 많으면 묶음을 나눠 모두 확인한다
+RECHECK_BATCH = 30
 # 기억하는 재확인 판정 수. 넘으면 오래된 것부터 지운다
 JUDGED_LIMIT = 256
 EVIDENCE_LENGTH = 48
-LIMIT_NOTE = " 조건에 가까운 30명 중에서 골랐어요."
+PARTIAL_NOTE = (
+    " 모델 호출 한도로 후보 {total}명 중 검색 순서 앞쪽 {checked}명만 확인했어요. 조건을 좁혀 다시 찾아 주세요."
+)
 _DOCUMENT_LABELS = {document.label for document in DocumentType}
 DEFAULT_CLARIFY = "찾을 직무 조건이나 점수 기준을 알려 주세요."
 NOT_UNDERSTOOD = "검색 결과를 확인하지 못했어요. 조건을 좁혀 다시 말씀해 주세요."
@@ -330,13 +334,14 @@ async def plan_find(
     allowed = {row.application_id: row for row in rows}
     found = await toolkit.search(scope_of(context), concepts, list(allowed))
     matches = [match for match in found if match.application_id in allowed]
-    limited = len(matches) > RECHECK_LIMIT
-    matches = matches[:RECHECK_LIMIT]
     if not matches:
         return _not_found(query, len(candidates))
     progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
-        verified = await recheck(llm, context, matches, conditions=conditions, talents=talents, memo=toolkit.judged)
+        verified, note = await in_batches(
+            matches,
+            lambda batch: recheck(llm, context, batch, conditions=conditions, talents=talents, memo=toolkit.judged),
+        )
     except LlmOutputError as error:
         if error.reason is LlmFailureReason.BUDGET:
             raise
@@ -347,10 +352,7 @@ async def plan_find(
     agents = await _agents(
         toolkit, context, [(application_id, sourced) for application_id, evidence in verified for sourced in evidence]
     )
-    plan = _plan(query, context, len(candidates), chosen, sources, agents)
-    if limited and chosen:
-        plan = plan.model_copy(update={"message": plan.message + LIMIT_NOTE})
-    return plan
+    return _noted(_plan(query, context, len(candidates), chosen, sources, agents), note)
 
 
 async def _plan_posting(
@@ -379,13 +381,13 @@ async def _plan_posting(
     allowed = {row.application_id: row for row in rows}
     found = await toolkit.search(scope_of(context), criteria, list(allowed))
     matches = [match for match in found if match.application_id in allowed]
-    limited = len(matches) > RECHECK_LIMIT
-    matches = matches[:RECHECK_LIMIT]
     if not matches:
         return _not_found(query, len(pool))
     progress.status(RECHECK_STATUS.format(count=len(matches)))
     try:
-        judged = await recheck_criteria(llm, context, matches, items, required, toolkit.judged)
+        judged, note = await in_batches(
+            matches, lambda batch: recheck_criteria(llm, context, batch, items, required, toolkit.judged)
+        )
     except LlmOutputError as error:
         if error.reason is LlmFailureReason.BUDGET:
             raise
@@ -403,8 +405,8 @@ async def _plan_posting(
     match_mode = query.criteria_match
     if match_mode == "all" and best < n:
         if not best:
-            return _not_found(query, len(pool))
-        return ChatPlan.answer(Intent.ANSWER, NONE_ALL.format(label=label, n=n, k=best))
+            return _noted(_not_found(query, len(pool)), note)
+        return _noted(ChatPlan.answer(Intent.ANSWER, NONE_ALL.format(label=label, n=n, k=best)), note)
     keep = n if match_mode == "all" else best if match_mode == "most" else 1
     kept = sorted((entry for entry in scored if entry[1] >= keep), key=lambda entry: -entry[1])
     chosen = [
@@ -417,10 +419,37 @@ async def _plan_posting(
     )
     plan = _plan(query, context, len(pool), chosen, sources, agents)
     if not chosen:
-        return plan
-    note = {"all": CRITERIA_ALL, "most": CRITERIA_MOST, "any": CRITERIA_ANY}[match_mode]
-    message = plan.message + note.format(label=label, n=n, k=best) + (LIMIT_NOTE if limited else "")
-    return plan.model_copy(update={"message": message})
+        return _noted(plan, note)
+    criteria_note = {"all": CRITERIA_ALL, "most": CRITERIA_MOST, "any": CRITERIA_ANY}[match_mode]
+    return _noted(plan, criteria_note.format(label=label, n=n, k=best) + note)
+
+
+async def in_batches[T](
+    matches: list[CandidateMatch], judge: Callable[[list[CandidateMatch]], Awaitable[list[T]]]
+) -> tuple[list[T], str]:
+    """후보를 RECHECK_BATCH명씩 나눠 동시에 재확인한다. 검색 순서를 지킨 판정과, 덜 확인했으면 그 안내를 돌려준다.
+
+    후보를 앞에서 잘라 버리면 검색 순서가 뒤인 지원자는 조건을 충족해도 결과에 나올 수 없다. 그래서 모두 확인한다.
+    요청의 모델 호출 예산이 모자라 뒤 묶음을 판정하지 못하면 앞 묶음까지만 쓰고 안내한다.
+    첫 묶음도 판정하지 못했거나 예산 밖의 이유로 실패하면 예외를 그대로 올린다.
+    """
+    batches = [matches[start : start + RECHECK_BATCH] for start in range(0, len(matches), RECHECK_BATCH)]
+    # 예산은 호출 직전에 차감되고 묶음은 순서대로 시작하므로, 예산이 모자라면 뒤 묶음부터 실패한다
+    results = await asyncio.gather(*(judge(batch) for batch in batches), return_exceptions=True)
+    judged: list[T] = []
+    checked = 0
+    for batch, result in zip(batches, results, strict=True):
+        if isinstance(result, LlmOutputError) and result.reason is LlmFailureReason.BUDGET and checked:
+            return judged, PARTIAL_NOTE.format(total=len(matches), checked=checked)
+        if isinstance(result, BaseException):
+            raise result
+        judged += result
+        checked += len(batch)
+    return judged, ""
+
+
+def _noted(plan: ChatPlan, note: str) -> ChatPlan:
+    return plan.model_copy(update={"message": plan.message + note}) if note else plan
 
 
 def _first(met: dict[int, SourcedSentence]) -> SourcedSentence:

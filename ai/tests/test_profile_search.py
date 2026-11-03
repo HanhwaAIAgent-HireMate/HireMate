@@ -245,6 +245,48 @@ async def test_conflict_and_unconfirmed_interview_items_are_not_used(
     assert unconfirmed == []
 
 
+async def test_unconfirmed_skill_list_is_used_but_unconfirmed_experience_is_not(
+    db_session: AsyncSession, sample_company: CompanyProfile, sample_applicants: Applicants
+) -> None:
+    applicant = sample_applicants["정유민"]
+    # 1) 서류 분석이 본인 여부를 정하지 못한 기술 목록과 경험을 미확인으로 저장한다
+    await save_profile(
+        db_session,
+        company_id=sample_company.company_id,
+        recruitment_id=applicant.info.recruitment_id,
+        application_id=applicant.info.application_id,
+        agent=ItemAgent.APPLICATION,
+        items=[
+            NewItem(
+                category=ItemCategory.SKILL,
+                content="Kafka를 기술로 기재했다.",
+                evidence="Java, Spring Boot, MySQL, Redis, Kafka",
+                source="이력서",
+                verification=Verification.UNCONFIRMED,
+            ),
+            NewItem(
+                category=ItemCategory.EXPERIENCE,
+                content="MySQL 정산 테이블을 파티셔닝했다.",
+                evidence="MySQL 정산 테이블을 파티셔닝해 월말 정산 배치 시간을 40% 줄였습니다.",
+                source="이력서",
+                verification=Verification.UNCONFIRMED,
+            ),
+        ],
+        documents=applicant.documents,
+    )
+    scope, pool = scope_of(sample_company, sample_applicants), everyone(sample_applicants)
+
+    skill = await search_profiles(db_session, scope, ["Kafka"], pool)
+    experience = await search_profiles(db_session, scope, ["파티셔닝"], pool)
+
+    # 2) 기술 목록은 지원자가 자기 기술로 적은 것이라 찾고, 본인 역할이 불분명한 경험은 근거로 쓰지 않는다
+    assert names(sample_applicants, skill) == ["정유민"]
+    assert [(s.sentence, s.source) for s in skill[0].sentences] == [
+        ("Java, Spring Boot, MySQL, Redis, Kafka", "이력서")
+    ]
+    assert experience == []
+
+
 async def test_discriminatory_conditions_are_not_searched(
     db_session: AsyncSession, sample_company: CompanyProfile, sample_applicants: Applicants
 ) -> None:
