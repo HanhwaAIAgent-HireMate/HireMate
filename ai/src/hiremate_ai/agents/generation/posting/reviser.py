@@ -995,11 +995,12 @@ def _tidy(text: str) -> str:
 
 
 def _result(draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
+    # 안내는 한 줄에 하나씩 보이게 하고, 길어지는 NCS 근거는 맨 끝에 둔다 (경력 · 빈 칸 안내가 묻히지 않게)
     notes = list(edit.notes)
-    if edit.cited and {name for name, _ in NCS_FIELDS} & set(draft.changed):
-        notes.append("근거(NCS): " + ", ".join(f"{unit.subdivision} · {unit.name}" for unit in edit.cited))
     if locked:
         notes.append(LOCKED_REPLY)
+    if edit.cited and {name for name, _ in NCS_FIELDS} & set(draft.changed):
+        notes.append("근거(NCS): " + ", ".join(f"{unit.subdivision} · {unit.name}" for unit in edit.cited))
     labels = [FIELD_LABELS[name] for name in draft.changed]
     fields = [to_camel(name) for name in draft.changed]
     if draft.stages is not None:
@@ -1010,7 +1011,7 @@ def _result(draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
         fields.append("requiredDocuments")
     if not labels:
         return RevisionResult(reply=LOCKED_REPLY if locked else NOTHING_CHANGED_REPLY, suggestion=None)
-    reply = " ".join([f"{', '.join(labels)} 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요.", *notes])
+    reply = "\n".join([f"{', '.join(labels)} 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요.", *notes])
     return RevisionResult(
         reply=reply,
         suggestion=PostingSuggestion(
