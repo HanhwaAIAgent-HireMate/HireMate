@@ -35,6 +35,8 @@ const IMAGE_MAX_BYTES = 5 * 1024 * 1024
 /** 회사 로고를 올리는 곳 */
 const COMPANY_SETTINGS_PATH = '/hr/settings'
 const BANNER_URL = '/api/companies/me/mail-style/banner'
+/** 미리보기를 위 안내 메일 양식과 같은 너비 안에 옆으로 두려고 메일을 줄이는 비율 (640px → 384px) */
+const PREVIEW_SCALE = 0.6
 
 // 모든 안내 메일과 접수 확인 메일의 색, 머리와 안내 상자 모양, 로고, 배너. 고르는 동안 예시 메일에 바로 보여 준다
 export function MailStyleForm() {
@@ -94,13 +96,13 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
   }
 
   return (
-    <SettingsSection title="메일 꾸밈" saving={save.isPending} onSave={onSave} wide>
+    <SettingsSection title="메일 꾸밈" saving={save.isPending} onSave={onSave}>
       <p className="text-sm text-muted-foreground">
         모든 안내 메일과 접수 확인 메일에 같은 색과 모양이 들어가요.
       </p>
-      {/* 넓은 화면에서는 미리보기를 오른쪽에 붙여 두어, 왼쪽 칸을 고치는 동안에도 바로 보이게 한다.
-          설정과 미리보기를 1 : 2로 나눠 메일을 실제 폭으로 크게 본다 */}
-      <div className="grid gap-x-8 gap-y-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+      {/* 미리보기를 오른쪽에 붙여 두어, 왼쪽 칸을 고치는 동안에도 바로 보이게 한다. 위 안내 메일 양식과 같은 너비에
+          두려고 메일을 실제 폭으로 그린 뒤 0.6배로 줄여 보인다 (PREVIEW_SCALE) */}
+      <div className="grid gap-x-6 gap-y-5 md:grid-cols-[minmax(0,1fr)_384px]">
         <div className="min-w-0 space-y-5">
           {/* 로고는 설정 › 회사 소개에서 올려 포스터와 같이 쓴다. 로고를 올리면 서버가 메일 대표 색도 로고 색으로 바꾼다 */}
           <SettingsRow label="로고">
@@ -149,7 +151,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
             <Dropdown name="안내 상자 모양" options={GUIDE_BOXES} value={box} onChange={setBox} />
           </SettingsRow>
         </div>
-        <div className="min-w-0 space-y-1.5 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start xl:overflow-auto">
+        <div className="min-w-0 space-y-1.5 md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] md:self-start md:overflow-auto">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-medium text-muted-foreground">미리보기</span>
             <Tabs
@@ -168,6 +170,7 @@ function MailStyleFields({ saved, version }: { saved: MailStyle; version: number
           </p>
           <MailFrame
             preview={preview.data}
+            scale={PREVIEW_SCALE}
             title={sample === 'notice' ? '안내 메일 예시 미리보기' : '접수 확인 메일 미리보기'}
           />
         </div>
