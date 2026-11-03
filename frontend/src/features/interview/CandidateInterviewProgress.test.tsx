@@ -23,6 +23,7 @@ function mockProgress() {
                 name: '최인사',
                 ready: true,
                 online: true,
+                ended: true,
                 me: false,
               },
               {
@@ -31,6 +32,7 @@ function mockProgress() {
                 name: '김실무',
                 ready: true,
                 online: false,
+                ended: false,
                 me: false,
               },
             ],
@@ -47,6 +49,7 @@ function mockProgress() {
                 name: '최인사',
                 ready: false,
                 online: false,
+                ended: false,
                 me: false,
               },
               {
@@ -55,6 +58,7 @@ function mockProgress() {
                 name: '김실무',
                 ready: false,
                 online: false,
+                ended: false,
                 me: false,
               },
             ],
@@ -79,7 +83,7 @@ it('지원자를 바꾸면 그 면접의 상태만 읽어 보여 주고 배정 �
   const region = await screen.findByRole('region', { name: '지원자 면접 진행 현황' })
   expect(region).toHaveTextContent('면접 진행 중')
   const people = within(region).getAllByRole('listitem')
-  expect(people[0]).toHaveTextContent('인사 최인사준비 완료')
+  expect(people[0]).toHaveTextContent('인사 최인사면접 종료')
   expect(people[1]).toHaveTextContent('실무 김실무접속 끊김')
   expect(within(region).queryByRole('button')).not.toBeInTheDocument()
   expect(within(region).queryByRole('combobox')).not.toBeInTheDocument()

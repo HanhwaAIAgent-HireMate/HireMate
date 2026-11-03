@@ -2635,6 +2635,7 @@ export interface components {
             name: string;
             ready: boolean;
             online: boolean;
+            ended: boolean;
             me: boolean;
         };
         InterviewerManualQuestion: {

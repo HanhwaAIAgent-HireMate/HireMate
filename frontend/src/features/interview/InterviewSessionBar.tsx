@@ -1,5 +1,5 @@
 import { Check, CircleCheck, Clock3, Square, UserX, Users } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -13,7 +13,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import type { InterviewAttendance } from '@/features/interview/live'
+import { attendeeState, type InterviewAttendance } from '@/features/interview/live'
 import { RoleTag } from '@/features/interview/RoleTag'
 import {
   INTERVIEW_STATUS_STYLES,
@@ -26,8 +26,9 @@ import { cn } from '@/lib/utils'
 
 /**
  * 면접 시간 한 칸(같은 일시의 지원자 묶음)의 대기, 진행, 종료 상태와 준비 현황. 두 면접관이 모두 [준비 완료]를 누르면
- * 서버가 그 시간 면접자를 한꺼번에 시작하고, [면접 종료]는 확인 뒤에 그 시간 면접자를 함께 끝낸다.
- * 지금 연 지원자가 오지 않았으면 불참으로 빼고 나머지만 진행한다.
+ * 서버가 그 시간 면접자를 한꺼번에 시작한다. [면접 종료]는 확인 뒤에 그 시간 면접자에 대한 내 면접을 마치고,
+ * 두 면접관이 모두 마치면 면접이 함께 끝난다. 지금 연 지원자가 오지 않았으면 불참으로 빼고 나머지만 진행한다.
+ * memo는 [메모] 버튼 자리다.
  */
 export function InterviewSessionBar({
   interview,
@@ -41,6 +42,7 @@ export function InterviewSessionBar({
   onCancelReady,
   onEnd,
   onAbsent,
+  memo,
 }: {
   interview: AssignedInterview
   workspace: InterviewerWorkspace | undefined
@@ -53,6 +55,7 @@ export function InterviewSessionBar({
   onCancelReady: () => Promise<unknown>
   onEnd: () => Promise<unknown>
   onAbsent: (absent: boolean) => Promise<unknown>
+  memo?: ReactNode
 }) {
   const [confirm, setConfirm] = useState(false)
   const group = workspace?.group
@@ -71,6 +74,7 @@ export function InterviewSessionBar({
   const recorded = mine.filter((item) => item.question.answer.trim()).length
   const attendees = attendance?.attendees ?? []
   const me = attendees.find((attendee) => attendee.me)
+  const myEnded = status === 'IN_PROGRESS' && !!me?.ended
   const together = present.length > 1 ? ` ${present.length}명` : ''
   // 준비 완료를 받아도 시작할 수 없는 상태면 누를 수 없게 한다 (서버도 같은 조건으로 거절한다)
   const canReady =
@@ -119,6 +123,7 @@ export function InterviewSessionBar({
               : '일정 미정'}
           </p>
         </div>
+        {memo}
         {self === 'ABSENT' && status !== 'ENDED' && (
           <Button
             size="sm"
@@ -160,15 +165,20 @@ export function InterviewSessionBar({
               준비 완료
             </Button>
           ))}
-        {status === 'IN_PROGRESS' && (
+        {status === 'IN_PROGRESS' && !myEnded && (
           <Button
             size="sm"
             variant="outline"
-            disabled={busy || !attendance?.stageActive}
+            disabled={busy || !attendance?.stageActive || !me}
             onClick={() => setConfirm(true)}
           >
             <Square />
             {busy ? '답변을 저장하고 있어요…' : '면접 종료'}
+          </Button>
+        )}
+        {myEnded && self !== 'ABSENT' && (
+          <Button size="sm" variant="outline" onClick={opinion}>
+            의견 남기기
           </Button>
         )}
         {status === 'ENDED' && self !== 'ABSENT' && (
@@ -186,63 +196,51 @@ export function InterviewSessionBar({
           ) : (
             <Users className="size-3.5" />
           )}
-          {status === 'IN_PROGRESS'
-            ? '면접 진행 중'
-            : status === 'ENDED'
-              ? '면접이 끝났어요. 의견을 남겨 주세요.'
-              : status === 'ABSENT'
-                ? '이 시간 면접자가 모두 불참했어요.'
-                : '면접관 준비 대기'}
+          {myEnded
+            ? '내 면접을 마쳤어요. 다른 면접관도 종료하면 면접이 끝나요.'
+            : status === 'IN_PROGRESS'
+              ? '면접 진행 중'
+              : status === 'ENDED'
+                ? '면접이 끝났어요. 의견을 남겨 주세요.'
+                : status === 'ABSENT'
+                  ? '이 시간 면접자가 모두 불참했어요.'
+                  : '면접관 준비 대기'}
         </span>
         {workspace?.session.startedAt && (
           <ElapsedTime from={workspace.session.startedAt} to={workspace.session.endedAt} />
         )}
-        {self === 'IN_PROGRESS' && (
+        {self === 'IN_PROGRESS' && !myEnded && (
           <span className="text-muted-foreground">
             내 질문 {recorded}/{mine.length} 기록
           </span>
         )}
       </div>
-      {members.length > 1 && (
-        <ul aria-label="같은 시간 면접자" className="flex flex-wrap gap-1.5 text-xs">
-          {members.map((member) => (
-            <li
-              key={member.applicationId}
-              className={cn(
-                'flex items-center gap-1 rounded-full border px-2.5 py-0.5',
-                member.applicationId === interview.applicationId
-                  ? 'border-foreground/30 bg-background font-semibold'
-                  : 'bg-background/60 text-muted-foreground',
-                member.status === 'ABSENT' && 'line-through',
-              )}
-            >
-              {member.applicantName}
-              {member.status === 'ABSENT' && <span className="no-underline">불참</span>}
-            </li>
-          ))}
-        </ul>
-      )}
       <ul aria-label="배정 면접관 접속 현황" className="flex flex-wrap gap-2">
-        {attendees.map((attendee) => (
-          <li
-            key={attendee.memberId}
-            className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-xs"
-          >
-            <span
-              className={cn(
-                'size-1.5 rounded-full',
-                attendee.online && attendee.ready ? 'bg-emerald-600' : 'bg-muted-foreground/40',
-              )}
-            />
-            <span>
-              {attendee.role === 'HR' ? '인사' : '실무'} {attendee.name}
-              {attendee.me ? ' (나)' : ''}
-            </span>
-            <span className="text-muted-foreground">
-              {!attendee.ready ? '준비 전' : attendee.online ? '준비 완료' : '접속 끊김'}
-            </span>
-          </li>
-        ))}
+        {attendees.map((attendee) => {
+          const state = attendeeState(attendee, status)
+          return (
+            <li
+              key={attendee.memberId}
+              className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-xs"
+            >
+              <span
+                className={cn(
+                  'size-1.5 rounded-full',
+                  state.tone === 'active'
+                    ? 'bg-emerald-600'
+                    : state.tone === 'warn'
+                      ? 'bg-amber-500'
+                      : 'bg-muted-foreground/40',
+                )}
+              />
+              <span>
+                {attendee.role === 'HR' ? '인사' : '실무'} {attendee.name}
+                {attendee.me ? ' (나)' : ''}
+              </span>
+              <span className="text-muted-foreground">{state.label}</span>
+            </li>
+          )
+        })}
       </ul>
       {!connected && (
         <p role="status" className="text-xs text-muted-foreground">
@@ -280,11 +278,11 @@ export function InterviewSessionBar({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {present.length > 1
-                ? `이 시간 면접자 ${present.length}명의 면접을 모두 종료할까요?`
-                : '면접을 종료할까요?'}
+                ? `이 시간 면접자 ${present.length}명에 대한 내 면접을 종료할까요?`
+                : '내 면접을 종료할까요?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {`${self === 'IN_PROGRESS' ? `${interview.applicantName} 님에게 답변이 없는 내 질문 ${mine.length - recorded}개가 있어요. ` : ''}작성한 답변을 모두 저장한 뒤 종료해요. 종료하면 답변을 더 이상 고칠 수 없어요.`}
+              {`${self === 'IN_PROGRESS' ? `${interview.applicantName} 님에게 답변이 없는 내 질문 ${mine.length - recorded}개가 있어요. ` : ''}작성한 답변을 모두 저장한 뒤 종료해요. 종료하면 내 답변과 메모를 더 이상 고칠 수 없어요. 다른 면접관도 종료하면 면접이 끝나요.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

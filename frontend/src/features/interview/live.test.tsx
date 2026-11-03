@@ -54,13 +54,22 @@ function connection(request: Request) {
 const attendance = (): InterviewAttendance => ({
   stageActive: true,
   attendees: [
-    { role: 'HR', memberId: 'hr', name: '인사', ready: false, online: true, me: true },
+    {
+      role: 'HR',
+      memberId: 'hr',
+      name: '인사',
+      ready: false,
+      online: true,
+      ended: false,
+      me: true,
+    },
     {
       role: 'PRACTICAL',
       memberId: 'practical',
       name: '실무',
       ready: true,
       online: true,
+      ended: false,
       me: false,
     },
   ],

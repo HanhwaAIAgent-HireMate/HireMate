@@ -8,6 +8,27 @@ import { readEvents, type SseEvent } from '@/lib/api/sse'
 
 export type InterviewAttendance = Schemas['Attendance']
 export type SessionProgress = Schemas['SessionProgress']
+type Attendee = Schemas['Attendee']
+
+/**
+ * 면접관 한 명의 상태 문구와 색. 시작 전에는 준비 현황을, 시작한 뒤에는 그 면접관이 [면접 종료]를 눌렀는지를 보인다.
+ * 두 면접관이 모두 종료해야 면접이 끝난다.
+ */
+export function attendeeState(
+  attendee: Attendee,
+  status: Schemas['SessionProgress']['status'] | undefined,
+): { label: string; tone: 'active' | 'warn' | 'idle' } {
+  if (status === 'ENDED' || (status === 'IN_PROGRESS' && attendee.ended))
+    return { label: '면접 종료', tone: 'idle' }
+  if (status === 'IN_PROGRESS')
+    return attendee.online
+      ? { label: '진행 중', tone: 'active' }
+      : { label: '접속 끊김', tone: 'warn' }
+  if (!attendee.ready) return { label: '준비 전', tone: 'idle' }
+  return attendee.online
+    ? { label: '준비 완료', tone: 'active' }
+    : { label: '접속 끊김', tone: 'warn' }
+}
 
 /** 배정된 면접관의 준비 완료와 현재 접속 현황. */
 export function useInterviewAttendance(stageId: string, applicationId: string) {
