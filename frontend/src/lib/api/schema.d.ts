@@ -1780,14 +1780,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/companies/current/interviews/started": {
+    "/api/companies/current/interviews/notices": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["startedInterviews"];
+        get: operations["interviewNotices"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3249,7 +3249,9 @@ export interface components {
             /** Format: int32 */
             size: number;
         };
-        StartedInterview: {
+        InterviewNotice: {
+            /** @enum {string} */
+            kind: "STARTED" | "ENDED" | "OPINIONS_DONE";
             /** Format: uuid */
             stageId: string;
             /** Format: uuid */
@@ -3260,7 +3262,7 @@ export interface components {
             scheduledAt: string | null;
             applicantNames: string[];
             /** Format: date-time */
-            startedAt: string;
+            at: string;
         };
         InterviewMemberChoice: {
             /** Format: uuid */
@@ -3271,8 +3273,8 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            token: string;
             parameterName: string;
+            token: string;
             headerName: string;
         };
         CsrfResponse: {
@@ -6456,7 +6458,7 @@ export interface operations {
             };
         };
     };
-    startedInterviews: {
+    interviewNotices: {
         parameters: {
             query?: never;
             header?: never;
@@ -6471,7 +6473,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["StartedInterview"][];
+                    "*/*": components["schemas"]["InterviewNotice"][];
                 };
             };
         };

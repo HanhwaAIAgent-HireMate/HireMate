@@ -9,19 +9,20 @@ import { api, unwrap, type Schemas } from '@/lib/api/client'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-/** 시작한 면접은 실시간 연결 없이 이 간격으로 다시 받아 온다 */
-const STARTED_POLL_MS = 15_000
+/** 면접 알림은 실시간 연결 없이 이 간격으로 다시 받아 온다 */
+const NOTICES_POLL_MS = 15_000
 
-/** 최근 시작한 면접 (최근 7일, 최근 것부터 20개) */
-function useStartedInterviews() {
+/** 최근 면접 알림: 시작, 종료, 의견 완료 (최근 7일, 최근 것부터 20개) */
+function useInterviewNotices() {
   return useQuery({
-    queryKey: ['interview', 'started'],
-    queryFn: () => unwrap(api.GET('/api/companies/current/interviews/started')),
-    refetchInterval: STARTED_POLL_MS,
+    queryKey: ['interview', 'notices'],
+    queryFn: () => unwrap(api.GET('/api/companies/current/interviews/notices')),
+    refetchInterval: NOTICES_POLL_MS,
   })
 }
 
 // 마지막으로 알림을 열어 본 시각. 이 브라우저에만 남긴다. 저장소를 쓸 수 없으면 모두 새 알림으로 본다
+// (시작 알림만 있던 때의 이름을 그대로 써서 이미 읽은 알림을 다시 새 알림으로 세지 않는다)
 const seenKey = (memberId: string) => `hiremate:interview-started-seen:${memberId}`
 
 function readSeen(memberId: string): number {
@@ -40,41 +41,47 @@ function writeSeen(memberId: string, at: number) {
   }
 }
 
-/** 새로 시작한 면접을 종 아래에 띄워 두는 시간 */
+/** 새 알림을 종 아래에 띄워 두는 시간 */
 const PREVIEW_MS = 8_000
 
-type StartedInterview = Schemas['StartedInterview']
+type InterviewNotice = Schemas['InterviewNotice']
 
-const stagePath = (item: StartedInterview) =>
+const stagePath = (item: InterviewNotice) =>
   `/hr/recruitments/${item.recruitmentId}/stages/${item.stageId}`
 
-const noticeKey = (item: StartedInterview) => `${item.stageId}:${item.startedAt}`
+const noticeKey = (item: InterviewNotice) => `${item.kind}:${item.stageId}:${item.at}`
 
-/** 같은 시간에 함께 시작한 면접은 한 줄로 알린다. 예: 김하늘 외 2명 면접이 시작됐어요 */
-const noticeTitle = (item: StartedInterview) => {
+const NOTICE_ENDINGS: Record<InterviewNotice['kind'], string> = {
+  STARTED: '면접이 시작됐어요',
+  ENDED: '면접이 끝났어요',
+  OPINIONS_DONE: '면접관 의견이 모두 들어왔어요',
+}
+
+/** 같은 시간에 함께 시작하거나 끝난 면접은 한 줄로 알린다. 예: 김하늘 외 2명 면접이 끝났어요 */
+const noticeTitle = (item: InterviewNotice) => {
   const [first = '', ...rest] = item.applicantNames
-  return `${first}${rest.length > 0 ? ` 외 ${rest.length}명` : ''} 면접이 시작됐어요`
+  return `${first}${rest.length > 0 ? ` 외 ${rest.length}명` : ''} ${NOTICE_ENDINGS[item.kind]}`
 }
 
 /**
- * HR 머리글의 알림. 면접관이 모두 준비 완료해 시작한 면접을 알리고, 누르면 그 면접 전형으로 간다.
- * 화면을 연 뒤에 새로 시작한 면접은 종 바로 아래에 잠깐 띄워 보여 주고, 마지막으로 열어 본 뒤에 시작한 면접이 있으면
+ * HR 머리글의 알림. 면접이 시작되고, 끝나고, 면접관 의견이 모두 들어오면 알리고, 누르면 그 면접 전형으로 간다.
+ * 화면을 연 뒤에 새로 온 알림은 종 바로 아래에 잠깐 띄워 보여 주고, 마지막으로 열어 본 뒤에 온 알림이 있으면
  * 종에 점을 찍는다. 알림을 닫으면 읽은 것으로 본다.
  */
-export function StartedInterviewsBell({ memberId }: { memberId: string }) {
-  const started = useStartedInterviews()
+export function InterviewNoticesBell({ memberId }: { memberId: string }) {
+  const notices = useInterviewNotices()
   const [seen, setSeen] = useState(() => readSeen(memberId))
-  // 처음 받아 온 목록의 가장 최근 시작 시각. 이보다 뒤에 시작한 면접이 화면을 연 뒤에 새로 온 알림이다
+  // 처음 받아 온 목록의 가장 최근 알림 시각. 이보다 뒤의 알림이 화면을 연 뒤에 새로 온 알림이다
   const [baseline, setBaseline] = useState<number | null>(null)
   // 띄워 둔 알림을 닫거나 시간이 지나 내린 시각까지는 다시 띄우지 않는다
   const [dismissed, setDismissed] = useState(0)
-  const items = started.data ?? []
-  const latest = items[0] ? Date.parse(items[0].startedAt) : 0
-  if (started.data && baseline === null) setBaseline(latest)
-  const fresh = (startedAt: string) => Date.parse(startedAt) > seen
-  const unread = items.filter((item) => fresh(item.startedAt)).length
+  const items = notices.data ?? []
+  const latest = items[0] ? Date.parse(items[0].at) : 0
+  if (notices.data && baseline === null) setBaseline(latest)
+  const fresh = (at: string) => Date.parse(at) > seen
+  const unread = items.filter((item) => fresh(item.at)).length
   const shownAfter = Math.max(baseline ?? Infinity, dismissed, seen)
-  const arrived = items.filter((item) => Date.parse(item.startedAt) > shownAfter)
+  const arrived = items.filter((item) => Date.parse(item.at) > shownAfter)
 
   // 띄운 알림만 내린다. 점은 알림 목록을 열어 볼 때까지 남는다
   const dismiss = useCallback(() => setDismissed(latest), [latest])
@@ -114,24 +121,24 @@ export function StartedInterviewsBell({ memberId }: { memberId: string }) {
           {items.length === 0 ? (
             <p className="p-4 text-muted-foreground">새 알림이 없어요.</p>
           ) : (
-            <ul aria-label="시작한 면접" className="max-h-96 divide-y overflow-auto">
+            <ul aria-label="면접 알림" className="max-h-96 divide-y overflow-auto">
               {items.map((item) => (
                 <li key={noticeKey(item)}>
                   <Link
                     to={stagePath(item)}
                     className={cn(
                       'block px-4 py-3 hover:bg-muted/60',
-                      fresh(item.startedAt) && 'bg-muted/40',
+                      fresh(item.at) && 'bg-muted/40',
                     )}
                   >
                     <p className="flex items-center gap-1.5 font-medium">
-                      {fresh(item.startedAt) && (
+                      {fresh(item.at) && (
                         <span aria-hidden="true" className="size-1.5 rounded-full bg-destructive" />
                       )}
                       {noticeTitle(item)}
                     </p>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {item.recruitmentTitle} · {item.stageName} · {formatDateTime(item.startedAt)}
+                      {item.recruitmentTitle} · {item.stageName} · {formatDateTime(item.at)}
                     </p>
                   </Link>
                 </li>
@@ -159,7 +166,7 @@ export function StartedInterviewsBell({ memberId }: { memberId: string }) {
 const SWIPE_PX = 80
 
 /**
- * 새로 시작한 면접을 종 아래에 띄운 카드. 오른쪽으로 밀거나 ✕로 닫고, 그냥 두면 잠시 뒤 내려간다.
+ * 새로 온 알림을 종 아래에 띄운 카드. 오른쪽으로 밀거나 ✕로 닫고, 그냥 두면 잠시 뒤 내려간다.
  * 마우스를 올려 두거나 잡고 있는 동안에는 내리지 않는다.
  */
 function ArrivedPreview({
@@ -167,7 +174,7 @@ function ArrivedPreview({
   onDismiss,
   onOpen,
 }: {
-  items: StartedInterview[]
+  items: InterviewNotice[]
   onDismiss: () => void
   onOpen: () => void
 }) {

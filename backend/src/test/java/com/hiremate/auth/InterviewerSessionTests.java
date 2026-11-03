@@ -459,8 +459,9 @@ class InterviewerSessionTests extends IntegrationTest {
                 .map(row -> row.path("applicationId").asString())).containsExactlyInAnyOrder(a, b);
         assertThat(progress.valueStream().filter(row -> !row.path("scheduledAt").isNull())
                 .map(row -> row.path("startedAt").asString()).distinct()).hasSize(1);
-        JsonNode started = json(expect(f.hr().get("/api/companies/current/interviews/started"), 200));
+        JsonNode started = json(expect(f.hr().get("/api/companies/current/interviews/notices"), 200));
         assertThat(started).hasSize(1);
+        assertThat(started.get(0).path("kind").asString()).isEqualTo("STARTED");
         assertThat(started.get(0).path("applicantNames")).hasSize(2);
         assertThat(Instant.parse(started.get(0).path("scheduledAt").asString())).isEqualTo(SLOT);
 

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '@/app/query-client'
-import { StartedInterviewsBell } from '@/features/interview/StartedInterviewsBell'
+import { InterviewNoticesBell } from '@/features/interview/InterviewNoticesBell'
 
 // jsdom에는 PointerEvent가 없어 clientX를 실어 보낼 수 있게 MouseEvent로 채운다
 if (!('PointerEvent' in window)) {
@@ -19,14 +19,15 @@ if (!('PointerEvent' in window)) {
 }
 
 /** 같은 시간에 함께 시작한 면접 한 줄 */
-const started = (names: string | string[], startedAt: string) => ({
+const started = (names: string | string[], at: string, kind = 'STARTED') => ({
+  kind,
   stageId: 's1',
   recruitmentId: 'r1',
   recruitmentTitle: '결제 플랫폼 백엔드 개발자',
   stageName: '1차 기술 면접',
-  scheduledAt: startedAt,
+  scheduledAt: at,
   applicantNames: typeof names === 'string' ? [names] : names,
-  startedAt,
+  at,
 })
 
 function renderBell(initial: unknown[]) {
@@ -39,7 +40,7 @@ function renderBell(initial: unknown[]) {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <StartedInterviewsBell memberId="m1" />
+        <InterviewNoticesBell memberId="m1" />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -52,7 +53,7 @@ afterEach(() => {
   localStorage.clear()
 })
 
-describe('HR 알림: 시작한 면접', () => {
+describe('HR 알림: 면접 시작 · 종료 · 의견 완료', () => {
   it('새로 시작한 면접을 종에 세고, 열면 면접 전형으로 가는 알림을 보여 주고, 닫으면 읽은 것으로 둔다', async () => {
     renderBell([
       started('박서준', '2026-11-02T05:00:00Z'),
@@ -115,7 +116,7 @@ describe('HR 알림: 시작한 면접', () => {
   it('띄운 알림을 닫으면 다시 띄우지 않고, 그 뒤에 온 알림만 새로 띄운다', async () => {
     const { server, client } = renderBell([])
     await vi.waitFor(() =>
-      expect(client.getQueryState(['interview', 'started'])?.status).toBe('success'),
+      expect(client.getQueryState(['interview', 'notices'])?.status).toBe('success'),
     )
     server.items = [started('박서준', '2026-11-02T05:00:00Z')]
     await act(() => client.refetchQueries())
@@ -135,7 +136,7 @@ describe('HR 알림: 시작한 면접', () => {
   it('띄운 알림을 오른쪽으로 밀면 닫히고, 조금만 밀면 제자리로 돌아온다', async () => {
     const { server, client } = renderBell([])
     await vi.waitFor(() =>
-      expect(client.getQueryState(['interview', 'started'])?.status).toBe('success'),
+      expect(client.getQueryState(['interview', 'notices'])?.status).toBe('success'),
     )
     server.items = [started('박서준', '2026-11-02T05:00:00Z')]
     await act(() => client.refetchQueries())
@@ -172,7 +173,26 @@ describe('HR 알림: 시작한 면접', () => {
     ).toBeInTheDocument()
   })
 
-  it('시작한 면접이 없으면 새 알림이 없다고 알린다', async () => {
+  it('끝난 면접과 의견이 모두 들어온 면접도 알린다', async () => {
+    renderBell([
+      started(['김하늘', '박서준'], '2026-11-02T07:00:00Z', 'OPINIONS_DONE'),
+      started(['김하늘', '박서준'], '2026-11-02T06:00:00Z', 'ENDED'),
+      started(['김하늘', '박서준'], '2026-11-02T05:00:00Z'),
+    ])
+    fireEvent.click(await screen.findByRole('button', { name: '알림 3개' }))
+    const list = screen.getByRole('list', { name: '면접 알림' })
+    expect(
+      within(list)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual([
+      expect.stringContaining('김하늘 외 1명 면접관 의견이 모두 들어왔어요'),
+      expect.stringContaining('김하늘 외 1명 면접이 끝났어요'),
+      expect.stringContaining('김하늘 외 1명 면접이 시작됐어요'),
+    ])
+  })
+
+  it('알림이 없으면 새 알림이 없다고 알린다', async () => {
     renderBell([])
     fireEvent.click(await screen.findByRole('button', { name: '알림' }))
 

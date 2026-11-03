@@ -8,6 +8,7 @@ import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import java.net.http.HttpResponse;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -99,6 +100,33 @@ class InterviewOpinionTests extends IntegrationTest {
         Room absent = room();
         expect(absent.kim().post(absent.session() + "/absent", null), 200);
         assertThat(code(absent.kim().put(absent.opinions() + "/me", opinion))).isEqualTo("INTERVIEW_ABSENT");
+    }
+
+    @Test
+    @DisplayName("HR 알림은 면접이 끝나면 종료를, 두 면접관 의견이 모두 들어오면 의견 완료를 알린다")
+    void noticesTellHrWhenInterviewsEndAndOpinionsArrive() throws Exception {
+        Room room = ended();
+        String notices = "/api/companies/current/interviews/notices";
+        assertThat(kinds(json(expect(room.hr().get(notices), 200)))).containsExactly("ENDED", "STARTED");
+
+        expect(room.kim().put(room.opinions() + "/me", Map.of("recommendation", "RECOMMEND",
+                "comment", "설계 판단 근거가 분명함")), 200);
+        assertThat(kinds(json(expect(room.hr().get(notices), 200)))).containsExactly("ENDED", "STARTED");
+        expect(room.people().put(room.opinions() + "/me", Map.of("recommendation", "HOLD",
+                "comment", "협업 범위는 더 확인 필요")), 200);
+        JsonNode done = json(expect(room.hr().get(notices), 200));
+        assertThat(kinds(done)).containsExactly("OPINIONS_DONE", "ENDED", "STARTED");
+        assertThat(done.get(0).path("stageId").asString()).isEqualTo(room.interview().stageId().toString());
+        assertThat(done.get(0).path("applicantNames")).hasSize(1);
+        // 의견을 고쳐도 다시 알리지 않는다 (처음 저장한 때가 기준)
+        String at = done.get(0).path("at").asString();
+        expect(room.people().put(room.opinions() + "/me", Map.of("recommendation", "RECOMMEND",
+                "comment", "다시 보니 협업 범위도 분명함")), 200);
+        assertThat(json(expect(room.hr().get(notices), 200)).get(0).path("at").asString()).isEqualTo(at);
+    }
+
+    private static List<String> kinds(JsonNode notices) {
+        return notices.valueStream().map(notice -> notice.path("kind").asString()).toList();
     }
 
     /** kim은 실무 면접관, people은 인사 면접관이다. */
