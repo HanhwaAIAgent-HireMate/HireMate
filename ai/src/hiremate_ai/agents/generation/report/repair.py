@@ -1,7 +1,8 @@
 """모델 설계서의 기계적인 규칙 위반을 코드가 고친다. 검사(check) 전에 한다.
 
-모델에게 다시 쓰게 하면 하나를 고치며 다른 곳을 깨기 쉽다. 그릴 값이 정해진 부분(영역 점수 표, 관점 묶음,
-빈 칸이 있는 막대, 같은 자료를 다시 그린 부품, 섹션당 부품 수, 근거 부품에서 빠진 비교 대상)은 코드가 고치고,
+모델에게 다시 쓰게 하면 하나를 고치며 다른 곳을 깨기 쉽다. 그릴 값이 정해진 부분(값 key의 *, 영역 점수 표,
+관점 묶음, 항목 하나짜리 관점 수, 빈 칸이 있는 막대, 같은 자료를 다시 그린 부품, 섹션당 부품 수, 근거 부품에서 빠진
+비교 대상)은 코드가 고치고,
 문장 문제만 모델에게 돌려준다. 모델이 쓴 문장 · 근거는 바꾸지 않는다. 다만 마지막 시도에서도 읽을 점을 그림
 설명으로 쓰면, 기본 구성으로 떨어지지 않게 그 한 문장만 코드가 판정에서 읽은 사실로 바꾼다.
 """
@@ -14,6 +15,7 @@ from hiremate_ai.agents.generation.report.check import (
     DESCRIBING,
     MAX_SECTION_BLOCKS,
     MAX_SECTIONS,
+    MAX_SINGLE_VIEWS,
     rings_problems,
 )
 from hiremate_ai.agents.generation.report.derive import ring_percent, score_view, split_keys
@@ -65,14 +67,20 @@ def repair(
             done.append(note)
         return after
 
-    sections = [
-        section.model_copy(update={"blocks": _complete_rows(section.blocks, bundle)}) for section in spec.sections
-    ]
+    sections = step(spec.sections, _expand_wildcards(spec.sections, bundle), "값 key의 *를 항목으로 폄")
+    sections = [section.model_copy(update={"blocks": _complete_rows(section.blocks, bundle)}) for section in sections]
+    perspectives = spec.perspectives
     compare = bundle.kind is ReportKind.COMPARE and not bundle.brief
     if compare:
+        expanded = _expand_views(perspectives, bundle)
+        perspectives = _pair_singles(expanded)
+        paired = _paired_rings(sections, bundle)
+        if perspectives != expanded or paired != sections:
+            done.append("항목 하나짜리 관점을 둘씩 묶음")
+        sections = paired
         sections = step(
             sections,
-            _compare_rings(sections, bundle, spec.perspectives, group_by_code=group_by_code),
+            _compare_rings(sections, bundle, perspectives, group_by_code=group_by_code),
             "관점 표를 규칙에 맞게 다시 묶음",
         )
     sections = _without_repeats(sections)
@@ -89,7 +97,69 @@ def repair(
             if added := added[: max(0, MAX_SPLITS - len(splits))]:
                 done.append(f"갈린 이유 {len(added)}건을 판정으로 채움")
                 splits = [*splits, *added]
-    return spec.model_copy(update={"sections": sections, "splits": splits})
+    return spec.model_copy(update={"sections": sections, "splits": splits, "perspectives": perspectives})
+
+
+def _known_keys(bundle: ReportBundle) -> list[str]:
+    """묶음의 값 key. 영역 항목 순서를 먼저 따른다."""
+    return list(dict.fromkeys([*(key for area in bundle.areas for key in area.keys), *(f.key for f in bundle.facts)]))
+
+
+def _expand(keys: list[str], known: list[str]) -> list[str]:
+    """끝에 *를 붙인 key를 그 앞이 같은 key 전부로 편다. 맞는 key가 없으면 그대로 두어 검사가 알린다."""
+    expanded: list[str] = []
+    for key in keys:
+        matched = [k for k in known if k.startswith(key[:-1])] if key.endswith("*") else []
+        expanded += [k for k in matched or [key] if k not in expanded]
+    return expanded
+
+
+def _expand_views(views: list[RingView], bundle: ReportBundle) -> list[RingView]:
+    known = _known_keys(bundle)
+    return [view.model_copy(update={"keys": _expand(view.keys, known)}) for view in views]
+
+
+def _expand_wildcards(sections: list[Section], bundle: ReportBundle) -> list[Section]:
+    """부품 keys의 *를 묶음의 실제 key로 편다. 자료를 읽는 도구가 *를 받으므로 모델이 부품에도 그대로 쓴다."""
+
+    def expand(block: Block) -> Block:
+        if isinstance(block, RingsBlock):
+            return block.model_copy(update={"views": _expand_views(block.views, bundle)})
+        keys = getattr(block, "keys", None)
+        if isinstance(keys, list) and any(key.endswith("*") for key in keys):
+            return block.model_copy(update={"keys": _expand(keys, _known_keys(bundle))})
+        return block
+
+    return [section.model_copy(update={"blocks": [expand(b) for b in section.blocks]}) for section in sections]
+
+
+def _pair_singles(views: list[RingView]) -> list[RingView]:
+    """항목 하나짜리 관점이 MAX_SINGLE_VIEWS개를 넘으면 차례로 둘씩 합친다. 이름은 모델이 지은 두 이름을 잇는다.
+
+    한 항목이면 도넛이 0% 아니면 100%라, 모델에게 다시 묶게 하는 대신 코드가 합친다.
+    개수가 홀수면 맨 앞 하나는 그대로 둔다.
+    """
+    singles = [index for index, view in enumerate(views) if len(view.keys) == 1]
+    if len(singles) <= MAX_SINGLE_VIEWS:
+        return views
+    paired = singles[len(singles) % 2 :]
+    merged = list(views)
+    for first, second in zip(paired[::2], paired[1::2], strict=True):
+        a, b = views[first], views[second]
+        merged[first] = RingView(label=f"{a.label} · {b.label}", keys=list(dict.fromkeys([*a.keys, *b.keys])))
+    drop = set(paired[1::2])
+    return [view for index, view in enumerate(merged) if index not in drop]
+
+
+def _paired_rings(sections: list[Section], bundle: ReportBundle) -> list[Section]:
+    """설계서에 넣은 관점 표의 항목 하나짜리 관점을 둘씩 합친다."""
+
+    def pair(block: Block) -> Block:
+        if isinstance(block, RingsBlock) and _is_perspective(block, bundle):
+            return block.model_copy(update={"views": _pair_singles(block.views)})
+        return block
+
+    return [section.model_copy(update={"blocks": [pair(b) for b in section.blocks]}) for section in sections]
 
 
 def _valid_splits(splits: list[Split], bundle: ReportBundle) -> list[Split]:
