@@ -324,7 +324,9 @@ describe('InterviewRoomPage', () => {
     expect(
       screen.getByText('김하늘 님의 본인 역할을 확인할 질문 하나 더 만들어줘'),
     ).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: '의견 이유' })).toBeInTheDocument()
+    // 의견은 내 면접을 마친 뒤에 남긴다
+    expect(screen.queryByRole('textbox', { name: '의견 이유' })).not.toBeInTheDocument()
+    expect(screen.getByText('내 면접을 종료하면 의견을 남길 수 있어요.')).toBeInTheDocument()
     // 내 메모는 HR 화면의 메모처럼 [메모] 버튼으로 연다
     expect(screen.queryByRole('textbox', { name: '내 메모' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '메모' }))
@@ -501,6 +503,7 @@ describe('InterviewRoomPage', () => {
     expect(people).toHaveTextContent('인사 최인사진행 중')
     expect(screen.queryByRole('button', { name: '면접 종료' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('원장 재설계에서 직접 정한 부분은? 답변')).toBeDisabled()
+    expect(await screen.findByRole('textbox', { name: '의견 이유' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '메모' }))
     expect(await screen.findByRole('textbox', { name: '내 메모' })).toBeDisabled()
   })

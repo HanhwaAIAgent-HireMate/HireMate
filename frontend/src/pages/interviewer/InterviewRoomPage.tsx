@@ -301,11 +301,20 @@ function Room({
                 registerSave={saves.register}
                 savingBeforeEnd={ending}
               />
-              <OpinionCard
-                stageId={stageId}
-                applicationId={applicationId}
-                editable={attendance.data?.stageActive === true}
-              />
+              {/* 의견은 내 면접을 마친 뒤에 남기고, 불참한 지원자에게는 남기지 않는다 (서버도 같은 조건으로 거절한다) */}
+              {status === 'ENDED' || (status === 'IN_PROGRESS' && myEnded) ? (
+                <OpinionCard
+                  stageId={stageId}
+                  applicationId={applicationId}
+                  editable={attendance.data?.stageActive === true}
+                />
+              ) : (
+                status !== 'ABSENT' && (
+                  <p className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
+                    내 면접을 종료하면 의견을 남길 수 있어요.
+                  </p>
+                )
+              )}
             </>
           )}
         </div>

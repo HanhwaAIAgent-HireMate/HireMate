@@ -99,6 +99,8 @@ const MESSAGES: Record<string, string> = {
   INTERVIEW_NOT_SCHEDULED: '면접 일시가 정해져야 면접을 시작할 수 있어요.',
   INTERVIEW_SLOT_STARTED: '이미 시작한 면접 시간이에요. 다른 시간을 골라 주세요.',
   INTERVIEW_ANSWERED: '답변을 기록한 지원자는 불참으로 표시할 수 없어요.',
+  INTERVIEW_NOT_ENDED: '내 면접을 종료한 뒤에 의견을 남길 수 있어요.',
+  INTERVIEW_ABSENT: '불참한 지원자에게는 의견을 남기지 않아요.',
   INTERVIEWERS_READY:
     '면접관이 준비 완료해 질문을 다시 만들 수 없어요. 준비를 취소한 뒤 다시 요청해 주세요.',
 

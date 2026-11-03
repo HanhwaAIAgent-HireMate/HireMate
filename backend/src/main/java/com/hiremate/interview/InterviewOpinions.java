@@ -53,7 +53,7 @@ public class InterviewOpinions {
         return views(session, found, memberId, own);
     }
 
-    /** 내 의견을 쓰거나 고친다. 진행 중인 전형에서만 된다. */
+    /** 내 의견을 쓰거나 고친다. 진행 중인 전형에서 내 면접을 마친 뒤에만 된다. 불참한 지원자에게는 의견이 없다. */
     @Transactional
     public List<OpinionView> save(UUID companyId, UUID stageId, UUID applicationId, UUID memberId,
             String memberName, Recommendation recommendation, String comment) {
@@ -61,6 +61,13 @@ public class InterviewOpinions {
         StageStatus status = recruits.getByStage(companyId, stageId).stage(stageId).orElseThrow().status();
         if (status != StageStatus.ACTIVE) {
             throw new ApiException(HttpStatus.CONFLICT, "STAGE_NOT_ACTIVE", "Opinions are written during the stage.");
+        }
+        if (session.getStatus() == InterviewSessionStatus.ABSENT) {
+            throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_ABSENT", "Absent applicants have no opinions.");
+        }
+        if (!session.endedBy(session.roleOf(memberId))) {
+            throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_NOT_ENDED",
+                    "End your interview before writing an opinion.");
         }
         InterviewOpinion opinion = opinions.findById(new InterviewOpinion.Key(stageId, applicationId, memberId))
                 .orElseGet(() -> new InterviewOpinion(stageId, applicationId, memberId, companyId));
