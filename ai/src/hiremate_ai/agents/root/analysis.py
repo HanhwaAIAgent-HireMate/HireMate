@@ -14,7 +14,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool, ToolException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
+from hiremate_ai.agents.guardrails import blocked_attribute, blocked_reply
 from hiremate_ai.agents.root.delegation import KEEP_CALLS, Delegation
 from hiremate_ai.agents.root.find import SEARCH_STATUS, SearchQuery, plan_find, search_criteria
 from hiremate_ai.agents.root.ledger import Ledger
@@ -343,8 +343,8 @@ def _tools(llm: LlmClient, toolkit: RootToolkit, progress: Progress) -> list[Bas
         run = runtime.context
         if not has_condition(query):
             raise ToolException(EMPTY_FIND)
-        if blocked_attribute(" ".join(search_criteria(query, run.chat))):
-            return BLOCKED_REPLY
+        if term := blocked_attribute(" ".join(search_criteria(query, run.chat)), blind=run.chat.posting.blind):
+            return blocked_reply(term)
         rows = [resolve_ref(run.chat, ref) for ref in pool] if pool is not None else None
         if rows is not None and any(row is None for row in rows):
             return OUT_OF_SCOPE

@@ -5,7 +5,7 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from root_context import extra_row, form_call, make_context
 
-from hiremate_ai.agents.guardrails import BLOCKED_REPLY
+from hiremate_ai.agents.guardrails import BLIND_BLOCKED_REPLY, BLOCKED_REPLY
 from hiremate_ai.agents.root.find import RecheckItem, RecheckResult
 from hiremate_ai.agents.root.graph import (
     BUDGET_EXHAUSTED,
@@ -355,3 +355,14 @@ async def test_nodes_return_request_values_as_state_updates(
 
     planned = next(update["plan"] for update in updates if "plan" in update)
     assert planned["run"].plan is not None and planned["run"].rows == [context.candidates[0]]
+
+
+async def test_blind_hiring_blocks_school_search_without_model(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    blind = sample_posting.model_copy(update={"blind": True})
+    context = context_of(sample_applicants, sample_company, blind, message="한빛대 출신 찾아줘")
+    llm = FakeLlm()
+
+    assert await run_plan(llm, context) == ChatPlan.answer(Intent.BLOCKED, BLIND_BLOCKED_REPLY)
+    assert llm.calls == []

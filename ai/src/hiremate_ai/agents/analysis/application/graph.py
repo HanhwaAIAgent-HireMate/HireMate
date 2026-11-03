@@ -117,7 +117,7 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
                     recipe_hash=recipe,
                     extracted=result,
                 )
-        facts, periods = merge(documents, extracted, context.today)
+        facts, periods = merge(documents, extracted, context.today, blind=context.posting.blind)
         return {"facts": facts, "periods": periods, "sections": sections}
 
     async def judge(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:

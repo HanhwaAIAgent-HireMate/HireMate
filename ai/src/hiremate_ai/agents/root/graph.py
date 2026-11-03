@@ -18,7 +18,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
-from hiremate_ai.agents.guardrails import BLOCKED_REPLY, blocked_attribute
+from hiremate_ai.agents.guardrails import blocked_attribute, blocked_reply
 from hiremate_ai.agents.root.analysis import (
     AnswerOutput,
     ClarifyOutput,
@@ -117,8 +117,9 @@ def build_root_graph(
         context = runtime.context
         run = RootRun(budget=new_model_call_budget(settings.llm_agent_max_calls))
         started: RootState = {"steps": [step(CHECKING)], "started": time.monotonic(), "run": run}
-        if blocked_attribute(context.message):
-            return {**started, "plan": ChatPlan.answer(Intent.BLOCKED, BLOCKED_REPLY)}
+        # 블라인드 채용이면 학력 · 출신 학교로 찾거나 거르는 요청도 막는다
+        if term := blocked_attribute(context.message, blind=context.posting.blind):
+            return {**started, "plan": ChatPlan.answer(Intent.BLOCKED, blocked_reply(term))}
         if set(context.mentions) - {row.application_id for row in context.candidates}:
             return {**started, "plan": ChatPlan.answer(Intent.CLARIFY, NOT_IN_STAGE)}
         return started
