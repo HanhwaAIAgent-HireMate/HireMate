@@ -50,8 +50,9 @@ export function CareersHeader({
 export function BlindNotice() {
   return (
     <p className="rounded-lg bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
-      블라인드 채용이에요. 이력서와 자기소개서에 사진, 출신 학교, 나이, 가족 관계처럼 직무와
-      관계없는 개인 정보를 쓰지 말아 주세요.
+      이 채용은 블라인드로 진행해요. 이력서와 자기소개서에 사진, 출신 학교, 학점, 나이, 가족
+      관계처럼 직무와 관계없는 개인 정보를 쓰지 말아 주세요. 이런 정보를 쓰면 불이익이 있을 수
+      있어요. 전공과 직무 경험은 써도 돼요.
     </p>
   )
 }
