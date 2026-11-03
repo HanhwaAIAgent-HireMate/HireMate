@@ -18,7 +18,7 @@ export const stageGuideKeys = {
     [...stageGuideKeys.all(recruitmentId), stageIds] as const,
 }
 
-/** 공고 작성 화면의 전형별 안내. 첫 전형은 안내하는 메일이 없어 빠져 있다. */
+/** 전형별 안내. 전형 결과 화면에서 다음 전형의 안내를 고친다. 첫 전형은 안내하는 메일이 없어 빠져 있다. */
 export function useStageGuides(recruitmentId: string, stageIds: string) {
   return useQuery({
     queryKey: stageGuideKeys.stages(recruitmentId, stageIds),
