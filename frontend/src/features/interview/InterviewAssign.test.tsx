@@ -10,6 +10,8 @@ function mockServer({
   assigned = false,
   locked = false,
   started = false,
+  /** 면접이 시작돼 원래 면접관이 그대로 맡는 지원자 수 (서버가 알려 준다) */
+  startedCount = 0,
   assignmentError = '',
 } = {}) {
   const puts: { path: string; body: unknown }[] = []
@@ -32,7 +34,13 @@ function mockServer({
         if (input.method === 'PUT') {
           const body: unknown = await input.clone().json()
           puts.push({ path, body })
-          return Response.json({ stageId: 's1', ...(body as object), locked, version: 1 })
+          return Response.json({
+            stageId: 's1',
+            ...(body as object),
+            locked,
+            started: startedCount,
+            version: 1,
+          })
         }
         if (assignmentError)
           return Response.json(
@@ -45,6 +53,7 @@ function mockServer({
               hrMemberId: 'choi',
               practicalMemberId: 'kim',
               locked,
+              started: startedCount,
               version: 3,
             })
           : Response.json({ code: 'INTERVIEW_ASSIGNMENT_NOT_FOUND' }, { status: 404 })
@@ -101,13 +110,35 @@ describe('전형 공통 면접관 배정', () => {
     expect(screen.getByRole('combobox', { name: '인사 면접관' })).toHaveValue('choi')
     expect(screen.getByRole('combobox', { name: '실무 면접관' })).toHaveValue('kim')
   })
-  it('다른 지원자의 면접이 시작되면 전형 전체 배정을 잠그고 보기만 한다', async () => {
-    mockServer({ assigned: true, started: true })
+  it('면접이 시작된 뒤에도 아직 시작하지 않은 면접의 면접관은 바꾼다', async () => {
+    const puts = mockServer({ assigned: true, started: true, startedCount: 2 })
+    renderAssign()
+    fireEvent.click(await screen.findByRole('button', { name: '면접관 배정' }))
+    expect(screen.getByRole('note')).toHaveTextContent(
+      '면접이 시작된 지원자 2명은 지금 면접관이 그대로 맡아요. 바뀌는 면접관이 시작 전 면접에 남긴 준비 완료와 메모는 지워져요.',
+    )
+    await screen.findAllByRole('option', { name: '김지민 (kim@x)' })
+    fireEvent.change(screen.getByRole('combobox', { name: '인사 면접관' }), {
+      target: { value: 'kim' },
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: '실무 면접관' }), {
+      target: { value: 'choi' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '적용' }))
+    await vi.waitFor(() =>
+      expect(puts).toEqual([
+        {
+          path: '/api/stages/s1/interview/assignment',
+          body: { hrMemberId: 'kim', practicalMemberId: 'choi', expectedVersion: 3 },
+        },
+      ]),
+    )
+  })
+  it('모든 면접이 시작되면 서버가 잠근 배정을 보기만 한다', async () => {
+    mockServer({ assigned: true, started: true, locked: true, startedCount: 1 })
     renderAssign()
     fireEvent.click(await screen.findByRole('button', { name: '면접관 보기' }))
-    expect(
-      screen.getByText('면접이 시작된 지원자가 있어 면접관을 바꿀 수 없어요.'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('모든 면접이 시작돼 면접관을 바꿀 수 없어요.')).toBeInTheDocument()
     expect(await screen.findByText('최인사')).toBeInTheDocument()
     expect(screen.getByText('김지민')).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
@@ -125,7 +156,7 @@ describe('전형 공통 면접관 배정', () => {
     fireEvent.click(await screen.findByRole('button', { name: '면접관 보기' }))
     expect(await screen.findByText('최인사')).toBeInTheDocument()
     expect(
-      screen.queryByText('면접이 시작된 지원자가 있어 면접관을 바꿀 수 없어요.'),
+      screen.queryByText('모든 면접이 시작돼 면접관을 바꿀 수 없어요.'),
     ).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
