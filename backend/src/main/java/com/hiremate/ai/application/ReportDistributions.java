@@ -11,6 +11,7 @@ import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageInfo;
 import com.hiremate.recruit.StageType;
+import com.hiremate.screening.CandidateFilter;
 import com.hiremate.screening.CandidateRow;
 import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.Decision;
@@ -74,13 +75,14 @@ public class ReportDistributions {
             throw new ApiException(HttpStatus.CONFLICT, "NOT_DOCUMENT_STAGE",
                     "Distribution reports are for document stages.");
         }
-        List<CandidateRow> rows = rows(companyId, stageId, sort);
+        List<CandidateRow> rows = rows(companyId, stageId);
         Map<UUID, ApplicantInfo> infos = applications.applicants(companyId,
                 rows.stream().map(CandidateRow::applicationId).toList()).stream()
                 .collect(Collectors.toMap(ApplicantInfo::applicationId, Function.identity()));
         rows = rows.stream().filter(row -> infos.containsKey(row.applicationId())).toList();
         ScreeningRubric rubric = postings.screeningRubric(companyId, recruitment.id());
-        List<String> requiredIds = screening.requirements(companyId, stageId).criterionIds();
+        List<String> requiredIds = rubric.criteria().stream().filter(ScreeningService::required)
+                .map(ScreeningRubric.Criterion::criterionId).toList();
         Map<String, String> texts = rubric.criteria().stream().collect(Collectors.toMap(
                 ScreeningRubric.Criterion::criterionId, ScreeningRubric.Criterion::text, (a, b) -> a,
                 LinkedHashMap::new));
@@ -130,10 +132,10 @@ public class ReportDistributions {
         }
     }
 
-    private List<CandidateRow> rows(UUID companyId, UUID stageId, CandidateSort sort) {
+    private List<CandidateRow> rows(UUID companyId, UUID stageId) {
         List<CandidateRow> rows = new ArrayList<>();
         for (int page = 0;; page++) {
-            var result = screening.candidates(companyId, stageId, null, null, sort, page, PAGE);
+            var result = screening.candidates(companyId, stageId, null, null, CandidateFilter.NONE, page, PAGE);
             rows.addAll(result.items());
             if (rows.size() >= result.total() || result.items().isEmpty()) {
                 return rows;

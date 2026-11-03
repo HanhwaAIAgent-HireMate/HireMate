@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
@@ -43,7 +44,7 @@ class DummyAssessmentTests extends IntegrationTest {
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());
         Map<String, UUID> ids = awaitApplicants(hr.companyId(), recruitmentId, 3);
         ids.values().forEach(id -> applications.recordAnalysis(id,
-                ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of())));
+                ApplicationAnalysis.of(3, "OO카드", List.of())));
 
         // 김도현 · 외부인은 서류 합격, 이서윤은 불합격
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
@@ -78,7 +79,7 @@ class DummyAssessmentTests extends IntegrationTest {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {
             List<ApplicantInfo> analyzed = applications.applicants(companyId, recruitmentId).stream()
-                    .filter(applicant -> applicant.documentScore() != null)
+                    .filter(applicant -> applicant.analysisStatus() == AnalysisStatus.DONE)
                     .toList();
             if (analyzed.size() == count) {
                 return analyzed.stream().collect(Collectors.toMap(ApplicantInfo::email, ApplicantInfo::applicationId));

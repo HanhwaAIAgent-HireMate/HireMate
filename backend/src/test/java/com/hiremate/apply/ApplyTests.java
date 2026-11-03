@@ -50,7 +50,6 @@ class ApplyTests extends IntegrationTest {
 
         ApplicantInfo analyzed = awaitAnalysis(hr.companyId(), posting.recruitmentId());
         assertThat(analyzed.analysisStatus()).isEqualTo(AnalysisStatus.DONE);
-        assertThat(analyzed.documentScore()).isNotNull();
         assertThat(applications.detail(hr.companyId(), UUID.fromString(applicationId)).documents().getFirst().text())
                 .contains("Java");
 

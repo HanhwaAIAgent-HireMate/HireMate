@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures;
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.apply.CriterionMark;
@@ -14,7 +15,6 @@ import com.hiremate.job.JobResult;
 import com.hiremate.job.JobStatus;
 import com.hiremate.report.AgentReportKind;
 import com.hiremate.report.AgentReportService;
-import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
@@ -80,13 +80,7 @@ class AgentReportTests extends IntegrationTest {
     void compareReportBundleHasStoredCriterionMarks() throws Exception {
         Stage stage = startDocumentStage(2);
         UUID first = UUID.fromString(stage.ids().getFirst());
-        ApplicationAnalysis base = ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(80), true, false,
-                List.of());
-        applications.recordAnalysis(first, new ApplicationAnalysis(base.careerYears(), base.lastCompany(),
-                base.criteriaVersion(), base.qualificationStatus(), base.qualificationRate(),
-                base.qualificationScore(), base.qualificationMax(), base.preferenceScore(), base.preferenceMax(),
-                base.documentScore(), base.documentScoreLow(), base.qualificationScoreLow(), base.passed(),
-                base.held(), base.shortfalls(),
+        applications.recordAnalysis(first, new ApplicationAnalysis(3, "OO카드", null, List.of(),
                 Map.of("Q-01", CriterionMark.MET, "Q-02", CriterionMark.PARTIAL, "Z-99", CriterionMark.MET)));
 
         JsonNode requested = json(expect(stage.hr().post(stage.path() + "/reports/compare",
@@ -242,8 +236,7 @@ class AgentReportTests extends IntegrationTest {
         awaitAnalyzed(hr.companyId(), recruitmentId, applicants);
         for (var applicant : applications.applicants(hr.companyId(), recruitmentId)) {
             int order = Integer.parseInt(applicant.name().replace("지원자", ""));
-            applications.recordAnalysis(applicant.applicationId(), ApplicationAnalysis.of(order, "OO카드",
-                    BigDecimal.valueOf(100 - order * 10), true, false, List.of()));
+            applications.recordAnalysis(applicant.applicationId(), ApplicationAnalysis.of(order, "OO카드", List.of()));
         }
         List<String> ids = applications.applicants(hr.companyId(), recruitmentId).stream()
                 .sorted(Comparator.comparing(applicant -> applicant.name()))
@@ -256,7 +249,7 @@ class AgentReportTests extends IntegrationTest {
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (Instant.now().isBefore(deadline)) {
             if (applications.applicants(companyId, recruitmentId).stream()
-                    .filter(applicant -> applicant.documentScore() != null).count() == count) {
+                    .filter(applicant -> applicant.analysisStatus() == AnalysisStatus.DONE).count() == count) {
                 return;
             }
             Thread.sleep(200);

@@ -11,8 +11,8 @@ import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageInfo;
 import com.hiremate.recruit.StageType;
+import com.hiremate.screening.CandidateFilter;
 import com.hiremate.screening.CandidateRow;
-import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
 import java.math.BigDecimal;
@@ -209,7 +209,7 @@ public class ReportBundles {
         List<CandidateRow> rows = new ArrayList<>();
         for (int page = 0;; page++) {
             // 리포트는 탭의 선택 표시와 무관하다
-            var result = screening.candidates(companyId, stageId, null, null, CandidateSort.BASIC, page, PAGE);
+            var result = screening.candidates(companyId, stageId, null, null, CandidateFilter.NONE, page, PAGE);
             rows.addAll(result.items());
             if (rows.size() >= result.total() || result.items().isEmpty()) {
                 return rows;

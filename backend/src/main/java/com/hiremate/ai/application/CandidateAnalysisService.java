@@ -72,14 +72,14 @@ public class CandidateAnalysisService {
                             : CandidateTable.Group.PREFERENCE,
                     criterion.criterionType() == ScreeningRubric.CriterionType.CONDITION ? CandidateTable.Kind.CONDITION
                             : CandidateTable.Kind.EXPERIENCE,
-                    labels.get(index), criterion.text()));
+                    labels.get(index), criterion.text(), ScreeningService.required(criterion)));
         }
         for (int index = 0; index < talents.size(); index++) {
             Talent talent = talents.get(index);
             String text = talent.description().isBlank() ? talent.title()
                     : talent.title() + " - " + talent.description();
             features.add(new CandidateTable.Feature("T-" + (index + 1), CandidateTable.Group.TALENT,
-                    CandidateTable.Kind.EXPERIENCE, labels.get(criteria.size() + index), text));
+                    CandidateTable.Kind.EXPERIENCE, labels.get(criteria.size() + index), text, false));
         }
         return new CandidateTable(features);
     }
@@ -108,12 +108,14 @@ public class CandidateAnalysisService {
     private TalentFit judge(UUID companyId, UUID recruitmentId, UUID applicationId, List<Talent> talents) {
         TalentFit fit = analyst.talents(new TalentFitRequest(companyId, recruitmentId, applicationId, talents));
         if (!fit.stub()) {
-            applications.recordTalents(applicationId, fit.items().stream()
-                    .filter(item -> item.level() == TalentFit.Level.HIGH)
-                    .map(TalentFit.Match::title)
-                    .toList());
+            applications.recordTalents(applicationId, titles(fit, TalentFit.Level.HIGH),
+                    titles(fit, TalentFit.Level.MID));
         }
         return fit;
+    }
+
+    private static List<String> titles(TalentFit fit, TalentFit.Level level) {
+        return fit.items().stream().filter(item -> item.level() == level).map(TalentFit.Match::title).toList();
     }
 
     private List<String> labels(List<String> texts) {

@@ -18,10 +18,10 @@ import com.hiremate.ai.application.ChatHistoryTurn;
 import com.hiremate.ai.application.ChatItem;
 import com.hiremate.ai.application.ChatPlan;
 import com.hiremate.ai.application.RootAgent;
+import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.apply.CriterionMark;
-import com.hiremate.apply.QualificationStatus;
 import com.hiremate.global.ApiException;
 import com.hiremate.screening.Decision;
 import com.hiremate.screening.ScreeningService;
@@ -36,7 +36,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -317,10 +316,9 @@ class ChatSelectionTests extends IntegrationTest {
                 .filteredOn(row -> row.applicationId().equals(decided)).allMatch(row -> row.aiSelected());
     }
 
-    @ParameterizedTest
-    @EnumSource(value = ChatPlan.EditAction.class, names = {"CLEAR", "RESTORE"})
-    @DisplayName("선택을 비우거나 되돌려도 이미 결정된 지원자의 결정 복구 표시는 보존한다")
-    void selectionEditPreservesDecidedApplicant(ChatPlan.EditAction action) throws Exception {
+    @Test
+    @DisplayName("선택을 비워도 이미 결정된 지원자의 결정 복구 표시는 보존한다")
+    void selectionEditPreservesDecidedApplicant() throws Exception {
         Setup setup = documentStage();
         UUID decided = setup.ids().getFirst();
         screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), setup.tabId(),
@@ -331,7 +329,8 @@ class ChatSelectionTests extends IntegrationTest {
         screening.decide(setup.hr().companyId(), setup.stageId(), setup.hr().memberId(), List.of(decided),
                 Decision.PASS);
         screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids().subList(1, 2));
-        when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.EDIT, null, action, List.of(),
+        when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.EDIT, null,
+                ChatPlan.EditAction.CLEAR, List.of(),
                 "선택 지원자를 편집했어요.", List.of(), List.of(), List.of(), List.of()));
 
         ask(setup);
@@ -343,8 +342,8 @@ class ChatSelectionTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("좁히기는 유지할 대상을 반영하고 되돌리기는 직전 두 명과 수동 선택 표시를 복구한다")
-    void narrowingCanRestorePreviousSelection() throws Exception {
+    @DisplayName("좁히기는 유지할 대상만 남기고 AI 표시를 붙인다")
+    void narrowingKeepsRetainedApplicants() throws Exception {
         Setup setup = documentStage();
         screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids());
         UUID retained = setup.ids().getFirst();
@@ -361,28 +360,6 @@ class ChatSelectionTests extends IntegrationTest {
                 .extracting(row -> row.applicationId()).containsExactly(retained);
         assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
                 .allMatch(row -> row.aiSelected());
-        screening.restore(setup.hr().companyId(), setup.stageId(), setup.tabId());
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
-                .hasSize(2).allMatch(row -> !row.aiSelected());
-    }
-
-    @Test
-    @DisplayName("되돌리기로 대상 수가 같아도 AI 표시가 바뀌면 화면을 갱신한다")
-    void restoringSelectionMarksRequiresRefresh() throws Exception {
-        Setup setup = documentStage();
-        screening.add(setup.hr().companyId(), setup.stageId(), setup.tabId(), setup.ids());
-        screening.clear(setup.hr().companyId(), setup.stageId(), setup.tabId());
-        screening.applyAiSelection(setup.hr().companyId(), setup.stageId(), setup.tabId(),
-                SelectionMode.ADD, setup.ids());
-        when(root.plan(any(), any())).thenReturn(new ChatPlan(ChatPlan.Intent.EDIT, null,
-                ChatPlan.EditAction.RESTORE, List.of(), "직전 선택으로 되돌렸어요.", List.of(),
-                List.of(), List.of(), List.of()));
-
-        JsonNode answer = ask(setup);
-
-        assertThat(answer.path("selectionChanged").asBoolean()).isTrue();
-        assertThat(screening.selection(setup.hr().companyId(), setup.stageId(), setup.tabId()).items())
-                .hasSize(2).allMatch(row -> !row.aiSelected());
     }
 
     @Test
@@ -508,17 +485,15 @@ class ChatSelectionTests extends IntegrationTest {
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());
         Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
         while (applications.applicants(hr.companyId(), recruitmentId).stream()
-                .filter(applicant -> applicant.documentScore() != null).count() < 2
+                .filter(applicant -> applicant.analysisStatus() == AnalysisStatus.DONE).count() < 2
                 && Instant.now().isBefore(deadline)) {
             Thread.sleep(200);
         }
         List<UUID> ids = applications.applicants(hr.companyId(), recruitmentId).stream()
                 .map(applicant -> applicant.applicationId()).toList();
         // 필수 조건(중요 표시한 자격요건 Q-01 · Q-02)을 채워 두 지원자 모두 선 위에 둔다
-        BigDecimal score = BigDecimal.valueOf(90);
         for (UUID id : ids) {
-            applications.recordAnalysis(id, new ApplicationAnalysis(3, "OO카드", null, QualificationStatus.PASSED,
-                    null, null, 50, null, 50, score, score, null, true, false, List.of(),
+            applications.recordAnalysis(id, new ApplicationAnalysis(3, "OO카드", null, List.of(),
                     Map.of("Q-01", CriterionMark.MET, "Q-02", CriterionMark.MET)));
         }
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));

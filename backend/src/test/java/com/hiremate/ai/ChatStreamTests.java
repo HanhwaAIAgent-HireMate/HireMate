@@ -20,8 +20,8 @@ import com.hiremate.ai.application.RootAgent;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.global.ApiException;
+import com.hiremate.screening.CandidateFilter;
 import com.hiremate.screening.CandidateRow;
-import com.hiremate.screening.CandidateSort;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.SelectionMode;
 import java.io.IOException;
@@ -134,7 +134,7 @@ class ChatStreamTests extends IntegrationTest {
         assertThatThrownBy(() -> chat.run(input, gone)).isInstanceOf(UncheckedIOException.class);
 
         assertThat(screening.candidates(hr.companyId(), setup.stageId(), setup.tabId(), null,
-                CandidateSort.BASIC, 0, 10).items())
+                CandidateFilter.NONE, 0, 10).items())
                 .noneMatch(CandidateRow::selected);
     }
 
@@ -151,7 +151,7 @@ class ChatStreamTests extends IntegrationTest {
         }
         UUID applicant = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
         applications.recordAnalysis(applicant,
-                ApplicationAnalysis.of(3, "OO카드", BigDecimal.valueOf(90), true, false, List.of()));
+                ApplicationAnalysis.of(3, "OO카드", List.of()));
         JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         UUID stageId = UUID.fromString(closed.path("stages").get(0).path("id").asString());
         return new Setup(hr, stageId, applicant, TestFixtures.firstTab(hr, stageId));

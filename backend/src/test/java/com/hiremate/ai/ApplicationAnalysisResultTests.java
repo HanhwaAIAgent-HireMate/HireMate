@@ -53,9 +53,9 @@ class ApplicationAnalysisResultTests extends IntegrationTest {
                 info -> info.analysisStatus() == AnalysisStatus.DONE).applicationId();
 
         send(applicationId, JobStatus.DONE,
-                ApplicationAnalysis.of(7, "한빛카드", new BigDecimal("73.3"), true, false, List.of("Git 근거 없음")));
+                ApplicationAnalysis.of(7, "한빛카드", List.of("Git 근거 없음")));
         ApplicantInfo recorded = await(hr.companyId(), recruitmentId,
-                info -> new BigDecimal("73.3").equals(info.documentScore()));
+                info -> Integer.valueOf(7).equals(info.careerYears()));
         assertThat(recorded.careerYears()).isEqualTo(7);
         assertThat(recorded.lastCompany()).isEqualTo("한빛카드");
         assertThat(recorded.shortfalls()).containsExactly("Git 근거 없음");

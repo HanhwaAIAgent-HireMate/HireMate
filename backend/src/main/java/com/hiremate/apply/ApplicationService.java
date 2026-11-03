@@ -168,10 +168,10 @@ public class ApplicationService {
         return applications.findById(applicationId).orElseThrow(ApplicationService::notFound).getCompanyId();
     }
 
-    /** 상으로 판정한 인재상을 남긴다. 전체 지원자의 인재상 포함 정렬에 쓴다. */
+    /** 상 · 중으로 판정한 인재상을 남긴다. 상은 전체 지원자 정렬에, 상 · 중은 전체 지원자 거르기에 쓴다. */
     @Transactional
-    public void recordTalents(UUID applicationId, List<String> titles) {
-        applications.findById(applicationId).ifPresent(application -> application.recordTalents(titles));
+    public void recordTalents(UUID applicationId, List<String> high, List<String> mid) {
+        applications.findById(applicationId).ifPresent(application -> application.recordTalents(high, mid));
     }
 
     @Transactional
@@ -240,11 +240,8 @@ public class ApplicationService {
     private static ApplicantInfo toInfo(JobApplication application) {
         return new ApplicantInfo(application.getId(), application.getRecruitmentId(), application.getApplicationNo(),
                 application.getName(), application.getEmail(), application.getCareerYears(),
-                application.getLastCompany(), application.getDocumentScore(), application.getDocumentScoreLow(),
-                application.isScorePassed(), application.isScoreHeld(),
-                application.shortfalls(), application.getQualificationStatus(), application.getQualificationScore(),
-                application.getQualificationScoreLow(), application.getQualificationMax(),
-                application.getPreferenceScore(), application.getPreferenceMax(), application.getAnalysisStatus(),
-                application.getSubmittedAt(), application.criterionMarks(), application.highTalents());
+                application.getLastCompany(), application.shortfalls(), application.getAnalysisStatus(),
+                application.getSubmittedAt(), application.criterionMarks(), application.highTalents(),
+                application.midTalents());
     }
 }
