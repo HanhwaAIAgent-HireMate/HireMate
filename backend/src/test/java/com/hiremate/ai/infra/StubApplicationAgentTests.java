@@ -24,7 +24,7 @@ class StubApplicationAgentTests {
 
     private static ScreeningRubric.Criterion criterion(String id, String text, ScreeningRubric.CriterionType type) {
         return new ScreeningRubric.Criterion(id, ScreeningRubric.Category.QUALIFICATION, text, false, type,
-                new ScreeningRubric.EvaluationRules("", null, ""), List.of(), null);
+                new ScreeningRubric.EvaluationRules("", null, ""), List.of());
     }
 
     @Test

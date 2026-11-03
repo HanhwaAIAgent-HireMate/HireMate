@@ -90,8 +90,8 @@ hiremate:
     # 서류 평가 기준 더미. 공고 작성 화면에서 평가 기준을 입력하고 확정하기 전까지 모든 채용에 쓴다.
     # text는 공고 본문의 자격요건 · 우대사항과 같아야 짝이 맞는다. important(중요 표시) · criterion-type은 사람이 정하고
     # Agent는 바꾸지 않는다. 서류 점수에서는 important와 상관없이 영역 안의 항목이 모두 같은 비중이다. criterion-type: CONDITION(조건형 0 · 1) · SINGLE(단일 능력 · 경험형 0 · 1) ·
-    # COMPOSITE(복합 경험형 0 · 0.5 · 1). 판정 기준은 NCS 능력단위(ncs-unit-code)를 참고해 쓴 초안이고,
-    # NCS는 출처로만 남긴다. certificates가 있으면 자격증 보유 조건으로 코드가 이름을 확인한다
+    # COMPOSITE(복합 경험형 0 · 0.5 · 1). 판정 기준은 사람이 확정하기 전의 초안이다.
+    # certificates가 있으면 자격증 보유 조건으로 코드가 이름을 확인한다
     screening-rubric:
       criteria-version: dummy-2026-10-22
       hire-count: 1
@@ -151,7 +151,6 @@ hiremate:
               인터페이스 설계의 일부만 본인이 했다. 연동 대상 · 송수신 데이터를 정하거나 API 명세를 썼지만
               오류 시 처리 방안까지는 드러나지 않는다.
             unmet: 연동 기능을 쓰거나 구현만 했고 설계한 기록이 서류에서 확인되지 않는다.
-          ncs-unit-code: 2001020218_23v6
         - criterion-id: P-02
           category: PREFERENCE
           text: 연동 API를 구현하고 오류 · 보안 처리를 적용한 경험
@@ -163,7 +162,6 @@ hiremate:
               보안 처리(인증 · 암호화 · 서명 검증 등)를 모두 적용했다.
             partial: 연동 기능을 본인이 구현했고 예외 처리와 보안 처리 가운데 하나만 드러난다.
             unmet: 연동 기능을 구현한 기록이 없거나, 구현했어도 예외 · 보안 처리가 서류에서 확인되지 않는다.
-          ncs-unit-code: 2001020212_23v6
         - criterion-id: P-03
           category: PREFERENCE
           text: 요구사항을 분석 · 확인해 개발 범위를 정한 경험
@@ -175,7 +173,6 @@ hiremate:
               (예: 요구사항 정의서 작성, 범위 협의를 이끎).
             partial: 요구사항 분석 · 검토에 참여해 의견을 냈지만 개발 범위를 정한 데까지는 드러나지 않는다.
             unmet: 정해진 요구사항대로 구현한 기록만 있다.
-          ncs-unit-code: 2001020201_23v5
         - criterion-id: P-04
           category: PREFERENCE
           text: 빌드 · 배포 자동화(CI/CD)를 구성한 경험
@@ -189,7 +186,6 @@ hiremate:
               빌드 스크립트나 파이프라인 일부(테스트 · 빌드 단계 등)만 본인이 구성했고,
               운영 배포나 복원 절차는 드러나지 않는다.
             unmet: 이미 구성된 파이프라인을 쓴 기록만 있거나 서류에서 확인되지 않는다.
-          ncs-unit-code: 2001020214_23v6
         - criterion-id: P-05
           category: PREFERENCE
           text: 클래스 · 데이터 모델 등 정적 모델을 설계한 경험
@@ -199,7 +195,6 @@ hiremate:
             met: 클래스 · 엔티티 · 데이터 모델(ERD 등)을 본인이 상세 설계하고 설계서나 다이어그램으로 남겼다.
             partial: 엔티티 · 테이블 설계를 본인이 했지만 설계서나 다이어그램 같은 결과물은 드러나지 않는다.
             unmet: 정적 모델을 설계한 기록이 서류에서 확인되지 않는다.
-          ncs-unit-code: 2001020222_23v6
   files:
     # 로컬 개발용 파일 저장 위치. 운영은 비공개 S3를 쓴다
     local-dir: ${HIREMATE_FILES_DIR:${user.home}/.hiremate/files}

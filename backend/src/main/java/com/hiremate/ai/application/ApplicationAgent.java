@@ -7,7 +7,7 @@ import com.hiremate.posting.ScreeningRubric;
 import java.util.Optional;
 
 /**
- * Application Agent. 제출 자료를 공고의 자격요건과 우대 사항(NCS 평가 조건)에 맞춰 보고 지원자 요약과 서류 점수를 매긴다.
+ * Application Agent. 제출 자료를 공고의 자격요건과 우대 사항에 맞춰 보고 지원자 요약과 서류 점수를 매긴다.
  * 결정은 하지 않는다. 근거가 부족하면 점수를 보류한다.
  *
  * <p>stub은 결과를 바로 돌려준다. remote는 분석 작업을 대기열(job 모듈)에 넣고 빈 값을 돌려주며, AI 워커가 끝낸 결과는

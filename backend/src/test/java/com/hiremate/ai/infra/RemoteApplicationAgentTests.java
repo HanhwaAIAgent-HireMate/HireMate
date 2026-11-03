@@ -38,7 +38,7 @@ class RemoteApplicationAgentTests {
             List.of(new ScreeningRubric.Criterion("P-01", ScreeningRubric.Category.PREFERENCE,
                     "외부 시스템 연동 인터페이스를 설계한 경험", true, ScreeningRubric.CriterionType.COMPOSITE,
                     new ScreeningRubric.EvaluationRules("본인이 설계했다", "일부만 설계했다", "설계 기록이 없다"),
-                    List.of(), "2001020218_23v6")));
+                    List.of())));
 
     @Test
     @DisplayName("지원서 · 공고 · 평가 기준을 application/analyze 작업으로 대기열에 넣고 결과를 기다리지 않는다")

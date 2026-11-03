@@ -36,11 +36,9 @@ public record ScreeningRubric(UUID companyId, UUID recruitmentId, String criteri
      * @param criterionId 예: Q-01, P-01
      * @param important 중요 표시. 면접 질문을 정리할 때 참고하고 서류 점수에는 쓰지 않는다
      * @param certificates 자격증 보유 조건이면 인정하는 자격증 이름
-     * @param ncsUnitCode 판정 기준 초안을 쓸 때 참고한 NCS 능력단위코드 (출처로만 보관한다)
      */
     public record Criterion(String criterionId, Category category, String text, boolean important,
-            CriterionType criterionType, EvaluationRules evaluationRules, List<String> certificates,
-            @Schema(nullable = true) String ncsUnitCode) {
+            CriterionType criterionType, EvaluationRules evaluationRules, List<String> certificates) {
 
         public Criterion {
             certificates = certificates == null ? List.of() : List.copyOf(certificates);
