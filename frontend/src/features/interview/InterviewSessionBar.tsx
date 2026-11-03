@@ -282,7 +282,7 @@ export function InterviewSessionBar({
                 : '내 면접을 종료할까요?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {`${self === 'IN_PROGRESS' ? `${interview.applicantName} 님에게 답변이 없는 내 질문 ${mine.length - recorded}개가 있어요. ` : ''}작성한 답변을 모두 저장한 뒤 종료해요. 종료하면 내 답변과 메모를 더 이상 고칠 수 없어요. 다른 면접관도 종료하면 면접이 끝나요.`}
+              {`${self === 'IN_PROGRESS' ? `${interview.applicantName} 님에게 답변이 없는 내 질문 ${mine.length - recorded}개가 있어요. ` : ''}작성한 답변을 모두 저장한 뒤 종료해요. 종료하면 내 답변은 더 이상 고칠 수 없고, 나만 보는 메모는 계속 고칠 수 있어요. 다른 면접관도 종료하면 면접이 끝나요.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
