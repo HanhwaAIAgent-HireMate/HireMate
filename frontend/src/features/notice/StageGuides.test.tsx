@@ -1,14 +1,16 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '@/app/query-client'
 import { NextStageGuide } from './StageGuides'
 
+// jsdom에는 화면 스크롤이 없다
+const scroll = vi.fn()
+
 beforeAll(() => {
-  // jsdom에는 화면 스크롤이 없다
-  Element.prototype.scrollIntoView = vi.fn()
+  Element.prototype.scrollIntoView = scroll
 })
 
 afterEach(() => vi.unstubAllGlobals())
@@ -45,26 +47,20 @@ function renderGuide(path: string) {
   )
 }
 
-it('다음 전형 안내는 비어 있는 칸을 알리며 접혀 있고, 누르면 입력 칸을 연다', async () => {
+it('다음 전형 안내는 카드로 펼쳐 두고 비어 있는 칸을 알린다', async () => {
   stubGuides()
   renderGuide('/close')
 
-  expect(await screen.findByRole('button', { name: /1차 면접 안내/ })).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  )
+  expect(await screen.findByRole('heading', { name: '1차 면접 안내' })).toBeInTheDocument()
   expect(screen.getByText(/비어 있음: 일정, 진행 방식/)).toBeInTheDocument()
-  expect(screen.queryByLabelText('1차 면접 일정')).not.toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: /1차 면접 안내/ }))
-
   expect(screen.getByLabelText('1차 면접 일정')).toBeInTheDocument()
+  expect(scroll).not.toHaveBeenCalled()
 })
 
-it('안내 메일 화면의 [입력하러 가기](#next-stage-guide)로 오면 펼쳐서 보여 준다', async () => {
+it('안내 메일 화면의 [입력하러 가기](#next-stage-guide)로 오면 이 카드로 내려간다', async () => {
   stubGuides()
   renderGuide('/close#next-stage-guide')
 
   expect(await screen.findByLabelText('1차 면접 일정')).toBeInTheDocument()
-  expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+  expect(scroll).toHaveBeenCalled()
 })

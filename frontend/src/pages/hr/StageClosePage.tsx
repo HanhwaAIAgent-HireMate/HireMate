@@ -167,14 +167,6 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
             badge={step > 2 ? <Badge done>완료</Badge> : <Badge active>진행 중</Badge>}
           >
             <div className="space-y-2.5">
-              {/* 다음 전형 안내(일정 · 장소 등)는 결과를 확정한 뒤 합격 안내 메일을 쓰기 전에 여기서 채운다 */}
-              {next && (
-                <NextStageGuide
-                  recruitmentId={overview.recruitmentId}
-                  stageId={next.stageId}
-                  editable={!done}
-                />
-              )}
               {next?.type === 'INTERVIEW' && counts.pass > 0 && (
                 <InterviewSchedulingStatus
                   stageId={overview.stageId}
@@ -224,6 +216,14 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
               </p>
             )}
           </StepCard>
+          {/* 다음 전형 안내(일정 · 장소 등)는 결과를 확정한 뒤 합격 안내 메일을 보내기 전에 여기서 채운다 */}
+          {next && (
+            <NextStageGuide
+              recruitmentId={overview.recruitmentId}
+              stageId={next.stageId}
+              editable={!done}
+            />
+          )}
           <StepCard title="결과 확정" badge={<Badge done>완료</Badge>}>
             <div className="grid grid-cols-3 gap-2">
               <Stat label="대상" value={counts.total} />
