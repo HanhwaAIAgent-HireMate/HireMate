@@ -68,17 +68,18 @@ class InterviewAttendanceTests extends IntegrationTest {
         assertThat(hr.get(0).path("attendees")).hasSize(2);
         assertThat(hr.get(0).path("attendees").get(0).path("ready").asBoolean()).isTrue();
 
-        JsonNode started = json(expect(room.interview().hr().get("/api/companies/current/interviews/started"), 200));
+        JsonNode started = json(expect(room.interview().hr().get("/api/companies/current/interviews/notices"), 200));
         assertThat(started).hasSize(1);
+        assertThat(started.get(0).path("kind").asString()).isEqualTo("STARTED");
         assertThat(started.get(0).path("stageId").asString()).isEqualTo(room.interview().stageId().toString());
         assertThat(started.get(0).path("applicantNames")).hasSize(1);
         assertThat(started.get(0).path("applicantNames").get(0).asString()).isNotBlank();
         assertThat(started.get(0).path("scheduledAt").asString()).isNotBlank();
         assertThat(started.get(0).path("stageName").asString()).isNotBlank();
-        assertThat(started.get(0).path("startedAt").asString()).isNotBlank();
+        assertThat(started.get(0).path("at").asString()).isNotBlank();
         // 면접관은 HR 진행 현황과 HR 알림을 열 수 없다
         expect(room.kim().get(room.interview().stage() + "/interview/sessions"), 403);
-        expect(room.kim().get("/api/companies/current/interviews/started"), 403);
+        expect(room.kim().get("/api/companies/current/interviews/notices"), 403);
     }
 
     @Test

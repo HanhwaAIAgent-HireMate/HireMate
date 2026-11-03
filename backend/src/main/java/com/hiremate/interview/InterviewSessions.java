@@ -13,9 +13,7 @@ import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageConfirmed;
 import com.hiremate.recruit.StageStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
-import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -206,26 +204,6 @@ public class InterviewSessions {
         sessions.flush();
         members.forEach(member -> changed(companyId, stageId, member.getApplicationId()));
         return workspace(session, memberId);
-    }
-
-    /** HR 알림: 최근 7일 안에 시작한 면접. 같은 시간에 함께 시작한 지원자를 한 줄로 묶어 최근 것부터 20개. */
-    @Transactional(readOnly = true)
-    public List<StartedInterview> recentStarts(UUID companyId) {
-        Instant since = Instant.now().minus(Duration.ofDays(7));
-        Map<List<Object>, List<InterviewSession>> started = new LinkedHashMap<>();
-        sessions.startedSince(companyId, since, PageRequest.of(0, 200)).forEach(session -> started.computeIfAbsent(
-                List.of(session.getStageId(), session.getStartedAt()), key -> new ArrayList<>()).add(session));
-        return started.values().stream().limit(20).map(together -> {
-            InterviewSession first = together.getFirst();
-            RecruitmentInfo recruit = recruits.getByStage(companyId, first.getStageId());
-            List<UUID> ids = together.stream().map(InterviewSession::getApplicationId).toList();
-            Map<UUID, String> names = applications.applicants(companyId, ids).stream()
-                    .collect(Collectors.toMap(ApplicantInfo::applicationId, ApplicantInfo::name));
-            return new StartedInterview(first.getStageId(), recruit.id(), recruit.title(),
-                    recruit.stage(first.getStageId()).orElseThrow().name(),
-                    groups.scheduledAt(first.getStageId(), first.getApplicationId()),
-                    ids.stream().map(id -> names.getOrDefault(id, "")).toList(), first.getStartedAt());
-        }).toList();
     }
 
     /** 면접을 시작할 수 없게 막는 질문 구성. code · message는 API 오류, label은 면접관 화면에 보이는 말이다 */
@@ -606,10 +584,5 @@ public class InterviewSessions {
     }
 
     public record AssignedInterviews(List<AssignedInterview> items, long total, int page, int size) {
-    }
-
-    /** HR 알림 한 줄: 같은 시간에 함께 시작한 면접. */
-    public record StartedInterview(UUID stageId, UUID recruitmentId, String recruitmentTitle, String stageName,
-            @Schema(nullable = true) Instant scheduledAt, List<String> applicantNames, Instant startedAt) {
     }
 }

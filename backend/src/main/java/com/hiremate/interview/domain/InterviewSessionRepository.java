@@ -41,4 +41,8 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     @Query("select s from InterviewSession s where s.companyId = :companyId and s.startedAt >= :since "
             + "order by s.startedAt desc")
     List<InterviewSession> startedSince(UUID companyId, Instant since, Pageable pageable);
+
+    @Query("select s from InterviewSession s where s.companyId = :companyId and s.endedAt >= :since "
+            + "order by s.endedAt desc")
+    List<InterviewSession> endedSince(UUID companyId, Instant since, Pageable pageable);
 }

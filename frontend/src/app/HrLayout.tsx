@@ -7,7 +7,7 @@ import { MemberMenu } from '@/app/MemberMenu'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCompanyProfile } from '@/features/company/api'
-import { StartedInterviewsBell } from '@/features/interview/StartedInterviewsBell'
+import { InterviewNoticesBell } from '@/features/interview/InterviewNoticesBell'
 import { useMe, type Member } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
@@ -85,7 +85,7 @@ function HrHeader({ member }: { member: Member }) {
           <Settings className="size-3.5" />
           설정
         </NavLink>
-        <StartedInterviewsBell memberId={member.memberId} />
+        <InterviewNoticesBell memberId={member.memberId} />
         <MemberMenu member={member} />
       </div>
     </header>
