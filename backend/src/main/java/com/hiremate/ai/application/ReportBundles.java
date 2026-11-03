@@ -31,7 +31,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Report Agent에 넘길 묶음을 만든다. 업무 데이터(지원자번호, 결정, 점수, AI 추천, 지표)만 넣고 이름은 넣지 않는다.
- * 분석 판정 · 근거는 ai가 자기 저장소에서 applicationId로 찾아 붙인다 (아키텍처 규칙 3).
+ * 분석 판정 · 근거는 ai가 자기 저장소에서 applicationId로 찾아 붙인다 (아키텍처 규칙 3). 서류 항목 판정
+ * (document.criterion.{항목})은 지원서에 저장한 판정을 backend가 먼저 넣어, ai 쪽 분석 결과가 없거나 기준이 바뀌어도 그릴 수 있게 한다.
  *
  * <p>서류 전형은 점수 대신 항목 판정으로 본다. 서류 점수(총점, 자격요건 · 우대사항 점수)는 아직 저장되지만 넣지 않는다.
  *
@@ -88,6 +89,8 @@ public class ReportBundles {
 
         Facts facts = new Facts();
         String prefix = prefix(scope, current);
+        ScreeningRubric rubric = postings.screeningRubric(companyId, recruitment.id());
+        criteria(facts, scope, rubric, rows, infos, numbers);
         for (CandidateRow row : rows) {
             String number = numbers.get(row.applicationId());
             facts.verdict(number, stageId, prefix + ".decision", current.name() + " 결정", row.decision().name());
@@ -107,7 +110,7 @@ public class ReportBundles {
         };
         // 서류는 자격요건 · 우대사항 판정을 영역으로 나누고, 평가 · 면접은 점수가 있으면 전형 하나를 영역으로 둔다
         List<ReportBundle.Area> areas = current.type() == StageType.DOCUMENT
-                ? documentAreas(postings.screeningRubric(companyId, recruitment.id()))
+                ? documentAreas(rubric)
                 : stageArea(current, prefix, facts, companyId, recruitment.id()).stream().toList();
         List<ReportBundle.Applicant> applicants = rows.stream()
                 .map(row -> new ReportBundle.Applicant(numbers.get(row.applicationId()), row.applicationId(),
@@ -140,6 +143,7 @@ public class ReportBundles {
                 row -> number(infos.get(row.applicationId()).applicationNo())));
 
         Facts facts = new Facts();
+        criteria(facts, scope, postings.screeningRubric(companyId, recruitmentId), everyone, infos, numbers);
         List<ReportBundle.Metric> metrics = new ArrayList<>();
         List<ReportBundle.Area> areas = new ArrayList<>();
         List<CandidateRow> finalists = List.of();
@@ -209,6 +213,30 @@ public class ReportBundles {
             rows.addAll(result.items());
             if (rows.size() >= result.total() || result.items().isEmpty()) {
                 return rows;
+            }
+        }
+    }
+
+    /**
+     * 서류 항목 판정. 범위에 첫 서류 전형이 있으면 지원자마다 지원서에 저장한 판정을 지금 평가 기준의 항목만 넣는다.
+     * 분석 전이라 판정이 없는 항목은 넣지 않는다.
+     */
+    private static void criteria(Facts facts, List<StageInfo> scope, ScreeningRubric rubric, List<CandidateRow> rows,
+            Map<UUID, ApplicantInfo> infos, Map<UUID, String> numbers) {
+        Optional<StageInfo> document = scope.stream().filter(stage -> stage.type() == StageType.DOCUMENT)
+                .findFirst();
+        if (document.isEmpty()) {
+            return;
+        }
+        for (CandidateRow row : rows) {
+            Map<String, CriterionMark> marks = infos.get(row.applicationId()).criterionMarks();
+            for (ScreeningRubric.Criterion criterion : rubric.criteria()) {
+                CriterionMark mark = marks.get(criterion.criterionId());
+                if (mark != null) {
+                    facts.verdict(numbers.get(row.applicationId()), document.get().id(),
+                            "document.criterion." + criterion.criterionId(),
+                            criterion.criterionId() + " " + criterion.text(), mark.name());
+                }
             }
         }
     }
