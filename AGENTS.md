@@ -167,6 +167,7 @@ src/hiremate_ai/
 ├── llm/                        모델 클라이언트 (LlmClient, 도구 루프 Agent, 테스트용 FakeLlm), 프롬프트 자료 블록, 호출 로그, LangSmith 추적
 ├── db/                         ai 스키마 (Base, 세션)
 │   └── migrations/             Alembic 리비전
+├── ncs_search/                 NCS 참고 검색: 표 적재, pgvector 검색, 질의 임베딩 서비스 (uv run --group ncs python -m hiremate_ai.ncs_search)
 └── worker/                     AI 워커: Redis 작업 대기열 소비자 (uv run python -m hiremate_ai.worker)
 ```
 
@@ -202,6 +203,10 @@ src/hiremate_ai/
   `@tool`로 감싸 도구 루프에 준다. ai 서버 안에서 Agent끼리 HTTP로 부르지 않는다.
 - AI 워커는 backend가 넣은 작업을 꺼내 Agent가 공개한 함수를 부르고 결과를 결과 스트림에 넣는다. backend를 부르지 않는다.
   새 작업 유형은 `worker/handlers.py`의 표에 더하고, 다시 해도 같은 결과일 실패는 `PermanentError`로 알린다.
+- NCS는 담당자가 보고 판단하는 참고자료다. 공고 수정은 대상 고르기에서 참고 여부를 정하고, 참고할 때만 NCS 문장을
+  번호로 주어 쓰게 한 뒤 받쳐 준다고 판정한 출처를 채팅 답에만 붙인다. 공고 본문과 계약에는 출처를 넣지 않는다.
+  NCS 표(`ai.ncs_tasks`)는 이미 만든 BGE-M3 벡터를 `scripts/ncs_load.py`로 적재하고 다시 임베딩하지 않는다.
+  벡터 파일은 git에 넣지 않는다. 질의 임베딩 서비스는 내부망에만 열고, 꺼져 있으면 공고 수정은 NCS 없이 진행한다.
 - 설정은 `config.py`의 `settings`로만 읽는다. `os.environ`을 직접 쓰지 않는다.
 - 함수에는 타입 힌트를 단다. mypy가 검사한다.
 - 테이블은 `ai` 스키마에 둔다. backend가 Flyway로 관리하는 `public` 스키마에는 쓰지 않는다. 마이그레이션은 Alembic으로 한다.
