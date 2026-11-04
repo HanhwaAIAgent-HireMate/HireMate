@@ -70,10 +70,19 @@ function PublishForm({ posting }: { posting: Posting }) {
   const [confirming, setConfirming] = useState(false)
   const receipt = useReceiptPreview(posting.recruitmentId)
   const url = `${window.location.origin}${careersPath(posting.postingId)}`
-  const valid =
-    Boolean(period.open && period.close) &&
-    new Date(period.close) > new Date(period.open) &&
-    new Date(period.close) > new Date(openedAt)
+  // 날짜 칸은 없는 날짜(2월 31일 등)를 넣으면 값이 비어 버린다. 버튼만 막지 않고 이유를 알려 준다
+  const periodProblem = !period.open
+    ? '접수 시작 일시를 입력해 주세요. 없는 날짜는 입력되지 않아요.'
+    : !period.close
+      ? '접수 마감 일시를 입력해 주세요. 없는 날짜는 입력되지 않아요.'
+      : new Date(period.close) <= new Date(period.open)
+        ? '접수 마감은 접수 시작보다 뒤여야 해요.'
+        : new Date(period.close) <= new Date(openedAt)
+          ? '접수 마감은 지금보다 뒤여야 해요.'
+          : null
+  const valid = periodProblem === null
+  // 시작을 앞으로 미루면 그때까지 채용 페이지에서 지원을 받지 않는다 (지원하면 '지금은 지원을 받지 않는 공고')
+  const opensLater = valid && new Date(period.open) > new Date()
   const summary = [posting.content.employmentType, posting.content.career, posting.content.location]
     .filter(Boolean)
     .join(' · ')
@@ -221,14 +230,19 @@ function PublishForm({ posting }: { posting: Posting }) {
                 }
                 className="h-9 w-full rounded-lg border px-3 text-sm"
               />
-              {period.open && period.close && !valid && (
-                <p className="text-xs text-destructive">
-                  접수 마감은 시작보다 늦고, 지금보다 뒤여야 해요.
-                </p>
-              )}
               <p className="text-xs text-muted-foreground">
                 채용 페이지의 접수 기간이자 자동 마감 기준이에요.
               </p>
+              {periodProblem && (
+                <p role="alert" className="text-xs text-destructive">
+                  {periodProblem}
+                </p>
+              )}
+              {opensLater && (
+                <p className="text-xs text-muted-foreground">
+                  접수 시작 전에는 채용 페이지에서 지원서를 받지 않아요.
+                </p>
+              )}
             </div>
           </Field>
           <Field label="접수 확인 메일">
