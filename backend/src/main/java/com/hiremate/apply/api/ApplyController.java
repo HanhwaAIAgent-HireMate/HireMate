@@ -3,6 +3,7 @@ package com.hiremate.apply.api;
 import com.hiremate.apply.ApplicationForm;
 import com.hiremate.apply.ApplicationPage;
 import com.hiremate.apply.ApplicationService;
+import com.hiremate.apply.SchoolCheck;
 import com.hiremate.apply.SubmittedApplication;
 import com.hiremate.file.FileContent;
 import com.hiremate.global.AuthenticatedMember;
@@ -44,6 +45,15 @@ public class ApplyController {
             @RequestPart(required = false) MultipartFile portfolio) throws IOException {
         return applications.submit(postingId, new ApplicationForm(name, email, phone, certificates, consentPrivacy,
                 consentAi, upload(resume), upload(coverLetter), upload(portfolio)));
+    }
+
+    /** 블라인드 채용 지원서의 학교 이름 확인. 제출 전에 지원자에게 알리고, 제출을 막지는 않는다. 로그인 없이 쓴다. */
+    @PostMapping(path = "/api/public/postings/{postingId}/applications/school-check",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public SchoolCheck checkSchools(@PathVariable UUID postingId, @RequestPart MultipartFile resume,
+            @RequestPart MultipartFile coverLetter, @RequestPart(required = false) MultipartFile portfolio)
+            throws IOException {
+        return applications.checkSchools(postingId, upload(resume), upload(coverLetter), upload(portfolio));
     }
 
     /** 접수 현황의 지원자 목록 (PST-03). */

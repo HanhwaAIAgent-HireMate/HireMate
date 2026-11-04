@@ -819,6 +819,33 @@ class ScreeningTests extends IntegrationTest {
         assertThat(texts.get(1)).contains("도전하는 분을 환영합니다.");
     }
 
+    @Test
+    @DisplayName("블라인드 채용이면 서류에 출신 학교를 쓴 문장을 학교 이름을 가린 채 지원자 카드에 알리고, 학교에서 일한 경력은 알리지 않는다")
+    void showsSchoolMentionsOnlyForBlindPosting() throws Exception {
+        TestApi hr = newHr();
+        TestFixtures.Posting posting = TestFixtures.publishBlind(hr);
+        Map<String, String> resumes = Map.of("attended@example.com", "Graduated from Hanbit University in 2020.",
+                "worked@example.com", "Worked at Hanbit University office for 2 years.");
+        for (Map.Entry<String, String> resume : resumes.entrySet()) {
+            Map<String, Object> form = TestFixtures.form(resume.getKey(), false);
+            form.put("resume", new TestApi.FilePart("resume.pdf", "application/pdf",
+                    TestFixtures.pdf(resume.getValue())));
+            expect(anonymous().multipart(posting.applyPath(), form), 201);
+        }
+        UUID recruitmentId = UUID.fromString(posting.recruitmentId());
+        awaitAnalyzed(hr.companyId(), recruitmentId, 2);
+        JsonNode closed = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
+        String stage = "/api/stages/" + closed.path("stages").get(0).path("id").asString();
+
+        Map<String, List<String>> mentions = new HashMap<>();
+        for (var applicant : applications.applicants(hr.companyId(), recruitmentId)) {
+            JsonNode card = json(expect(hr.get(stage + "/candidates/" + applicant.applicationId()), 200));
+            mentions.put(applicant.email(), card.path("schoolMentions").valueStream().map(JsonNode::asString).toList());
+        }
+        assertThat(mentions).containsEntry("attended@example.com", List.of("Graduated from ○○학교 in 2020."))
+                .containsEntry("worked@example.com", List.of());
+    }
+
     private Stage startDocumentStage(int applicants) throws Exception {
         return startDocumentStage(applicants, null);
     }

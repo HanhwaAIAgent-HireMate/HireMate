@@ -60,7 +60,32 @@ public final class BlindMask {
     /** 가린 학점 자리에 넣는 말. */
     private static final String GRADE_MASK = "○○";
 
+    /** 본문을 문장으로 나누는 자리. PDF 글은 줄바꿈이 많아 줄도 문장 끝으로 본다. */
+    private static final Pattern SENTENCE = Pattern.compile("\\R|(?<=[.!?])\\s+");
+
+    /** 학교를 다녔다는 문맥. "○○학교 행정실 근무"처럼 학교에서 일한 경력은 출신 학교가 아니라 세지 않는다. */
+    private static final Pattern ATTENDED = Pattern.compile(
+            "졸업|재학|휴학|입학|편입|수료|학과|학부|전공|출신|다니|다녔|공부|수강|캡스톤|동아리|학생회|동문|학번|학년"
+                    + "|(?i:\\b(?:graduat\\w*|studied|studying|major\\w*|attended|alumn\\w*|enrolled)\\b)");
+
     private BlindMask() {
+    }
+
+    /** 본문에서 찾은 학교 이름. 같은 이름은 한 번만, 나온 순서대로 돌려준다. 블라인드 채용 지원자에게 제출 전에 알린다. */
+    public static List<String> schoolNames(String text) {
+        return SCHOOL.matcher(text).results().map(match -> match.group().strip()).distinct().toList();
+    }
+
+    /**
+     * 가린 본문에서 학교를 다닌 문맥으로 "○○학교"가 나오는 문장. 블라인드 채용인데 출신 학교를 쓴 서류를 HR에게 알린다.
+     * 학교 이름은 가린 채로 보여 주므로 HR은 어느 학교인지 모른 채 판단한다.
+     */
+    public static List<String> attendedSentences(String masked) {
+        return SENTENCE.splitAsStream(masked)
+                .map(String::strip)
+                .filter(sentence -> sentence.contains(MASK) && ATTENDED.matcher(sentence).find())
+                .distinct()
+                .toList();
     }
 
     /** 학교 이름을 MASK로, 학점 숫자를 GRADE_MASK로 바꾼 본문. 가릴 것이 없으면 그대로 돌려준다. */

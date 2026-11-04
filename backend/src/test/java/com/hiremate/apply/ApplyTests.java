@@ -82,6 +82,27 @@ class ApplyTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("블라인드 채용이면 제출 전에 서류에서 찾은 학교 이름을 알려 주고, 블라인드가 아니면 보지 않는다")
+    void checksSchoolNamesBeforeSubmitOnlyForBlindPosting() throws Exception {
+        TestApi hr = newHr();
+        Map<String, Object> files = Map.of(
+                "resume", new TestApi.FilePart("resume.pdf", "application/pdf",
+                        pdf("Graduated from Hanbit University. Java Spring payment 5 years")),
+                "coverLetter", new TestApi.FilePart("cover.pdf", "application/pdf", pdf("Collaboration story")));
+
+        Posting blind = publishBlind(hr);
+        JsonNode found = json(expect(anonymous().multipart(blind.applyPath() + "/school-check", files), 200))
+                .path("documents");
+        assertThat(found.size()).isEqualTo(1);
+        assertThat(found.get(0).path("type").asString()).isEqualTo("RESUME");
+        assertThat(found.get(0).path("names")).extracting(JsonNode::asString).containsExactly("Hanbit University");
+
+        Posting open = publish(hr, false);
+        assertThat(json(expect(anonymous().multipart(open.applyPath() + "/school-check", files), 200))
+                .path("documents")).isEmpty();
+    }
+
+    @Test
     @DisplayName("공고에서 필수로 정한 포트폴리오가 없으면 접수하지 않고, 마감한 공고는 받지 않는다")
     void enforcesRequiredPortfolioAndClosedPostings() throws Exception {
         TestApi hr = newHr();

@@ -43,6 +43,26 @@ class BlindMaskTests {
     }
 
     @Test
+    @DisplayName("서류에서 찾은 학교 이름을 한 번씩 나온 순서대로 알려 준다")
+    void findsSchoolNames() {
+        assertThat(BlindMask.schoolNames("한빛대학교 컴퓨터공학과 졸업\n서울대와 협업했고 한빛대학교 동아리 회장을 했습니다."))
+                .containsExactly("한빛대학교", "서울대");
+        assertThat(BlindMask.schoolNames("Java와 Spring Boot로 정산 API를 개발했습니다.")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("가린 본문에서 학교를 다닌 문맥의 문장만 찾고, 학교에서 일한 경력은 세지 않는다")
+    void findsAttendedSentences() {
+        String masked = "○○학교 컴퓨터공학과 2018.03 ~ 2022.02 졸업\n"
+                + "○○학교 행정실에서 2년 근무했습니다. ○○학교에서 데이터베이스를 공부했습니다.\n"
+                + "Java로 정산 API를 개발했습니다.";
+        assertThat(BlindMask.attendedSentences(masked))
+                .containsExactly("○○학교 컴퓨터공학과 2018.03 ~ 2022.02 졸업", "○○학교에서 데이터베이스를 공부했습니다.");
+        assertThat(BlindMask.attendedSentences("Graduated from ○○학교 in 2020. Worked with ○○학교 on a payment app."))
+                .containsExactly("Graduated from ○○학교 in 2020.");
+    }
+
+    @Test
     @DisplayName("학교가 아닌 말과 다른 뜻의 약칭, 학점이 아닌 숫자는 그대로 둔다")
     void keepsOtherWords() {
         String text = "서울대입구역 근처 카페를 운영했고, 학교 폭력 예방 캠페인과 시민 연대 활동, 고대 문명 동아리를 했습니다. "

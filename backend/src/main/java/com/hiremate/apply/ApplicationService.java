@@ -16,6 +16,7 @@ import com.hiremate.posting.PostingService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -83,6 +84,27 @@ public class ApplicationService {
         events.publishEvent(new ApplicationSubmitted(application.getId(), target.recruitmentId(), target.companyId()));
         return new SubmittedApplication(application.getApplicationNo(), name, target.companyName(),
                 target.postingTitle());
+    }
+
+    /** 블라인드 채용이면 제출 전에 서류에서 찾은 학교 이름을 알려 준다. 제출을 막지는 않는다. 파일이 없으면 null이다. */
+    @Transactional(readOnly = true)
+    public SchoolCheck checkSchools(UUID postingId, ApplicationForm.Upload resume, ApplicationForm.Upload coverLetter,
+            ApplicationForm.Upload portfolio) {
+        if (!postings.openTarget(postingId).blind()) {
+            return new SchoolCheck(List.of());
+        }
+        List<SchoolCheck.Found> found = new ArrayList<>();
+        Map<DocumentType, ApplicationForm.Upload> uploads = new LinkedHashMap<>();
+        uploads.put(DocumentType.RESUME, resume);
+        uploads.put(DocumentType.COVER_LETTER, coverLetter);
+        uploads.put(DocumentType.PORTFOLIO, portfolio);
+        uploads.forEach((type, upload) -> {
+            List<String> names = upload == null ? List.of() : BlindMask.schoolNames(PdfText.extract(upload.content()));
+            if (!names.isEmpty()) {
+                found.add(new SchoolCheck.Found(type, names));
+            }
+        });
+        return new SchoolCheck(found);
     }
 
     /** 접수 현황. 최근에 지원한 순서다. */
