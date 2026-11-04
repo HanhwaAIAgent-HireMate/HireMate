@@ -1,4 +1,4 @@
-// 리포트 색. 채도를 낮춘 팔레트다. 지원자 3색은 색약 · 대비 검사(all-pairs)를 통과했다.
+// 리포트 색. 채도를 낮춘 팔레트다. 지원자 앞 3색은 색약 · 대비 검사(all-pairs)를 통과했고, 4 · 5번째는 비교 5명까지 겹치지 않게 더한 색이다.
 // 판정 색은 늘 아이콘과 글자를 함께 붙여 색만으로 구분하지 않는다.
 
 export const INK = '#22262B'
@@ -7,7 +7,7 @@ export const MUTED = '#8B9099'
 export const GRID = '#EEF0F3'
 
 /** 비교 대상 고정 색. 리포트 안 모든 부품에서 같은 지원자는 같은 색이다 */
-export const PEOPLE = ['#3D6DB5', '#D0703C', '#2C9B7B']
+export const PEOPLE = ['#3D6DB5', '#D0703C', '#2C9B7B', '#8E5EA8', '#B38A1E']
 /** 쌓은 막대의 영역 (한 hue의 단계) */
 export const PARTS = ['#4A5F86', '#A9B8D3', '#D6DDEA']
 /** 순서가 있는 값 (경력 구간, 상위 %) */

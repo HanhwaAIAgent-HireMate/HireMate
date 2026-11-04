@@ -18,7 +18,7 @@ import {
 import { EChart } from './EChart'
 import { SEQ, STATUS, word } from './palette'
 import { NO_NAMES, usePrinting, useShownNames, whoOf, withNames } from './people'
-import type { Block, ReportBundle, ReportView } from './types'
+import type { Block, ReportBundle, ReportKind, ReportView } from './types'
 
 /** 부품이 6칸 격자에서 차지하는 칸. 줄이 남으면 그 줄 마지막 부품을 늘린다 */
 const SPAN: Record<string, number> = {
@@ -65,6 +65,13 @@ interface BodyContext extends ChartContext {
  * 리포트 본문. 설계서(spec)의 섹션과 부품을 묶음(bundle) 값으로 그린다.
  * 웹에서는 backend가 붙여 준 names로 '이름(지원자번호)'를 보여 주고, 인쇄(PDF)할 때는 지원자번호만 보여 준다
  */
+/** 리포트 맨 아래 안내. 비교 리포트는 전형 중에도 만들므로 '확정된 결과'라고 쓰지 않는다 */
+const FOOTNOTE: Record<ReportKind, string> = {
+  STAGE: '이 리포트는 확정된 전형 결과를 요약할 뿐, 합격 · 불합격 결정을 바꾸지 않아요.',
+  COMPARE: '이 리포트는 만든 시각의 판정과 근거를 견줄 뿐, 합격 · 불합격 결정을 바꾸지 않아요.',
+  FINAL: '이 리포트는 확정된 채용 결과를 요약할 뿐, 합격 · 불합격 결정을 바꾸지 않아요.',
+}
+
 export function ReportBody({ report }: { report: ReportView }) {
   const { bundle, spec } = report
   const printing = usePrinting()
@@ -134,9 +141,7 @@ export function ReportBody({ report }: { report: ReportView }) {
           </div>
         </section>
       ))}
-      <p className="text-center text-xs text-muted-foreground">
-        이 리포트는 확정된 전형 결과를 요약할 뿐, 합격 · 불합격 결정을 바꾸지 않아요.
-      </p>
+      <p className="text-center text-xs text-muted-foreground">{FOOTNOTE[bundle.kind]}</p>
     </div>
   )
 }
@@ -611,6 +616,30 @@ function EvidenceView({ block, ctx }: { block: EvidenceBlock; ctx: BodyContext }
     ...bundle.targets.filter((n) => grouped.has(n)),
     ...[...grouped.keys()].filter((n) => !bundle.targets.includes(n)),
   ]
+  const known = new Set(bundle.evidence.map((evidence) => evidence.id))
+  // 아무 지원자에게도 근거 문장이 없으면 똑같은 빈 카드를 늘어놓지 않고 한 상자로 알린다
+  if (!block.items.some((item) => item.evidence.some((id) => known.has(id)))) {
+    return (
+      <div className="flex flex-col gap-2 rounded-lg bg-muted/40 px-4 py-3 text-[13px] leading-6">
+        <p className="text-muted-foreground">
+          이 지원자들의 서류 분석 근거 문장이 아직 없어요. 항목별 판정은 위 표에서 볼 수 있어요.
+        </p>
+        <ul className="flex flex-col gap-1">
+          {order.map((number) => (
+            <li key={number} className="flex flex-wrap items-baseline gap-x-2">
+              <Person number={number} ctx={ctx} />
+              <span className="text-xs text-muted-foreground">
+                {(grouped.get(number) ?? [])
+                  .map((item) => ctx.text(item.text))
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-col gap-3">
       {order.map((number) => (

@@ -8,6 +8,7 @@ import { formatShortDateTime } from '@/lib/format'
 
 import { ReportBody, ReportTitle } from './ReportBody'
 import type { ReportView } from './types'
+import { skillLabel } from '@/features/report/skills'
 
 /** 리포트 모달. 미리보기를 먼저 보여 주고, PDF는 위쪽 작은 버튼으로 받는다 */
 export function ReportModal({
@@ -44,7 +45,7 @@ export function ReportModal({
                         key={skill}
                         className="rounded-md bg-ai-soft px-2 py-0.5 text-[11.5px] font-semibold text-ai"
                       >
-                        스킬 · {skill}
+                        지침 · {skillLabel(skill)}
                       </span>
                     ))}
                     {report.fallback && (

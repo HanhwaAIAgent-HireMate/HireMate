@@ -12,6 +12,7 @@ import { toReportView, useAgentReport, useReportDistribution, useRequestCompareR
 import { DistributionView } from './DistributionView'
 import { ReportBody, ReportTitle } from './ReportBody'
 import { ReportProgress } from './ReportProgress'
+import { skillLabel } from '@/features/report/skills'
 
 export type ReportTab = 'deep' | 'distribution'
 
@@ -65,7 +66,7 @@ export function ReportWindow({
             <DialogDescription className="text-xs">
               {tab === 'deep'
                 ? '고른 지원자의 항목 판정과 원문 근거를 나란히 견줘요.'
-                : '서류 지원자 모두의 판정을 코드가 센 그대로 보여 줘요. AI는 쓰지 않아요.'}
+                : '서류 지원자 모두의 판정을 코드가 센 그대로 보여 줘요. AI 해석은 그 숫자를 읽고 덧붙인 설명이에요.'}
             </DialogDescription>
           </div>
           <div role="tablist" className="mr-8 flex shrink-0 rounded-lg bg-muted p-[3px]">
@@ -173,7 +174,7 @@ function DeepReport({
                 key={skill}
                 className="rounded-md bg-ai-soft px-2 py-0.5 text-[11.5px] font-semibold text-ai"
               >
-                스킬 · {skill}
+                지침 · {skillLabel(skill)}
               </span>
             ))}
             {view.fallback && (
@@ -201,7 +202,7 @@ function DeepReport({
     <div className="flex flex-col gap-3 text-sm text-muted-foreground">
       <p className="flex items-center gap-2">
         <Loader2 className="size-4 animate-spin" />
-        스킬을 읽고 지원자 기록을 살펴 근거를 고르는 중이에요. 그동안 전체 화면을 먼저 볼 수 있어요.
+        지침을 읽고 지원자 기록을 살펴 근거를 고르는 중이에요. 그동안 전체 화면을 먼저 볼 수 있어요.
       </p>
       <ReportProgress
         createdAt={report.data?.createdAt}

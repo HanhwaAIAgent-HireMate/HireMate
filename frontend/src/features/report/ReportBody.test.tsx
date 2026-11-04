@@ -97,6 +97,42 @@ const report: ReportView = {
 }
 
 describe('리포트 본문', () => {
+  it('아무에게도 근거 문장이 없으면 빈 카드를 늘어놓지 않고 한 상자로 알린다', () => {
+    const section = report.spec.sections[0]
+    const empty: ReportView = {
+      ...report,
+      spec: {
+        ...report.spec,
+        sections: [
+          {
+            ...section,
+            blocks: [
+              {
+                type: 'evidence',
+                title: '근거',
+                items: ['A-0017', 'A-0025'].map((applicant) => ({
+                  applicant,
+                  keywords: ['협업 경험'],
+                  text: '협업 경험은 확인되지 않았어요.',
+                  evidence: [],
+                })),
+              },
+            ],
+          },
+        ],
+      },
+    }
+    render(<ReportBody report={empty} />)
+    expect(screen.getByText(/서류 분석 근거 문장이 아직 없어요/)).toBeInTheDocument()
+    expect(screen.queryByText(/근거 문장 없음 · 다음 전형에서 확인/)).not.toBeInTheDocument()
+  })
+
+  it('비교 리포트는 확정된 결과라고 쓰지 않는다', () => {
+    render(<ReportBody report={report} />)
+    expect(screen.getByText(/만든 시각의 판정과 근거를 견줄 뿐/)).toBeInTheDocument()
+    expect(screen.queryByText(/확정된 전형 결과/)).not.toBeInTheDocument()
+  })
+
   it('섹션 읽을 점과 차트, 이름을 붙인 판정 칸을 그린다', () => {
     render(<ReportBody report={report} />)
     const section = screen.getByRole('region', { name: '한눈에 보기' })

@@ -13,8 +13,6 @@ export const judged = (criterion: Criterion) =>
 export const issueRate = (criterion: Criterion) =>
   percent(criterion.partial + criterion.notMet + criterion.unknown, judged(criterion))
 
-const shortText = (text: string) => (text.length > 24 ? `${text.slice(0, 24)}…` : text)
-
 /** 맨 위 요약. 모델 없이 숫자로 만든 문장이다 */
 export function insightLines(data: ReportDistribution): string[] {
   const lines: string[] = []
@@ -40,7 +38,7 @@ export function insightLines(data: ReportDistribution): string[] {
   if (required && issueRate(required) > 0) {
     const whole = judged(required)
     lines.push(
-      `가장 많이 걸리는 필수 조건은 ${required.criterionId} '${shortText(required.text)}'이에요. ` +
+      `가장 많이 걸리는 필수 조건은 '${required.text}'(${required.criterionId})이에요. ` +
         `${issueRate(required)}%가 충족이 아니에요(미충족 · 부분 ${percent(required.notMet + required.partial, whole)}%, ` +
         `확인 필요 ${percent(required.unknown, whole)}%).`,
     )
@@ -51,7 +49,7 @@ export function insightLines(data: ReportDistribution): string[] {
     .sort((a, b) => b.rate - a.rate)[0]
   if (unclear && unclear.rate >= 20) {
     lines.push(
-      `${unclear.criterion.criterionId} '${shortText(unclear.criterion.text)}'은 ${unclear.rate}%가 확인 필요라 서류만으로 판단하기 어려운 항목이에요.`,
+      `'${unclear.criterion.text}'(${unclear.criterion.criterionId})은 ${unclear.rate}%가 확인 필요라 서류만으로 판단하기 어려운 항목이에요.`,
     )
   }
   const passed = data.passed ?? 0
