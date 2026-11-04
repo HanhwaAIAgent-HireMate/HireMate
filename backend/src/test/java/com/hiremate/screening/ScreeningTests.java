@@ -709,7 +709,8 @@ class ScreeningTests extends IntegrationTest {
         String first = passAndFinish(hr, stage.path(), id);
 
         String card = first + "/candidates/" + id + "/interview";
-        JsonNode beforeChat = json(expect(hr.get(card), 200));
+        // 전형을 마치면 다음 면접 질문을 비동기로 미리 만든다. 다 들어온 뒤에 세야 Chat이 더한 1개만 비교된다
+        JsonNode beforeChat = awaitPreparedQuestions(hr, card);
         String firstChat = TestFixtures.firstTabPath(hr, first) + "/chat";
         JsonNode addition = done(expect(hr.post(firstChat,
                 Map.of("message", "프로젝트 기반 질문 1개 추가해줘", "mentionIds", List.of(id),
@@ -757,6 +758,19 @@ class ScreeningTests extends IntegrationTest {
         expect(hr.post(stagePath + "/notices/prepare", null), 200);
         expect(hr.post(stagePath + "/notices/PASS/send", null), 200);
         return "/api/stages/" + json(expect(hr.post(stagePath + "/finish", null), 200)).path("nextStageId").asString();
+    }
+
+    /** 미리 만든 면접 질문이 카드에 들어오고 준비가 끝날 때까지 기다린 카드. */
+    private static JsonNode awaitPreparedQuestions(TestApi hr, String card) throws Exception {
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(15));
+        JsonNode view = json(expect(hr.get(card), 200));
+        while ((view.path("questions").isEmpty()
+                || json(expect(hr.get(card + "/preparing"), 200)).path("preparing").asBoolean())
+                && Instant.now().isBefore(deadline)) {
+            Thread.sleep(200);
+            view = json(expect(hr.get(card), 200));
+        }
+        return view;
     }
 
     private static JsonNode awaitFinalReports(TestApi hr, String recruitmentId) throws Exception {
