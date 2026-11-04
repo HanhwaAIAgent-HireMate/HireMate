@@ -55,5 +55,9 @@
   {"id": "locked-stage-find", "selectable": false, "turns": [{"message": "Kafka 경험자 찾아서 선택해줘"}],
    "expect": {"intent": ["CLARIFY"], "targets": []}},
   {"id": "reason-followup", "turns": [{"message": "금융 도메인 경험 있는 사람 찾아줘"}, {"message": "방금 그 사람들은 왜 골랐어?"}],
-   "expect": {"intent": ["ANSWER"]}}
+   "expect": {"intent": ["ANSWER"]}},
+  {"id": "questions-ncs-requested", "stage": "INTERVIEW", "turns": [{"message": "NCS 참고해서 이 사람 면접 질문 하나 만들어줘", "mentions": ["정유민"]}], "expect": {"question_targets": ["정유민"], "question_ncs": "REQUESTED"}},
+  {"id": "questions-ncs-helpful", "stage": "INTERVIEW", "turns": [{"message": "이 사람한테 배치 처리 쪽 직무 지식 질문 하나 만들어줘", "mentions": ["정유민"]}], "expect": {"question_targets": ["정유민"], "question_ncs": "HELPFUL"}},
+  {"id": "questions-ncs-skip-experience", "stage": "INTERVIEW", "turns": [{"message": "자기소개서에 쓴 정산 배치 경험을 더 확인하는 질문 만들어줘", "mentions": ["정유민"]}], "expect": {"question_targets": ["정유민"], "question_ncs": "SKIP"}},
+  {"id": "questions-ncs-memos", "stage": "INTERVIEW", "memos": {"정유민": "정산 배치 개선에서 본인이 맡은 범위를 다시 확인해야 함"}, "turns": [{"message": "NCS 참고해서 면접관 메모 반영한 질문 하나 더 만들어줘", "mentions": ["정유민"]}], "expect": {"question_targets": ["정유민"], "question_ncs": "SKIP"}}
 ]
