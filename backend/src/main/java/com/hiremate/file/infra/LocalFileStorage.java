@@ -6,10 +6,12 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /** 로컬 디스크 저장소. 운영의 비공개 S3 저장소가 생기기 전까지 쓴다. */
 @Component
+@ConditionalOnProperty(prefix = "hiremate.files", name = "storage", havingValue = "local", matchIfMissing = true)
 class LocalFileStorage implements FileStorage {
 
     private final Path root;
