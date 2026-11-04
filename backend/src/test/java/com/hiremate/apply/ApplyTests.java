@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures.Posting;
+import com.hiremate.TestMailConfiguration;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -25,6 +26,48 @@ class ApplyTests extends IntegrationTest {
 
     @Autowired
     private ApplicationService applications;
+
+    @Autowired
+    private TestMailConfiguration.RecordingMailClient mail;
+
+    @Test
+    @DisplayName("블라인드 채용은 마지막 전형 결과를 확정하기 전까지 이름 · 이메일 · 연락처를 가리고, 메일은 실제 이메일로 보낸다")
+    void hidesIdentityForBlindPostingUntilFinalResult() throws Exception {
+        TestApi hr = newHr();
+        Posting posting = publishBlind(hr, "");
+        Map<String, Object> form = form("blind-name@example.com", false);
+        form.put("resume", new TestApi.FilePart("resume.pdf", "application/pdf",
+                pdf("Contact blind-name@example.com or 010-1234-5678. Java Spring payment 5 years")));
+        expect(anonymous().multipart(posting.applyPath(), form), 201);
+        UUID recruitmentId = UUID.fromString(posting.recruitmentId());
+
+        ApplicantInfo info = applications.applicants(hr.companyId(), recruitmentId).getFirst();
+        assertThat(info.name()).isEqualTo("지원자 1");
+        assertThat(info.email()).isEmpty();
+        ApplicantDetail detail = applications.detail(hr.companyId(), info.applicationId());
+        assertThat(detail.phone()).isEmpty();
+        assertThat(detail.documents().getFirst().text()).contains("Contact ○○○ or ○○○.", "Java Spring")
+                .doesNotContain("blind-name@example.com", "010-1234-5678");
+        assertThat(json(expect(hr.get("/api/recruitments/" + recruitmentId + "/applications"), 200))
+                .path("items").get(0).path("name").asString()).isEqualTo("지원자 1");
+
+        // 접수 확인 메일은 지원자 본인에게 가는 메일이라 실제 이메일로 보낸다
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(10));
+        while (mail.sent.stream().noneMatch(sent -> sent.startsWith("blind-name@example.com|"))
+                && Instant.now().isBefore(deadline)) {
+            Thread.sleep(100);
+        }
+        assertThat(mail.sent).anyMatch(sent -> sent.startsWith("blind-name@example.com|"));
+
+        // 전형을 시작해도 가리고, 마지막 전형 결과를 확정하면 최종 합격자 처리를 위해 이름을 보인다
+        JsonNode progress = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
+        assertThat(progress.path("stages").size()).isEqualTo(1);
+        assertThat(applications.applicants(hr.companyId(), recruitmentId).getFirst().name()).isEqualTo("지원자 1");
+        expect(hr.post("/api/stages/" + progress.path("stages").get(0).path("id").asString() + "/confirm", null), 200);
+        ApplicantInfo revealed = applications.applicants(hr.companyId(), recruitmentId).getFirst();
+        assertThat(revealed.name()).isEqualTo("정유민");
+        assertThat(revealed.email()).isEqualTo("blind-name@example.com");
+    }
 
     @Test
     @DisplayName("지원서를 접수하면 PDF 본문을 추출해 분석하고, 같은 이메일은 다시 지원할 수 없다")

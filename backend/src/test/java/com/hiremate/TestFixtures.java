@@ -42,9 +42,12 @@ public final class TestFixtures {
                 "benefits", List.of()));
         content.put("blind", blind);
         expect(hr.put(base, content), 200);
-        expect(hr.post(base + "/ai-requests",
-                Map.of("message", stagePlan == null ? "전형은 서류, 1차 면접 순으로 해줘" : stagePlan)), 200);
-        expect(hr.post(base + "/suggestion/apply", null), 200);
+        // 빈 전형 절차는 새 공고의 기본 전형(서류 전형 하나)을 그대로 쓴다
+        if (stagePlan == null || !stagePlan.isEmpty()) {
+            expect(hr.post(base + "/ai-requests",
+                    Map.of("message", stagePlan == null ? "전형은 서류, 1차 면접 순으로 해줘" : stagePlan)), 200);
+            expect(hr.post(base + "/suggestion/apply", null), 200);
+        }
         if (requirePortfolio) {
             expect(hr.post(base + "/ai-requests", Map.of("message", "포트폴리오도 필수로 받아줘")), 200);
             expect(hr.post(base + "/suggestion/apply", null), 200);
@@ -58,6 +61,11 @@ public final class TestFixtures {
     /** 블라인드 채용 공고. */
     public static Posting publishBlind(TestApi hr) throws Exception {
         return publish(hr, false, null, true);
+    }
+
+    /** 전형 절차를 정한 블라인드 채용 공고. 빈 절차면 서류 전형 하나다. */
+    public static Posting publishBlind(TestApi hr, String stagePlan) throws Exception {
+        return publish(hr, false, stagePlan, true);
     }
 
     /** 전형의 첫 탭. 전형을 시작하면 "새 탭"이 생긴다. */

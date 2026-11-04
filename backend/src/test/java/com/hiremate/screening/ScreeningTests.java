@@ -882,7 +882,10 @@ class ScreeningTests extends IntegrationTest {
 
         Map<String, List<String>> mentions = new HashMap<>();
         Map<String, String> ids = new HashMap<>();
-        for (var applicant : applications.applicants(hr.companyId(), recruitmentId)) {
+        // 블라인드 채용은 화면에 이메일을 주지 않아서, 테스트는 메일 발송용 연락처로 지원자를 찾는다
+        List<UUID> applicationIds = applications.applicants(hr.companyId(), recruitmentId).stream()
+                .map(applicant -> applicant.applicationId()).toList();
+        for (var applicant : applications.contacts(hr.companyId(), applicationIds)) {
             JsonNode card = json(expect(hr.get(stage + "/candidates/" + applicant.applicationId()), 200));
             mentions.put(applicant.email(), card.path("schoolMentions").valueStream().map(JsonNode::asString).toList());
             ids.put(applicant.email(), applicant.applicationId().toString());
