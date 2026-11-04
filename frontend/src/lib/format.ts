@@ -41,3 +41,17 @@ export function dDay(value: string | Date, now = new Date()) {
 export function toLocalInput(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
+
+/**
+ * 낱말 뒤에 '로' 또는 '으로'를 붙인다. 받침이 없거나 ㄹ 받침이면 '로', 그 밖의 받침은 '으로'.
+ * 한글로 끝나지 않으면(영문 · 숫자) 받침을 알 수 없어 '(으)로'를 붙인다.
+ * 예: 직무역량 평가로, 최종 면접으로, 1차 실무면접으로, 서류 전형으로, 코딩테스트로
+ */
+export function withRo(word: string) {
+  const last = word.trimEnd().at(-1)
+  if (!last) return word
+  const code = last.charCodeAt(0) - 0xac00
+  if (code < 0 || code > 11171) return `${word}(으)로`
+  const final = code % 28
+  return final === 0 || final === 8 ? `${word}로` : `${word}으로`
+}

@@ -15,6 +15,7 @@ import { RegisterDialog } from '@/features/assessment/RegisterDialog'
 import { InterviewAssign } from '@/features/interview/InterviewAssign'
 import { useConfirmStage, type StageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
+import { withRo } from '@/lib/format'
 
 /** Stage 바 (COM-01): [면접관 배정](면접 전형) · 결정 현황 · [전형 결과 확정]. 전형 단계 줄 오른쪽에 들어간다 */
 export function StageBar({ overview }: { overview: StageOverview }) {
@@ -123,7 +124,7 @@ function ConfirmDialog({
         </div>
         <p className="text-sm text-muted-foreground">
           {next
-            ? `합격 ${pass}명은 ${next.name}로 넘어가요.`
+            ? `합격 ${pass}명은 ${withRo(next.name)} 넘어가요.`
             : `마지막 전형이라 합격 ${pass}명이 최종 합격이에요.`}
         </p>
         {next?.type === 'INTERVIEW' && pass > 0 && (
