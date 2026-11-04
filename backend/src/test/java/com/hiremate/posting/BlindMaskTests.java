@@ -55,9 +55,11 @@ class BlindMaskTests {
     void findsAttendedSentences() {
         String masked = "○○학교 컴퓨터공학과 2018.03 ~ 2022.02 졸업\n"
                 + "○○학교 행정실에서 2년 근무했습니다. ○○학교에서 데이터베이스를 공부했습니다.\n"
+                + "- ○○학교 캡스톤 프로젝트에서 예약 서비스를 만들었습니다.\n"
                 + "Java로 정산 API를 개발했습니다.";
-        assertThat(BlindMask.attendedSentences(masked))
-                .containsExactly("○○학교 컴퓨터공학과 2018.03 ~ 2022.02 졸업", "○○학교에서 데이터베이스를 공부했습니다.");
+        // 글머리 기호는 떼고, 가린 학교 이름의 ○는 남긴다
+        assertThat(BlindMask.attendedSentences(masked)).containsExactly("○○학교 컴퓨터공학과 2018.03 ~ 2022.02 졸업",
+                "○○학교에서 데이터베이스를 공부했습니다.", "○○학교 캡스톤 프로젝트에서 예약 서비스를 만들었습니다.");
         assertThat(BlindMask.attendedSentences("Graduated from ○○학교 in 2020. Worked with ○○학교 on a payment app."))
                 .containsExactly("Graduated from ○○학교 in 2020.");
         // 다른 사람의 출신 학교는 세지 않고, 본인의 출신 학교는 센다
