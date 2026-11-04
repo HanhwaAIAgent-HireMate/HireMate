@@ -82,7 +82,7 @@ def fallback_spec(bundle: ReportBundle) -> ReportSpec:
             sections.append(Section(title=area.label, area=area.id, takeaway=NO_TAKEAWAY, blocks=blocks))
     if compare and (evidence := evidence_block(bundle, people)) is not None:
         sections.append(Section(title="지원자별 근거", takeaway=NO_TAKEAWAY, blocks=[evidence]))
-    if final and (finalists := _finalists(bundle)):
+    if final and (passed := finalists(bundle)):
         keys = [area.score_key for area in bundle.areas if area.score_key] + _decisions(bundle)
         sections.append(
             Section(
@@ -93,7 +93,7 @@ def fallback_spec(bundle: ReportBundle) -> ReportSpec:
                         title="최종 합격자 기록",
                         caption="최종 합격자의 전형별 점수와 결정이에요.",
                         keys=keys,
-                        applicants=finalists[:MAX_FINALISTS],
+                        applicants=passed[:MAX_FINALISTS],
                     )
                 ],
             )
@@ -143,8 +143,8 @@ def _final_facts(spec: ReportSpec, bundle: ReportBundle) -> ReportSpec:
         prefix = stage_prefix(bundle.stages, stage)
         if (target := count(f"m-{prefix}-target")) is not None and (passed := count(f"m-{prefix}-pass")) is not None:
             stages[prefix] = f"{stage.name}{_topic(stage.name)} 대상 {target}명 중 {passed}명이 합격했어요."
-    applicants, finalists = count("m-applicants"), count("m-finalists")
-    flow = f"지원 {applicants}명 중 최종 합격은 {finalists}명이에요." if applicants and finalists else None
+    applicants, hired = count("m-applicants"), count("m-finalists")
+    flow = f"지원 {applicants}명 중 최종 합격은 {hired}명이에요." if applicants and hired else None
     lines = [line for line in [flow, *stages.values()] if line]
     if not lines:
         return spec
@@ -152,8 +152,8 @@ def _final_facts(spec: ReportSpec, bundle: ReportBundle) -> ReportSpec:
     def takeaway(section: Section) -> str:
         if section.area in stages:
             return stages[str(section.area)]
-        if section.title == "최종 합격자" and finalists:
-            return f"최종 합격자는 {finalists}명이에요."
+        if section.title == "최종 합격자" and hired:
+            return f"최종 합격자는 {hired}명이에요."
         if section.title == "전형 기록" and len(stages) > 1:
             return " ".join(list(stages.values())[:2])
         return flow or section.takeaway
@@ -234,7 +234,7 @@ def _decisions(bundle: ReportBundle) -> list[str]:
     return [key for key in keys if key in have]
 
 
-def _finalists(bundle: ReportBundle) -> list[str]:
+def finalists(bundle: ReportBundle) -> list[str]:
     """최종 합격자. 마지막 전형 결정이 합격인 지원자다."""
     last = f"{stage_prefix(bundle.stages, bundle.stages[-1])}.decision"
     return [fact.applicant for fact in bundle.facts if fact.key == last and fact.value == "PASS"]
