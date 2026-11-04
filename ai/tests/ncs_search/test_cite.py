@@ -79,3 +79,11 @@ async def test_sources_block_and_path() -> None:
     assert sources_block(sources).startswith('<data kind="ncs"')
     line = "[N1] 응용SW엔지니어링 › 서버프로그램 구현 › 서버 프로그램 구현하기: 서버 프로그램을 구현 한다"
     assert line in sources_block(sources)
+
+
+async def test_accepts_unit_lines_copied_whole() -> None:
+    """모델이 능력단위 목록의 줄을 통째로 적어도 앞의 코드로 고른다 (실제 모델 평가에서 본 답)."""
+    ncs = FakeNcs()
+    whole = f"{UNIT} 서버프로그램 구현: 서버 프로그램 구현하기"
+    await find_sources(FakeLlm(query([whole])), ncs, "배치", "백엔드", agent="interview", system=SYSTEM)
+    assert ncs.searches[0][2] == [UNIT]
