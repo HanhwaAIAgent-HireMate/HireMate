@@ -63,6 +63,9 @@ public final class BlindMask {
     /** 본문을 문장으로 나누는 자리. PDF 글은 줄바꿈이 많아 줄도 문장 끝으로 본다. */
     private static final Pattern SENTENCE = Pattern.compile("\\R|(?<=[.!?])\\s+");
 
+    /** 문장 앞의 글머리 기호. 가린 학교 이름의 "○"는 지우지 않는다. */
+    private static final Pattern BULLET = Pattern.compile("^[-–—•·*▪●◦]+\\s*");
+
     /**
      * 학교를 다녔다는 문맥. "○○학교 행정실 근무"처럼 학교에서 일한 경력은 출신 학교가 아니라 세지 않는다.
      * "○○학교 출신 동료"처럼 다른 사람의 출신 학교도 지원자 본인 이야기가 아니라 세지 않는다.
@@ -86,7 +89,7 @@ public final class BlindMask {
      */
     public static List<String> attendedSentences(String masked) {
         return SENTENCE.splitAsStream(masked)
-                .map(String::strip)
+                .map(sentence -> BULLET.matcher(sentence.strip()).replaceFirst(""))
                 .filter(sentence -> sentence.contains(MASK) && ATTENDED.matcher(sentence).find())
                 .distinct()
                 .toList();
