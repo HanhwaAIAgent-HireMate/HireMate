@@ -30,6 +30,7 @@ const posting: Posting = {
     education: '',
     workHours: '',
     salary: '',
+    blind: false,
   },
   notices: [],
   stages: [],
