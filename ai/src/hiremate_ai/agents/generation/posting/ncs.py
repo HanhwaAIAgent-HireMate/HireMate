@@ -259,11 +259,11 @@ async def with_sources(
     찾지 못했다는 안내는 HR이 NCS를 요청했을 때만 낸다. NCS를 요청했는데 남은 출처가 없으면 안내를 하나만 낸다.
     """
     if sources is None:
-        return " ".join([reply, search_notice]) if use == "REQUESTED" and search_notice else reply
+        return "\n".join([reply, search_notice]) if use == "REQUESTED" and search_notice else reply
     kept, notice = await keep_supported(llm, cite_lines(citations, content, changed, sources, clean), sources)
     if use == "REQUESTED" and not kept and notice != NCS_REVIEW_FAILED:
         notice = NCS_NOT_FOUND
-    text = " ".join([reply, notice]) if notice else reply
+    text = "\n".join([reply, notice]) if notice else reply
     # 줄 하나에 출처가 여럿이면 답이 길어져 읽기 어렵다. 받쳐 준다고 판정한 첫 출처만 보인다
     shown: list[Cited] = []
     for entry in kept:
