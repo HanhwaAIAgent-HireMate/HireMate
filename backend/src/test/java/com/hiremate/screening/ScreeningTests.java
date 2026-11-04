@@ -892,6 +892,12 @@ class ScreeningTests extends IntegrationTest {
         }
         assertThat(mentions).containsEntry("attended@example.com", List.of("Graduated from ○○학교 in 2020."))
                 .containsEntry("worked@example.com", List.of());
+        // 학교에서 일한 경력이어도 원본에는 학교 이름이 있어, 두 지원자 모두 원본을 열기 전에 알린다
+        for (String id : ids.values()) {
+            JsonNode warnings = json(expect(hr.get(stage + "/candidates/" + id), 200)).path("originalWarnings");
+            assertThat(warnings.get(0).path("type").asString()).isEqualTo("RESUME");
+            assertThat(warnings.get(0).path("kinds")).extracting(JsonNode::asString).containsExactly("출신 학교");
+        }
 
         String attended = ids.get("attended@example.com");
         JsonNode list = json(expect(hr.get(stage + "/candidates"), 200));

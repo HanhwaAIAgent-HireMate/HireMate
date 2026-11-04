@@ -87,7 +87,25 @@ public final class BlindMask {
     /** 성을 뺀 이름 뒤에 올 수 있는 말. "다온커머스"처럼 이름으로 시작하는 다른 낱말은 가리지 않는다. */
     private static final String NAME_AFTER = "(?=$|[^가-힣]|이|가|은|는|을|를|의|에게|님|와|과|도|로|으로|입니다|이에요|예요)";
 
+    /** 저장할 때 가린 학점 자리. "학점 ○○"처럼 학점이라는 말 뒤에 남는다. */
+    private static final Pattern MASKED_GRADE = Pattern.compile("(?:학점|평점|GPA)\\s*[:：]?\\s*" + GRADE_MASK);
+
     private BlindMask() {
+    }
+
+    /**
+     * 저장할 때 가린 정보 가운데 원본 PDF에는 그대로 있는 것 ("출신 학교", "학점"). 블라인드 채용에서 HR이 원본을 열기 전에
+     * 알린다. 이름은 이력서에 쓰는 게 자연스러워 알리지 않는다.
+     */
+    public static List<String> hiddenOnOriginal(String savedText) {
+        List<String> kinds = new ArrayList<>();
+        if (savedText.contains(MASK)) {
+            kinds.add("출신 학교");
+        }
+        if (MASKED_GRADE.matcher(savedText).find()) {
+            kinds.add("학점");
+        }
+        return kinds;
     }
 
     /**
