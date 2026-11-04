@@ -6,7 +6,6 @@ from ncs_context import UNIT, FakeNcs, task
 from pydantic import BaseModel
 
 from hiremate_ai.agents.generation.posting.ncs import (
-    NCS_HEADER,
     NCS_NOT_FOUND,
     NCS_SOURCES_DROPPED,
     NCS_UNAVAILABLE,
@@ -54,6 +53,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
     revise_posting,
 )
 from hiremate_ai.agents.generation.posting.types import (
+    NcsSource,
     PostingDraftContext,
     PostingFocus,
     RecruitmentStatus,
@@ -1074,7 +1074,16 @@ async def test_context_tells_model_when_process_is_locked_and_marks_empty_fields
 
 NCS_QUERY = NcsQuery(tasks=["서버 프로그램을 구현 한다"], units=[UNIT])
 NEW_DUTY = "주문 · 결제 서버 프로그램 구현"
-NCS_LINE = '주요 업무 2번 ← 응용SW엔지니어링 › 서버프로그램 구현 › 서버 프로그램 구현하기: "서버 프로그램을 구현 한다"'
+NCS_SOURCE = NcsSource(
+    field="duties",
+    number=2,
+    line=NEW_DUTY,
+    duty_name="응용SW엔지니어링",
+    unit_code=UNIT,
+    unit_name="서버프로그램 구현",
+    task_name="서버 프로그램 구현하기",
+    sentence="서버 프로그램을 구현 한다",
+)
 MADE = "주요 업무(1줄 추가) 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
 
 
@@ -1116,7 +1125,8 @@ async def test_requested_call_order_and_reply() -> None:
     assert "[S1] 응용SW엔지니어링" in llm.calls[2].user
     assert SOURCES_STEP in llm.calls[2].user
     assert llm.calls[2].system == SYSTEM
-    assert result.reply == f"{MADE}\n\n{NCS_HEADER}\n{NCS_LINE}"
+    assert result.reply == MADE
+    assert result.ncs_sources == [NCS_SOURCE]
     assert result.suggestion is not None
     assert result.suggestion.content.duties == [*CONTENT.duties, NEW_DUTY]
     assert "NCS" not in result.suggestion.content.model_dump_json()
@@ -1162,6 +1172,7 @@ async def test_query_call_failure_keeps_revision() -> None:
     llm = FakeLlm(route("CONTENT", ncs="HELPFUL"), Malformed(), content(duties=[*CONTENT.duties, NEW_DUTY]))
 
     result = await revise_posting(llm, posting(), "", "주요 업무 추천해 줘", ncs=FakeNcs())
+    assert result.ncs_sources == []
 
     assert result.suggestion is not None
     assert result.reply == MADE
@@ -1180,7 +1191,7 @@ async def test_retry_uses_last_attempt_citations() -> None:
 
     assert llm.calls[3].output is CitedContentChanges
     assert SOURCES_STEP in llm.calls[3].user
-    assert result.reply.endswith(NCS_LINE)
+    assert result.ncs_sources == [NCS_SOURCE]
     assert "첫 번째 업무" not in result.reply
 
 
@@ -1256,7 +1267,8 @@ async def test_each_posting_line_shows_one_source() -> None:
         llm, posting(), "", "NCS 참고해서 주요 업무 추가해 줘", ncs=FakeNcs(found=[task(sentences=sentences)])
     )
 
-    assert result.reply == f"{MADE}\n\n{NCS_HEADER}\n{NCS_LINE}"
+    assert result.reply == MADE
+    assert result.ncs_sources == [NCS_SOURCE]
 
 
 @pytest.mark.parametrize(("use", "reply"), [("HELPFUL", MADE), ("REQUESTED", f"{MADE}\n{NCS_UNAVAILABLE}")])

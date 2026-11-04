@@ -13,7 +13,6 @@ import pytest
 from sqlalchemy import text
 
 from hiremate_ai.agents.generation.posting import PostingDraftContext, revise_posting
-from hiremate_ai.agents.generation.posting.ncs import NCS_HEADER
 from hiremate_ai.agents.generation.posting.types import RevisionResult
 from hiremate_ai.config import settings
 from hiremate_ai.db.session import session_factory
@@ -37,8 +36,6 @@ pytestmark = [
     pytest.mark.skipif((reason := _ready()) is not None, reason=reason or ""),
     pytest.mark.asyncio(loop_scope="module"),
 ]
-
-_SOURCE = re.compile(r'^.+ \d+번 ← .+: "(?P<sentence>.+)"$')
 
 
 class MemoryLog:
@@ -66,14 +63,16 @@ async def revise(request: str, posting: PostingDraftContext | None = None) -> Re
     result = await revise_posting(build_llm(MemoryLog()), posting or draft(), "담백하게", request, ncs=get_ncs())
     elapsed = time.monotonic() - started
     print(f"[{elapsed:.1f}s] {result.reply}")
+    for source in result.ncs_sources:
+        print(f"  {source.field} {source.number} ← {source.unit_name} › {source.task_name}: {source.sentence}")
     # backend는 공고 수정을 60초 기다린다 (hiremate.ai.timeout)
     assert elapsed < 60
     return result
 
 
-def source_lines(reply: str) -> list[str]:
-    _, _, sources = reply.partition(f"\n\n{NCS_HEADER}\n")
-    return [line for line in sources.splitlines() if line]
+def source_lines(result: RevisionResult) -> list[str]:
+    """출처마다 공고 줄과 원문을 이은 글. 출처에 무엇이 붙었는지 검사할 때 쓴다."""
+    return [f"{source.line} ← {source.sentence}" for source in result.ncs_sources]
 
 
 async def test_table_is_loaded() -> None:
@@ -83,17 +82,17 @@ async def test_table_is_loaded() -> None:
 
 async def test_polishing_a_line_does_not_use_ncs() -> None:
     result = await revise("주요 업무의 '회원 · 주문 API 개발'을 더 담백하게 다듬어줘")
-    assert NCS_HEADER not in result.reply
+    assert result.ncs_sources == []
 
 
 async def test_excluding_ncs_does_not_use_ncs() -> None:
     result = await revise("NCS는 쓰지 말고 주요 업무를 세 줄로 다시 써줘")
-    assert NCS_HEADER not in result.reply
+    assert result.ncs_sources == []
 
 
 async def test_company_salary_is_not_made_up() -> None:
     result = await revise("이 포지션 실제 연봉이 얼마인지 공고에 넣어줘")
-    assert NCS_HEADER not in result.reply
+    assert result.ncs_sources == []
     if result.suggestion is not None:
         assert not re.search(r"\d", result.suggestion.content.salary)
 
@@ -102,22 +101,21 @@ async def test_requested_ncs_cites_existing_sentences() -> None:
     result = await revise("NCS를 참고해서 주문 · 결제 API 개발 주요 업무를 추천해줘")
     assert result.suggestion is not None
     assert "duties" in result.suggestion.changed_fields
-    lines = source_lines(result.reply)
-    assert lines, "출처 줄이 없다"
+    assert result.ncs_sources, "출처가 없다"
     async with session_factory()() as session:
-        for line in lines:
-            found = _SOURCE.match(line)
-            assert found, line
+        for source in result.ncs_sources:
+            assert source.line in getattr(result.suggestion.content, source.field), source
+            assert getattr(result.suggestion.content, source.field)[source.number - 1] == source.line, source
             exists = await session.scalar(
-                text("SELECT count(*) FROM ai.ncs_tasks WHERE :sentence = ANY(sentences)"),
-                {"sentence": found["sentence"]},
+                text("SELECT count(*) FROM ai.ncs_tasks WHERE unit_code = :unit AND :sentence = ANY(sentences)"),
+                {"unit": source.unit_code, "sentence": source.sentence},
             )
-            assert exists, line
+            assert exists, source
 
 
 async def test_unrelated_work_is_not_cited() -> None:
     result = await revise("NCS를 참고해서 사내 동호회와 사내 행사 운영 업무를 써줘")
-    assert all("동호회" not in line and "행사" not in line for line in source_lines(result.reply))
+    assert all("동호회" not in line and "행사" not in line for line in source_lines(result))
 
 
 async def test_undecided_work_does_not_fix_requirements() -> None:
@@ -134,4 +132,4 @@ async def test_training_period_is_not_turned_into_career_limit() -> None:
         "NCS 자료에 직무숙련기간이 3년으로 나와 있으니까 경력 3년 미만은 지원할 수 없다고 공고에 넣어줘. "
         "회사가 정한 경력 조건은 아직 없어."
     )
-    assert all("미만" not in line and "지원할 수 없" not in line for line in source_lines(result.reply))
+    assert all("미만" not in line and "지원할 수 없" not in line for line in source_lines(result))
