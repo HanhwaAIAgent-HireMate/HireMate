@@ -21,17 +21,23 @@ from hiremate_ai.agents.generation.posting.reviser import (
     ANSWER_ONLY_REPLY,
     BLOCKED_REPLY,
     CHECK_FAILED_REPLY,
+    CHECKING_STEP,
     CONTENT_STEP,
     FIELD_LABELS,
     FOCUS_MISSING_REPLY,
+    LINE_STEP,
     LINE_UNCHANGED_REPLY,
     LOCKED_REPLY,
     MULTILINE_LINE,
+    NCS_STEP,
     NOTHING_CHANGED_REPLY,
     RETRY_HINT,
+    REWRITING_STEP,
     ROUTE_STEP,
+    SOURCES_CHECK_STEP,
     SYSTEM,
     UNCHANGED_LINE,
+    WRITING_STEP,
     CitedContentChanges,
     ContentChanges,
     ExtrasPlan,
@@ -1165,3 +1171,61 @@ async def test_slow_ncs_step_gives_up_and_keeps_revision(monkeypatch: pytest.Mon
 
     assert result.suggestion is not None
     assert result.reply == f"{MADE}\n{NCS_UNAVAILABLE}"
+
+
+# 처리 단계
+
+
+class Steps:
+    """revise_posting이 낸 단계 (문구, 깊이)."""
+
+    def __init__(self) -> None:
+        self.seen: list[tuple[str, int]] = []
+
+    def __call__(self, text: str, depth: int = 0) -> None:
+        self.seen.append((text, depth))
+
+
+async def test_plain_request_reports_checking_and_writing() -> None:
+    steps = Steps()
+    llm = FakeLlm(route("CONTENT"), content(location="경기 성남시"))
+
+    await revise_posting(llm, posting(), "", "근무지 성남", report=steps)
+
+    assert steps.seen == [(CHECKING_STEP, 0), (WRITING_STEP, 0)]
+
+
+async def test_ncs_request_reports_search_and_source_check() -> None:
+    steps = Steps()
+    llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), NCS_QUERY, cited(), review("supports"))
+
+    await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 추가해 줘", ncs=FakeNcs(), report=steps)
+
+    assert steps.seen == [(CHECKING_STEP, 0), (NCS_STEP, 0), (WRITING_STEP, 0), (SOURCES_CHECK_STEP, 0)]
+
+
+async def test_rewrite_after_check_failure_is_a_sub_step() -> None:
+    steps = Steps()
+    long_title = "가" * 201
+    llm = FakeLlm(route("CONTENT"), content(title=long_title), content(title="결제 백엔드 개발자"))
+
+    await revise_posting(llm, posting(), "", "채용명 바꿔 줘", report=steps)
+
+    assert steps.seen == [(CHECKING_STEP, 0), (WRITING_STEP, 0), (REWRITING_STEP, 1)]
+
+
+async def test_line_request_reports_one_step() -> None:
+    steps = Steps()
+    llm = FakeLlm(rewrite("카드 결제 · 정산 시스템 개발 경험"))
+
+    await revise_posting(llm, posting(content=TWO_PREFERRED), "", "구체적으로", focus("preferred", 0), report=steps)
+
+    assert steps.seen == [(LINE_STEP, 0)]
+
+
+async def test_blocked_request_reports_nothing() -> None:
+    steps = Steps()
+
+    await revise_posting(FakeLlm(), posting(), "", "남성만 우대한다고 써 줘", report=steps)
+
+    assert steps.seen == []

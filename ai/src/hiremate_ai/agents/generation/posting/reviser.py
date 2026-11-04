@@ -11,6 +11,7 @@ HR이 줄을 골라 요청하면 대상을 고르지 않고 그 줄만 한 번�
 """
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
@@ -86,6 +87,17 @@ LINE_UNCHANGED_REPLY = "고른 줄에서 바꿀 부분을 찾지 못했어요. �
 UNCHANGED_LINE = "고른 줄을 바꾸지 않고 그대로 썼다. 요청대로 바꿔 쓴다"
 MULTILINE_LINE = "고른 줄 하나를 한 줄로 쓰지 않고 칸 이름이나 여러 줄을 썼다"
 """고른 줄을 다시 쓰게 할 때 붙이는 이유. 작은 모델이 고른 줄을 그대로 돌려주거나 칸 전체를 한 줄에 쓰곤 한다."""
+
+Report = Callable[[str, int], None]
+"""처리 단계를 화면에 알리는 함수. (단계 문구, 깊이)를 받는다. 깊이 0은 큰 단계, 1은 그 아래의 일이다."""
+
+CHECKING_STEP = "요청을 확인하고 있어요"
+NCS_STEP = "NCS 직무 자료를 찾고 있어요"
+WRITING_STEP = "수정안을 쓰고 있어요"
+REWRITING_STEP = "공고 작성 규칙에 맞게 다시 쓰고 있어요"
+SOURCES_CHECK_STEP = "참고한 NCS 출처를 확인하고 있어요"
+LINE_STEP = "고른 줄을 고치고 있어요"
+"""화면에 보이는 단계 문구. 모델이 쓴 문장은 단계로 내보내지 않는다."""
 
 ATTEMPTS = 2
 """처음 한 번과, 검사에 걸렸을 때 이유를 붙여 다시 쓰는 한 번."""
@@ -358,20 +370,24 @@ async def revise_posting(
     request: str,
     focus: PostingFocus | None = None,
     ncs: NcsReference | None = None,
+    report: Report | None = None,
 ) -> RevisionResult:
     """HR의 요청대로 공고 수정안을 만든다. 되묻거나 처리할 수 없으면 수정안 없이 답만 한다.
 
     수정안이 검사에 걸리면 이유를 붙여 한 번 더 쓰게 한다. 차별 조건은 다시 쓰게 하지 않고 바로 거절한다.
     focus가 있으면 HR이 고른 그 줄만 고친다. ncs가 있고 대상 고르기에서 참고하기로 하면 본문을 쓸 때 NCS 문장을
     참고자료로 주고, 받쳐 준다고 판정한 출처만 답 끝에 붙인다. 고른 줄과 직무별 표에는 NCS를 붙이지 않는다.
+    report가 있으면 모델을 부르기 전에 처리 단계 문구를 알린다.
     """
+    step = report or _silent
     if focus is not None:
-        return await _revise_line(llm, posting, writing_style, request, focus)
+        return await _revise_line(llm, posting, writing_style, request, focus, step)
     if blocked_attribute(request) and _JUDGING.search(request):
         return RevisionResult(reply=BLOCKED_REPLY, suggestion=None)
     if _ANSWER_ONLY.fullmatch(_compact(request)):
         return RevisionResult(reply=ANSWER_ONLY_REPLY, suggestion=None)
     context = _context(posting, writing_style, request)
+    step(CHECKING_STEP, 0)
     route = await _ask(llm, Route, context, ROUTE_STEP)
     targets = set(route.targets)
     roles: list[PostingRole] | None = None
@@ -404,12 +420,16 @@ async def revise_posting(
     uses_ncs = ncs is not None and route.ncs != "SKIP" and "CONTENT" in targets and "ROLES" not in targets
     if ncs is not None and uses_ncs:
         job = posting.content.job_category or posting.content.title
+        step(NCS_STEP, 0)
         sources, search_notice = await find_sources(llm, ncs, request, job)
 
     # 공고 전체를 써 달라는 요청이면 남은 빈 칸을 기본 문구로 채운다. 직무별 표는 직무마다 경력이 달라 채우지 않는다
     whole = route.writes_posting and "ROLES" not in targets and not posting.content.roles
     found: list[str] = []
+    step(WRITING_STEP, 0)
     for _ in range(ATTEMPTS):
+        if found:
+            step(REWRITING_STEP, 1)
         edit = await _write(llm, posting, writing_style, request, context, targets, found, fills_empty, roles, sources)
         draft = _draft(posting, edit, request)
         if whole:
@@ -427,6 +447,8 @@ async def revise_posting(
             result = _result(draft, edit, locked)
             if result.suggestion is None or not uses_ncs:
                 return result
+            if sources is not None:
+                step(SOURCES_CHECK_STEP, 0)
             reply = await with_sources(
                 llm,
                 result.reply,
@@ -443,7 +465,12 @@ async def revise_posting(
 
 
 async def _revise_line(
-    llm: LlmClient, posting: PostingDraftContext, writing_style: str, request: str, focus: PostingFocus
+    llm: LlmClient,
+    posting: PostingDraftContext,
+    writing_style: str,
+    request: str,
+    focus: PostingFocus,
+    step: Report,
 ) -> RevisionResult:
     """HR이 고른 줄만 고친다. 고른 칸이 자격 요건 · 우대 사항이면 요청에 차별 조건이 있을 때 바로 거절한다.
 
@@ -460,11 +487,12 @@ async def _revise_line(
     label = FIELD_LABELS[focus.field]
     where = f"{label} {index + 1}번 줄" if listed else label
     context = _context(posting, writing_style, request)
-    step = _line_step(where, lines[index], listed)
+    step(LINE_STEP, 0)
+    line_step = _line_step(where, lines[index], listed)
     found: list[str] = []
     revised = lines
     for _ in range(ATTEMPTS):
-        revised = await _rewrite_line(llm, context, step, found, lines, index, listed)
+        revised = await _rewrite_line(llm, context, line_step, found, lines, index, listed)
         if revised == lines:
             found = [UNCHANGED_LINE]
             continue
@@ -488,6 +516,10 @@ async def _revise_line(
                 ),
             )
     return RevisionResult(reply=LINE_UNCHANGED_REPLY if revised == lines else CHECK_FAILED_REPLY, suggestion=None)
+
+
+def _silent(text: str, depth: int) -> None:
+    """단계를 알릴 곳이 없을 때(평가, 테스트)."""
 
 
 def _line_step(where: str, line: str, listed: bool) -> str:

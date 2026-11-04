@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from fastapi import FastAPI
@@ -68,6 +69,24 @@ def body(request: str) -> dict[str, Any]:
     }
 
 
+def sse_events(text: str) -> list[tuple[str, Any]]:
+    """SSE 본문을 (이벤트 이름, data JSON)으로 읽는다. 주석(: ...)과 이름 없는 이벤트는 건너뛴다."""
+    events: list[tuple[str, Any]] = []
+    for block in text.replace("\r\n", "\n").split("\n\n"):
+        fields = [line.split(":", 1) for line in block.split("\n") if line and not line.startswith(":")]
+        named = {key: value.strip() for key, value in fields}
+        if "event" in named:
+            events.append((named["event"], json.loads(named["data"])))
+    return events
+
+
+def done_of(response: Any) -> Any:
+    """/revise 응답의 마지막 done 이벤트 data (RevisionResult JSON)."""
+    name, data = sse_events(response.text)[-1]
+    assert name == "done"
+    return data
+
+
 def client(llm: FakeLlm, ncs: FakeNcs | None = None) -> TestClient:
     app = FastAPI()
     app.include_router(router)
@@ -126,9 +145,15 @@ def test_revise_returns_backend_result_shape() -> None:
     )
 
     response = client(llm).post("/agents/posting/revise", json=body("우대 사항에 결제 · 정산 경험 추가해 줘"))
+    events = sse_events(response.text)
 
     assert response.status_code == 200
-    assert response.json() == {
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert events[:-1] == [
+        ("status", {"text": "요청을 확인하고 있어요", "depth": 0}),
+        ("status", {"text": "수정안을 쓰고 있어요", "depth": 0}),
+    ]
+    assert done_of(response) == {
         "reply": "우대 사항 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요.",
         "suggestion": {
             "content": {**CONTENT, "preferred": ["금융 도메인 경험", "결제 · 정산 시스템 운영 경험"]},
@@ -154,7 +179,7 @@ def test_revise_passes_ncs_dependency() -> None:
     response = client(llm, FakeNcs()).post("/agents/posting/revise", json=body("NCS 참고해서 주요 업무 추가해 줘"))
 
     assert response.status_code == 200
-    assert f"\n\n{NCS_HEADER}\n주요 업무 2번 ← " in response.json()["reply"]
+    assert f"\n\n{NCS_HEADER}\n주요 업무 2번 ← " in done_of(response)["reply"]
 
 
 def test_revise_changes_only_the_line_hr_picked() -> None:
@@ -164,7 +189,7 @@ def test_revise_changes_only_the_line_hr_picked() -> None:
     response = client(llm).post("/agents/posting/revise", json=request)
 
     assert response.status_code == 200
-    assert response.json()["suggestion"] == {
+    assert done_of(response)["suggestion"] == {
         "content": {**CONTENT, "preferred": ["카드 결제 · 정산 도메인 경험"]},
         "stages": None,
         "requiredExtras": None,
@@ -178,7 +203,7 @@ def test_revise_returns_null_suggestion_when_nothing_changes() -> None:
 
     response = client(llm).post("/agents/posting/revise", json=body("음"))
 
-    assert response.json() == {"reply": NOTHING_CHANGED_REPLY, "suggestion": None}
+    assert done_of(response) == {"reply": NOTHING_CHANGED_REPLY, "suggestion": None}
 
 
 def test_revise_rejects_unknown_status() -> None:

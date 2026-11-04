@@ -88,3 +88,13 @@ class RevisionResult(ContractModel):
 
     reply: str
     suggestion: PostingSuggestion | None
+
+
+class RevisionStep(ContractModel):
+    """수정안을 만드는 중의 처리 단계 (ai.application.ChatStatus와 같은 모양). SSE status 이벤트의 data다.
+
+    depth 0은 큰 단계, 1은 그 아래의 일이다. 문구는 코드 상수이고 모델이 쓴 문장이 아니다.
+    """
+
+    text: str
+    depth: int = 0
