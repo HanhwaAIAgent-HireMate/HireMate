@@ -63,9 +63,13 @@ public final class BlindMask {
     /** 본문을 문장으로 나누는 자리. PDF 글은 줄바꿈이 많아 줄도 문장 끝으로 본다. */
     private static final Pattern SENTENCE = Pattern.compile("\\R|(?<=[.!?])\\s+");
 
-    /** 학교를 다녔다는 문맥. "○○학교 행정실 근무"처럼 학교에서 일한 경력은 출신 학교가 아니라 세지 않는다. */
+    /**
+     * 학교를 다녔다는 문맥. "○○학교 행정실 근무"처럼 학교에서 일한 경력은 출신 학교가 아니라 세지 않는다.
+     * "○○학교 출신 동료"처럼 다른 사람의 출신 학교도 지원자 본인 이야기가 아니라 세지 않는다.
+     */
     private static final Pattern ATTENDED = Pattern.compile(
-            "졸업|재학|휴학|입학|편입|수료|학과|학부|전공|출신|다니|다녔|공부|수강|캡스톤|동아리|학생회|동문|학번|학년"
+            "졸업|재학|휴학|입학|편입|수료|학과|학부|전공|다니|다녔|공부|수강|캡스톤|동아리|학생회|동문|학번|학년"
+                    + "|출신(?!\\s*(?:동료|친구|선배|후배|동기|팀원|직원|개발자|학생|분들?|사람|멘토|교수|선생))"
                     + "|(?i:\\b(?:graduat\\w*|studied|studying|major\\w*|attended|alumn\\w*|enrolled)\\b)");
 
     private BlindMask() {
