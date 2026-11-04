@@ -86,6 +86,26 @@ class RemotePostingAgentTests {
         assertThat(client.body).containsEntry("focus", focus);
     }
 
+    @Test
+    @DisplayName("ai 서버 답의 NCS 출처를 읽고, 출처가 없는 답은 빈 목록으로 둔다")
+    void readsNcsSourcesFromAiAnswer() {
+        JsonMapper mapper = JsonMapper.builder().build();
+        String withSources = """
+                {"reply": "주요 업무(1줄 추가) 수정안을 만들었어요.", "suggestion": null, "ncsSources": [{
+                  "field": "duties", "number": 2, "line": "배치 프로그램 구현", "dutyName": "응용SW엔지니어링",
+                  "unitCode": "2001020211_23v6", "unitName": "서버프로그램 구현", "taskName": "배치 프로그램 구현하기",
+                  "sentence": "배치 프로그램을 구현 한다"}]}
+                """;
+
+        PostingAgent.Result result = mapper.readValue(withSources, PostingAgent.Result.class);
+        PostingAgent.Result plain = mapper.readValue("{\"reply\": \"어느 칸을 고칠까요?\", \"suggestion\": null}",
+                PostingAgent.Result.class);
+
+        assertThat(result.ncsSources()).containsExactly(new PostingAgent.NcsSource("duties", 2, "배치 프로그램 구현",
+                "응용SW엔지니어링", "2001020211_23v6", "서버프로그램 구현", "배치 프로그램 구현하기", "배치 프로그램을 구현 한다"));
+        assertThat(plain.ncsSources()).isEmpty();
+    }
+
     /** ai 서버 대신 받은 요청을 기록하고 정해 둔 응답을 돌려준다. */
     private static final class RecordingClient extends AiServerClient {
 

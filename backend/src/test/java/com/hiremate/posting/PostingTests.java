@@ -144,6 +144,8 @@ class PostingTests extends IntegrationTest {
                 Map.of("message", "전형은 서류, 코딩테스트, 1차 면접, 임원 면접 순으로 해줘.")), 200));
         assertThat(answer.path("reply").asString()).contains("평가 1개", "면접 2개");
         assertThat(answer.path("stub").asBoolean()).isTrue();
+        assertThat(answer.path("ncsSources").isArray()).isTrue();
+        assertThat(answer.path("ncsSources").size()).isZero();
         JsonNode suggestion = answer.path("posting").path("suggestion");
         assertThat(suggestion.path("stages").size()).isEqualTo(4);
         assertThat(suggestion.path("stages").get(1).path("type").asString()).isEqualTo("ASSESSMENT");
