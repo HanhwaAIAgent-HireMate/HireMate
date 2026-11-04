@@ -375,35 +375,58 @@ def _drawable_blocks(bundle: ReportBundle) -> list[Block]:
             )
             for keys in data.families.values()
         ]
-    # 조각 이름이 같은 group(예: '전체 신입' · '합격자 신입')끼리 구성 막대로 견준다
+    # 조각 이름이 같은 group(예: '전체 신입' · '최종 합격자 신입')끼리 구성 막대로 견준다
     labels = {metric.id: metric.label for metric in bundle.metrics}
-    by_pieces: dict[tuple[str, ...], list[str]] = {}
-    for group, ids in data.groups.items():
-        by_pieces.setdefault(tuple(_piece(labels[i]) for i in ids), []).append(group)
-    for groups in by_pieces.values():
-        if 2 <= len(groups) <= 4:
-            rows = [CompositionRow(label=_row_label(bundle, data.groups[g]), metrics=data.groups[g]) for g in groups]
-            blocks.append(
-                CompositionBlock(title="구간별 비율 비교", caption="같은 구간을 나란히 놓고 비율을 견줘요.", rows=rows)
-            )
+    names = {group: [labels[i] for i in ids] for group, ids in data.groups.items()}
+    paired: set[str] = set()
+    for members in _same_pieces(names).values():
+        members = [(g, name) for g, name in members if g not in paired][:4]
+        if len(members) < 2:
             continue
-        blocks += [
-            DonutBlock(title="부분별 비율", caption="전체에서 각 부분이 차지하는 비율이에요.", metrics=data.groups[g])
-            for g in groups
-            if 2 <= len(data.groups[g]) <= MAX_SLICES
-        ]
+        paired |= {g for g, _ in members}
+        rows = [CompositionRow(label=name, metrics=data.groups[g]) for g, name in members]
+        blocks.append(
+            CompositionBlock(title="구간별 비율 비교", caption="같은 구간을 나란히 놓고 비율을 견줘요.", rows=rows)
+        )
+    for group, ids in data.groups.items():
+        if group in paired or not 2 <= len(ids) <= MAX_SLICES:
+            continue
+        name = _split_group(names[group])[0]
+        blocks.append(
+            DonutBlock(
+                title=f"{name} 구성" if name else "부분별 비율",
+                caption="전체에서 각 부분이 차지하는 비율이에요.",
+                metrics=ids,
+            )
+        )
     return blocks
 
 
-def _piece(label: str) -> str:
-    """조각 이름. 첫 낱말이 그룹 이름이면 뺀다 ('전체 신입' → 신입)."""
-    return label.split(maxsplit=1)[-1]
+def _same_pieces(names: dict[str, list[str]]) -> dict[tuple[str, ...], list[tuple[str, str]]]:
+    """조각 이름이 같은 group을 모은다. group마다 앞 낱말 몇 개를 그 group의 이름으로 떼어 보고, 남은 조각 이름이
+    다른 group과 같으면 짝이다. '전체 5년 미만' · '최종 합격자 5년 미만'은 '전체'와 '최종 합격자'로 떼야 짝이 맞는다.
+    조각 이름 묶음마다 (group, group 이름) 목록이고, 두 group 이상인 묶음을 조각이 많은 것부터 돌려준다."""
+    found: dict[tuple[str, ...], list[tuple[str, str]]] = {}
+    for group, labels in names.items():
+        words = [label.split() for label in labels]
+        for cut in range(1, min(len(w) for w in words)):
+            if len({tuple(w[:cut]) for w in words}) != 1:
+                break
+            pieces = tuple(" ".join(w[cut:]) for w in words)
+            found.setdefault(pieces, []).append((group, " ".join(words[0][:cut])))
+    shared = {pieces: members for pieces, members in found.items() if len(members) >= 2}
+    return dict(sorted(shared.items(), key=lambda item: -len(item[0])))
 
 
-def _row_label(bundle: ReportBundle, ids: list[str]) -> str:
-    """구성 막대 이름. 조각 지표 이름의 첫 낱말(예: '전체 신입' → 전체)이다."""
-    label = next(metric.label for metric in bundle.metrics if metric.id == ids[0])
-    return label.split()[0]
+def _split_group(labels: list[str]) -> tuple[str, list[str]]:
+    """조각 지표 이름을 같은 앞 낱말(그룹 이름)과 조각 이름으로 나눈다.
+    '전체 신입' · '전체 1~2년' → ('전체', ['신입', '1~2년']), '최종 합격자 신입' → ('최종 합격자', ['신입']).
+    같은 앞부분이 없으면 그룹 이름은 빈 문자열이다."""
+    words = [label.split() for label in labels]
+    shared = 0
+    while all(len(w) > shared + 1 for w in words) and len({w[shared] for w in words}) == 1:
+        shared += 1
+    return " ".join(words[0][:shared]), [" ".join(w[shared:]) for w in words]
 
 
 def _area_blocks(

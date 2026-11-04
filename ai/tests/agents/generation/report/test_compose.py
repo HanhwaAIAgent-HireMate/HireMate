@@ -1348,3 +1348,11 @@ def test_repair_merges_one_key_tallies_and_drops_a_section_it_cannot_draw() -> N
     broken = good_spec()
     broken.sections.insert(1, Section(title="결정 흐름", takeaway="결정이 갈렸어요.", blocks=[bad]))
     assert "결정 흐름" not in [s.title for s in repair(broken, bundle(), group_by_code=False).sections]
+
+
+def test_final_fallback_puts_career_groups_side_by_side() -> None:
+    # '전체 5년 미만'과 '최종 합격자 5년 미만'은 같은 구간이라 도넛 두 개가 아니라 구성 막대 하나로 견준다
+    spec = fallback_spec(final_bundle())
+    rows = [[row.label for row in block.rows] for block in spec.all_blocks() if isinstance(block, CompositionBlock)]
+    assert ["전체", "최종 합격자"] in rows
+    assert not any(isinstance(block, DonutBlock) for block in spec.all_blocks())
