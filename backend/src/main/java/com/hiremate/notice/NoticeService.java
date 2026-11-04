@@ -1,7 +1,7 @@
 package com.hiremate.notice;
 
 import com.hiremate.activity.ActivityService;
-import com.hiremate.apply.ApplicantInfo;
+import com.hiremate.apply.ApplicantContact;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.company.CompanyService;
 import com.hiremate.company.MailStyleService;
@@ -175,7 +175,8 @@ public class NoticeService {
         MailBrand brand = mailStyles.brand(companyId);
         int sent = 0;
         int failed = 0;
-        for (ApplicantInfo applicant : applications.applicants(companyId, recipients)) {
+        // 블라인드 채용에서도 지원자 본인에게 보내는 메일이라 실제 이름과 이메일을 쓴다
+        for (ApplicantContact applicant : applications.contacts(companyId, recipients)) {
             NoticeDelivery delivery = previous.get(applicant.applicationId());
             if (delivery != null && delivery.isSent()) {
                 sent++;

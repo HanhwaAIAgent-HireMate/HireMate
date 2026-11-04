@@ -1,6 +1,6 @@
 package com.hiremate.assessment;
 
-import com.hiremate.apply.ApplicantInfo;
+import com.hiremate.apply.ApplicantContact;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.assessment.application.TableReader;
 import com.hiremate.assessment.domain.AssessmentResult;
@@ -177,13 +177,13 @@ public class AssessmentService {
                 .stream()
                 .map(CandidateRow::applicationId)
                 .collect(Collectors.toSet());
-        return applications.applicants(companyId, stage.recruitmentId()).stream()
-                .filter(applicant -> inStage.contains(applicant.applicationId()))
-                .collect(Collectors.toMap(applicant -> key(type, applicant), ApplicantInfo::applicationId,
+        // 이메일로 맞출 때는 블라인드 채용에서도 실제 이메일이 필요하다. 맞춘 결과에는 이메일을 담지 않는다
+        return applications.contacts(companyId, inStage).stream()
+                .collect(Collectors.toMap(applicant -> key(type, applicant), ApplicantContact::applicationId,
                         (left, right) -> left));
     }
 
-    private static String key(IdentifierType type, ApplicantInfo applicant) {
+    private static String key(IdentifierType type, ApplicantContact applicant) {
         return type == IdentifierType.EMAIL ? applicant.email() : String.valueOf(applicant.applicationNo());
     }
 
