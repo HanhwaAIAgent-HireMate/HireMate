@@ -1,19 +1,24 @@
 import { ArrowUp, AtSign, Bot, History, Sparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
-import { LiveSteps } from '@/features/chat/ChatSteps'
+import { LiveSteps, StepsSummary } from '@/features/chat/ChatSteps'
 import type { ChatStep } from '@/features/chat/steps'
 import { cn } from '@/lib/utils'
 
 const WAITING: ChatStep = { text: '수정안을 만들고 있어요', depth: 0 }
 
-/** focus는 HR이 줄을 골라 보낸 요청의 줄 이름이다 (예: 우대 사항 3번) */
+/**
+ * focus는 HR이 줄을 골라 보낸 요청의 줄 이름이다 (예: 우대 사항 3번).
+ * steps · seconds는 처리 단계를 받은 답의 처리 과정과 걸린 초다. AI Chat처럼 접어 두고 누르면 펼친다.
+ */
 export type AiMessage = {
   role: 'user' | 'ai'
   text: string
   agent?: string
   stub?: boolean
   focus?: string
+  steps?: ChatStep[]
+  seconds?: number
 }
 
 /**
@@ -102,6 +107,9 @@ export function AiRequestPanel({
             <div key={index} className="flex gap-2 text-sm">
               <Sparkles className="mt-0.5 size-4 shrink-0 text-ai" />
               <div className="space-y-1.5">
+                {message.steps && (
+                  <StepsSummary steps={message.steps} seconds={message.seconds ?? null} />
+                )}
                 <p className="whitespace-pre-wrap">{message.text}</p>
                 {message.agent && <AgentChip name={message.agent} stub={message.stub} />}
               </div>
