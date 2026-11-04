@@ -47,7 +47,7 @@ describe('처리 단계', () => {
     expect(screen.getByText('3초')).toBeInTheDocument()
   })
 
-  it('진행 중인 Root 단계 아래에는 지금 하는 일 한 줄과 그 결과만 보이고 앞선 일은 개수로 접는다', () => {
+  it('진행 중인 Root 단계 아래에는 지금 하는 일 한 줄과 그 결과만 보인다', () => {
     render(<LiveSteps steps={NESTED} />)
 
     const running = screen.getAllByTestId('root-step')[1]
@@ -56,7 +56,8 @@ describe('처리 단계', () => {
     expect(below.getByText('서류 Agent')).toHaveAttribute('data-agent')
     expect(below.getByText('정유민의 제출 문서 2건을 검토하고 있어요')).toBeInTheDocument()
     expect(below.getByText('근거 문장 3개를 찾았어요')).toBeInTheDocument()
-    expect(below.getByText('앞서 한 일 1개')).toBeInTheDocument()
+    expect(below.getAllByTestId('sub-step')).toHaveLength(2)
+    expect(below.queryByText(/앞서 한 일/)).not.toBeInTheDocument()
     expect(below.queryByText('정유민의 프로필을 읽고 있어요')).not.toBeInTheDocument()
     // 끝난 Root 단계 아래에는 하위 일을 보이지 않는다
     expect(within(screen.getAllByTestId('root-step')[0]).queryAllByTestId('sub-step')).toHaveLength(
