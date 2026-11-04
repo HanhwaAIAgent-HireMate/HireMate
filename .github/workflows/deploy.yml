@@ -1,0 +1,50 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, ARM64, hiremate-production]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: 최신 main 확인
+        run: |
+          git fetch origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+
+      - name: 이미지 빌드
+        run: docker compose -f compose.production.yaml build
+
+      - name: AI 데이터베이스 마이그레이션
+        run: docker compose -f compose.production.yaml run --rm --no-deps ai alembic upgrade head
+
+      - name: 서비스 적용
+        run: docker compose -f compose.production.yaml up -d --no-build
+
+      - name: 서비스 상태 확인
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --max-time 5 \
+              --resolve hiremate.yuumin.com:443:127.0.0.1 \
+              https://hiremate.yuumin.com/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose -f compose.production.yaml ps
+          exit 1

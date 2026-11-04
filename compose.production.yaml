@@ -1,0 +1,78 @@
+services:
+  frontend:
+    image: hiremate-frontend:current
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    image: hiremate-backend:current
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: /opt/hiremate/runtime.env
+    environment:
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_SESSION_TIMEOUT: 30m
+      HIREMATE_AI_BASE_URL: http://ai:8001
+      HIREMATE_FILES_STORAGE: s3
+      HIREMATE_DUMMY_ASSESSMENT: "false"
+      AWS_REGION: ap-northeast-2
+    volumes:
+      - /opt/hiremate/rds-ca-bundle.pem:/etc/ssl/certs/rds-ca-bundle.pem:ro
+    depends_on:
+      - redis
+      - ai
+    restart: unless-stopped
+
+  ai:
+    image: hiremate-ai:current
+    build:
+      context: .
+      dockerfile: ai/Dockerfile
+    env_file: /opt/hiremate/runtime.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_BASE_URL: http://backend:8080
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /etc/ssl/certs/rds-ca-bundle.pem
+    volumes:
+      - /opt/hiremate/rds-ca-bundle.pem:/etc/ssl/certs/rds-ca-bundle.pem:ro
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    image: hiremate-ai:current
+    command: ["python", "-m", "hiremate_ai.worker"]
+    env_file: /opt/hiremate/runtime.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_BASE_URL: http://backend:8080
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /etc/ssl/certs/rds-ca-bundle.pem
+    volumes:
+      - /opt/hiremate/rds-ca-bundle.pem:/etc/ssl/certs/rds-ca-bundle.pem:ro
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:8
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  redis-data:

@@ -44,6 +44,24 @@
 
 멀티에이전트 기반 E2E 채용 자동화 플랫폼 MVP
 
+## AWS 배포
+
+PR 검사를 통과한 변경을 `main`에 머지하면 GitHub Actions 배포 작업이 EC2의 전용 실행기에서 실행된다.
+실행기는 ARM64 이미지를 빌드하고 AI 스키마를 마이그레이션한 뒤 서비스를 적용하고 HTTPS 상태를 확인한다.
+배포 실패 시 자동 롤백은 하지 않는다. 배포 전 RDS 백업과 마이그레이션 호환성을 확인한다.
+
+`compose.production.yaml`은 Nginx, backend, AI API, AI 워커와 Redis를 실행한다.
+RDS와 S3는 별도 AWS 리소스이며 Redis 데이터는 EC2의 Docker 볼륨에 남는다.
+운영 값은 서버의 `/opt/hiremate/runtime.env`에 넣고 저장소에 올리지 않는다. 필요한 키는 `.env.example`에 있다.
+데이터베이스 URL에는 RDS 엔드포인트를 쓰고 TLS 호스트 검증을 켠다. JDBC URL에는
+`sslmode=verify-full`과 `sslrootcert=/etc/ssl/certs/rds-ca-bundle.pem`을 지정한다.
+Python은 Compose의 `PGSSLMODE`와 `PGSSLROOTCERT`를 사용한다.
+
+파일 저장은 `HIREMATE_FILES_BUCKET`에 지정한 비공개 S3 버킷을 쓴다. EC2 역할에 해당 버킷의
+객체 읽기와 쓰기 권한이 필요하며 컨테이너에서 IMDSv2 역할 자격 증명을 얻을 수 있어야 한다.
+Nginx는 `hiremate.yuumin.com`의 인증서를 `/etc/letsencrypt`에서 읽는다.
+인증서 자동 갱신과 갱신 후 Nginx 재적용은 서버에서 별도로 설정해야 한다.
+
 ## 구성
 
 | 디렉터리 | 역할 | 스택 |
