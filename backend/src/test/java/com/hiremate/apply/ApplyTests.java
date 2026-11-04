@@ -49,6 +49,11 @@ class ApplyTests extends IntegrationTest {
         assertThat(detail.phone()).isEmpty();
         assertThat(detail.documents().getFirst().text()).contains("○○○. Contact ○○○ or ○○○.", "Java Spring")
                 .doesNotContain("Yuna", "blind-name@example.com", "010-1234-5678");
+        // 파일 이름에도 지원자 이름이 들어 있곤 해서, 보이는 이름과 내려받는 이름을 바꾼다
+        assertThat(detail.documents().getFirst().fileName()).isEqualTo("1번 지원자_이력서.pdf");
+        String download = hr.getBytes("/api/recruitments/" + recruitmentId + "/applications/" + info.applicationId()
+                + "/documents/RESUME").headers().firstValue("Content-Disposition").orElseThrow();
+        assertThat(download).doesNotContain("resume.pdf");
         // 저장한 본문은 가리기 전 글이라, 실제 이름 · 이메일로 찾으면 찾지 못한다
         assertThat(applications.searchDocuments(hr.companyId(), recruitmentId, "Java")).hasSize(1);
         assertThat(applications.searchDocuments(hr.companyId(), recruitmentId, "Yuna")).isEmpty();
