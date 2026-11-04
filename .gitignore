@@ -38,10 +38,8 @@ frontend/dist/
 .claude/settings.local.json
 CLAUDE.local.md
 
-# 기획 산출물. 최신판(output/v9) 문서만 올리고 이전 판과 빌드 폴더는 올리지 않음
-output/*
-!output/v9/
-output/v9/.*
+# 기획 산출물은 저장소에 올리지 않는다 (공개 저장소)
+/output/
 
 # Local-only AI test data and experiments
 /ai/.local/
