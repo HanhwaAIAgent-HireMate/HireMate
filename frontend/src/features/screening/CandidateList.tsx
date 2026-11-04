@@ -95,9 +95,14 @@ export function CandidateList({
   const rows = candidates.data?.pages.flatMap((page) => page.items) ?? []
   const total = candidates.data?.pages[0]?.total ?? overview.counts.total
   const filtered = isFiltered(filter)
-  const firstBelow = documentStage ? rows.findIndex((row) => !row.aboveLine) : -1
-  // 선 위 지원자가 먼저 서므로, 전체 수에서 선 위 수를 빼면 아직 안 불러온 카드까지 센 선 아래 수다 (거르기는 서버가 한다)
-  const below = total - firstBelow
+  // 블라인드 채용 서류 전형에서 출신 학교를 쓴 지원자. 서버가 맨 아래로 보내고, HR이 카드에서 해제하면 원래 자리로 돌아간다
+  const suspects = new Set(documentStage ? (candidates.data?.pages[0]?.schoolSuspects ?? []) : [])
+  const isSuspect = (row: CandidateRow) => suspects.has(row.applicationId)
+  const firstBelow = documentStage ? rows.findIndex((row) => !row.aboveLine && !isSuspect(row)) : -1
+  const firstSuspect = suspects.size > 0 ? rows.findIndex(isSuspect) : -1
+  // 선 위 지원자가 먼저 서므로, 의심 지원자를 뺀 전체 수에서 선 위 수를 빼면 아직 안 불러온 카드까지 센 선 아래 수다
+  // (거르기는 서버가 한다)
+  const below = total - suspects.size - firstBelow
   const fail = (error: unknown) => toast.error(errorMessage(error))
 
   // 회색(필수 조건 미충족) 카드는 ↑로 선 위에 올린다. 올리면 줄을 다시 서고 ↑ 대신 넣기(+)가 생긴다
@@ -141,6 +146,7 @@ export function CandidateList({
         documentStage={documentStage}
         scoreStage={overview.type === 'ASSESSMENT'}
         active={openId === row.applicationId}
+        suspect={isSuspect(row)}
         action={action(row)}
         note={
           interviewStage ? (
@@ -217,6 +223,13 @@ export function CandidateList({
                       <span className="h-px flex-1 bg-border" />
                       필수 조건 미충족 {below}명
                       <span className="h-px flex-1 bg-border" />
+                    </p>
+                  )}
+                  {index === firstSuspect && (
+                    <p className="col-span-3 mt-2 flex items-center gap-2 text-[11px] font-semibold text-amber-800">
+                      <span className="h-px flex-1 bg-amber-300" />
+                      블라인드 위반 의심 {suspects.size}명 · 카드에서 확인하고 해제할 수 있어요
+                      <span className="h-px flex-1 bg-amber-300" />
                     </p>
                   )}
                   {tile(row)}

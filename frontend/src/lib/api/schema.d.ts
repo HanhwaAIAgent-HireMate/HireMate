@@ -628,6 +628,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/candidates/{applicationId}/school-clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["clearSchoolMention"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/candidates/{applicationId}/promote": {
         parameters: {
             query?: never;
@@ -2787,6 +2803,7 @@ export interface components {
             /** Format: int64 */
             total: number;
             items: components["schemas"]["CandidateRow"][];
+            schoolSuspects: string[];
         };
         CandidateRow: {
             /** Format: uuid */
@@ -2860,24 +2877,24 @@ export interface components {
             float: boolean;
             number: boolean;
             pojo: boolean;
-            short: boolean;
-            int: boolean;
-            long: boolean;
-            double: boolean;
+            string: boolean;
+            boolean: boolean;
             /** @deprecated */
             textual: boolean;
-            boolean: boolean;
             binary: boolean;
-            string: boolean;
-            missingNode: boolean;
-            container: boolean;
-            valueNode: boolean;
-            bigDecimal: boolean;
+            short: boolean;
+            long: boolean;
+            int: boolean;
+            double: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            integralNumber: boolean;
-            bigInteger: boolean;
+            valueNode: boolean;
+            container: boolean;
             floatingPointNumber: boolean;
+            bigDecimal: boolean;
+            bigInteger: boolean;
+            missingNode: boolean;
+            integralNumber: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3302,9 +3319,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            headerName: string;
             parameterName: string;
             token: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -4524,6 +4541,27 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["DecisionCounts"];
                 };
+            };
+        };
+    };
+    clearSchoolMention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

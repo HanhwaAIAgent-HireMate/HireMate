@@ -7,6 +7,9 @@ import { CandidateList } from '@/features/screening/CandidateList'
 
 const state = vi.hoisted(() => ({
   live: vi.fn(),
+  // 서류 전형: 선 위 지원자와 블라인드 위반 의심 지원자 (서버가 의심 지원자를 맨 아래로 보낸다)
+  above: [] as string[],
+  suspects: [] as string[],
   // 인사는 a3에만 추천을 냈고 실무는 아무도 내지 않았다
   opinions: (['a1', 'a2', 'a3'] as const).map((applicationId) => ({
     applicationId,
@@ -56,8 +59,10 @@ vi.mock('@/features/screening/api', () => ({
             applicationId,
             name: applicationId,
             decision: 'PENDING',
+            aboveLine: state.above.includes(applicationId),
           })),
           total: 4,
+          schoolSuspects: state.suspects,
         },
       ],
     },
@@ -75,8 +80,18 @@ vi.mock('@/features/screening/table', () => ({
   useCandidateTable: () => ({ data: { features: [] }, isPending: false }),
 }))
 vi.mock('@/features/screening/CandidateTile', () => ({
-  CandidateTile: ({ row, note }: { row: { applicationId: string }; note: ReactNode }) => (
-    <div data-testid={row.applicationId}>{note}</div>
+  CandidateTile: ({
+    row,
+    note,
+    suspect,
+  }: {
+    row: { applicationId: string }
+    note: ReactNode
+    suspect?: boolean
+  }) => (
+    <div data-testid={row.applicationId} data-suspect={suspect}>
+      {note}
+    </div>
   ),
 }))
 vi.mock('@/features/screening/CandidateItem', () => ({
@@ -102,6 +117,8 @@ function renderList(type: StageOverview['type'] = 'INTERVIEW') {
 
 afterEach(() => {
   state.live.mockClear()
+  state.above = []
+  state.suspects = []
   vi.unstubAllGlobals()
 })
 
@@ -145,5 +162,23 @@ describe('면접 전형 지원자 목록', () => {
     expect(screen.queryByLabelText(/면접 상태/)).not.toBeInTheDocument()
     expect(screen.queryAllByRole('heading', { level: 3 })).toHaveLength(0)
     expect(state.live).toHaveBeenCalledWith('s1', false)
+  })
+})
+
+describe('서류 전형 블라인드 위반 의심', () => {
+  it('위반 의심 지원자는 맨 아래 노란 칸에 모으고 필수 조건 미충족 수에서 뺀다', () => {
+    state.above = ['a1']
+    state.suspects = ['a4']
+    renderList('DOCUMENT')
+    expect(screen.getByText(/필수 조건 미충족 2명/)).toBeInTheDocument()
+    expect(screen.getByText(/블라인드 위반 의심 1명/)).toBeInTheDocument()
+    expect(screen.getByTestId('a4').dataset.suspect).toBe('true')
+    expect(screen.getByTestId('a2').dataset.suspect).toBe('false')
+  })
+
+  it('위반 의심 지원자가 없으면 노란 칸을 보이지 않는다', () => {
+    state.above = ['a1', 'a2', 'a3', 'a4']
+    renderList('DOCUMENT')
+    expect(screen.queryByText(/블라인드 위반 의심/)).not.toBeInTheDocument()
   })
 })
