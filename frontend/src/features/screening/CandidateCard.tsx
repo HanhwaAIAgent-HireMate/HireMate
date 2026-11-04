@@ -196,7 +196,7 @@ function SchoolMentions({
   return (
     <div
       className={cn(
-        'rounded-lg border px-3 py-2 text-sm',
+        'rounded-md border px-2 py-1 text-xs',
         cleared ? 'bg-muted/40' : 'border-amber-200 bg-amber-50',
       )}
     >
@@ -210,14 +210,14 @@ function SchoolMentions({
             cleared ? 'text-muted-foreground' : 'font-semibold',
           )}
         >
-          <ChevronDown className={cn('size-4 transition-transform', !open && '-rotate-90')} />
+          <ChevronDown className={cn('size-3.5 transition-transform', !open && '-rotate-90')} />
           {cleared
             ? '블라인드 위반 의심을 해제했어요'
             : `블라인드 위반 의심 문장 ${mentions.length}개`}
         </button>
         {editable && (
           <Button
-            size="sm"
+            size="xs"
             variant="outline"
             disabled={action.isPending}
             onClick={() =>
@@ -237,13 +237,13 @@ function SchoolMentions({
         )}
       </div>
       {open && (
-        <div className="mt-1.5 space-y-1.5">
-          <ul className="space-y-0.5 text-xs">
+        <div className="mt-1 space-y-1">
+          <ul className="space-y-0.5">
             {mentions.map((mention) => (
               <li key={mention}>· {mention}</li>
             ))}
           </ul>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[11px] text-muted-foreground">
             학교 이름은 가려져 있어요. 출신 학교가 아니면 해제하세요. 반영할지는 담당자가 정해요.
           </p>
         </div>
