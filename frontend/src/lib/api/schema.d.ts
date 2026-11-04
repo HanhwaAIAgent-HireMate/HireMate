@@ -2111,6 +2111,7 @@ export interface components {
             roles: components["schemas"]["PostingRole"][];
             requiredQualifications: string[] | null;
             requiredPreferred: string[] | null;
+            blind: boolean | null;
         };
         PostingRole: {
             name: string;
@@ -2156,6 +2157,7 @@ export interface components {
             workHours: string;
             salary: string;
             roles: components["schemas"]["PostingRole"][];
+            blind: boolean;
         };
         PostingStage: {
             /** Format: uuid */
@@ -2827,31 +2829,31 @@ export interface components {
             steps: string[];
         };
         JsonNode: {
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            string: boolean;
-            integralNumber: boolean;
-            valueNode: boolean;
-            pojo: boolean;
-            number: boolean;
-            floatingPointNumber: boolean;
-            short: boolean;
-            int: boolean;
-            long: boolean;
-            double: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
-            /** @deprecated */
-            textual: boolean;
-            boolean: boolean;
-            binary: boolean;
-            container: boolean;
-            missingNode: boolean;
             empty: boolean;
             array: boolean;
             null: boolean;
             object: boolean;
             float: boolean;
+            number: boolean;
+            binary: boolean;
+            pojo: boolean;
+            /** @deprecated */
+            textual: boolean;
+            boolean: boolean;
+            int: boolean;
+            long: boolean;
+            double: boolean;
+            string: boolean;
+            short: boolean;
+            missingNode: boolean;
+            integralNumber: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            bigInteger: boolean;
+            valueNode: boolean;
+            container: boolean;
+            bigDecimal: boolean;
+            floatingPointNumber: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3275,9 +3277,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            headerName: string;
             parameterName: string;
             token: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;
