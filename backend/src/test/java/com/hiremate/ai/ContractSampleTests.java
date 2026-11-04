@@ -121,6 +121,16 @@ class ContractSampleTests {
         }
     }
 
+    @Test
+    @DisplayName("NCS 참고 여부가 없는 면접 질문 요청은 ncs 칸 없이 보낸다 (main과 같은 본문)")
+    void missingNcsIsNotSent() throws IOException {
+        JsonNode written = mapper.readTree(mapper.writeValueAsString(
+                new InterviewQuestionsRequest(null, null, null, null, null, "범위", 2)));
+
+        assertThat(written.has("ncs")).isFalse();
+        assertThat(written.has("memo")).isTrue();
+    }
+
     @ParameterizedTest
     @MethodSource("samples")
     @DisplayName("샘플을 레코드로 읽고 다시 쓰면 샘플과 같다")

@@ -244,3 +244,14 @@ def test_handle_questions_carries_ncs(
 
 def test_questions_plan_defaults_to_skip_ncs() -> None:
     assert QuestionsPlan(scope=Scope(sources=["mentions"]), checks="none").ncs == "SKIP"
+
+
+def test_memo_questions_never_use_ncs_in_handler(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    """확인할 점이 모두 빠져 정해진 처리기로 돌아와도 메모 질문은 NCS를 참고하지 않는다."""
+    context = context_of(sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW)
+    rows = rows_of(context, "정유민")
+    form = QuestionsPlan(scope=Scope(sources=["mentions"]), checks="memos", ncs="REQUESTED")
+
+    assert handle_questions(context, form, rows).plan.question_ncs == "SKIP"
