@@ -31,6 +31,9 @@ public class InterviewSchedulingJob {
     @Column(length = 80)
     private String errorCode;
 
+    @Column(nullable = false)
+    private boolean reassignAutomatic;
+
     public InterviewSchedulingJob(UUID previousStageId, UUID companyId, UUID nextStageId) {
         this.previousStageId = previousStageId;
         this.companyId = companyId;
@@ -40,5 +43,12 @@ public class InterviewSchedulingJob {
     public void change(String status, String errorCode) {
         this.status = status;
         this.errorCode = errorCode;
+        if ("READY".equals(status)) {
+            reassignAutomatic = false;
+        }
+    }
+
+    public void reassignAutomatic(boolean allowed) {
+        reassignAutomatic = allowed;
     }
 }
