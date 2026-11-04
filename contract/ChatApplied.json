@@ -31,7 +31,8 @@
     },
     "questionMemos": {},
     "questionReplace": false,
-    "report": null
+    "report": null,
+    "questionNcs": "SKIP"
   },
   "plan": {
     "intent": "EDIT",
@@ -56,6 +57,7 @@
     },
     "questionMemos": {},
     "questionReplace": false,
-    "report": null
+    "report": null,
+    "questionNcs": "SKIP"
   }
 }

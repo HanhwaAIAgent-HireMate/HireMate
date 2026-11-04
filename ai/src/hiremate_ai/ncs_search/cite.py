@@ -21,9 +21,6 @@ logger = logging.getLogger(__name__)
 
 MAX_UNITS = 5
 
-NcsUse = Literal["SKIP", "REQUESTED", "HELPFUL"]
-"""NCS 참고 여부. REQUESTED는 HR이 NCS를 참고하라고 한 요청이라, 찾지 못하면 알린다."""
-
 NcsMiss = Literal["NOT_FOUND", "UNAVAILABLE"]
 """찾지 못한 이유. UNAVAILABLE은 DB, 임베딩 서비스, 검색어 만들기의 실패나 시간 초과다."""
 

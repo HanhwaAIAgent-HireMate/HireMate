@@ -17,6 +17,7 @@ from hiremate_ai.contract import (
     ContractModel,
     InterviewerMemo,
     InterviewView,
+    NcsUse,
     PostingContent,
     StageType,
 )
@@ -218,6 +219,7 @@ class ChatPlan(ContractModel):
     question_memos: dict[UUID, InterviewerMemo] = {}  # 명시적으로 요청해 원문을 확인한 메모만 전달
     question_replace: bool = False  # 만들기 전에 답변 없는 AI 질문을 지운다
     report: ChatReport | None = None  # 리포트 요청 (intent REPORT일 때)
+    question_ncs: NcsUse = "SKIP"  # 면접 질문을 만들 때 NCS를 참고할지 (Root 계획이 정한다)
 
     @field_validator("edit", mode="before")
     @classmethod

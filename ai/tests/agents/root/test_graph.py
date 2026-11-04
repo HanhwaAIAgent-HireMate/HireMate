@@ -366,3 +366,29 @@ async def test_blind_hiring_blocks_school_search_without_model(
 
     assert await run_plan(llm, context) == ChatPlan.answer(Intent.BLOCKED, BLIND_BLOCKED_REPLY)
     assert llm.calls == []
+
+
+async def test_plan_ncs_reaches_chat_plan(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(
+        sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW, mentions=["정유민"]
+    )
+    llm = FakeLlm(form_call("questions", scope={"sources": ["mentions"]}, checks="none", ncs="HELPFUL"))
+
+    plan = await run_plan(llm, context)
+
+    assert plan.question_targets == context.mentions and plan.question_ncs == "HELPFUL"
+
+
+async def test_plan_without_ncs_stays_skip(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(
+        sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW, mentions=["정유민"]
+    )
+    llm = FakeLlm(form_call("questions", scope={"sources": ["mentions"]}, checks="none"))
+
+    plan = await run_plan(llm, context)
+
+    assert plan.question_ncs == "SKIP"

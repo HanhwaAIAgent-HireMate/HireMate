@@ -18,6 +18,7 @@ from hiremate_ai.agents.root.stages import DECISION_LABELS, STAGE_LABELS, STATUS
 from hiremate_ai.agents.root.toolkit import candidate_ref
 from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import ChatContext, EditAction
+from hiremate_ai.contract import NcsUse
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import data_block
 
@@ -50,6 +51,7 @@ PLAN_SYSTEM = """[역할]
   자료를 읽어 본 뒤 찾기로 이어지는 질문도 answer다.
 - questions: 면접 질문을 만들어 달라는 요청. 서류에서 확인할 점을 바탕으로 만들면 checks=documents,
   면접관 메모를 반영하면 memos, 그 밖에는 none이다. 기존 AI 질문을 다시 만들거나 바꾸라고 하면 replace=true다.
+  NCS를 참고하라면 ncs=REQUESTED, 직무 지식 · 업무 개념 · 가상 상황 질문이면 HELPFUL, 그 밖에는 SKIP이다.
 - conversation: 인사, 감사, 기능 안내, 말투 변경처럼 자료가 필요 없는 답. message에 짧게 답한다.
   message는 '~요'로 끝나는 존댓말로 쓰고, 앞 대화에서 말투를 바꿔 달라고 했으면 그 말투를 쓴다.
 - report: 리포트, 그래프, 차트, 한눈에 볼 정리 자료를 바라는 요청. 지원자 비교는 view=compare와 scope(2~5명),
@@ -129,6 +131,13 @@ class QuestionsPlan(Form):
         description="서류에서 확인할 점을 정해 넘기면 documents, 면접관 메모를 반영하면 memos, 그 밖에는 none"
     )
     replace: bool = Field(default=False, description="기존 AI 질문을 다시 만들거나 바꾸라는 요청이면 true")
+    ncs: NcsUse = Field(
+        default="SKIP",
+        description=(
+            "NCS를 참고하라는 요청이면 REQUESTED, 직무 지식 · 업무 개념 · 가상 업무 상황 질문이면 HELPFUL, "
+            "그 밖에는 SKIP"
+        ),
+    )
 
 
 class EditPlan(Form):

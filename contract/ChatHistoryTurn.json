@@ -30,7 +30,8 @@
     },
     "questionMemos": {},
     "questionReplace": false,
-    "report": null
+    "report": null,
+    "questionNcs": "SKIP"
   },
   "total": 2,
   "mentions": [
