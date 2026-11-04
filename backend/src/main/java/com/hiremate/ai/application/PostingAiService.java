@@ -6,6 +6,7 @@ import com.hiremate.posting.PostingFocus;
 import com.hiremate.posting.PostingService;
 import com.hiremate.posting.PostingView;
 import com.hiremate.recruit.RecruitmentStatus;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -42,23 +43,27 @@ public class PostingAiService {
             ChatProgress progress) {
         PostingDraftContext context = postings.draftContext(companyId, recruitmentId);
         if (context.status() != RecruitmentStatus.DRAFT) {
-            return answer(PUBLISHED_REPLY, postings.view(companyId, recruitmentId));
+            return answer(PUBLISHED_REPLY, postings.view(companyId, recruitmentId), List.of());
         }
         if (focus != null && !focus.isIn(context.content())) {
-            return answer(FOCUS_MISSING_REPLY, postings.view(companyId, recruitmentId));
+            return answer(FOCUS_MISSING_REPLY, postings.view(companyId, recruitmentId), List.of());
         }
         PostingAgent.Result result = agent.revise(context,
                 companies.postingSettings(companyId).writingStyle(), message, focus, progress);
         PostingView posting = result.suggestion() == null
                 ? postings.view(companyId, recruitmentId)
                 : postings.suggest(companyId, recruitmentId, result.suggestion());
-        return answer(result.reply(), posting);
+        return answer(result.reply(), posting, result.ncsSources());
     }
 
-    private PostingAiAnswer answer(String reply, PostingView posting) {
-        return new PostingAiAnswer(reply, "Posting Agent", settings.isStub(AiAgent.POSTING), posting);
+    private PostingAiAnswer answer(String reply, PostingView posting, List<PostingAgent.NcsSource> ncsSources) {
+        return new PostingAiAnswer(reply, "Posting Agent", settings.isStub(AiAgent.POSTING), posting, ncsSources);
     }
 
-    public record PostingAiAnswer(String reply, String agent, boolean stub, PostingView posting) {
+    /**
+     * @param ncsSources 수정안이 참고한 NCS 출처. 화면은 답 아래에 출처로 보인다. 참고하지 않았으면 빈 목록이다
+     */
+    public record PostingAiAnswer(String reply, String agent, boolean stub, PostingView posting,
+            List<PostingAgent.NcsSource> ncsSources) {
     }
 }

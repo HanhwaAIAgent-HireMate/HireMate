@@ -18,6 +18,7 @@ import com.hiremate.ai.application.InterviewFollowUps;
 import com.hiremate.ai.application.InterviewFollowUpsRequest;
 import com.hiremate.ai.application.InterviewQuestionsRequest;
 import com.hiremate.ai.application.InterviewerMemo;
+import com.hiremate.ai.application.PostingAgent;
 import com.hiremate.ai.application.ReportBundle;
 import com.hiremate.ai.application.TalentFit;
 import com.hiremate.ai.application.TalentFitRequest;
@@ -85,6 +86,7 @@ class ContractSampleTests {
             Map.entry("InterviewQuestionsRequest", InterviewQuestionsRequest.class),
             Map.entry("Job", Job.class),
             Map.entry("JobResult", JobResult.class),
+            Map.entry("NcsSource", PostingAgent.NcsSource.class),
             Map.entry("PostingContent", PostingContent.class),
             Map.entry("PosterDesign", PosterDesign.class),
             Map.entry("PosterProposal", PosterProposal.class),
