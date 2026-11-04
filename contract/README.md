@@ -51,6 +51,10 @@ backend가 기업·지원자·전형과 최신 메모를 다시 검증한 뒤 �
 메모는 사실 판정의 근거가 아니며, 실제 면접 답변에 연결한 추가 확인 질문만 최대 1개 반환한다.
 인상뿐이거나 인용·중복 검증에 실패하면 다른 질문으로 대체하지 않고 빈 목록을 반환한다.
 
+`InterviewQuestionsRequest.ncs`가 `SKIP`이 아니면 `interview/questions` API는 질문마다 `ncsCited`를 붙인
+`CitedQuestionDraft` 목록을 반환한다. 판정을 통과한 NCS 원문을 인용한 질문만 `true`이고, 근거의 `출처:` · `원문:` 줄로
+그 원문을 보인다. `SKIP`이거나 없으면 지금처럼 `InterviewQuestionDraft` 목록이다.
+
 `ChatPlan.questionNcs`는 Chat 면접 질문을 만들 때 NCS를 참고할지(`SKIP`, `REQUESTED`, `HELPFUL`)다. Root 계획이 정하고,
 없으면 `SKIP`이다. backend는 `SKIP`이 아닐 때만 질문 요청의 `ncs`로 넘긴다. 메모 질문과 자동 생성에는 넘기지 않는다.
 

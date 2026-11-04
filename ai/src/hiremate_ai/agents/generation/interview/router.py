@@ -16,7 +16,10 @@ POST /agents/interview/follow-ups  backend InterviewAgent.followUps가 부른다
   응답 {"needed": bool, "suggestions": [{"text": 꼬리질문, "check": 확인 포인트}]}  답이 충분하면 needed=false
 """
 
+from typing import Any
+
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from pydantic import Field
 
 from hiremate_ai.agents.analysis.application.router import StoreDep
@@ -30,9 +33,11 @@ from hiremate_ai.contract import (
     ContractModel,
     InterviewerMemo,
     InterviewView,
+    NcsUse,
     PostingContent,
 )
 from hiremate_ai.llm.client import LlmDep
+from hiremate_ai.ncs_search.reference import NcsDep
 
 router = APIRouter(prefix="/agents/interview", tags=["interview"])
 
@@ -48,11 +53,16 @@ class QuestionsRequest(ContractModel):
     focus: str | None = None
     question_count: int | None = Field(default=None, ge=1)
     memo: InterviewerMemo | None = None
+    ncs: NcsUse = "SKIP"  # Root 계획이 정한 NCS 참고 여부. Chat 요청에서만 오고, 없으면 지금처럼 만든다
 
 
-@router.post("/questions")
-async def questions(request: QuestionsRequest, llm: LlmDep, store: StoreDep) -> list[InterviewQuestionDraft]:
-    """이전 전형 근거로 맞춤 질문을 만든다. 카드에 이미 있는 질문과 비슷한 질문은 뺀다."""
+@router.post("/questions", response_model=list[InterviewQuestionDraft])
+async def questions(request: QuestionsRequest, llm: LlmDep, store: StoreDep, ncs_ref: NcsDep) -> Any:
+    """이전 전형 근거로 맞춤 질문을 만든다. 카드에 이미 있는 질문과 비슷한 질문은 뺀다.
+
+    ncs가 SKIP이 아니면 NCS를 참고하고, 질문마다 ncsCited(판정을 통과한 NCS 원문을 인용했는가)를 붙여 돌려준다.
+    SKIP이면 응답이 지금과 같다.
+    """
     review = await load_review(
         store, request.applicant, company_id=request.company.company_id if request.company else None
     )
@@ -69,8 +79,12 @@ async def questions(request: QuestionsRequest, llm: LlmDep, store: StoreDep) -> 
         review=review,
         drafts=drafts,
         memo=request.memo,
+        ncs=request.ncs,
+        ncs_reference=None if request.ncs == "SKIP" else ncs_ref,
     )
-    return drafts
+    if request.ncs == "SKIP":
+        return drafts
+    return JSONResponse([draft.model_dump(mode="json") for draft in drafts])
 
 
 @router.post("/follow-ups")
