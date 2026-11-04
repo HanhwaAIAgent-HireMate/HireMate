@@ -42,14 +42,14 @@ class ApplyTests extends IntegrationTest {
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());
 
         ApplicantInfo info = applications.applicants(hr.companyId(), recruitmentId).getFirst();
-        assertThat(info.name()).isEqualTo("지원자 1");
+        assertThat(info.name()).isEqualTo("1번 지원자");
         assertThat(info.email()).isEmpty();
         ApplicantDetail detail = applications.detail(hr.companyId(), info.applicationId());
         assertThat(detail.phone()).isEmpty();
         assertThat(detail.documents().getFirst().text()).contains("Contact ○○○ or ○○○.", "Java Spring")
                 .doesNotContain("blind-name@example.com", "010-1234-5678");
         assertThat(json(expect(hr.get("/api/recruitments/" + recruitmentId + "/applications"), 200))
-                .path("items").get(0).path("name").asString()).isEqualTo("지원자 1");
+                .path("items").get(0).path("name").asString()).isEqualTo("1번 지원자");
 
         // 접수 확인 메일은 지원자 본인에게 가는 메일이라 실제 이메일로 보낸다
         Instant deadline = Instant.now().plus(Duration.ofSeconds(10));
@@ -62,7 +62,7 @@ class ApplyTests extends IntegrationTest {
         // 전형을 시작해도 가리고, 마지막 전형 결과를 확정하면 최종 합격자 처리를 위해 이름을 보인다
         JsonNode progress = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200));
         assertThat(progress.path("stages").size()).isEqualTo(1);
-        assertThat(applications.applicants(hr.companyId(), recruitmentId).getFirst().name()).isEqualTo("지원자 1");
+        assertThat(applications.applicants(hr.companyId(), recruitmentId).getFirst().name()).isEqualTo("1번 지원자");
         expect(hr.post("/api/stages/" + progress.path("stages").get(0).path("id").asString() + "/confirm", null), 200);
         ApplicantInfo revealed = applications.applicants(hr.companyId(), recruitmentId).getFirst();
         assertThat(revealed.name()).isEqualTo("정유민");
