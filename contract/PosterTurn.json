@@ -2,5 +2,6 @@
   "role": "USER",
   "text": "두 번째 추천으로 해줘",
   "design": null,
-  "recommendations": []
+  "recommendations": [],
+  "templates": []
 }

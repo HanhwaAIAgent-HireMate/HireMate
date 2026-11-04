@@ -13,12 +13,56 @@
   background: #fff;
   color: #24313e;
   text-align: left;
-  font-family: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
+  font-family: 'Noto Sans KR Variable', system-ui, sans-serif;
   border: 1px solid #e4e7eb;
   box-shadow: 0 6px 28px #00000008;
 }
 .posting-poster * {
   box-sizing: border-box;
+}
+.posting-poster .poster-vector > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.posting-poster[data-poster-highlight],
+.posting-poster [data-poster-highlight] {
+  outline: 3px solid var(--ai);
+  outline-offset: 5px;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 7px color-mix(in oklch, var(--ai) 18%, transparent),
+    0 3px 10px -4px var(--ai);
+}
+.posting-poster .stage-process [data-poster-highlight] {
+  position: relative;
+  background: var(--ai-soft);
+}
+.posting-poster .stage-process [data-poster-highlight]::after,
+.posting-poster .poster-change-overlay::after {
+  content: 'AI 수정';
+  position: absolute;
+  top: -23px;
+  right: 0;
+  z-index: 2;
+  border-radius: 5px;
+  padding: 2px 6px;
+  background: var(--ai);
+  color: white;
+  font:
+    600 10px/1.4 'Pretendard Variable',
+    sans-serif;
+}
+@media print {
+  .posting-poster[data-poster-highlight],
+  .posting-poster [data-poster-highlight] {
+    outline: none;
+    box-shadow: none;
+  }
+  .posting-poster .stage-process [data-poster-highlight]::after,
+  .posting-poster .poster-change-overlay::after {
+    display: none;
+  }
 }
 .posting-poster .poster-hero {
   position: relative;

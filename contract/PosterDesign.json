@@ -8,5 +8,7 @@
   "logoFileId": null,
   "backgroundStyle": "SOLID",
   "stageIcons": {},
-  "readableSections": []
+  "readableSections": [],
+  "canvasJson": null,
+  "tagline": null
 }

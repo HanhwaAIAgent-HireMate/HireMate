@@ -7,10 +7,12 @@ export function StageProcess({
   stages,
   includeFinal = false,
   color = '#2459a6',
+  highlightedNames = [],
 }: {
   stages: { name: string; type?: StageType; icon?: StageIconName | null }[]
   includeFinal?: boolean
   color?: string
+  highlightedNames?: string[]
 }) {
   const items = includeFinal
     ? [...stages, { name: '최종 합격', type: 'INTERVIEW' as const, icon: 'BADGE_CHECK' as const }]
@@ -27,7 +29,13 @@ export function StageProcess({
       }
     >
       {items.map((stage, index) => (
-        <li key={`${stage.name}-${index}`}>
+        <li
+          key={`${stage.name}-${index}`}
+          data-poster-highlight={highlightedNames.includes(stage.name) || undefined}
+          aria-label={
+            highlightedNames.includes(stage.name) ? `${stage.name} 아이콘 수정안` : undefined
+          }
+        >
           <StageIllustration
             type={stage.type ?? 'INTERVIEW'}
             icon={stage.icon}

@@ -6,6 +6,16 @@ import { usePostingRecovery } from '@/features/posting/usePostingRecovery'
 beforeEach(() => sessionStorage.clear())
 
 describe('공고 편집 복구', () => {
+  it('외부 포스터의 큰 디자인 JSON도 같은 탭에서 복구한다', () => {
+    const saved = { canvasJson: null as string | null }
+    const first = renderHook(() => usePostingRecovery('poster', saved))
+    const design = JSON.stringify({ objects: [{ text: '가'.repeat(150_000) }] })
+    act(() => first.result.current.setValue({ canvasJson: design }))
+    first.unmount()
+    const reopened = renderHook(() => usePostingRecovery('poster', saved))
+    expect(reopened.result.current.value.canvasJson).toBe(design)
+    expect(reopened.result.current.restored).toBe(true)
+  })
   it('새로 열면 같은 공고의 미저장 내용을 복구하고 다른 공고와 공유하지 않는다', () => {
     const saved = { title: '원본', duties: ['업무'] }
     const first = renderHook(() => usePostingRecovery('one', saved))

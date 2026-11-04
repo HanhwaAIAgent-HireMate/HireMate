@@ -39,7 +39,7 @@ function setup(status: RecruitmentCard['status'] = 'DRAFT') {
   return client
 }
 
-it('X는 이동이나 삭제 대신 확인 창을 열고 취소하면 요청하지 않는다', () => {
+it('휴지통은 이동이나 삭제 대신 확인 창을 열고 취소하면 요청하지 않는다', () => {
   setup()
   fireEvent.click(screen.getByRole('button', { name: 'AX 개발자 작성 중 공고 삭제' }))
   expect(screen.getByRole('alertdialog')).toHaveTextContent('AX 개발자')

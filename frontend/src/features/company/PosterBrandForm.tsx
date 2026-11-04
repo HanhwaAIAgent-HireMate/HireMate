@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { useCompanyProfile } from '@/features/company/api'
 import { SettingsRow, SettingsSection } from '@/features/company/SettingsSection'
 import { PosterTemplateDialog } from '@/features/company/PosterTemplateDialog'
+import { PosterTemplateDelete } from '@/features/company/PosterTemplateDelete'
 import {
   companyPosterLogoUrl,
   usePosterBrand,
@@ -19,6 +20,7 @@ import { PosterThumbnail } from '@/features/posting/PosterThumbnail'
 import type { PosterPosting } from '@/features/posting/PostingPoster'
 import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
+import { useDragScroll } from './useDragScroll'
 
 const schema = z.object({
   template: z.enum(['CLASSIC', 'EDITORIAL', 'BOLD', 'PREMIUM', 'NATURAL', 'TICKET']),
@@ -29,7 +31,7 @@ const schema = z.object({
 type Values = z.infer<typeof schema>
 
 export function PosterBrandForm() {
-  const templateList = useRef<HTMLDivElement>(null)
+  const { ref: templateList, dragging, handlers: dragScroll } = useDragScroll()
   const brand = usePosterBrand()
   const company = useCompanyProfile()
   const save = useSavePosterBrand()
@@ -43,7 +45,11 @@ export function PosterBrandForm() {
   })
   const design = { ...initialPoster(brand.data), template, color, mood, decoration, enabled: true }
   const selectedCompanyTemplate = brand.data?.templates.find(
-    (item) => item.template === template && item.color === color && item.decoration === decoration,
+    (item) =>
+      !item.canvasJson &&
+      item.template === template &&
+      item.color === color &&
+      item.decoration === decoration,
   )
   const preview: PosterPosting = {
     companyName: company.data?.name ?? '회사명',
@@ -121,10 +127,15 @@ export function PosterBrandForm() {
             </div>
             <div
               ref={templateList}
+              {...dragScroll}
               role="region"
               aria-label="포스터 템플릿 미리보기"
               tabIndex={0}
-              className="flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-1 pt-1 pb-3 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              style={{ scrollSnapType: dragging ? 'none' : undefined }}
+              className={cn(
+                'flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-1 pt-1 pb-3 select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                dragging ? 'cursor-grabbing' : 'cursor-grab',
+              )}
             >
               {brand.data && <PosterTemplateDialog brand={brand.data} />}
               {POSTER_TEMPLATES.map((item) => (
@@ -152,41 +163,48 @@ export function PosterBrandForm() {
                 </button>
               ))}
               {(brand.data?.templates ?? []).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-pressed={selectedCompanyTemplate?.id === item.id}
-                  onClick={() => {
-                    const base = POSTER_TEMPLATES.find((base) => base.id === item.template)
-                    if (!base) return
-                    form.setValue('template', base.id, { shouldDirty: true })
-                    form.setValue('color', item.color, { shouldDirty: true })
-                    form.setValue('mood', base.mood, { shouldDirty: true })
-                    form.setValue('decoration', item.decoration, { shouldDirty: true })
-                  }}
-                  className={cn(
-                    'flex h-60 w-44 shrink-0 snap-start flex-col overflow-hidden rounded-lg border text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none',
-                    selectedCompanyTemplate?.id === item.id
-                      ? 'border-foreground ring-1 ring-foreground'
-                      : 'hover:border-foreground/40',
-                  )}
-                >
-                  <PosterThumbnail
-                    posting={preview}
-                    design={{
-                      ...design,
-                      template:
-                        POSTER_TEMPLATES.find((base) => base.id === item.template)?.id ?? 'CLASSIC',
-                      color: item.color,
-                      decoration: item.decoration,
+                <div key={item.id} className="group relative h-60 w-44 shrink-0 snap-start">
+                  <button
+                    type="button"
+                    aria-pressed={selectedCompanyTemplate?.id === item.id}
+                    disabled={Boolean(item.canvasJson)}
+                    title={
+                      item.canvasJson ? '공고의 포스터 페이지에서 선택할 수 있어요.' : undefined
+                    }
+                    onClick={() => {
+                      const base = POSTER_TEMPLATES.find((base) => base.id === item.template)
+                      if (!base) return
+                      form.setValue('template', base.id, { shouldDirty: true })
+                      form.setValue('color', item.color, { shouldDirty: true })
+                      form.setValue('mood', base.mood, { shouldDirty: true })
+                      form.setValue('decoration', item.decoration, { shouldDirty: true })
                     }}
-                    logoUrl={companyPosterLogoUrl(brand.data?.logoFileId)}
-                    fill
-                  />
-                  <div className="flex min-h-0 w-full flex-1 items-center justify-center border-t bg-background px-3 text-center">
-                    <strong className="block truncate text-sm">{item.name}</strong>
-                  </div>
-                </button>
+                    className={cn(
+                      'flex h-full w-full flex-col overflow-hidden rounded-lg border text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none',
+                      selectedCompanyTemplate?.id === item.id
+                        ? 'border-foreground ring-1 ring-foreground'
+                        : 'hover:border-foreground/40',
+                    )}
+                  >
+                    <PosterThumbnail
+                      posting={preview}
+                      design={{
+                        ...design,
+                        template:
+                          POSTER_TEMPLATES.find((base) => base.id === item.template)?.id ??
+                          'CLASSIC',
+                        decoration: item.decoration,
+                        canvasJson: item.canvasJson ?? null,
+                      }}
+                      logoUrl={companyPosterLogoUrl(brand.data?.logoFileId)}
+                      fill
+                    />
+                    <div className="flex min-h-0 w-full flex-1 items-center justify-center border-t bg-background px-3 text-center">
+                      <strong className="block truncate text-sm">{item.name}</strong>
+                    </div>
+                  </button>
+                  <PosterTemplateDelete id={item.id} name={item.name} disabled={save.isPending} />
+                </div>
               ))}
             </div>
             <p className="text-xs text-muted-foreground">

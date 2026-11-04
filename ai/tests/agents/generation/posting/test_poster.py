@@ -84,6 +84,44 @@ async def test_poster_rejects_icons_for_stages_outside_current_posting() -> None
     assert result.recommendations == []
 
 
+async def test_tagline_changes_only_the_poster_copy_and_keeps_business_content() -> None:
+    current = context()
+    result = await propose_poster(
+        FakeLlm(PosterEdits(scope="TAGLINE", reply="상단 문구 제안", tagline="개발의 다음을 함께 만듭니다")),
+        current,
+        "회사 소개에 맞게 상단 문구를 바꿔줘",
+    )
+    assert result.recommendations[0].design.tagline == "개발의 다음을 함께 만듭니다"
+    assert current.design is not None
+    assert result.recommendations[0].design.color == current.design.color
+    assert current.posting.title == "채용"
+
+
+async def test_style_edit_preserves_canvas_even_when_model_rewrites_invalid_json() -> None:
+    current = context()
+    assert current.design
+    current = current.model_copy(
+        update={"design": current.design.model_copy(update={"canvas_json": '{"width":600,"height":1000,"objects":[]}'})}
+    )
+    assert current.design
+    proposed = current.design.model_copy(update={"color": "#7c3aed", "canvas_json": '{"broken"'})
+    llm = FakeLlm(
+        PosterEdits(
+            scope="DESIGN",
+            reply="색상 수정",
+            recommendations=[
+                PosterRecommendation(design=proposed, reason="배색"),
+                PosterRecommendation(design=proposed, reason="다른 배색"),
+            ],
+        )
+    )
+    result = await propose_poster(llm, current, "본문까지 전체 보라색으로")
+    assert len(result.recommendations) == 1
+    assert result.recommendations[0].design.canvas_json == current.design.canvas_json
+    assert result.recommendations[0].design.color == "#7c3aed"
+    assert '"canvas_json"' not in llm.calls[0].user
+
+
 async def test_contrast_request_keeps_brand_color_and_targets_numbered_section() -> None:
     current = context()
     assert current.design is not None

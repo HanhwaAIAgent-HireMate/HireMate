@@ -243,4 +243,12 @@ def test_design_conversation_keeps_posting_path(sample_company: CompanyProfile) 
         json={"context": context.model_dump(mode="json", by_alias=True), "request": "디자인은 어떻게 바꿔?"},
     )
     assert response.status_code == 200
-    assert response.json() == {"reply": "원하는 분위기를 알려 주세요.", "recommendations": []}
+    assert response.json() == {
+        "reply": "원하는 분위기를 알려 주세요.",
+        "recommendations": [],
+        "templates": [],
+        "selectedTemplateId": None,
+        "canvaQuery": None,
+        "canvaDesigns": [],
+        "externalQuery": None,
+    }

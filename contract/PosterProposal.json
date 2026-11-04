@@ -12,9 +12,16 @@
         "logoFileId": null,
         "backgroundStyle": "SOLID",
         "stageIcons": {},
-        "readableSections": []
+        "readableSections": [],
+        "canvasJson": null,
+        "tagline": null
       },
       "reason": "정보를 정돈한 구조에 밝은 배색을 적용한 디자인이에요."
     }
-  ]
+  ],
+  "templates": [],
+  "selectedTemplateId": null,
+  "canvaQuery": null,
+  "canvaDesigns": [],
+  "externalQuery": null
 }

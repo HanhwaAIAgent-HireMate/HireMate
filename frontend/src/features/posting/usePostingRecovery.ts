@@ -26,7 +26,7 @@ export function usePostingRecovery<T>(key: string, saved: T, enabled = true, war
     if (!enabled) return null
     try {
       const raw = sessionStorage.getItem(storageKey)
-      if (!raw || raw.length > 100_000) return null
+      if (!raw || raw.length > 1_000_000) return null
       const cached = JSON.parse(raw) as { baseline?: string; value?: unknown }
       return cached.baseline === baseline && sameShape(cached.value, saved)
         ? { value: cached.value as T }

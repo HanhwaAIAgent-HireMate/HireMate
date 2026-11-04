@@ -1,9 +1,13 @@
 /// <reference types="vitest/config" />
+import { setDefaultResultOrder } from 'node:dns'
 import { fileURLToPath, URL } from 'node:url'
 
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+
+// Canva OAuth의 loopback 주소(127.0.0.1)와 localhost가 같은 개발 서버를 사용한다.
+setDefaultResultOrder('ipv4first')
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

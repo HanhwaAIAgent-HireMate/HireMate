@@ -1,5 +1,6 @@
 """공고 내용은 보존하고, 기존 템플릿의 디자인 설정만 추천한다."""
 
+import json
 from typing import Literal
 from uuid import UUID
 
@@ -25,6 +26,8 @@ class PosterDesign(ContractModel):
     background_style: Literal["SOLID", "SOFT_GRADIENT"] = "SOLID"
     stage_icons: dict[str, StageIcon] = Field(default_factory=dict, max_length=10)
     readable_sections: list[int] = Field(default_factory=list, max_length=12)
+    canvas_json: str | None = Field(default=None, max_length=200000)
+    tagline: str | None = Field(default=None, max_length=60)
 
 
 class PosterTurn(ContractModel):
@@ -32,6 +35,7 @@ class PosterTurn(ContractModel):
     text: str = Field(min_length=1, max_length=1000)
     design: PosterDesign | None = None
     recommendations: list["PosterRecommendation"] = Field(default_factory=list, max_length=2)
+    templates: list["FreePosterTemplate"] = Field(default_factory=list, max_length=3)
 
 
 class PosterContext(ContractModel):
@@ -42,6 +46,8 @@ class PosterContext(ContractModel):
     history: list[PosterTurn] = Field(default_factory=list, max_length=12)
     stage_names: list[str] = Field(default_factory=list, max_length=10)
     section_names: list[str] = Field(default_factory=list, max_length=12)
+    canva_connected: bool = False
+    displayed_stage_icons: dict[str, StageIcon] = Field(default_factory=dict, max_length=10)
 
 
 class PosterRecommendation(ContractModel):
@@ -49,22 +55,47 @@ class PosterRecommendation(ContractModel):
     reason: str = Field(min_length=1, max_length=250)
 
 
+class FreePosterTemplate(ContractModel):
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=100)
+    source_url: str = Field(min_length=1, max_length=500)
+    license: str = Field(min_length=1, max_length=80)
+    svg: str = Field(min_length=1, max_length=100000)
+    thumbnail_url: str | None = Field(default=None, max_length=2000)
+
+
 class PosterProposal(ContractModel):
     reply: str = Field(min_length=1, max_length=500)
     recommendations: list[PosterRecommendation] = Field(max_length=2)
+    templates: list[FreePosterTemplate] = Field(default_factory=list, max_length=3)
+    selected_template_id: str | None = Field(default=None, max_length=80)
+    canva_query: str | None = Field(default=None, max_length=100)
+    external_query: str | None = Field(default=None, max_length=100)
+    canva_designs: list["CanvaDesign"] = Field(default_factory=list, max_length=6)
+
+
+class CanvaDesign(ContractModel):
+    id: str
+    name: str
+    edit_url: str
+    thumbnail_url: str
 
 
 class PosterEdits(ContractModel):
-    scope: Literal["ICONS", "CONTRAST", "DESIGN", "RESTORE", "RECOMMEND"]
+    scope: Literal["ICONS", "CONTRAST", "DESIGN", "RESTORE", "RECOMMEND", "TAGLINE"]
     reply: str = Field(min_length=1, max_length=500)
     stage_icons: dict[str, StageIcon] = Field(default_factory=dict, max_length=10)
     readable_sections: list[int] = Field(default_factory=list, max_length=12)
     recommendations: list[PosterRecommendation] = Field(default_factory=list, max_length=2)
+    tagline: str | None = Field(default=None, max_length=60)
 
 
 SYSTEM = (
     """너는 공고 Agent의 포스터 디자이너다. 공고 본문, 채용 조건, 회사 사실을 수정하거나 만들지 않는다.
 정해진 템플릿과 디자인 속성만 추천한다. 저장, 게시, 발송은 할 수 없고 HR이 적용할 수정안만 낸다.
+상단 한 줄(tagline)은 회사 소개·문화와 직무를 보고 짧고 자연스럽게 제안한다. 고정 문구를 반복하지 않는다.
+실적·순위·혜택·규모·고용 보장 등 새로운 사실은 넣지 않는다. 전달된 사실을 과장하거나 없는 업종을 확정하지 않는다.
+디자인 추천에는 디자인별 tagline을 함께 제안한다. 상단 문구만 수정하면 scope=TAGLINE, 최상위 tagline에 넣는다.
 첫 추천은 서로 다른 템플릿 2종, 명시적 수정 요청에는 현재 디자인을 보존하며 수정안 1종을 낸다.
 모호한 취향 요청도 디자인 제안으로 구체화하되, 채용 사실을 덧붙이지 않는다.
 템플릿: CLASSIC 반듯한 행/정보형, EDITORIAL 잡지형/따뜻한 2열, BOLD 큰 숫자와 모듈,
@@ -96,6 +127,7 @@ section_names는 화면의 1번부터 순서대로 본문 항목 제목이다. '
 흑백 로고이거나 색이 없으면 분위기에 맞는 색을 제안한다. 색은 #rrggbb다.
 로고 ID는 지금 디자인의 값 그대로 둔다. 새 ID를 만들거나 타사 로고를 참조하지 않는다.
 reason은 디자인 선택 이유만 짧게 쓴다. 없는 회사 특징, 복지, 실적을 사실로 설명하지 않는다.
+canvas_json은 코드가 보존한다. 추천의 canvas_json은 null로 두고 원본 구조를 다시 쓰지 않는다.
 enabled는 true로 제안한다. 요청 범위를 벗어나거나 업무 실행 요청이면 recommendations=[]로 안내한다.
 """
     + UNTRUSTED_RULE
@@ -107,13 +139,34 @@ async def propose_poster(llm: LlmClient, context: PosterContext, request: str) -
         PosterEdits,
         agent="posting",
         system=SYSTEM,
-        user=data_block("poster-context", context.model_dump_json()) + "\n담당자 디자인 요청: " + request,
+        user=data_block(
+            "poster-context",
+            json.dumps(
+                context.model_dump(
+                    mode="json",
+                    exclude={
+                        "design": {"canvas_json"},
+                        "history": {"__all__": {"design": {"canvas_json"}, "recommendations": True, "templates": True}},
+                    },
+                ),
+                ensure_ascii=False,
+            ),
+        )
+        + "\n담당자 디자인 요청: "
+        + request,
     )
     # 모델이 로고 ID나 표시 권한을 새로 만들 수 없다.
     current = context.design
     logo = current.logo_file_id if current else None
     candidates = proposal.recommendations
-    if current and proposal.scope == "ICONS" and proposal.stage_icons:
+    if current and proposal.scope == "TAGLINE" and proposal.tagline:
+        candidates = [
+            PosterRecommendation(
+                design=current.model_copy(update={"tagline": proposal.tagline}),
+                reason="회사 소개와 현재 직무를 바탕으로 상단 한 줄만 변경합니다.",
+            )
+        ]
+    elif current and proposal.scope == "ICONS" and proposal.stage_icons:
         candidates = [
             PosterRecommendation(
                 design=current.model_copy(update={"stage_icons": proposal.stage_icons}),
@@ -130,7 +183,7 @@ async def propose_poster(llm: LlmClient, context: PosterContext, request: str) -
     if any(set(item.design.stage_icons) - set(context.stage_names) for item in candidates):
         return PosterProposal(reply="현재 공고에 있는 전형 이름을 지정해 주세요.", recommendations=[])
     recommendations = []
-    for item in candidates:
+    for item in candidates if proposal.scope == "RECOMMEND" else candidates[:1]:
         proposed = item.design
         if current and proposal.scope == "ICONS":
             proposed = current.model_copy(update={"stage_icons": item.design.stage_icons})
@@ -153,6 +206,8 @@ async def propose_poster(llm: LlmClient, context: PosterContext, request: str) -
                 "readable_sections": sorted(
                     set((current.readable_sections if current else []) + proposed.readable_sections)
                 ),
+                "tagline": proposed.tagline if proposed.tagline is not None else current.tagline if current else None,
+                "canvas_json": current.canvas_json if current and proposal.scope != "RECOMMEND" else None,
             }
         )
         recommendations.append(item.model_copy(update={"design": design}))

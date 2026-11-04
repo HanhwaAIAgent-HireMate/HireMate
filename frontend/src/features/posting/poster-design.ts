@@ -1,10 +1,18 @@
 import type { CSSProperties } from 'react'
 
 import type { Schemas } from '@/lib/api/client'
+import type { PosterPosting } from './PostingPoster'
 
 export type PosterDesign = Schemas['PosterDesign']
 export type PosterBrand = Schemas['PosterBrand']
 export type PosterProposal = Schemas['PosterProposal']
+
+export function posterTagline(posting: PosterPosting, design?: PosterDesign) {
+  if (design?.tagline?.trim()) return design.tagline.trim()
+  if (posting.content.jobCategory.trim())
+    return `${posting.content.jobCategory.trim()}의 다음을 함께 만듭니다`
+  return `${posting.companyName}에서 다음 도전을 시작하세요`
+}
 
 export const POSTER_TEMPLATES = [
   {
@@ -78,6 +86,8 @@ export function initialPoster(brand?: PosterBrand): PosterDesign {
     backgroundStyle: 'SOLID',
     stageIcons: {},
     readableSections: [],
+    canvasJson: null,
+    tagline: null,
   }
 }
 

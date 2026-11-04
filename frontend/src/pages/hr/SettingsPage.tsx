@@ -3,6 +3,7 @@ import { NavLink, useParams } from 'react-router'
 
 import { useCompanyProfile, usePostingSettings } from '@/features/company/api'
 import { CompanyProfileForm } from '@/features/company/CompanyProfileForm'
+import { CanvaConnection } from '@/features/company/CanvaConnection'
 import { InterviewerAccounts } from '@/features/company/InterviewerAccounts'
 import { MailStyleForm } from '@/features/company/MailStyleForm'
 import { NoticeTemplateForm } from '@/features/company/NoticeTemplateForm'
@@ -59,6 +60,7 @@ export function SettingsPage() {
           <>
             <PostingSettingsForm />
             <PosterBrandForm />
+            <CanvaConnection />
           </>
         ) : section === 'mail' ? (
           <>
