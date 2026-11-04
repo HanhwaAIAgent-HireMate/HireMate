@@ -237,8 +237,30 @@ class FieldChange(BaseModel):
     items: list[str] | None = Field(description="목록 칸(주요 업무, 자격 요건, 우대 사항, 복지)의 바꾼 뒤 목록 전체")
 
 
+LeftOutReason = Literal["COMPANY_FACT", "NOT_IN_NCS", "ALREADY_DONE"]
+LEFT_OUT_NOTES: dict[LeftOutReason, str] = {
+    "COMPANY_FACT": "{labels}: 회사가 알려 준 값이 없어 지어내지 않았어요. 정한 값을 알려 주시면 넣을게요.",
+    "NOT_IN_NCS": (
+        "{labels}: 요청한 기준은 NCS에 없어 NCS로 채우지 않았어요. 회사가 정한 조건이면 그 내용을 알려 주세요."
+    ),
+    "ALREADY_DONE": "{labels}: 이미 요청대로 되어 있어요.",
+}
+"""요청한 칸을 바꾸지 않은 이유마다 답에 붙이는 안내. 이유는 모델이 고르고 문장은 코드가 쓴다."""
+
+
+class LeftOut(BaseModel):
+    """요청이 말했지만 바꾸지 않은 본문 칸 하나와 그 이유."""
+
+    field: ContentLabel = Field(description="요청이 말했지만 바꾸지 않은 본문 칸")
+    reason: LeftOutReason = Field(
+        description="COMPANY_FACT(회사가 알려 주지 않은 값이라 지어내지 않음), "
+        "NOT_IN_NCS(NCS를 근거로 넣으라고 했지만 NCS에 없는 기준), ALREADY_DONE(이미 요청대로 되어 있음)"
+    )
+
+
 class ContentChanges(BaseModel):
     changes: list[FieldChange] = Field(description="요청이 바꾸라는 본문 칸만")
+    left_out: list[LeftOut] = Field(description="요청이 말했지만 바꾸지 않은 본문 칸과 이유. 모두 바꿨으면 빈 목록")
 
 
 class CitedContentChanges(ContentChanges):
@@ -334,7 +356,10 @@ CONTENT_STEP = (
     "예: 현재 근무지가 서울이고 '근무지만 부산으로 바꿔줘'라는 요청이면 field='근무지', text='부산'이다. "
     "경력 조건을 바꾸면 자격 요건과 우대 사항에 같은 이전 경력 조건이 있는지 확인하고 함께 맞춘다. "
     "예: 경력 3년 이상을 5년 이상으로 변경하면 '서버 개발 경력 3년 이상'도 5년 이상으로 고친다. "
-    "별도의 기술별 경력이나 다른 조건은 유지한다."
+    "별도의 기술별 경력이나 다른 조건은 유지한다. "
+    "요청이 말한 칸을 바꾸지 않았으면 left_out에 그 칸과 이유를 쓴다. 회사가 알려 주지 않은 값(급여, 근무지, "
+    "필수 자격증, 경력 연수 등)이라 지어내지 않았으면 COMPANY_FACT, NCS를 근거로 넣으라고 했지만 NCS에 없는 기준"
+    "(회사가 정할 필수 조건이나 경력 제한 등)이면 NOT_IN_NCS, 이미 요청대로 되어 있으면 ALREADY_DONE이다."
 )
 STAGES_STEP = (
     "지금 할 일: 바꾼 뒤의 전형 절차 전체를 순서대로 stages에 쓴다. 이름만으로 종류를 알 수 없는 전형"
@@ -359,6 +384,7 @@ class _Edit:
     notes: list[str] = field(default_factory=list)
     roles: list[PostingRole] | None = None
     citations: list[LineCitation] = field(default_factory=list)
+    left_out: list[LeftOut] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -453,7 +479,7 @@ async def revise_posting(
         if fills_empty and not posting.content.duties and not draft.content.duties:
             found.append("공고 전체 작성 요청인데 주요 업무가 비어 있다. 직무의 일반적인 주요 업무 초안을 3~5개 쓴다")
         if not found:
-            result = _result(draft, edit, locked)
+            result = _result(posting.content, draft, edit, locked)
             if result.suggestion is None or not uses_ncs:
                 return result
             if sources is not None:
@@ -582,6 +608,7 @@ async def _write(
     """
     changes: list[FieldChange] = []
     citations: list[LineCitation] = []
+    left_out: list[LeftOut] = []
     if "CONTENT" in targets:
         step = CONTENT_STEP
         empty = [FIELD_LABELS[name] for name in LIST_FIELDS if not getattr(posting.content, name)]
@@ -594,11 +621,12 @@ async def _write(
             )
         step += f"\n이번에 반영할 HR 요청: {request}"
         if sources is None:
-            changes = (await _ask(llm, ContentChanges, context, step, found)).changes
+            written = await _ask(llm, ContentChanges, context, step, found)
+            changes, left_out = written.changes, written.left_out
         else:
             step += f"\n\n{sources_block(sources)}\n{SOURCES_STEP}"
             cited = await _ask(llm, CitedContentChanges, context, step, found)
-            changes, citations = cited.changes, cited.citations
+            changes, citations, left_out = cited.changes, cited.citations, cited.left_out
     roles = None
     if "ROLES" in targets:
         roles = asked_roles if asked_roles is not None and not found else await _roles(llm, context, found)
@@ -608,7 +636,9 @@ async def _write(
     extras: list[str] | None = None
     if "REQUIRED_EXTRAS" in targets:
         extras = list((await _ask(llm, ExtrasPlan, context, EXTRAS_STEP, found)).required_extras)
-    return _Edit(changes=changes, stages=stages, required_extras=extras, roles=roles, citations=citations)
+    return _Edit(
+        changes=changes, stages=stages, required_extras=extras, roles=roles, citations=citations, left_out=left_out
+    )
 
 
 async def _roles(llm: LlmClient, context: str, found: list[str] | None = None) -> list[PostingRole]:
@@ -665,9 +695,13 @@ def _with_defaults(draft: _Draft, edit: _Edit, blind: bool = False) -> tuple[_Dr
         labels = ", ".join(FIELD_LABELS[name] for name in filled)
         notes.append(f"{labels} 칸은 기본 문구로 채웠어요. 회사에 맞게 확인해 주세요.")
     left_fields = [name for name in LEFT_FOR_HR if not (blind and name == "education")]
-    if left := [FIELD_LABELS[name] for name in left_fields if getattr(content, name) in ("", None)]:
-        notes.append(f"{', '.join(left)} 칸은 정해 주세요.")
-    return replace(draft, content=content, changed=changed), replace(edit, notes=notes)
+    left = [name for name in left_fields if getattr(content, name) in ("", None)]
+    if left:
+        notes.append(f"{', '.join(FIELD_LABELS[name] for name in left)} 칸은 정해 주세요.")
+    # 기본 문구로 채웠거나 정해 달라고 한 칸은 바꾸지 않은 이유를 따로 알리지 않는다
+    told = {*filled, *left}
+    left_out = [entry for entry in edit.left_out if LABEL_FIELDS[entry.field] not in told]
+    return replace(draft, content=content, changed=changed), replace(edit, notes=notes, left_out=left_out)
 
 
 def _blocked_reply(term: str) -> str:
@@ -814,11 +848,12 @@ def _tidy(text: str) -> str:
     return _PARTICLE_SPACE.sub("", _NUMBER_SPACE.sub(r"\1\2", text)).strip()
 
 
-def _result(draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
-    notes = list(edit.notes)
-    if locked:
-        notes.append(LOCKED_REPLY)
-    labels = [FIELD_LABELS[name] for name in draft.changed]
+def _result(before: PostingContent, draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
+    """수정안과 답. 답에는 바뀐 칸(목록 칸은 몇 줄을 고치고 더하고 뺐는지)과, 요청했지만 바꾸지 않은 칸의 이유를 쓴다.
+
+    바꾼 칸이 없으면 수정안 없이 바꾸지 않은 이유만 답한다. 이유도 없으면 NOTHING_CHANGED_REPLY다.
+    """
+    labels = [_changed_label(name, before, draft.content) for name in draft.changed]
     fields = [to_camel(name) for name in draft.changed]
     if draft.stages is not None:
         labels.append("전형 절차")
@@ -826,8 +861,11 @@ def _result(draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
     if draft.required_extras is not None:
         labels.append("필수 제출 서류")
         fields.append("requiredDocuments")
+    notes = [*_left_out_notes(edit.left_out, draft.changed, bool(labels)), *edit.notes]
+    if locked:
+        notes.append(LOCKED_REPLY)
     if not labels:
-        return RevisionResult(reply=LOCKED_REPLY if locked else NOTHING_CHANGED_REPLY, suggestion=None)
+        return RevisionResult(reply="\n".join(notes) or NOTHING_CHANGED_REPLY, suggestion=None)
     # 안내는 한 줄에 하나씩 보이게 한다 (경력 · 빈 칸 안내가 한 덩어리에 묻히지 않게)
     reply = "\n".join([f"{', '.join(labels)} 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요.", *notes])
     return RevisionResult(
@@ -836,6 +874,44 @@ def _result(draft: _Draft, edit: _Edit, locked: bool) -> RevisionResult:
             content=draft.content, stages=draft.stages, required_extras=draft.required_extras, changed_fields=fields
         ),
     )
+
+
+COUNTED_FIELDS = ("duties", "qualifications", "preferred", "benefits")
+"""답에 몇 줄을 고치고 더하고 뺐는지 적는 목록 칸."""
+
+
+def _changed_label(name: str, before: PostingContent, after: PostingContent) -> str:
+    """답에 쓰는 바뀐 칸 이름. 목록 칸은 '주요 업무(1줄 고침 · 2줄 추가)'처럼 바뀐 줄 수를 붙인다."""
+    label = FIELD_LABELS[name]
+    if name not in COUNTED_FIELDS:
+        return label
+    old, new = getattr(before, name), getattr(after, name)
+    added = [line for line in new if line not in old]
+    removed = [line for line in old if line not in new]
+    # 한 줄을 고치면 원래 줄이 빠지고 새 줄이 들어온다. 짝을 지을 수 있는 만큼은 고친 줄로 센다
+    rewritten = min(len(added), len(removed))
+    counts = [
+        f"{count}줄 {verb}"
+        for count, verb in ((rewritten, "고침"), (len(added) - rewritten, "추가"), (len(removed) - rewritten, "삭제"))
+        if count
+    ]
+    return f"{label}({' · '.join(counts) or '순서 바꿈'})"
+
+
+def _left_out_notes(left_out: list[LeftOut], changed: list[str], made: bool) -> list[str]:
+    """요청했지만 바꾸지 않은 칸의 안내. 이유마다 한 줄이다.
+
+    실제로 바뀐 칸은 모델이 남겼어도 빼고, 칸은 화면 순서로 쓴다. 이미 요청대로라는 안내는 수정안이 없을 때만 낸다.
+    수정안이 있으면 모델이 손대지 않은 칸을 모두 '이미 요청대로'로 늘어놓곤 해서다.
+    """
+    notes: list[str] = []
+    for reason, note in LEFT_OUT_NOTES.items():
+        if made and reason == "ALREADY_DONE":
+            continue
+        names = {LABEL_FIELDS[entry.field] for entry in left_out if entry.reason == reason}
+        if labels := [label for name, label in FIELD_LABELS.items() if name in names and name not in changed]:
+            notes.append(note.format(labels=", ".join(labels)))
+    return notes
 
 
 def _stage_question(names: list[str]) -> str:

@@ -45,6 +45,7 @@ from hiremate_ai.agents.generation.posting.reviser import (
     ExtrasPlan,
     FieldChange,
     IntroEdit,
+    LeftOut,
     LineEdit,
     RoleChanges,
     Route,
@@ -142,7 +143,8 @@ def content(**fields: str | list[str]) -> ContentChanges:
                 }
             )
             for name, value in fields.items()
-        ]
+        ],
+        left_out=[],
     )
 
 
@@ -206,7 +208,7 @@ async def test_revise_applies_only_edited_fields_and_marks_them() -> None:
     assert result.suggestion.changed_fields == ["preferred"]
     assert result.suggestion.stages is None
     assert result.suggestion.required_extras is None
-    assert result.reply == "우대 사항 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
+    assert result.reply == "우대 사항(1줄 추가) 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
 
 
 async def test_revise_does_not_mark_fields_the_model_returned_unchanged() -> None:
@@ -236,7 +238,108 @@ async def test_revise_lists_changed_fields_in_screen_order() -> None:
 
     assert result.suggestion is not None
     assert result.suggestion.changed_fields == ["employmentType", "preferred"]
-    assert result.reply.startswith("고용 형태, 우대 사항 수정안")
+    assert result.reply.startswith("고용 형태, 우대 사항(1줄 고침) 수정안")
+
+
+async def test_reply_counts_rewritten_added_and_removed_lines() -> None:
+    before = CONTENT.model_copy(update={"duties": ["결제 승인 API 개발", "정산 배치 운영", "가맹점 관리"]})
+    duties = ["결제 승인 · 취소 API 개발", "정산 배치 운영", "장애 대응", "모니터링 구축"]
+    llm = FakeLlm(route("CONTENT"), content(duties=duties))
+
+    result = await revise_posting(llm, posting(content=before), "", "주요 업무 고쳐 줘")
+
+    assert result.reply.startswith("주요 업무(2줄 고침 · 1줄 추가) 수정안")
+
+
+async def test_reply_counts_removed_lines() -> None:
+    before = CONTENT.model_copy(update={"preferred": ["금융 도메인 경험", "대용량 트래픽 경험"]})
+    llm = FakeLlm(route("CONTENT"), content(preferred=["금융 도메인 경험"], benefits=["유연 근무", "재택 근무"]))
+
+    result = await revise_posting(llm, posting(content=before), "", "우대 사항 하나 빼고 복지에 재택 근무 넣어 줘")
+
+    assert result.reply.startswith("우대 사항(1줄 삭제), 복지(1줄 추가) 수정안")
+
+
+def left_out(*entries: tuple[str, str], **fields: str | list[str]) -> ContentChanges:
+    """바꾼 칸(fields)과, 바꾸지 않은 칸과 이유(entries)를 함께 낸 모델 답."""
+    changes = content(**fields).changes
+    return ContentChanges(
+        changes=changes,
+        left_out=[LeftOut.model_validate({"field": label, "reason": reason}) for label, reason in entries],
+    )
+
+
+async def test_unchanged_company_facts_say_why_instead_of_nothing_changed() -> None:
+    llm = FakeLlm(route("CONTENT"), left_out(("급여", "COMPANY_FACT"), ("근무지", "COMPANY_FACT")))
+
+    result = await revise_posting(llm, posting(), "", "이 포지션 연봉이랑 근무지를 공고에 넣어줘")
+
+    assert result.suggestion is None
+    # 칸은 화면 순서로 쓴다
+    assert result.reply == "근무지, 급여: 회사가 알려 준 값이 없어 지어내지 않았어요. 정한 값을 알려 주시면 넣을게요."
+
+
+async def test_each_left_out_reason_gets_its_own_line_after_the_changes() -> None:
+    llm = FakeLlm(
+        route("CONTENT"),
+        left_out(
+            ("경력 구분", "NOT_IN_NCS"),
+            ("자격 요건", "ALREADY_DONE"),
+            preferred=["금융 도메인 경험", "결제 시스템 운영 경험"],
+        ),
+    )
+
+    result = await revise_posting(llm, posting(), "", "NCS 기준으로 경력 조건 넣고 자격 요건 우대 사항 다듬어 줘")
+
+    assert result.suggestion is not None
+    # 수정안이 있으면 '이미 요청대로'는 알리지 않는다
+    assert result.reply.split("\n") == [
+        "우대 사항(1줄 추가) 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요.",
+        "경력 구분: 요청한 기준은 NCS에 없어 NCS로 채우지 않았어요. 회사가 정한 조건이면 그 내용을 알려 주세요.",
+    ]
+
+
+async def test_already_done_is_told_when_nothing_changed() -> None:
+    llm = FakeLlm(route("CONTENT"), left_out(("자격 요건", "ALREADY_DONE"), ("우대 사항", "ALREADY_DONE")))
+
+    result = await revise_posting(llm, posting(), "", "자격 요건이랑 우대 사항은 '~인 분'으로 끝내 줘")
+
+    assert result.suggestion is None
+    assert result.reply == "자격 요건, 우대 사항: 이미 요청대로 되어 있어요."
+
+
+async def test_whole_posting_does_not_repeat_fields_left_for_hr() -> None:
+    blank = CONTENT.model_copy(update={"career": "", "salary": "", "intro": ""})
+    llm = FakeLlm(
+        route("CONTENT", writes_posting=True),
+        left_out(
+            ("경력 구분", "COMPANY_FACT"), ("급여", "COMPANY_FACT"), ("회사 소개", "COMPANY_FACT"), duties=["API 개발"]
+        ),
+    )
+
+    result = await revise_posting(llm, posting(content=blank), "", "백엔드 개발자 공고 전체를 새로 써줘")
+
+    lines = result.reply.split("\n")
+    assert "회사 소개: 회사가 알려 준 값이 없어 지어내지 않았어요. 정한 값을 알려 주시면 넣을게요." in lines
+    assert sum("경력 구분" in line for line in lines) == 1
+    assert not any(line.startswith("급여:") or ", 급여:" in line for line in lines)
+
+
+async def test_left_out_field_that_changed_is_not_reported() -> None:
+    llm = FakeLlm(route("CONTENT"), left_out(("우대 사항", "ALREADY_DONE"), preferred=["결제 시스템 운영 경험"]))
+
+    result = await revise_posting(llm, posting(), "", "우대 사항 고쳐 줘")
+
+    assert result.reply == "우대 사항(1줄 고침) 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
+
+
+async def test_content_step_asks_for_left_out_reasons() -> None:
+    llm = FakeLlm(route("CONTENT"), content(location="부산"))
+
+    await revise_posting(llm, posting(), "", "근무지 부산으로 바꿔 줘")
+
+    assert "left_out" in CONTENT_STEP
+    assert CONTENT_STEP in llm.calls[1].user
 
 
 async def test_revise_keeps_employment_type_outside_the_four_choices() -> None:
@@ -972,7 +1075,7 @@ async def test_context_tells_model_when_process_is_locked_and_marks_empty_fields
 NCS_QUERY = NcsQuery(tasks=["서버 프로그램을 구현 한다"], units=[UNIT])
 NEW_DUTY = "주문 · 결제 서버 프로그램 구현"
 NCS_LINE = '주요 업무 2번 ← 응용SW엔지니어링 › 서버프로그램 구현 › 서버 프로그램 구현하기: "서버 프로그램을 구현 한다"'
-MADE = "주요 업무 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
+MADE = "주요 업무(1줄 추가) 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요."
 
 
 class Malformed(BaseModel):
@@ -982,7 +1085,7 @@ class Malformed(BaseModel):
 def cited(duty: str = NEW_DUTY, *, cite: bool = True, **fields: str | list[str]) -> CitedContentChanges:
     citations = [LineCitation(field="주요 업무", line=duty, sources=["S1"])] if cite else []
     changes = content(duties=[*CONTENT.duties, duty], **fields).changes
-    return CitedContentChanges(changes=changes, citations=citations)
+    return CitedContentChanges(changes=changes, citations=citations, left_out=[])
 
 
 def review(*verdicts: str) -> SupportReview:
@@ -1145,6 +1248,7 @@ async def test_each_posting_line_shows_one_source() -> None:
     two = CitedContentChanges(
         changes=content(duties=[*CONTENT.duties, NEW_DUTY]).changes,
         citations=[LineCitation(field="주요 업무", line=NEW_DUTY, sources=["S1", "S2"])],
+        left_out=[],
     )
     llm = FakeLlm(route("CONTENT", ncs="REQUESTED"), NCS_QUERY, two, review("supports", "supports"))
 
