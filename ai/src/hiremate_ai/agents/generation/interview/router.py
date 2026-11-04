@@ -20,7 +20,7 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from hiremate_ai.agents.analysis.application.router import StoreDep
 from hiremate_ai.agents.generation.interview.agent import generate_questions, load_review
@@ -54,6 +54,12 @@ class QuestionsRequest(ContractModel):
     question_count: int | None = Field(default=None, ge=1)
     memo: InterviewerMemo | None = None
     ncs: NcsUse = "SKIP"  # Root 계획이 정한 NCS 참고 여부. Chat 요청에서만 오고, 없으면 지금처럼 만든다
+
+    @field_validator("ncs", mode="before")
+    @classmethod
+    def _missing_ncs(cls, value: object) -> object:
+        """backend는 값이 없는 칸을 null로 보낸다. null은 참고하지 않는 것(SKIP)이다."""
+        return "SKIP" if value is None else value
 
 
 @router.post("/questions", response_model=list[InterviewQuestionDraft])

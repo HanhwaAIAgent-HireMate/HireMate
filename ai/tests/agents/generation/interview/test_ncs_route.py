@@ -1,5 +1,7 @@
+import json
 import re
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -144,3 +146,26 @@ async def test_requested_without_match_marks_none(
 
     assert response.status_code == 200
     assert response.json() and not any(item.get("ncsCited") for item in response.json())
+
+
+async def test_null_ncs_is_skip(sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent) -> None:
+    """backend는 값이 없는 칸을 null로 보낸다. null은 SKIP이고 응답이 지금과 같다."""
+    interview = InterviewView(application_id=uuid4(), schedule=None, questions=[], previous=[])
+    applicant = sample_applicants["이도윤"]
+    reference = FakeNcs(found=[BATCH])
+
+    plain = await post(body(applicant, sample_posting, interview), reference)
+    nulled = await post(body(applicant, sample_posting, interview, ncs=None), reference)
+
+    assert nulled.status_code == 200
+    assert nulled.json() == plain.json()
+    assert reference.searches == []
+
+
+def test_worker_payload_with_null_ncs_validates() -> None:
+    from hiremate_ai.agents.generation.interview.router import QuestionsRequest
+
+    sample = json.loads((Path(__file__).resolve().parents[5] / "contract/InterviewQuestionsRequest.json").read_text())
+    sample["ncs"] = None
+
+    assert QuestionsRequest.model_validate(sample).ncs == "SKIP"
