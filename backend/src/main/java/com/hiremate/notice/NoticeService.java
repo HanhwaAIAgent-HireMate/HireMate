@@ -60,6 +60,7 @@ public class NoticeService {
     static final String ONBOARDING_LEAD = "입사 일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.";
     static final String ONBOARDING_LATER = "입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.";
     static final String PREVIEW_APPLICANT = "홍길동";
+    static final int PREVIEW_APPLICATION_NO = 1;
     /** 합격 안내를 보낼 수 있는 다음 면접 배정 상태. 다음 전형이 면접이 아니면 NOT_APPLICABLE이다. */
     private static final Set<String> SCHEDULED = Set.of("READY", "NOT_APPLICABLE");
 
@@ -183,7 +184,8 @@ public class NoticeService {
                 continue;
             }
             Instant interviewAt = interviewTimes.get(applicant.applicationId());
-            Map<String, String> values = new HashMap<>(values(applicant.name(), companyName, recruitment, stageId));
+            Map<String, String> values = new HashMap<>(values(applicant.name(), applicant.applicationNo(), companyName,
+                    recruitment, stageId));
             values.put(INTERVIEW_TIME, interviewAt == null ? "" : formatInterview(interviewAt));
             MailResult result = mail.send(applicant.email(), fill(notice.getSubject(), values),
                     content.fill(values), brand);
@@ -210,7 +212,8 @@ public class NoticeService {
         Notice notice = notice(companyId, stageId, group);
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         String companyName = companies.profile(companyId).name();
-        Map<String, String> values = values(PREVIEW_APPLICANT, companyName, recruitment, stageId);
+        Map<String, String> values = values(PREVIEW_APPLICANT, PREVIEW_APPLICATION_NO, companyName, recruitment,
+                stageId);
         return MailPreview.of(fill(notice.getSubject(), values),
                 content(notice, recruitment, companyName).fill(values), mailStyles.brand(companyId));
     }
@@ -332,10 +335,11 @@ public class NoticeService {
                 notice.getRequiredText());
     }
 
-    private static Map<String, String> values(String applicantName, String companyName, RecruitmentInfo recruitment,
-            UUID stageId) {
-        return Map.of("{지원자명}", applicantName, "{회사명}", companyName, "{공고명}", recruitment.title(),
-                "{전형명}", recruitment.stage(stageId).orElseThrow().name());
+    /** {지원번호}는 블라인드 채용에서 면접관이 지원자를 번호로 부르므로, 지원자가 자기 번호를 알 수 있게 쓴다. */
+    private static Map<String, String> values(String applicantName, int applicationNo, String companyName,
+            RecruitmentInfo recruitment, UUID stageId) {
+        return Map.of("{지원자명}", applicantName, "{지원번호}", String.valueOf(applicationNo), "{회사명}", companyName,
+                "{공고명}", recruitment.title(), "{전형명}", recruitment.stage(stageId).orElseThrow().name());
     }
 
     private static String fill(String text, Map<String, String> values) {
