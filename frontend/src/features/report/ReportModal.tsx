@@ -8,7 +8,6 @@ import { formatShortDateTime } from '@/lib/format'
 
 import { ReportBody, ReportTitle } from './ReportBody'
 import type { ReportView } from './types'
-import { skillLabel } from '@/features/report/skills'
 
 /** 리포트 모달. 미리보기를 먼저 보여 주고, PDF는 위쪽 작은 버튼으로 받는다 */
 export function ReportModal({
@@ -40,14 +39,7 @@ export function ReportModal({
                 </DialogTitle>
                 <DialogDescription asChild>
                   <div className="flex flex-wrap gap-1">
-                    {report.skills.map((skill) => (
-                      <span
-                        key={skill}
-                        className="rounded-md bg-ai-soft px-2 py-0.5 text-[11.5px] font-semibold text-ai"
-                      >
-                        지침 · {skillLabel(skill)}
-                      </span>
-                    ))}
+                    {/* Report Agent가 읽은 스킬 이름은 내부 작업 정보라 담당자 화면에 보이지 않는다 */}
                     {report.fallback && (
                       <span className="rounded-md bg-fail px-2 py-0.5 text-[11.5px] font-semibold text-fail-foreground">
                         기본 구성

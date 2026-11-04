@@ -235,7 +235,7 @@ public class ReportBundles {
                 if (mark != null) {
                     facts.verdict(numbers.get(row.applicationId()), document.get().id(),
                             "document.criterion." + criterion.criterionId(),
-                            criterion.criterionId() + " " + criterion.text(), mark.name());
+                            criterion.text(), mark.name());
                 }
             }
         }

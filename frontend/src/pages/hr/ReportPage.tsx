@@ -17,7 +17,6 @@ import { ReportBody, ReportTitle } from '@/features/report/ReportBody'
 import { ReportProgress } from '@/features/report/ReportProgress'
 import { errorMessage } from '@/lib/api/client'
 import { formatShortDateTime } from '@/lib/format'
-import { skillLabel } from '@/features/report/skills'
 
 // RPT-01 최종 채용 리포트. 채용 종료 때 Report Agent가 모든 전형을 그래프로 정리하는 문서이며 채용 상태를 바꾸지 않는다
 export function ReportPage() {
@@ -153,14 +152,7 @@ function FinalReport({
         <span className="text-xs text-muted-foreground">
           {formatShortDateTime(view.bundle.asOf)} 기준 · 채용 종료 시 작성
         </span>
-        {view.skills.map((skill) => (
-          <span
-            key={skill}
-            className="rounded-md bg-ai-soft px-2 py-0.5 text-[11.5px] font-semibold text-ai"
-          >
-            지침 · {skillLabel(skill)}
-          </span>
-        ))}
+        {/* Report Agent가 읽은 지침(스킬) 이름은 내부 작업 정보라 담당자 화면에 보이지 않는다 */}
         {view.fallback && (
           <span className="rounded-md bg-fail px-2 py-0.5 text-[11.5px] font-semibold text-fail-foreground">
             기본 구성
