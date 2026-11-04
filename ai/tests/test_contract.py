@@ -8,7 +8,12 @@ from hiremate_ai.agents.analysis.application.types import ApplicationAnalysis, S
 from hiremate_ai.agents.analysis.interview import InterviewAnalysisInput
 from hiremate_ai.agents.analysis.interview.router import InterviewAnalysis
 from hiremate_ai.agents.generation.interview.router import QuestionsRequest
-from hiremate_ai.agents.generation.interview.types import FollowUpsRequest, InterviewFollowUps, InterviewQuestionDraft
+from hiremate_ai.agents.generation.interview.types import (
+    CitedQuestionDraft,
+    FollowUpsRequest,
+    InterviewFollowUps,
+    InterviewQuestionDraft,
+)
 from hiremate_ai.agents.generation.posting.poster import PosterDesign, PosterProposal, PosterTurn
 from hiremate_ai.agents.generation.posting.types import NcsSource, PostingDraftContext, PostingFocus, PostingSuggestion
 from hiremate_ai.agents.generation.report import ComposedReport, ReportBundle
@@ -51,6 +56,7 @@ SAMPLES: dict[str, type[BaseModel]] = {
     "InterviewFollowUps": InterviewFollowUps,
     "InterviewFollowUpsRequest": FollowUpsRequest,
     "InterviewQuestionDraft": InterviewQuestionDraft,
+    "CitedQuestionDraft": CitedQuestionDraft,
     "InterviewerMemo": InterviewerMemo,
     "InterviewAnalysisInput": InterviewAnalysisInput,
     "InterviewQuestionsRequest": QuestionsRequest,
