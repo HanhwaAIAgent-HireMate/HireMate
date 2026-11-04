@@ -1025,7 +1025,7 @@ async def test_requested_without_results_notices() -> None:
 
     result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 써 줘", ncs=FakeNcs(found=[]))
 
-    assert result.reply == f"{MADE} {NCS_NOT_FOUND}"
+    assert result.reply == f"{MADE}\n{NCS_NOT_FOUND}"
 
 
 async def test_empty_ncs_table_skips_query_call() -> None:
@@ -1035,7 +1035,7 @@ async def test_empty_ncs_table_skips_query_call() -> None:
 
     assert [call.output for call in llm.calls] == [Route, ContentChanges]
     assert result.suggestion is not None
-    assert result.reply == f"{MADE} {NCS_NOT_FOUND}"
+    assert result.reply == f"{MADE}\n{NCS_NOT_FOUND}"
 
 
 async def test_embed_failure_keeps_revision() -> None:
@@ -1044,7 +1044,7 @@ async def test_embed_failure_keeps_revision() -> None:
     result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 써 줘", ncs=FakeNcs(unavailable=True))
 
     assert result.suggestion is not None
-    assert result.reply == f"{MADE} {NCS_UNAVAILABLE}"
+    assert result.reply == f"{MADE}\n{NCS_UNAVAILABLE}"
 
 
 async def test_query_call_failure_keeps_revision() -> None:
@@ -1078,7 +1078,7 @@ async def test_unrelated_source_removed_with_notice() -> None:
 
     result = await revise_posting(llm, posting(), "", "주요 업무 추천해 줘", ncs=FakeNcs())
 
-    assert result.reply == f"{MADE} {NCS_SOURCES_DROPPED}"
+    assert result.reply == f"{MADE}\n{NCS_SOURCES_DROPPED}"
 
 
 async def test_requested_with_every_source_removed_says_not_found_once() -> None:
@@ -1086,7 +1086,7 @@ async def test_requested_with_every_source_removed_says_not_found_once() -> None
 
     result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 추가해 줘", ncs=FakeNcs())
 
-    assert result.reply == f"{MADE} {NCS_NOT_FOUND}"
+    assert result.reply == f"{MADE}\n{NCS_NOT_FOUND}"
 
 
 async def test_requested_without_citations_says_not_found() -> None:
@@ -1095,7 +1095,7 @@ async def test_requested_without_citations_says_not_found() -> None:
     result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 추가해 줘", ncs=FakeNcs())
 
     assert [call.output for call in llm.calls] == [Route, NcsQuery, CitedContentChanges]
-    assert result.reply == f"{MADE} {NCS_NOT_FOUND}"
+    assert result.reply == f"{MADE}\n{NCS_NOT_FOUND}"
 
 
 async def test_no_suggestion_reply_has_no_ncs_text() -> None:
@@ -1147,7 +1147,7 @@ async def test_each_posting_line_shows_one_source() -> None:
     assert result.reply == f"{MADE}\n\n{NCS_HEADER}\n{NCS_LINE}"
 
 
-@pytest.mark.parametrize(("use", "reply"), [("HELPFUL", MADE), ("REQUESTED", f"{MADE} {NCS_UNAVAILABLE}")])
+@pytest.mark.parametrize(("use", "reply"), [("HELPFUL", MADE), ("REQUESTED", f"{MADE}\n{NCS_UNAVAILABLE}")])
 async def test_ncs_db_failure_keeps_revision(use: NcsUse, reply: str) -> None:
     llm = FakeLlm(route("CONTENT", ncs=use), content(duties=[*CONTENT.duties, NEW_DUTY]))
 
@@ -1164,4 +1164,4 @@ async def test_slow_ncs_step_gives_up_and_keeps_revision(monkeypatch: pytest.Mon
     result = await revise_posting(llm, posting(), "", "NCS 참고해서 주요 업무 써 줘", ncs=FakeNcs(delay=5))
 
     assert result.suggestion is not None
-    assert result.reply == f"{MADE} {NCS_UNAVAILABLE}"
+    assert result.reply == f"{MADE}\n{NCS_UNAVAILABLE}"
