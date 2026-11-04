@@ -820,8 +820,8 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("블라인드 채용이면 서류에 출신 학교를 쓴 문장을 학교 이름을 가린 채 지원자 카드에 알리고, 학교에서 일한 경력은 알리지 않는다")
-    void showsSchoolMentionsOnlyForBlindPosting() throws Exception {
+    @DisplayName("블라인드 채용 서류 전형은 출신 학교를 쓴 지원자를 리스트 맨 아래에 모으고 가린 문장을 카드에 보이며, HR이 해제하면 원래 자리로 돌린다")
+    void movesSchoolSuspectsDownUntilHrClears() throws Exception {
         TestApi hr = newHr();
         TestFixtures.Posting posting = TestFixtures.publishBlind(hr);
         Map<String, String> resumes = Map.of("attended@example.com", "Graduated from Hanbit University in 2020.",
@@ -838,12 +838,25 @@ class ScreeningTests extends IntegrationTest {
         String stage = "/api/stages/" + closed.path("stages").get(0).path("id").asString();
 
         Map<String, List<String>> mentions = new HashMap<>();
+        Map<String, String> ids = new HashMap<>();
         for (var applicant : applications.applicants(hr.companyId(), recruitmentId)) {
             JsonNode card = json(expect(hr.get(stage + "/candidates/" + applicant.applicationId()), 200));
             mentions.put(applicant.email(), card.path("schoolMentions").valueStream().map(JsonNode::asString).toList());
+            ids.put(applicant.email(), applicant.applicationId().toString());
         }
         assertThat(mentions).containsEntry("attended@example.com", List.of("Graduated from ○○학교 in 2020."))
                 .containsEntry("worked@example.com", List.of());
+
+        String attended = ids.get("attended@example.com");
+        JsonNode list = json(expect(hr.get(stage + "/candidates"), 200));
+        assertThat(list.path("schoolSuspects")).extracting(JsonNode::asString).containsExactly(attended);
+        assertThat(list.path("items").get(1).path("applicationId").asString()).isEqualTo(attended);
+
+        // 면접관은 해제할 수 없다. HR이 해제하면 의심 목록과 카드의 문장이 빠진다
+        expect(newInterviewer(hr, "면접관").post(stage + "/candidates/" + attended + "/school-clear", null), 403);
+        expect(hr.post(stage + "/candidates/" + attended + "/school-clear", null), 204);
+        assertThat(json(expect(hr.get(stage + "/candidates"), 200)).path("schoolSuspects")).isEmpty();
+        assertThat(json(expect(hr.get(stage + "/candidates/" + attended), 200)).path("schoolMentions")).isEmpty();
     }
 
     private Stage startDocumentStage(int applicants) throws Exception {
