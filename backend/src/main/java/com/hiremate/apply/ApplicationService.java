@@ -283,7 +283,14 @@ public class ApplicationService {
                 .filter(candidate -> candidate.getType() == type)
                 .findFirst()
                 .orElseThrow(ApplicationService::notFound);
-        return files.read(companyId, document.getFileId());
+        FileContent content = files.read(companyId, document.getFileId());
+        if (!new Identity(companyId).hides(application)) {
+            return content;
+        }
+        // 원본 PDF는 열 수 있지만, 내려받는 파일 이름에 지원자 이름이 들어 있을 수 있어 바꾼다
+        StoredFileInfo info = content.info();
+        return new FileContent(new StoredFileInfo(info.fileId(), blindFileName(application, type), info.contentType(),
+                info.size()), content.bytes());
     }
 
     /** 블라인드 채용이면 본문의 학교 이름과 학점을 가려 저장한다. AI는 이 본문만 읽는다. 원본 PDF는 그대로 둔다. */
@@ -339,9 +346,16 @@ public class ApplicationService {
         ApplicantDocument document(JobApplication application, ApplicationDocument document) {
             String text = hides(application) ? BlindMask.maskApplicant(document.getText(), application.getName())
                     : document.getText();
-            return new ApplicantDocument(document.getType(), document.getFileId(), document.getFileName(),
-                    document.getSizeBytes(), text);
+            String fileName = hides(application) ? blindFileName(application, document.getType())
+                    : document.getFileName();
+            return new ApplicantDocument(document.getType(), document.getFileId(), fileName, document.getSizeBytes(),
+                    text);
         }
+    }
+
+    /** 블라인드 채용에서 보이는 서류 파일 이름. 지원자가 올린 파일 이름에는 이름이 들어 있곤 하다 (예: 김가온_이력서.pdf). */
+    private static String blindFileName(JobApplication application, DocumentType type) {
+        return ApplicantInfo.blindName(application.getApplicationNo()) + "_" + type.label() + ".pdf";
     }
 
     private static ApplicantInfo toInfo(JobApplication application, boolean hidden) {
