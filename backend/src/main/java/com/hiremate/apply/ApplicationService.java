@@ -266,6 +266,24 @@ public class ApplicationService {
                 .toList();
     }
 
+    /**
+     * 원본 PDF에 블라인드로 가린 출신 학교 · 학점이 그대로 있는 서류. 블라인드 채용에서 마지막 전형 결과를 확정하기 전에만
+     * 알린다. 이름은 이력서에 쓰는 게 자연스러워 알리지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public List<OriginalWarning> originalWarnings(UUID companyId, UUID applicationId) {
+        JobApplication application = application(companyId, applicationId);
+        if (!new Identity(companyId).hides(application)) {
+            return List.of();
+        }
+        return documents.findByApplicationId(applicationId).stream()
+                .sorted(Comparator.comparing(ApplicationDocument::getType))
+                .map(document -> new OriginalWarning(document.getType(),
+                        BlindMask.hiddenOnOriginal(document.getText())))
+                .filter(warning -> !warning.kinds().isEmpty())
+                .toList();
+    }
+
     /** 분석에 넘길 제출 자료. 이벤트로 받은 지원서라 기업 범위 확인 없이 읽는다. */
     @Transactional(readOnly = true)
     public ApplicantDetail detailForAnalysis(UUID applicationId) {

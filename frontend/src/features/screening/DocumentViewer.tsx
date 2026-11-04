@@ -1,4 +1,4 @@
-import { ExternalLink, Sparkles } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 
 import { Skeleton } from '@/components/ui/skeleton'
@@ -20,6 +20,7 @@ import {
   type Mark,
   type TalentFit,
 } from '@/features/screening/table'
+import { OriginalPdfLink } from '@/features/screening/OriginalPdfLink'
 import { cn } from '@/lib/utils'
 
 type Tab = 'RESUME' | 'COVER_LETTER' | 'PORTFOLIO' | 'CERTIFICATE' | 'PROFILE'
@@ -114,15 +115,12 @@ export function DocumentViewer({
                       {fullText ? '문항별 요약 보기' : '원문 보기'}
                     </button>
                   )}
-                  <a
+                  <OriginalPdfLink
                     href={`/api/recruitments/${recruitmentId}/applications/${detail.row.applicationId}/documents/${tab}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 hover:text-foreground"
-                  >
-                    <ExternalLink className="size-3" />
-                    원본 PDF
-                  </a>
+                    hidden={
+                      detail.originalWarnings.find((warning) => warning.type === tab)?.kinds ?? []
+                    }
+                  />
                 </div>
                 {showSummary ? (
                   <SectionSummaries sections={sections} />
