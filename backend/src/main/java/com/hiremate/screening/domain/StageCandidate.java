@@ -84,6 +84,10 @@ public class StageCandidate {
         this.schoolCleared = true;
     }
 
+    public void undoClearSchoolMention() {
+        this.schoolCleared = false;
+    }
+
     /** 결정한 지원자는 탭의 선택 지원자에 보이지 않는다. 탭에 남은 행은 되돌릴 때를 위해 둔다. */
     public void decide(Decision decision, UUID memberId) {
         this.decision = decision;
