@@ -150,7 +150,9 @@ _PARTICLES = {
 _CODE = re.compile(r"(?<![A-Za-z_])(" + "|".join(_CODE_WORDS) + r")(?![A-Za-z_])(" + "|".join(_PARTICLES) + r")?")
 
 
-def _plain(text: str) -> str:
+def plain_text(text: str) -> str:
+    """문장 속 판정 코드를 화면 말로 바꾼다 (뒤 조사는 받침에 맞춘다)."""
+
     def word(match: re.Match[str]) -> str:
         plain, particle = _CODE_WORDS[match.group(1)], match.group(2)
         if not particle:
@@ -170,14 +172,16 @@ def _plain_codes(spec: ReportSpec) -> ReportSpec:
     그릴 값을 가리키는 칸(key, 그룹 값)은 그대로 둔다."""
 
     def block(item: Block) -> Block:
-        update: dict[str, object] = {"title": _plain(item.title)}
+        update: dict[str, object] = {"title": plain_text(item.title)}
         if isinstance(caption := getattr(item, "caption", None), str):
-            update["caption"] = _plain(caption)
+            update["caption"] = plain_text(caption)
         if isinstance(item, TextBlock):
-            update["text"] = _plain(item.text)
+            update["text"] = plain_text(item.text)
         if isinstance(item, EvidenceBlock):
             update["items"] = [
-                line.model_copy(update={"text": _plain(line.text), "keywords": [_plain(k) for k in line.keywords]})
+                line.model_copy(
+                    update={"text": plain_text(line.text), "keywords": [plain_text(k) for k in line.keywords]}
+                )
                 for line in item.items
             ]
         return item.model_copy(update=update)
@@ -185,16 +189,21 @@ def _plain_codes(spec: ReportSpec) -> ReportSpec:
     sections = [
         section.model_copy(
             update={
-                "title": _plain(section.title),
-                "takeaway": _plain(section.takeaway),
+                "title": plain_text(section.title),
+                "takeaway": plain_text(section.takeaway),
                 "blocks": [block(item) for item in section.blocks],
             }
         )
         for section in spec.sections
     ]
-    splits = [split.model_copy(update={"text": _plain(split.text)}) for split in spec.splits]
+    splits = [split.model_copy(update={"text": plain_text(split.text)}) for split in spec.splits]
     return spec.model_copy(
-        update={"title": _plain(spec.title), "summary": _plain(spec.summary), "sections": sections, "splits": splits}
+        update={
+            "title": plain_text(spec.title),
+            "summary": plain_text(spec.summary),
+            "sections": sections,
+            "splits": splits,
+        }
     )
 
 

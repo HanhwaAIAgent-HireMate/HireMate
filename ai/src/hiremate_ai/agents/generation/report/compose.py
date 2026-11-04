@@ -11,6 +11,7 @@ from hiremate_ai.agents.generation.report.bundle import ReportBundle, ReportKind
 from hiremate_ai.agents.generation.report.check import MAX_BRIEF_SUMMARY, problems
 from hiremate_ai.agents.generation.report.derive import drawable
 from hiremate_ai.agents.generation.report.fallback import fallback_spec
+from hiremate_ai.agents.generation.report.final import compose_final
 from hiremate_ai.agents.generation.report.repair import repair
 from hiremate_ai.agents.generation.report.skills import catalog
 from hiremate_ai.agents.generation.report.spec import ReportSpec
@@ -93,7 +94,13 @@ class ComposedReport(ContractModel):
 
 
 async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport:
-    """묶음으로 리포트 설계서를 만든다. 채용 상태는 바꾸지 않는다."""
+    """묶음으로 리포트 설계서를 만든다. 채용 상태는 바꾸지 않는다.
+
+    채용 최종 리포트는 구성을 코드가 정하고 모델은 합격 근거 · 특이사항 문장만 쓴다 (final.py).
+    """
+    if bundle.kind is ReportKind.FINAL:
+        spec, done, fallback = await compose_final(bundle, llm)
+        return ComposedReport(spec=spec, skills=[], fallback=fallback, bundle=bundle, steps=done)
     bundle, guarded = guard_focus(bundle)
     scope = ReportScope(bundle=bundle, log=guarded)
     agent = llm.tool_agent(
