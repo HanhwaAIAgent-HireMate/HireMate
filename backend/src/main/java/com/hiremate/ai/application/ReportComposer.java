@@ -7,6 +7,7 @@ import com.hiremate.notice.NoticeService;
 import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentStatus;
 import com.hiremate.recruit.StageInfo;
+import com.hiremate.recruit.StageType;
 import com.hiremate.report.AgentReportKind;
 import com.hiremate.report.AgentReportService;
 import com.hiremate.report.AgentReportStatus;
@@ -59,6 +60,11 @@ public class ReportComposer {
      */
     public UUID request(UUID companyId, UUID stageId, AgentReportKind kind, Collection<UUID> targets, String focus,
             boolean brief, UUID requestedBy) {
+        if (!documentStage(companyId, stageId)) {
+            // 팀 결정(11/03): 직무역량 평가 · 면접 전형은 비교 · 전형 결과 리포트를 쓰지 않는다. 흐름은 채용 최종 리포트가 모은다
+            throw new ApiException(HttpStatus.CONFLICT, "REPORT_DOCUMENT_ONLY",
+                    "Comparison and stage reports are only for document stages.");
+        }
         ReportBundle bundle = bundles.build(companyId, stageId, ReportBundle.Kind.valueOf(kind.name()), targets,
                 focus, brief);
         return compose(companyId, kind, requestedBy, bundle);
@@ -80,6 +86,12 @@ public class ReportComposer {
                 json.writeValueAsString(composed.withoutBundle()),
                 composed.bundle() == null ? null : json.writeValueAsString(composed.bundle())));
         return reportId;
+    }
+
+    /** 서류 전형인가. 비교 · 전형 결과 리포트는 서류 전형만 만든다. */
+    public boolean documentStage(UUID companyId, UUID stageId) {
+        return recruits.getByStage(companyId, stageId).stage(stageId).map(StageInfo::type)
+                .filter(type -> type == StageType.DOCUMENT).isPresent();
     }
 
     /** 전형의 가장 최근 전형 결과 리포트. 실패한 리포트는 건너뛴다. 없으면 null이다. */
