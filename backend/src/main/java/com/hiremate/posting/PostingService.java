@@ -329,15 +329,16 @@ public class PostingService {
         return MailPreview.of(receipt.subject(), receipt.content(), receipt.brand());
     }
 
-    /** HR이 접수 기간을 정해 게시한다. AI는 게시하지 않는다. */
+    /** HR이 접수 기간을 정해 게시한다. AI는 게시하지 않는다. 이미 지난 시작 시간은 게시한 때로 고친다. */
     @Transactional
     public PostingView publish(UUID companyId, UUID recruitmentId, UUID memberId, Instant openAt, Instant closeAt) {
-        if (!closeAt.isAfter(openAt) || !closeAt.isAfter(Instant.now())) {
+        Instant now = Instant.now();
+        if (!closeAt.isAfter(openAt) || !closeAt.isAfter(now)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PERIOD", "Check the application period.");
         }
         JobPosting posting = lockPosting(companyId, recruitmentId);
         recruits.publish(companyId, recruitmentId);
-        posting.publish(openAt, closeAt, memberId);
+        posting.publish(openAt.isBefore(now) ? now : openAt, closeAt, memberId);
         return view(companyId, recruitmentId);
     }
 

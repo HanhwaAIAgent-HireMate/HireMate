@@ -69,6 +69,23 @@ class PostingTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("이미 지난 접수 시작은 게시한 때로 고치고, 마감이 지났으면 게시하지 않는다")
+    void publishMovesPastOpenToNowAndRejectsPastClose() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String draftBase = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
+        Instant now = Instant.now();
+        JsonNode rejected = json(expect(hr.post(draftBase + "/publish", Map.of("openAt",
+                now.minus(3, ChronoUnit.DAYS).toString(), "closeAt", now.minus(1, ChronoUnit.HOURS).toString())), 400));
+        assertThat(rejected.path("code").asString()).isEqualTo("INVALID_PERIOD");
+
+        // TestFixtures.publish는 접수 시작을 한 시간 전으로 보낸다
+        TestFixtures.Posting posting = TestFixtures.publish(hr, false);
+        JsonNode published = json(expect(hr.get("/api/recruitments/" + posting.recruitmentId() + "/posting"), 200));
+        assertThat(Instant.parse(published.path("openAt").asString())).isAfterOrEqualTo(now);
+    }
+
+    @Test
     @DisplayName("종료된 공고는 목록과 조회에서 제거하되 연결된 공고와 전형 기록을 보존한다")
     void archivesClosedRecruitment() throws Exception {
         TestApi hr = newHr();

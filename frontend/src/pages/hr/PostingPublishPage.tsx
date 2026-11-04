@@ -62,6 +62,8 @@ function PublishForm({ posting }: { posting: Posting }) {
   const publish = usePublishPosting(posting.recruitmentId)
   const [initial] = useState(defaultPeriod)
   const [period, setPeriod] = useState(initial)
+  // 지난 시간은 고를 수 없게 한다. 기준은 페이지를 연 때이고, 게시할 때 지금 시간으로 다시 확인한다
+  const [openedAt] = useState(() => toLocalInput(new Date()))
   // 채용 페이지 맨 아래의 회사 주소는 공고가 아니라 회사 소개에서 읽는다
   const company = useCompanyProfile()
   const [device, setDevice] = useState<'mobile' | 'pc'>('pc')
@@ -69,15 +71,18 @@ function PublishForm({ posting }: { posting: Posting }) {
   const receipt = useReceiptPreview(posting.recruitmentId)
   const url = `${window.location.origin}${careersPath(posting.postingId)}`
   const valid =
-    Boolean(period.open && period.close) && new Date(period.close) > new Date(period.open)
+    Boolean(period.open && period.close) &&
+    new Date(period.close) > new Date(period.open) &&
+    new Date(period.close) > new Date(openedAt)
   const summary = [posting.content.employmentType, posting.content.career, posting.content.location]
     .filter(Boolean)
     .join(' · ')
 
+  // 확인 창을 띄우는 사이 시작 시간이 지났으면 지금 시간으로 게시한다 (backend도 같게 고친다)
   const submit = () =>
     publish.mutate(
       {
-        openAt: new Date(period.open).toISOString(),
+        openAt: new Date(Math.max(new Date(period.open).getTime(), Date.now())).toISOString(),
         closeAt: new Date(period.close).toISOString(),
       },
       {
@@ -114,7 +119,13 @@ function PublishForm({ posting }: { posting: Posting }) {
         </Button>
         <Button
           className="min-w-20"
-          onClick={() => setConfirming(true)}
+          onClick={() => {
+            if (new Date(period.close) <= new Date()) {
+              toast.error('접수 마감 시간이 이미 지났어요. 다시 골라 주세요.')
+              return
+            }
+            setConfirming(true)
+          }}
           disabled={!valid || posting.status !== 'DRAFT'}
         >
           {formatLabel} 게시
@@ -193,6 +204,7 @@ function PublishForm({ posting }: { posting: Posting }) {
               <input
                 type="datetime-local"
                 aria-label="접수 시작"
+                min={openedAt}
                 value={period.open}
                 onChange={(event) =>
                   setPeriod((current) => ({ ...current, open: event.target.value }))
@@ -202,12 +214,18 @@ function PublishForm({ posting }: { posting: Posting }) {
               <input
                 type="datetime-local"
                 aria-label="접수 마감"
+                min={period.open > openedAt ? period.open : openedAt}
                 value={period.close}
                 onChange={(event) =>
                   setPeriod((current) => ({ ...current, close: event.target.value }))
                 }
                 className="h-9 w-full rounded-lg border px-3 text-sm"
               />
+              {period.open && period.close && !valid && (
+                <p className="text-xs text-destructive">
+                  접수 마감은 시작보다 늦고, 지금보다 뒤여야 해요.
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 채용 페이지의 접수 기간이자 자동 마감 기준이에요.
               </p>
