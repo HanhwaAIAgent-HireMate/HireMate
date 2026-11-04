@@ -2,6 +2,7 @@ package com.hiremate.ai.infra;
 
 import com.hiremate.ai.application.AiAgent;
 import com.hiremate.ai.application.AiMode;
+import com.hiremate.ai.application.ChatProgress;
 import com.hiremate.ai.application.PostingAgent;
 import com.hiremate.posting.DocumentType;
 import com.hiremate.posting.PostingContent;
@@ -42,7 +43,8 @@ class StubPostingAgent implements PostingAgent {
             Map.of("주요 업무", "duties", "자격 요건", "qualifications", "우대 사항", "preferred");
 
     @Override
-    public Result revise(PostingDraftContext posting, String writingStyle, String request, PostingFocus focus) {
+    public Result revise(PostingDraftContext posting, String writingStyle, String request, PostingFocus focus,
+            ChatProgress progress) {
         String message = request.trim() + " ";
         if (focus != null) {
             return focusedLine(posting.content(), focus, message);

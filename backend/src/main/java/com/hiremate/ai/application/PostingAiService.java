@@ -36,8 +36,10 @@ public class PostingAiService {
      * Posting Agent에게 수정안을 받아 공고에 수정안으로 남긴다. 적용은 HR이 한다.
      *
      * @param focus HR이 고른 줄. 고르지 않았으면 null이다
+     * @param progress Posting Agent의 처리 중 단계를 화면에 알린다
      */
-    public PostingAiAnswer request(UUID companyId, UUID recruitmentId, String message, PostingFocus focus) {
+    public PostingAiAnswer request(UUID companyId, UUID recruitmentId, String message, PostingFocus focus,
+            ChatProgress progress) {
         PostingDraftContext context = postings.draftContext(companyId, recruitmentId);
         if (context.status() != RecruitmentStatus.DRAFT) {
             return answer(PUBLISHED_REPLY, postings.view(companyId, recruitmentId));
@@ -46,7 +48,7 @@ public class PostingAiService {
             return answer(FOCUS_MISSING_REPLY, postings.view(companyId, recruitmentId));
         }
         PostingAgent.Result result = agent.revise(context,
-                companies.postingSettings(companyId).writingStyle(), message, focus);
+                companies.postingSettings(companyId).writingStyle(), message, focus, progress);
         PostingView posting = result.suggestion() == null
                 ? postings.view(companyId, recruitmentId)
                 : postings.suggest(companyId, recruitmentId, result.suggestion());

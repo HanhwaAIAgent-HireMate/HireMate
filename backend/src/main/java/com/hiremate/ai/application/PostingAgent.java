@@ -17,9 +17,11 @@ public interface PostingAgent {
      * @param writingStyle 기업의 공고 작성 스타일
      * @param request HR의 수정 요청
      * @param focus HR이 고른 줄. 고르면 그 줄만 고치고, 고르지 않았으면 null이다
+     * @param progress 처리 중 단계를 화면에 알린다. 화면 연결이 끊기면 UncheckedIOException으로 멈춘다
      * @return Chat에 보여 줄 답과 수정안
      */
-    Result revise(PostingDraftContext posting, String writingStyle, String request, PostingFocus focus);
+    Result revise(PostingDraftContext posting, String writingStyle, String request, PostingFocus focus,
+            ChatProgress progress);
 
     /**
      * @param reply Chat에 보여 줄 답

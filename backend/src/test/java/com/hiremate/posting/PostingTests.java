@@ -1,5 +1,6 @@
 package com.hiremate.posting;
 
+import static com.hiremate.TestApi.done;
 import static com.hiremate.TestApi.expect;
 import static com.hiremate.TestApi.json;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -122,7 +123,7 @@ class PostingTests extends IntegrationTest {
         String id = json(expect(hr.post("/api/recruitments", null), 201)).path("recruitmentId").asString();
         String base = "/api/recruitments/" + id + "/posting";
 
-        JsonNode answer = json(expect(hr.post(base + "/ai-requests",
+        JsonNode answer = done(expect(hr.post(base + "/ai-requests",
                 Map.of("message", "전형은 서류, 코딩테스트, 1차 면접, 임원 면접 순으로 해줘.")), 200));
         assertThat(answer.path("reply").asString()).contains("평가 1개", "면접 2개");
         assertThat(answer.path("stub").asBoolean()).isTrue();
@@ -136,7 +137,7 @@ class PostingTests extends IntegrationTest {
         assertThat(applied.path("stages").get(3).path("name").asString()).isEqualTo("임원 면접");
         assertThat(applied.path("suggestion").isNull()).isTrue();
 
-        JsonNode unclear = json(expect(hr.post(base + "/ai-requests",
+        JsonNode unclear = done(expect(hr.post(base + "/ai-requests",
                 Map.of("message", "전형은 서류, 컬처핏, 면접 순으로 해줘.")), 200));
         assertThat(unclear.path("reply").asString()).contains("컬처핏");
         assertThat(unclear.path("posting").path("suggestion").isNull()).isTrue();
@@ -340,7 +341,7 @@ class PostingTests extends IntegrationTest {
                 "closeAt", now.plus(3, ChronoUnit.DAYS).toString())), 200);
 
         assertThat(json(expect(hr.put(base, content), 409)).path("code").asString()).isEqualTo("RECRUITMENT_LOCKED");
-        JsonNode answer = json(expect(hr.post(base + "/ai-requests", Map.of("message", "우대 사항 써 줘")), 200));
+        JsonNode answer = done(expect(hr.post(base + "/ai-requests", Map.of("message", "우대 사항 써 줘")), 200));
         assertThat(answer.path("reply").asString()).startsWith("게시한 공고는 바꿀 수 없어요.");
         assertThat(answer.path("posting").path("suggestion").isNull()).isTrue();
         String guide = "/api/stages/" + json(expect(hr.get("/api/recruitments/" + id + "/stage-guides"), 200))
@@ -359,13 +360,13 @@ class PostingTests extends IntegrationTest {
                 "career", "", "location", "", "intro", "", "duties", List.of(), "qualifications", List.of(),
                 "preferred", List.of("금융 도메인 경험", "대용량 트래픽 처리 경험"), "benefits", List.of())), 200);
 
-        JsonNode answer = json(expect(hr.post(base + "/ai-requests", Map.of("message", "이 줄 지워 줘",
+        JsonNode answer = done(expect(hr.post(base + "/ai-requests", Map.of("message", "이 줄 지워 줘",
                 "focus", Map.of("field", "preferred", "index", 0))), 200));
         JsonNode suggestion = answer.path("posting").path("suggestion");
         assertThat(suggestion.path("changedFields").toString()).isEqualTo("[\"preferred\"]");
         assertThat(suggestion.path("content").path("preferred").toString()).isEqualTo("[\"대용량 트래픽 처리 경험\"]");
 
-        JsonNode missing = json(expect(hr.post(base + "/ai-requests", Map.of("message", "고쳐 줘",
+        JsonNode missing = done(expect(hr.post(base + "/ai-requests", Map.of("message", "고쳐 줘",
                 "focus", Map.of("field", "preferred", "index", 2))), 200));
         assertThat(missing.path("reply").asString()).startsWith("고른 줄을 공고에서 찾지 못했어요.");
         expect(hr.post(base + "/ai-requests", Map.of("message", "고쳐 줘",
@@ -544,7 +545,7 @@ class PostingTests extends IntegrationTest {
                 .asString()).isEqualTo("경기도 성남시 분당구 판교역로 1");
         assertThat(careers.path("content").path("title").asString()).isEqualTo("백엔드 개발자 (Java/Spring)");
 
-        JsonNode locked = json(expect(hr.post(base + "/ai-requests",
+        JsonNode locked = done(expect(hr.post(base + "/ai-requests",
                 Map.of("message", "전형은 서류, 1차 면접 순으로 해줘")), 200));
         assertThat(locked.path("reply").asString()).contains("게시한 공고");
 

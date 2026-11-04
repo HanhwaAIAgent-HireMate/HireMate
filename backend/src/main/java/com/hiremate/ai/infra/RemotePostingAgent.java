@@ -2,6 +2,7 @@ package com.hiremate.ai.infra;
 
 import com.hiremate.ai.application.AiAgent;
 import com.hiremate.ai.application.AiMode;
+import com.hiremate.ai.application.ChatProgress;
 import com.hiremate.ai.application.PostingAgent;
 import com.hiremate.posting.PostingDraftContext;
 import com.hiremate.posting.PostingFocus;
@@ -23,13 +24,14 @@ class RemotePostingAgent implements PostingAgent {
     }
 
     @Override
-    public Result revise(PostingDraftContext posting, String writingStyle, String request, PostingFocus focus) {
+    public Result revise(PostingDraftContext posting, String writingStyle, String request, PostingFocus focus,
+            ChatProgress progress) {
         // 공고 작성 스타일을 등록하지 않은 기업이 있고 고른 줄은 없을 수 있어, null을 넣을 수 없는 Map.of 대신 HashMap을 쓴다
         Map<String, Object> body = new HashMap<>();
         body.put("posting", posting);
         body.put("writingStyle", writingStyle == null ? "" : writingStyle);
         body.put("request", request);
         body.put("focus", focus);
-        return client.post(AiAgent.POSTING, "revise", body, Result.class);
+        return client.stream(AiAgent.POSTING, "revise", body, Result.class, progress);
     }
 }
