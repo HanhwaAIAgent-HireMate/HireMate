@@ -162,3 +162,12 @@ def test_highlights_skip_tiny_career_bands_and_trivial_unsure_rates() -> None:
 def test_hanja_in_a_sentence_is_a_problem() -> None:
     assert any("한자" in p for p in sentence_problems("lines[0]", "확인이 필요한項目도 있어요.", set()))
     assert any("한자" in p for p in sentence_problems("lines[0]", "필수 조건を 못 채웠어요.", set()))
+
+
+def test_plain_ending_and_wrong_copula_are_problems() -> None:
+    assert any("해요체" in p for p in sentence_problems("summary", "경력 5년 이상이 많았다.", set()))
+    assert any("틀린 말" in p for p in sentence_problems("summary", "충족 비율은 50% 이하여요.", {"50"}))
+    assert any("틀린 말" in p for p in sentence_problems("summary", "합격은 11명여요.", {"11"}))
+    # 맞는 해요체 움직씨, 근거 키워드처럼 분석 글을 옮긴 칸은 문제로 보지 않는다
+    assert sentence_problems("summary", "경력이 길수록 충족 비율이 높아 보여요.", set()) == []
+    assert sentence_problems("items[0]", "리뷰 규칙을 주도했다", set(), plain=False) == []

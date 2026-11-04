@@ -97,9 +97,21 @@ _VERDICT_CODE = re.compile(
 )
 """판정 코드. 문장에는 충족 · 미충족 · 보류처럼 화면에 보이는 말로 쓴다."""
 _FORMAL = re.compile(r"[가-힣]니다(?![가-힣])")
+"""합니다체. 리포트 문장은 해요체로 쓴다."""
+_PLAIN_END = re.compile(r"[가-힣](?<!니)다(?=[.!?](?:\s|$)|\s*$)")
+"""평어(~다.)로 끝난 문장. 합니다체는 _FORMAL이 따로 잡는다."""
+_COPULA = re.compile(r"(?:이하|이상|미만|초과|이내|정도|수준|이후|이전)여요|\d\s*(?:명|개|점|건|년|곳)여요")
+"""'이하여요' · '11명여요'처럼 틀린 '~여요'. 받침이 없는 이름씨 뒤는 '예요', 받침이 있으면 '이에요'다.
+'줄여요' · '보여요' 같은 움직씨는 맞는 말이라, 수량 · 범위 말 뒤만 잡는다."""
+
+
+def _wrong_copula(text: str) -> str | None:
+    match = _COPULA.search(text)
+    return match.group() if match else None
+
+
 _HANJA = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿]+")
 """한자 · 일본 가나. 모델이 '項目', '조건を'처럼 낱말 하나를 섞어 쓰는 일이 있다. 리포트 문장은 한글로 쓴다."""
-"""합니다체. 리포트 문장은 해요체로 쓴다."""
 _VAGUE = re.compile(r"대부분|대다수")
 """세지 않은 양. 요약 · 읽을 점에서 쓰면 센 개수나 비율을 같이 쓴다."""
 _KEY_NAME = re.compile(r"(?<![A-Za-z_])[a-z]+[0-9]*\.[a-z_*][a-z0-9_.*-]*")
@@ -516,7 +528,7 @@ def _text_problems(spec: ReportSpec, bundle: ReportBundle) -> list[str]:
     known = {applicant.number for applicant in bundle.applicants}
     found = []
     for label, text in _texts(spec):
-        found += sentence_problems(label, text, allowed_numbers)
+        found += sentence_problems(label, text, allowed_numbers, plain=".items[" not in label)
         vague = _VAGUE.search(text) if label.endswith(("summary", "takeaway")) else None
         if vague and not _NUMBER.search(_CODE.sub("", text)):
             found.append(f"{label}의 '{vague.group()}'는 count_values로 센 개수나 비율을 같이 쓴다")
@@ -539,9 +551,10 @@ def _title_problems(label: str, title: str) -> list[str]:
     return found
 
 
-def sentence_problems(label: str, text: str, allowed_numbers: set[str]) -> list[str]:
-    """리포트 문장 하나의 공통 검사. 차별 조건, 순위 · 추천 표현, 판정 코드, 합니다체, 자료에 없는 숫자를 찾는다.
-    설계서 문장과 분포 해설이 같이 쓴다."""
+def sentence_problems(label: str, text: str, allowed_numbers: set[str], *, plain: bool = True) -> list[str]:
+    """리포트 문장 하나의 공통 검사. 차별 조건, 순위 · 추천 표현, 판정 코드, 합니다체 · 평어, 틀린 '~여요',
+    자료에 없는 숫자를 찾는다. 설계서 문장과 분포 해설이 같이 쓴다.
+    plain이 false면 평어를 보지 않는다. 근거 키워드처럼 분석 Agent의 판단 글(평어)을 옮긴 칸이다."""
     found = []
     if attribute := blocked_attribute(_CODE.sub("", text)):
         found.append(f"{label}에 채용 판단에 쓰면 안 되는 조건이 있다: {attribute}")
@@ -553,6 +566,10 @@ def sentence_problems(label: str, text: str, allowed_numbers: set[str]) -> list[
         )
     if formal := _FORMAL.search(text):
         found.append(f"{label}는 해요체(~어요 · ~예요)로 쓴다: {formal.group()}")
+    if plain and (ending := _PLAIN_END.search(text)):
+        found.append(f"{label}는 해요체(~어요 · ~예요)로 쓴다: '{ending.group()}'로 끝난 평어가 있다")
+    if copula := _wrong_copula(text):
+        found.append(f"{label}의 '{copula}'는 틀린 말이다. '~예요'(받침 없음) · '~이에요'(받침 있음)로 쓴다")
     if hanja := _HANJA.search(text):
         found.append(f"{label}에 한자가 있다: {hanja.group()}. 한글로 쓴다")
     if unknown := sorted(set(_NUMBER.findall(_CODE.sub("", text))) - allowed_numbers):

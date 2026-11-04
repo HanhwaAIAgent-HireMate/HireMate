@@ -52,6 +52,7 @@ from hiremate_ai.agents.generation.report.spec import (
     TallyBlock,
     TextBlock,
 )
+from hiremate_ai.agents.generation.report.tools import TOOLS
 from hiremate_ai.config import settings
 from hiremate_ai.contract import StageType
 from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
@@ -924,6 +925,11 @@ async def test_agent_fixes_on_retry() -> None:
     composed = await compose_report(bundle(), llm)
     assert not composed.fallback
     assert composed.spec.summary == good_spec().summary
+
+
+def test_report_tools_only_read() -> None:
+    # Report Agent 도구는 지침과 묶음 자료를 읽기만 한다. 쓰기 · 다른 Agent 호출 도구를 더하면 이 목록부터 고친다
+    assert {t.name for t in TOOLS} == {"load_skill", "get_overview", "get_values", "count_values", "get_evidence"}
 
 
 async def test_tools_stay_in_scope() -> None:
