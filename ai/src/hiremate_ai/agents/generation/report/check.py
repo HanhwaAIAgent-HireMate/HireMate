@@ -115,6 +115,7 @@ _VERDICT_LABELS = {"MET": "충족", "PARTIAL": "부분 충족", "NOT_MET": "미�
 _JOINED = re.compile(r"[\s()가-힣]{0,4}(?:와|과|,|·|및)\s*")
 """지원자번호 사이를 묶는 말. 'A-0004와 A-0006은 부분 충족'은 두 사람 모두의 판정이다."""
 MAX_KEYWORDS = 4
+MAX_KPI_METRICS = 5
 MAX_KEYWORD_LENGTH = 20
 
 
@@ -315,13 +316,20 @@ def _block_problems(block: Block, bundle: ReportBundle) -> list[str]:
         found.append("무엇을 보여 주는지 caption 한 줄이 없다")
     if _REFERENCE_WORD.search(getattr(block, "caption", "")) and not getattr(block, "reference", []):
         found.append("caption이 기준선을 말하는데 reference가 비었다. 기준선 지표를 넣거나 caption에서 뺀다")
+    return found + block_data_problems(block, bundle)
+
+
+def block_data_problems(block: Block, bundle: ReportBundle) -> list[str]:
+    """부품이 그릴 자료의 문제(없는 key · 지표, 숫자가 아닌 값의 분포, 지원자 수 등). 문장 문제는 넣지 않는다.
+    repair는 이 문제가 있는 시각화 부품을 그릴 수 없는 것으로 보고 뺀다."""
+    found = []
     if unknown := [number for number in _listed_applicants(block) if number not in _scope(bundle)]:
         found.append(f"범위 밖 지원자번호: {', '.join(unknown)}")
     match block:
         case KpiBlock():
             found += _metric_problems(block.metrics, bundle)
-            if not 2 <= len(block.metrics) <= 5:
-                found.append("지표는 2~5개다")
+            if not 2 <= len(block.metrics) <= MAX_KPI_METRICS:
+                found.append(f"지표는 2~{MAX_KPI_METRICS}개다")
         case DonutBlock():
             found += _metric_problems(block.metrics, bundle)
             if not 2 <= len(block.metrics) <= 5:
