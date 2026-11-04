@@ -103,6 +103,9 @@ export function CandidateCard({
                 applicationId={applicationId}
               />
             )}
+            {detail.data.schoolMentions.length > 0 && (
+              <SchoolMentions mentions={detail.data.schoolMentions} />
+            )}
             {overview.type === 'INTERVIEW' ? (
               <InterviewViewer
                 stageId={overview.stageId}
@@ -158,6 +161,28 @@ function RetryAnalysis({
         <RotateCw />
         다시 분석
       </Button>
+    </div>
+  )
+}
+
+/**
+ * 블라인드 채용인데 서류에 출신 학교를 쓴 문장. 학교 이름은 가린 채로 보여 주고, 감점이나 불합격은 담당자가 정한다
+ * (아키텍처 규칙 1)
+ */
+function SchoolMentions({ mentions }: { mentions: string[] }) {
+  return (
+    <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      <p className="font-semibold">
+        블라인드 위반 의심: 서류에 출신 학교를 쓴 문장이 {mentions.length}개 있어요
+      </p>
+      <ul className="space-y-0.5 text-xs">
+        {mentions.map((mention) => (
+          <li key={mention}>· {mention}</li>
+        ))}
+      </ul>
+      <p className="text-xs text-amber-800">
+        학교 이름은 가려져 있어요. 반영할지는 담당자가 정해요.
+      </p>
     </div>
   )
 }

@@ -884,6 +884,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/postings/{postingId}/applications/school-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["checkSchools"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/interviewer/sessions/{stageId}/{applicationId}/ready": {
         parameters: {
             query?: never;
@@ -2627,6 +2643,14 @@ export interface components {
             companyName: string;
             postingTitle: string;
         };
+        Found: {
+            /** @enum {string} */
+            type: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            names: string[];
+        };
+        SchoolCheck: {
+            documents: components["schemas"]["Found"][];
+        };
         Attendance: {
             stageActive: boolean;
             attendees: components["schemas"]["Attendee"][];
@@ -2835,24 +2859,24 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            binary: boolean;
             pojo: boolean;
-            /** @deprecated */
-            textual: boolean;
-            boolean: boolean;
+            short: boolean;
             int: boolean;
             long: boolean;
             double: boolean;
+            /** @deprecated */
+            textual: boolean;
+            boolean: boolean;
+            binary: boolean;
             string: boolean;
-            short: boolean;
             missingNode: boolean;
-            integralNumber: boolean;
+            container: boolean;
+            valueNode: boolean;
+            bigDecimal: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            integralNumber: boolean;
             bigInteger: boolean;
-            valueNode: boolean;
-            container: boolean;
-            bigDecimal: boolean;
             floatingPointNumber: boolean;
             embeddedValue: boolean;
         };
@@ -3035,6 +3059,7 @@ export interface components {
             certificates: string | null;
             documents: components["schemas"]["ApplicantDocument"][];
             memo: string;
+            schoolMentions: string[];
         };
         Match: {
             title: string;
@@ -3277,9 +3302,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
+            headerName: string;
             parameterName: string;
             token: string;
-            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -4955,6 +4980,39 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["SubmittedApplication"];
+                };
+            };
+        };
+    };
+    checkSchools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    resume: string;
+                    /** Format: binary */
+                    coverLetter: string;
+                    /** Format: binary */
+                    portfolio?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SchoolCheck"];
                 };
             };
         };

@@ -50,6 +50,26 @@ export function useSubmitApplication(postingId: string) {
   })
 }
 
+export type SchoolCheck = Schemas['SchoolCheck']
+
+/** 블라인드 채용 지원서의 학교 이름 확인. 제출 전에 지원자에게 알리고, 제출을 막지는 않는다 */
+export function useSchoolCheck(postingId: string) {
+  return useMutation({
+    mutationFn: (input: Pick<ApplicationInput, 'resume' | 'coverLetter' | 'portfolio'>) => {
+      const form = new FormData()
+      form.append('resume', input.resume)
+      form.append('coverLetter', input.coverLetter)
+      if (input.portfolio) form.append('portfolio', input.portfolio)
+      return unwrap(
+        api.POST('/api/public/postings/{postingId}/applications/school-check', {
+          params: { path: { postingId } },
+          body: form as unknown as { resume: string; coverLetter: string },
+        }),
+      )
+    },
+  })
+}
+
 export function useApplications(recruitmentId: string, size = 5) {
   return useQuery({
     queryKey: ['applications', recruitmentId, size],
