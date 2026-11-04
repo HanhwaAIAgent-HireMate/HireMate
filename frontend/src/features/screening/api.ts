@@ -186,15 +186,20 @@ export function useSelectionActions(stageId: string, tabId: string) {
   }
 }
 
-/** 블라인드 위반 의심 해제. HR이 서류를 확인한 뒤 누르면 지원자가 리스트의 원래 자리로 돌아간다 */
-export function useClearSchoolMention(stageId: string, applicationId: string) {
-  return useStageMutation(stageId, () =>
-    unwrap(
-      api.POST('/api/stages/{stageId}/candidates/{applicationId}/school-clear', {
-        params: { path: { stageId, applicationId } },
-      }),
+/**
+ * 블라인드 위반 의심 해제와 해제 취소. 해제하면 지원자가 리스트의 원래 자리로 돌아가고, 해제 취소하면 맨 아래 블라인드
+ * 위반 의심으로 다시 간다
+ */
+export function useSchoolMentionActions(stageId: string, applicationId: string) {
+  const params = { params: { path: { stageId, applicationId } } }
+  return {
+    clear: useStageMutation(stageId, () =>
+      unwrap(api.POST('/api/stages/{stageId}/candidates/{applicationId}/school-clear', params)),
     ),
-  )
+    undo: useStageMutation(stageId, () =>
+      unwrap(api.DELETE('/api/stages/{stageId}/candidates/{applicationId}/school-clear', params)),
+    ),
+  }
 }
 
 /** 결정은 탭과 상관없다. 되돌리기만 누른 탭(tabId)에 없던 지원자를 그 탭에 넣는다 */

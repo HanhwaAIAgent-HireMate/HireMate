@@ -638,7 +638,7 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["clearSchoolMention"];
-        delete?: never;
+        delete: operations["undoClearSchoolMention"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2877,22 +2877,22 @@ export interface components {
             float: boolean;
             number: boolean;
             pojo: boolean;
-            string: boolean;
+            int: boolean;
+            long: boolean;
             boolean: boolean;
+            short: boolean;
+            string: boolean;
+            double: boolean;
             /** @deprecated */
             textual: boolean;
             binary: boolean;
-            short: boolean;
-            long: boolean;
-            int: boolean;
-            double: boolean;
+            bigInteger: boolean;
+            floatingPointNumber: boolean;
+            bigDecimal: boolean;
+            container: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
             valueNode: boolean;
-            container: boolean;
-            floatingPointNumber: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
             missingNode: boolean;
             integralNumber: boolean;
             embeddedValue: boolean;
@@ -3077,6 +3077,7 @@ export interface components {
             documents: components["schemas"]["ApplicantDocument"][];
             memo: string;
             schoolMentions: string[];
+            schoolCleared: boolean;
         };
         Match: {
             title: string;
@@ -3319,9 +3320,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
+            headerName: string;
             parameterName: string;
             token: string;
-            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -4545,6 +4546,27 @@ export interface operations {
         };
     };
     clearSchoolMention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    undoClearSchoolMention: {
         parameters: {
             query?: never;
             header?: never;

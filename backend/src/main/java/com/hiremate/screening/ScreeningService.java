@@ -322,30 +322,39 @@ public class ScreeningService {
         return new CandidateDetail(toRow(context.type(), candidate, applicant.info(), recommended, null, lines),
                 applicant.info().email(),
                 applicant.phone(), applicant.info().submittedAt(), applicant.certificates(), applicant.documents(),
-                candidate.getMemo(), checksSchools(context, candidate)
-                        ? schoolMentions(applicant.documents()) : List.of());
+                candidate.getMemo(), checksSchools(context)
+                        ? schoolMentions(applicant.documents()) : List.of(), candidate.isSchoolCleared());
     }
 
     /** 서류 전형에서 블라인드 위반 의심을 해제한다. 지원자는 리스트의 원래 자리로 돌아간다. 결정이나 감점이 아니다. */
     @Transactional
     public void clearSchoolMention(UUID companyId, UUID stageId, UUID applicationId) {
+        schoolCandidate(companyId, stageId, applicationId).clearSchoolMention();
+    }
+
+    /** 해제 취소. 지원자가 리스트 맨 아래의 블라인드 위반 의심으로 다시 간다. */
+    @Transactional
+    public void undoClearSchoolMention(UUID companyId, UUID stageId, UUID applicationId) {
+        schoolCandidate(companyId, stageId, applicationId).undoClearSchoolMention();
+    }
+
+    private StageCandidate schoolCandidate(UUID companyId, UUID stageId, UUID applicationId) {
         StageContext context = activeContext(companyId, stageId);
         if (context.type() != StageType.DOCUMENT) {
             throw new ApiException(HttpStatus.CONFLICT, "NOT_DOCUMENT_STAGE", "Only document stages check schools.");
         }
-        candidate(companyId, stageId, applicationId).clearSchoolMention();
+        return candidate(companyId, stageId, applicationId);
     }
 
-    /** 블라인드 채용 서류 전형에서 해제하지 않은 지원자만 출신 학교를 쓴 문장을 본다. */
-    private boolean checksSchools(StageContext context, StageCandidate candidate) {
-        return context.type() == StageType.DOCUMENT && !candidate.isSchoolCleared()
+    /** 블라인드 채용 서류 전형만 출신 학교를 쓴 문장을 본다. 해제한 지원자도 해제 취소를 위해 문장을 준다. */
+    private boolean checksSchools(StageContext context) {
+        return context.type() == StageType.DOCUMENT
                 && postings.view(context.companyId(), context.recruitmentId()).content().blind();
     }
 
     /** 서류 전형에서 블라인드 위반이 의심되는 지원자: 서류에 출신 학교를 쓰고 HR이 아직 해제하지 않았다. */
     private Set<UUID> schoolSuspects(StageContext context, List<StageCandidate> all) {
-        if (context.type() != StageType.DOCUMENT
-                || !postings.view(context.companyId(), context.recruitmentId()).content().blind()) {
+        if (!checksSchools(context)) {
             return Set.of();
         }
         Map<UUID, List<ApplicantDocument>> documents = applications.documents(context.companyId(),

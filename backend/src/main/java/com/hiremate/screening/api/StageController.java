@@ -15,6 +15,7 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -68,6 +69,14 @@ public class StageController {
     public void clearSchoolMention(AuthenticatedMember member, @PathVariable UUID stageId,
             @PathVariable UUID applicationId) {
         screening.clearSchoolMention(member.companyId(), stageId, applicationId);
+    }
+
+    /** 블라인드 위반 의심 해제 취소. 지원자가 리스트 맨 아래의 블라인드 위반 의심으로 다시 간다. */
+    @DeleteMapping("/candidates/{applicationId}/school-clear")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void undoClearSchoolMention(AuthenticatedMember member, @PathVariable UUID stageId,
+            @PathVariable UUID applicationId) {
+        screening.undoClearSchoolMention(member.companyId(), stageId, applicationId);
     }
 
     @PostMapping("/decisions")

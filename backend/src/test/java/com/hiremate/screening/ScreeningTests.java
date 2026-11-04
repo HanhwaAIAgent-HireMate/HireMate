@@ -852,11 +852,20 @@ class ScreeningTests extends IntegrationTest {
         assertThat(list.path("schoolSuspects")).extracting(JsonNode::asString).containsExactly(attended);
         assertThat(list.path("items").get(1).path("applicationId").asString()).isEqualTo(attended);
 
-        // 면접관은 해제할 수 없다. HR이 해제하면 의심 목록과 카드의 문장이 빠진다
+        // 면접관은 해제할 수 없다. HR이 해제하면 의심 목록에서 빠지고, 카드는 해제 취소를 위해 문장을 남긴다
         expect(newInterviewer(hr, "면접관").post(stage + "/candidates/" + attended + "/school-clear", null), 403);
         expect(hr.post(stage + "/candidates/" + attended + "/school-clear", null), 204);
         assertThat(json(expect(hr.get(stage + "/candidates"), 200)).path("schoolSuspects")).isEmpty();
-        assertThat(json(expect(hr.get(stage + "/candidates/" + attended), 200)).path("schoolMentions")).isEmpty();
+        JsonNode cleared = json(expect(hr.get(stage + "/candidates/" + attended), 200));
+        assertThat(cleared.path("schoolCleared").asBoolean()).isTrue();
+        assertThat(cleared.path("schoolMentions").size()).isEqualTo(1);
+
+        // 해제 취소하면 다시 맨 아래 의심 목록으로 간다
+        expect(hr.delete(stage + "/candidates/" + attended + "/school-clear"), 204);
+        assertThat(json(expect(hr.get(stage + "/candidates"), 200)).path("schoolSuspects"))
+                .extracting(JsonNode::asString).containsExactly(attended);
+        assertThat(json(expect(hr.get(stage + "/candidates/" + attended), 200)).path("schoolCleared").asBoolean())
+                .isFalse();
     }
 
     private Stage startDocumentStage(int applicants) throws Exception {

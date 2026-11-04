@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   careerLabel,
   useCandidateDetail,
-  useClearSchoolMention,
+  useSchoolMentionActions,
   useRetryAnalysis,
   useSaveMemo,
   type StageOverview,
@@ -110,6 +110,7 @@ export function CandidateCard({
                 stageId={overview.stageId}
                 applicationId={applicationId}
                 mentions={detail.data.schoolMentions}
+                cleared={detail.data.schoolCleared}
                 editable={editable}
               />
             )}
@@ -174,46 +175,64 @@ function RetryAnalysis({
 
 /**
  * 서류 전형의 블라인드 위반 의심. 출신 학교를 쓴 문장을 학교 이름을 가린 채 접어 두고, HR이 확인해 해제하면 리스트의
- * 원래 자리로 돌아간다. 해제는 결정이나 감점이 아니다 (아키텍처 규칙 1)
+ * 원래 자리로 돌아간다. 잘못 해제했으면 해제 취소로 되돌린다. 해제는 결정이나 감점이 아니다 (아키텍처 규칙 1)
  */
 function SchoolMentions({
   stageId,
   applicationId,
   mentions,
+  cleared,
   editable,
 }: {
   stageId: string
   applicationId: string
   mentions: string[]
+  cleared: boolean
   editable: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const clear = useClearSchoolMention(stageId, applicationId)
+  const { clear, undo } = useSchoolMentionActions(stageId, applicationId)
+  const action = cleared ? undo : clear
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+    <div
+      className={cn(
+        'rounded-lg border px-3 py-2 text-sm',
+        cleared ? 'bg-muted/40' : 'border-amber-200 bg-amber-50',
+      )}
+    >
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          className="inline-flex items-center gap-1 font-semibold"
+          className={cn(
+            'inline-flex items-center gap-1',
+            cleared ? 'text-muted-foreground' : 'font-semibold',
+          )}
         >
           <ChevronDown className={cn('size-4 transition-transform', !open && '-rotate-90')} />
-          블라인드 위반 의심 문장 {mentions.length}개
+          {cleared
+            ? '블라인드 위반 의심을 해제했어요'
+            : `블라인드 위반 의심 문장 ${mentions.length}개`}
         </button>
         {editable && (
           <Button
             size="sm"
             variant="outline"
-            disabled={clear.isPending}
+            disabled={action.isPending}
             onClick={() =>
-              clear.mutate(undefined, {
-                onSuccess: () => toast.success('블라인드 위반 의심을 해제했어요.'),
+              action.mutate(undefined, {
+                onSuccess: () =>
+                  toast.success(
+                    cleared
+                      ? '해제를 취소했어요. 블라인드 위반 의심으로 다시 옮겼어요.'
+                      : '블라인드 위반 의심을 해제했어요.',
+                  ),
                 onError: (error) => toast.error(errorMessage(error)),
               })
             }
           >
-            해제
+            {cleared ? '해제 취소' : '해제'}
           </Button>
         )}
       </div>
