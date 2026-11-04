@@ -2646,11 +2646,23 @@ export interface components {
             /** Format: int32 */
             index: number | null;
         };
+        NcsSource: {
+            field: string;
+            /** Format: int32 */
+            number: number;
+            line: string;
+            dutyName: string;
+            unitCode: string;
+            unitName: string;
+            taskName: string;
+            sentence: string;
+        };
         PostingAiAnswer: {
             reply: string;
             agent: string;
             stub: boolean;
             posting: components["schemas"]["PostingView"];
+            ncsSources: components["schemas"]["NcsSource"][];
         };
         SubmittedApplication: {
             /** Format: int32 */
@@ -2870,31 +2882,31 @@ export interface components {
             steps: string[];
         };
         JsonNode: {
+            valueNode: boolean;
+            container: boolean;
+            missingNode: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            string: boolean;
+            integralNumber: boolean;
+            pojo: boolean;
+            floatingPointNumber: boolean;
+            short: boolean;
+            int: boolean;
+            long: boolean;
+            double: boolean;
+            bigDecimal: boolean;
+            bigInteger: boolean;
+            /** @deprecated */
+            textual: boolean;
+            boolean: boolean;
+            binary: boolean;
+            number: boolean;
             empty: boolean;
             array: boolean;
             null: boolean;
             object: boolean;
             float: boolean;
-            number: boolean;
-            pojo: boolean;
-            int: boolean;
-            long: boolean;
-            boolean: boolean;
-            short: boolean;
-            string: boolean;
-            double: boolean;
-            /** @deprecated */
-            textual: boolean;
-            binary: boolean;
-            bigInteger: boolean;
-            floatingPointNumber: boolean;
-            bigDecimal: boolean;
-            container: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            valueNode: boolean;
-            missingNode: boolean;
-            integralNumber: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3321,8 +3333,8 @@ export interface components {
         };
         CsrfToken: {
             headerName: string;
-            parameterName: string;
             token: string;
+            parameterName: string;
         };
         CsrfResponse: {
             token: string;

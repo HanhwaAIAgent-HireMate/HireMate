@@ -81,4 +81,36 @@ describe('AI 수정 요청 패널', () => {
 
     expect(screen.queryByRole('button', { name: /처리 과정/ })).not.toBeInTheDocument()
   })
+
+  it('공고 수정 답이 참고한 NCS는 답 아래 출처 카드로 보인다', () => {
+    render(
+      <AiRequestPanel
+        {...base}
+        pending={false}
+        messages={[
+          {
+            role: 'ai',
+            text: '주요 업무(1줄 추가) 수정안을 만들었어요.',
+            ncsSources: [
+              {
+                field: 'duties',
+                number: 2,
+                line: '배치 프로그램을 구현합니다',
+                dutyName: '응용SW엔지니어링',
+                unitCode: '2001020211_23v6',
+                unitName: '서버프로그램 구현',
+                taskName: '배치 프로그램 구현하기',
+                sentence: '배치 프로그램을 구현 한다',
+              },
+            ],
+          },
+          { role: 'ai', text: '근무지: 회사가 알려 준 값이 없어 지어내지 않았어요.' },
+        ]}
+      />,
+    )
+
+    expect(screen.getAllByTestId('ncs-source')).toHaveLength(1)
+    expect(screen.getByText('주요 업무 2')).toBeInTheDocument()
+    expect(screen.getByText('배치 프로그램을 구현 한다')).toBeInTheDocument()
+  })
 })

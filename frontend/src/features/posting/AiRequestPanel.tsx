@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 
 import { LiveSteps, StepsSummary } from '@/features/chat/ChatSteps'
 import type { ChatStep } from '@/features/chat/steps'
+import type { NcsSource } from '@/features/posting/api'
+import { NcsSources } from '@/features/posting/NcsSources'
 import { cn } from '@/lib/utils'
 
 const WAITING: ChatStep = { text: '수정안을 만들고 있어요', depth: 0 }
@@ -10,6 +12,7 @@ const WAITING: ChatStep = { text: '수정안을 만들고 있어요', depth: 0 }
 /**
  * focus는 HR이 줄을 골라 보낸 요청의 줄 이름이다 (예: 우대 사항 3번).
  * steps · seconds는 처리 단계를 받은 답의 처리 과정과 걸린 초다. AI Chat처럼 접어 두고 누르면 펼친다.
+ * ncsSources는 공고 수정 답이 참고한 NCS 출처다. 답 아래에 출처 카드로 보인다.
  */
 export type AiMessage = {
   role: 'user' | 'ai'
@@ -19,6 +22,7 @@ export type AiMessage = {
   focus?: string
   steps?: ChatStep[]
   seconds?: number
+  ncsSources?: NcsSource[]
 }
 
 /**
@@ -106,11 +110,12 @@ export function AiRequestPanel({
           ) : (
             <div key={index} className="flex gap-2 text-sm">
               <Sparkles className="mt-0.5 size-4 shrink-0 text-ai" />
-              <div className="space-y-1.5">
+              <div className="min-w-0 flex-1 space-y-1.5">
                 {message.steps && (
                   <StepsSummary steps={message.steps} seconds={message.seconds ?? null} />
                 )}
                 <p className="whitespace-pre-wrap">{message.text}</p>
+                {message.ncsSources && <NcsSources sources={message.ncsSources} />}
                 {message.agent && <AgentChip name={message.agent} stub={message.stub} />}
               </div>
             </div>
