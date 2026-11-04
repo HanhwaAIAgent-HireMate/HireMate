@@ -61,7 +61,7 @@ export function StepsSummary({ steps, seconds }: { steps: ChatStep[]; seconds: n
 }
 
 /**
- * Root 단계를 세로선 위의 점으로 잇는 목록. 끝난 단계는 초록 점, 지금 단계는 깜빡이는 회색 점이다.
+ * Root 단계를 세로선 위의 점으로 잇는 목록. 끝난 단계는 옅은 회색 점, 지금 단계는 깜빡이는 AI 색 점이다.
  * 하위 Agent와 도구의 일은 깊이와 상관없이 Root 단계 아래 한 칸만 들여 쓴다.
  * running이면 마지막 Root 단계가 지금 단계이고 그 아래에는 지금 하는 일만 보인다. 아니면 모든 일을 보인다.
  */
@@ -88,8 +88,10 @@ function StepList({ steps, running = false }: { steps: ChatStep[]; running?: boo
               aria-hidden
               data-dot={current ? 'running' : 'done'}
               className={cn(
-                'absolute top-1.5 left-0 size-2.5 rounded-full',
-                current ? 'animate-pulse bg-muted-foreground/60' : 'bg-emerald-500',
+                'absolute rounded-full',
+                current
+                  ? 'top-1.5 left-0 size-2.5 animate-pulse bg-ai'
+                  : 'top-[7px] left-[0.5px] size-2 bg-muted-foreground/35',
               )}
             />
             <span data-step-text>{node.step.text}</span>
