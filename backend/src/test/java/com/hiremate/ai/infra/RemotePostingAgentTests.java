@@ -3,6 +3,8 @@ package com.hiremate.ai.infra;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.ai.application.AiAgent;
+import com.hiremate.ai.application.ChatItem;
+import com.hiremate.ai.application.ChatProgress;
 import com.hiremate.ai.application.PostingAgent;
 import com.hiremate.posting.DocumentType;
 import com.hiremate.posting.PostingContent;
@@ -32,19 +34,31 @@ class RemotePostingAgentTests {
             RecruitmentStatus.DRAFT, CONTENT, List.of(new StageDraft("서류 전형", StageType.DOCUMENT)),
             Set.of(DocumentType.PORTFOLIO));
 
+    /** 진행 알림을 받지 않는다. 어느 진행 알림이 ai 서버 스트림에 넘어갔는지만 비교한다. */
+    private static final ChatProgress PROGRESS = new ChatProgress() {
+        @Override
+        public void status(String text) {
+        }
+
+        @Override
+        public void item(ChatItem item) {
+        }
+    };
+
     @Test
-    @DisplayName("ai 서버의 posting/revise로 공고, 작성 스타일, 수정 요청을 보내고 수정안을 받는다")
+    @DisplayName("ai 서버의 posting/revise 스트림으로 공고, 작성 스타일, 수정 요청을 보내고 진행 알림과 수정안을 받는다")
     void revisesThroughAiServer() {
         PostingAgent.Result answer = new PostingAgent.Result("우대 사항 수정안을 만들었어요.",
                 new PostingSuggestion(CONTENT, null, null, List.of("preferred")));
         RecordingClient client = new RecordingClient(answer);
 
         PostingAgent.Result result = new RemotePostingAgent(client).revise(POSTING, "짧게 쓴다", "우대 사항 다듬어 줘",
-                null);
+                null, PROGRESS);
 
         assertThat(result).isEqualTo(answer);
         assertThat(client.agent).isEqualTo(AiAgent.POSTING);
         assertThat(client.method).isEqualTo("revise");
+        assertThat(client.progress).isSameAs(PROGRESS);
         assertThat(client.body).containsEntry("posting", POSTING)
                 .containsEntry("writingStyle", "짧게 쓴다")
                 .containsEntry("request", "우대 사항 다듬어 줘")
@@ -56,7 +70,7 @@ class RemotePostingAgentTests {
     void sendsEmptyWritingStyleWhenMissing() {
         RecordingClient client = new RecordingClient(new PostingAgent.Result("어느 칸을 고칠까요?", null));
 
-        new RemotePostingAgent(client).revise(POSTING, null, "음", null);
+        new RemotePostingAgent(client).revise(POSTING, null, "음", null, PROGRESS);
 
         assertThat(client.body).containsEntry("writingStyle", "");
     }
@@ -67,7 +81,7 @@ class RemotePostingAgentTests {
         RecordingClient client = new RecordingClient(new PostingAgent.Result("우대 사항 1번 줄 수정안을 만들었어요.", null));
         PostingFocus focus = new PostingFocus("preferred", 0);
 
-        new RemotePostingAgent(client).revise(POSTING, "", "더 구체적으로", focus);
+        new RemotePostingAgent(client).revise(POSTING, "", "더 구체적으로", focus, PROGRESS);
 
         assertThat(client.body).containsEntry("focus", focus);
     }
@@ -79,6 +93,7 @@ class RemotePostingAgentTests {
         private AiAgent agent;
         private String method;
         private Map<Object, Object> body;
+        private ChatProgress progress;
 
         RecordingClient(Object response) {
             super(WebClient.builder(), "http://ai.test", Duration.ofSeconds(1), JsonMapper.builder().build());
@@ -86,10 +101,11 @@ class RemotePostingAgentTests {
         }
 
         @Override
-        <T> T post(AiAgent agent, String method, Object body, Class<T> type) {
+        <T> T stream(AiAgent agent, String method, Object body, Class<T> type, ChatProgress progress) {
             this.agent = agent;
             this.method = method;
             this.body = new HashMap<>((Map<?, ?>) body);
+            this.progress = progress;
             return type.cast(response);
         }
     }
