@@ -8,6 +8,7 @@ import com.hiremate.company.MailStyleService;
 import com.hiremate.company.NoticeTemplateInfo;
 import com.hiremate.company.NoticeTemplateType;
 import com.hiremate.global.ApiException;
+import com.hiremate.interview.InterviewScheduling;
 import com.hiremate.mail.MailBrand;
 import com.hiremate.mail.MailContent;
 import com.hiremate.mail.MailPreview;
@@ -68,10 +69,11 @@ public class NoticeService {
     private final MailStyleService mailStyles;
     private final MailService mail;
     private final ActivityService activity;
+    private final InterviewScheduling scheduling;
 
     public NoticeService(NoticeRepository notices, NoticeDeliveryRepository deliveries, ScreeningService screening,
             RecruitService recruits, ApplicationService applications, CompanyService companies,
-            MailStyleService mailStyles, MailService mail, ActivityService activity) {
+            MailStyleService mailStyles, MailService mail, ActivityService activity, InterviewScheduling scheduling) {
         this.notices = notices;
         this.deliveries = deliveries;
         this.screening = screening;
@@ -81,6 +83,7 @@ public class NoticeService {
         this.mailStyles = mailStyles;
         this.mail = mail;
         this.activity = activity;
+        this.scheduling = scheduling;
     }
 
     /** 결과를 확정한 전형의 안내 초안. 처음 열면 설정의 안내 메일 양식으로 그룹별 초안을 만든다. */
@@ -199,6 +202,8 @@ public class NoticeService {
     public StageGuideView changeGuide(UUID companyId, UUID stageId, StageGuide guide) {
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         checkGuide(recruitment, recruitment.stage(stageId).orElseThrow(), guide);
+        scheduling.guideChanged(companyId, stageId, guide.schedule(),
+                guideView(companyId, recruitment, recruitment.stage(stageId).orElseThrow()).notifiedCount() == 0);
         StageInfo stage = recruits.changeGuide(companyId, stageId, guide);
         return guideView(companyId, recruits.getByStage(companyId, stageId), stage);
     }

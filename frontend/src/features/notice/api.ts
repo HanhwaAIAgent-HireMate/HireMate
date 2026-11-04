@@ -36,7 +36,15 @@ export function useSaveStageGuide(recruitmentId: string, stageId: string) {
   return useMutation({
     mutationFn: (body: StageGuide) =>
       unwrap(api.PUT('/api/stages/{stageId}/guide', { params: { path: { stageId } }, body })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: stageGuideKeys.all(recruitmentId) }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: stageGuideKeys.all(recruitmentId) }),
+        queryClient.invalidateQueries({ queryKey: ['interview-scheduling'] }),
+        queryClient.invalidateQueries({
+          predicate: ({ queryKey }) => queryKey[0] === 'stage' && queryKey[2] === 'notices',
+        }),
+      ])
+    },
   })
 }
 
