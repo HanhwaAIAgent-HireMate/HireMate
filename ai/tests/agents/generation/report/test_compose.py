@@ -791,6 +791,65 @@ def test_final_fallback_draws_every_stage_and_the_finalists() -> None:
     assert found == []
 
 
+def test_final_fallback_writes_head_counts_from_the_metrics() -> None:
+    # 모델이 설계서를 못 만들어도 '지원 몇 명 중 최종 합격 몇 명'은 지표에서 읽어 쓴다
+    final = final_bundle()
+    staged = final.model_copy(
+        update={
+            "metrics": [
+                *final.metrics,
+                Metric(id="m-document-target", stage_id=STAGE, label="서류 전형 대상", value=4, unit="명"),
+                Metric(id="m-interview-target", stage_id=INTERVIEW, label="1차 면접 대상", value=3, unit="명"),
+            ]
+        }
+    )
+    spec = fallback_spec(staged)
+
+    assert spec.summary.startswith("지원 4명 중 최종 합격은 2명이에요. 서류 전형은 대상 4명 중 3명이 합격했어요.")
+    takeaways = {section.title: section.takeaway for section in spec.sections}
+    assert takeaways["한눈에 보기"] == "지원 4명 중 최종 합격은 2명이에요."
+    assert takeaways["최종 합격자"] == "최종 합격자는 2명이에요."
+    assert "1차 면접은 대상 3명 중 2명이 합격했어요." in spec.summary
+    assert [p for p in problems(spec, staged) if "근거 부품" not in p] == []
+
+
+def test_repair_writes_verdict_codes_as_screen_words() -> None:
+    # 문장 속 PASS · MET은 다시 쓰게 하지 않고 코드가 화면 말로 바꾼다. 그릴 값(key)은 그대로다
+    spec = good_spec()
+    spec.sections[1] = spec.sections[1].model_copy(
+        update={"takeaway": "A-0012는 Q-05가 PARTIAL, A-0007은 NOT_MET이에요."}
+    )
+    notes: list[str] = []
+
+    fixed = repair(
+        spec.model_copy(update={"summary": "세 명 모두 PASS예요."}), bundle(), group_by_code=False, notes=notes
+    )
+
+    assert fixed.summary == "세 명 모두 합격이에요."
+    assert fixed.sections[1].takeaway == "A-0012는 Q-05가 부분 충족, A-0007은 미충족이에요."
+    assert fixed.sections[1].blocks[1].keys == ["document.criterion.Q-01", "document.criterion.Q-05"]  # type: ignore[union-attr]
+    assert "판정 코드를 화면 말로 바꿈" in notes
+    assert not any("판정 코드" in p for p in problems(fixed, bundle()))
+
+
+def test_repair_drops_a_chart_that_cannot_be_drawn_but_keeps_its_section() -> None:
+    # 결정(합격 · 불합격)은 숫자가 아니라 분포로 그릴 수 없다. 그 부품만 빼고 섹션의 나머지는 둔다
+    spec = good_spec()
+    bad = DistributionBlock(title="결정 분포", caption="결정 분포예요.", key="document.decision")
+    spec.sections[1].blocks.append(bad)
+    assert any("분포를 그릴 수 없다" in p for p in problems(spec, bundle()))
+    notes: list[str] = []
+
+    fixed = repair(spec, bundle(), group_by_code=False, notes=notes)
+
+    assert bad not in fixed.sections[1].blocks and len(fixed.sections[1].blocks) == 2
+    assert "그릴 수 없는 그래프 1개를 뺌" in notes
+    # 섹션에 부품이 하나뿐이면 빼지 않고 모델에게 다시 쓰게 한다
+    lone = good_spec()
+    lone.sections[2] = lone.sections[2].model_copy(update={"blocks": [bad]})
+    assert repair(lone, bundle(), group_by_code=False).sections[2].blocks == [bad]
+
+
 def test_final_request_reads_the_final_skill_over_every_stage() -> None:
     final = final_bundle()
     assert recommended_skills(final) == ["visual-guide", "final", "evidence"]
@@ -1254,3 +1313,38 @@ def test_repair_pairs_one_item_views_in_the_perspectives_field() -> None:
         ("자격 심화 · 클라우드", ["document.criterion.Q-05", "document.skill.aws"]),
         ("메시징 · 스프링", ["document.skill.kafka", "document.skill.spring"]),
     ]
+
+
+def test_screen_words_take_the_right_particle() -> None:
+    def plain(text: str) -> str:
+        spec = good_spec().model_copy(update={"summary": text})
+        return repair(spec, bundle(), group_by_code=False).summary
+
+    assert plain("A-0012가 PASS예요.") == "A-0012가 합격이에요."
+    assert plain("UNKNOWN가 많아요.") == "보류가 많아요."
+    assert plain("UNKNOWN으로 남았어요.") == "보류로 남았어요."
+    assert plain("MET는 2명, RECOMMENDED는 1명이에요.") == "충족은 2명, AI 추천은 1명이에요."
+
+
+def test_repair_merges_one_key_tallies_and_drops_a_section_it_cannot_draw() -> None:
+    # 모델이 전형마다 key 하나짜리 비율 막대를 따로 두면 하나로 합친다
+    spec = good_spec()
+    singles = [
+        TallyBlock(title="서류 결정", caption="c", keys=["document.criterion.Q-01"], by="key"),
+        TallyBlock(title="면접 결정", caption="c", keys=["document.criterion.Q-05"], by="key"),
+    ]
+    spec.sections.insert(
+        1, Section(title="전형 흐름", takeaway="A-0012만 테스트 코드가 부분 충족이에요.", blocks=singles)
+    )
+    notes: list[str] = []
+
+    fixed = repair(spec, bundle(), group_by_code=False, notes=notes)
+
+    merged = [s for s in fixed.sections if s.title == "전형 흐름"][0].blocks
+    assert [block.keys for block in merged] == [["document.criterion.Q-01", "document.criterion.Q-05"]]  # type: ignore[union-attr]
+    assert "항목 하나짜리 그래프를 하나로 합침" in notes
+    # 영역 섹션이 아니고 모두 그릴 수 없으면 섹션째 뺀다
+    bad = DistributionBlock(title="결정 분포", caption="c", key="document.decision")
+    broken = good_spec()
+    broken.sections.insert(1, Section(title="결정 흐름", takeaway="결정이 갈렸어요.", blocks=[bad]))
+    assert "결정 흐름" not in [s.title for s in repair(broken, bundle(), group_by_code=False).sections]

@@ -114,7 +114,53 @@ def fallback_spec(bundle: ReportBundle) -> ReportSpec:
             )
         )
     splits = [code_split(bundle, key) for key in split_keys(bundle)][:MAX_SPLITS] if compare else []
-    return ReportSpec(title=bundle.title, summary=NO_SUMMARY, sections=sections, splits=splits)
+    spec = ReportSpec(title=bundle.title, summary=NO_SUMMARY, sections=sections, splits=splits)
+    return _final_facts(spec, bundle) if final else spec
+
+
+def final_consonant(word: str) -> int | None:
+    """끝 글자의 받침 번호(0이면 받침 없음, 8이면 ㄹ). 끝 글자가 한글이 아니면 None이다."""
+    last = word.strip()[-1:] or " "
+    return (ord(last) - ord("가")) % 28 if "가" <= last <= "힣" else None
+
+
+def _topic(word: str) -> str:
+    """은 · 는. 끝 글자에 받침이 있으면 '은'이다. 한글이 아니면 받침을 알 수 없어 '은(는)'이다."""
+    consonant = final_consonant(word)
+    return "은(는)" if consonant is None else "은" if consonant else "는"
+
+
+def _final_facts(spec: ReportSpec, bundle: ReportBundle) -> ReportSpec:
+    """최종 리포트 기본 구성의 요약 · 읽을 점을 지표에서 읽은 인원으로 쓴다. 숫자는 backend 지표 그대로다.
+    모델이 설계서를 만들지 못해도 '지원 몇 명 중 최종 합격 몇 명'은 보이게 한다."""
+    values = {metric.id: metric.value for metric in bundle.metrics}
+
+    def count(metric: str) -> str | None:
+        return f"{values[metric]:g}" if metric in values else None
+
+    stages: dict[str, str] = {}
+    for stage in bundle.stages:
+        prefix = stage_prefix(bundle.stages, stage)
+        if (target := count(f"m-{prefix}-target")) is not None and (passed := count(f"m-{prefix}-pass")) is not None:
+            stages[prefix] = f"{stage.name}{_topic(stage.name)} 대상 {target}명 중 {passed}명이 합격했어요."
+    applicants, finalists = count("m-applicants"), count("m-finalists")
+    flow = f"지원 {applicants}명 중 최종 합격은 {finalists}명이에요." if applicants and finalists else None
+    lines = [line for line in [flow, *stages.values()] if line]
+    if not lines:
+        return spec
+
+    def takeaway(section: Section) -> str:
+        if section.area in stages:
+            return stages[str(section.area)]
+        if section.title == "최종 합격자" and finalists:
+            return f"최종 합격자는 {finalists}명이에요."
+        if section.title == "전형 기록" and len(stages) > 1:
+            return " ".join(list(stages.values())[:2])
+        return flow or section.takeaway
+
+    sections = [section.model_copy(update={"takeaway": takeaway(section)}) for section in spec.sections]
+    summary = f"{' '.join(lines[:3])} 자동 요약을 만들지 못해 기록에서 읽은 인원만 적었어요."
+    return spec.model_copy(update={"summary": summary, "sections": sections})
 
 
 def code_split(bundle: ReportBundle, key: str) -> Split:
@@ -364,7 +410,9 @@ def _area_blocks(
     bundle: ReportBundle, area: Area, people: list[str], numeric: list[str], verdicts: list[str], current: list[Fact]
 ) -> list[Block]:
     compare = bundle.kind is ReportKind.COMPARE
-    items = [key for key in area.keys if key in verdicts][:MAX_MATRIX_KEYS]
+    # 비교 판정표는 칸마다 값이 있어야 하지만, 비율 막대는 서류를 못 읽은 지원자처럼 값이 빈 사람이 있어도 그린다
+    judged = {fact.key for fact in current if isinstance(fact.value, str)}
+    items = [key for key in area.keys if key in (verdicts if compare else judged)][:MAX_MATRIX_KEYS]
     blocks: list[Block] = []
     if compare and area.score_key in numeric:
         reference = [metric.id for metric in bundle.metrics if metric.key == area.score_key][:MAX_REFERENCE]

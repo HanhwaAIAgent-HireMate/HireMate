@@ -1,21 +1,25 @@
 """모델 설계서의 기계적인 규칙 위반을 코드가 고친다. 검사(check) 전에 한다.
 
 모델에게 다시 쓰게 하면 하나를 고치며 다른 곳을 깨기 쉽다. 그릴 값이 정해진 부분(값 key의 *, 영역 점수 표,
-관점 묶음, 항목 하나짜리 관점 수, 빈 칸이 있는 막대, 같은 자료를 다시 그린 부품, 섹션당 부품 수, 근거 부품에서 빠진
-비교 대상)은 코드가 고치고,
-문장 문제만 모델에게 돌려준다. 모델이 쓴 문장 · 근거는 바꾸지 않는다. 다만 마지막 시도에서도 읽을 점을 그림
+관점 묶음, 항목 하나짜리 관점 수, 빈 칸이 있는 막대, 그릴 자료가 맞지 않는 부품, 같은 자료를 다시 그린 부품,
+섹션당 부품 수, 근거 부품에서 빠진 비교 대상, 문장 속 판정 코드)은 코드가 고치고,
+문장 문제만 모델에게 돌려준다. 모델이 쓴 문장 · 근거는 판정 코드를 화면 말로 바꾸는 것 말고는 바꾸지 않는다.
+다만 마지막 시도에서도 읽을 점을 그림
 설명으로 쓰면, 기본 구성으로 떨어지지 않게 그 한 문장만 코드가 판정에서 읽은 사실로 바꾼다.
 """
 
 import logging
+import re
 
 from hiremate_ai.agents.generation.report.bundle import ReportBundle, ReportKind, Strength
 from hiremate_ai.agents.generation.report.check import (
     DATA_FIELDS,
     DESCRIBING,
+    MAX_KPI_METRICS,
     MAX_SECTION_BLOCKS,
     MAX_SECTIONS,
     MAX_SINGLE_VIEWS,
+    block_data_problems,
     rings_problems,
 )
 from hiremate_ai.agents.generation.report.derive import ring_percent, score_view, split_keys
@@ -24,6 +28,7 @@ from hiremate_ai.agents.generation.report.fallback import (
     MAX_VIEWS,
     code_split,
     evidence_block,
+    final_consonant,
     perspective_rings,
     score_rings,
 )
@@ -33,6 +38,7 @@ from hiremate_ai.agents.generation.report.spec import (
     Block,
     EvidenceBlock,
     EvidenceItem,
+    KpiBlock,
     RadarBlock,
     ReportSpec,
     RingsBlock,
@@ -40,6 +46,8 @@ from hiremate_ai.agents.generation.report.spec import (
     Section,
     Split,
     StackedBlock,
+    TallyBlock,
+    TextBlock,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,6 +77,11 @@ def repair(
 
     sections = step(spec.sections, _expand_wildcards(spec.sections, bundle), "값 key의 *를 항목으로 폄")
     sections = [section.model_copy(update={"blocks": _complete_rows(section.blocks, bundle)}) for section in sections]
+    sections = step(sections, _merged_singles(sections), "항목 하나짜리 그래프를 하나로 합침")
+    drawable = _without_undrawable(sections, bundle)
+    if dropped := sum(len(s.blocks) for s in sections) - sum(len(s.blocks) for s in drawable):
+        done.append(f"그릴 수 없는 그래프 {dropped}개를 뺌")
+    sections = drawable
     perspectives = spec.perspectives
     compare = bundle.kind is ReportKind.COMPARE and not bundle.brief
     if compare:
@@ -97,7 +110,145 @@ def repair(
             if added := added[: max(0, MAX_SPLITS - len(splits))]:
                 done.append(f"갈린 이유 {len(added)}건을 판정으로 채움")
                 splits = [*splits, *added]
-    return spec.model_copy(update={"sections": sections, "splits": splits, "perspectives": perspectives})
+    fixed = spec.model_copy(update={"sections": sections, "splits": splits, "perspectives": perspectives})
+    plain = _plain_codes(fixed)
+    if plain != fixed:
+        done.append("판정 코드를 화면 말로 바꿈")
+    return plain
+
+
+_CODE_WORDS = {
+    "NOT_RECOMMENDED": "추천 밖",
+    "RECOMMENDED": "AI 추천",
+    "NOT_CONFIRMED": "미확인",
+    "UNCONFIRMED": "미확인",
+    "CONFIRMED": "확인됨",
+    "CONFLICT": "상충",
+    "NOT_MET": "미충족",
+    "PARTIAL": "부분 충족",
+    "UNKNOWN": "보류",
+    "MET": "충족",
+    "PASS": "합격",
+    "FAIL": "불합격",
+}
+"""판정 코드와 화면 말 (frontend report/palette.ts의 STATUS · WORDS와 같은 말). 긴 코드부터 바꾼다."""
+_PARTICLES = {
+    "이에요": ("이에요", "예요"),
+    "예요": ("이에요", "예요"),
+    "으로": ("으로", "로"),
+    "은": ("은", "는"),
+    "는": ("은", "는"),
+    "이": ("이", "가"),
+    "가": ("이", "가"),
+    "을": ("을", "를"),
+    "를": ("을", "를"),
+    "과": ("과", "와"),
+    "와": ("과", "와"),
+    "로": ("으로", "로"),
+}
+"""코드 바로 뒤의 조사. 바꾼 말의 받침에 맞춰 (받침 있을 때, 없을 때) 중 하나로 고친다."""
+_CODE = re.compile(r"(?<![A-Za-z_])(" + "|".join(_CODE_WORDS) + r")(?![A-Za-z_])(" + "|".join(_PARTICLES) + r")?")
+
+
+def _plain(text: str) -> str:
+    def word(match: re.Match[str]) -> str:
+        plain, particle = _CODE_WORDS[match.group(1)], match.group(2)
+        if not particle:
+            return plain
+        consonant = final_consonant(plain)
+        with_final, without = _PARTICLES[particle]
+        # ㄹ 받침 뒤의 '으로'는 '로'다 (예: 보류로)
+        fits = with_final if consonant and not (particle in ("으로", "로") and consonant == 8) else without
+        return plain + fits
+
+    return _CODE.sub(word, text)
+
+
+def _plain_codes(spec: ReportSpec) -> ReportSpec:
+    """문장 속 판정 코드(PASS, MET …)를 화면 말로 바꾼다. 다시 쓰게 하면 다른 곳을 깨기 쉬워 코드가 바꾼다.
+    제목 · 요약 · 읽을 점 · 그림 설명 · 글 · 근거 · 갈린 이유만 바꾸고,
+    그릴 값을 가리키는 칸(key, 그룹 값)은 그대로 둔다."""
+
+    def block(item: Block) -> Block:
+        update: dict[str, object] = {"title": _plain(item.title)}
+        if isinstance(caption := getattr(item, "caption", None), str):
+            update["caption"] = _plain(caption)
+        if isinstance(item, TextBlock):
+            update["text"] = _plain(item.text)
+        if isinstance(item, EvidenceBlock):
+            update["items"] = [
+                line.model_copy(update={"text": _plain(line.text), "keywords": [_plain(k) for k in line.keywords]})
+                for line in item.items
+            ]
+        return item.model_copy(update=update)
+
+    sections = [
+        section.model_copy(
+            update={
+                "title": _plain(section.title),
+                "takeaway": _plain(section.takeaway),
+                "blocks": [block(item) for item in section.blocks],
+            }
+        )
+        for section in spec.sections
+    ]
+    splits = [split.model_copy(update={"text": _plain(split.text)}) for split in spec.splits]
+    return spec.model_copy(
+        update={"title": _plain(spec.title), "summary": _plain(spec.summary), "sections": sections, "splits": splits}
+    )
+
+
+def _without_undrawable(sections: list[Section], bundle: ReportBundle) -> list[Section]:
+    """그릴 자료가 맞지 않는 시각화 부품을 뺀다 (숫자가 아닌 값의 분포, key 하나짜리 비율 막대, 묶음이 섞인 도넛 등).
+    섹션에 부품이 하나뿐이면 빼지 않고 검사가 다시 쓰게 한다. 관점 · 영역 점수 표는 _compare_rings가 맡는다.
+    영역 섹션이 아닌데 부품을 모두 그릴 수 없으면 섹션째 뺀다 (영역 섹션은 검사가 빠졌다고 알리므로 둔다).
+    """
+    fixed = []
+    for section in sections:
+        kept = [
+            block
+            for block in section.blocks
+            if block.type not in VISUAL_TYPES or isinstance(block, RingsBlock) or not block_data_problems(block, bundle)
+        ]
+        if not kept and section.area is None and len(sections) > 1:
+            logger.info("그릴 수 있는 부품이 없는 섹션을 코드가 뺀다: %s", ", ".join(b.type for b in section.blocks))
+            continue
+        if not kept or len(kept) == len(section.blocks):
+            kept = section.blocks
+        elif dropped := [b.type for b in section.blocks if b not in kept]:
+            logger.info("그릴 수 없는 부품을 코드가 뺀다: %s", ", ".join(dropped))
+        fixed.append(section.model_copy(update={"blocks": kept}))
+    return fixed
+
+
+def _merged_singles(sections: list[Section]) -> list[Section]:
+    """한 섹션에서 key 하나짜리 비율 막대(같은 by)와 지표 하나짜리 kpi를 하나로 합친다.
+    모델이 전형마다 부품을 하나씩 두다 모두 '2개 이상'에 걸리는 일이 있다. 제목 · 설명은 첫 부품 것을 쓴다."""
+    fixed = []
+    for section in sections:
+        blocks: list[Block] = []
+        for block in section.blocks:
+            last = blocks[-1] if blocks else None
+            if (
+                isinstance(block, TallyBlock)
+                and isinstance(last, TallyBlock)
+                and last.by == block.by
+                and last.applicants == block.applicants
+                and (len(last.keys) < 2 or len(block.keys) < 2)
+            ):
+                blocks[-1] = last.model_copy(update={"keys": list(dict.fromkeys([*last.keys, *block.keys]))})
+            elif (
+                isinstance(block, KpiBlock)
+                and isinstance(last, KpiBlock)
+                and (len(last.metrics) < 2 or len(block.metrics) < 2)
+            ):
+                blocks[-1] = last.model_copy(
+                    update={"metrics": list(dict.fromkeys([*last.metrics, *block.metrics]))[:MAX_KPI_METRICS]}
+                )
+            else:
+                blocks.append(block)
+        fixed.append(section.model_copy(update={"blocks": blocks}))
+    return fixed
 
 
 def _known_keys(bundle: ReportBundle) -> list[str]:
