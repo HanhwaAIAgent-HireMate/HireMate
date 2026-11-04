@@ -66,6 +66,13 @@ export async function unwrap<T>(request: Promise<FetchResult<T>>): Promise<T> {
 }
 
 const MESSAGES: Record<string, string> = {
+  // AI 서버 오류는 '다시 시도'만으로 해결되지 않을 수 있어 계속될 때 할 일까지 알려 준다
+  AI_UNAVAILABLE:
+    'AI 응답을 받지 못했어요. 잠시 후 다시 시도해 주세요. 계속되면 관리자에게 AI 서버 상태 확인을 요청해 주세요.',
+  INTERNAL_ERROR: '서버에서 오류가 났어요. 잠시 후 다시 시도하고, 계속되면 관리자에게 알려 주세요.',
+  ALREADY_APPLIED: '이 이메일로 이미 지원했어요.',
+  POSTING_NOT_OPEN: '지금은 지원을 받지 않는 공고예요. 접수 기간을 확인해 주세요.',
+  INVALID_PERIOD: '접수 기간을 확인해 주세요. 마감은 시작보다 뒤여야 해요.',
   RECRUITMENT_LOCKED:
     '공고 게시 중이거나 전형 진행 중에는 수정하거나 삭제할 수 없어요. 목록을 새로고침해 주세요.',
   ANSWER_CONFLICT:
