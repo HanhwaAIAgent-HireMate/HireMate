@@ -46,6 +46,18 @@ public interface InterviewAgent {
         return InterviewFollowUps.none();
     }
 
+    /**
+     * Root 계획이 NCS 참고를 정한 Chat 요청의 질문. 질문마다 판정을 통과한 NCS 원문을 인용했는가(ncsCited)를 함께 돌려준다.
+     * 지원하지 않는 구현은 {@link #questions}로 만들고 인용하지 않은 것으로 돌려준다.
+     */
+    default List<CitedQuestionDraft> citedQuestions(ApplicantDetail applicant, PostingContent posting,
+            CandidateAnalysis analysis, InterviewView interview, CompanyProfile company, String focus,
+            Integer questionCount, NcsUse ncs) {
+        return questions(applicant, posting, analysis, interview, company, focus, questionCount).stream()
+                .map(draft -> new CitedQuestionDraft(draft.text(), draft.reason(), draft.interviewerRole(), false))
+                .toList();
+    }
+
     /** 앞 전형 결과를 확정할 때 질문을 미리 만든다. 매개변수는 {@link #questions}와 같고 범위(focus)는 없다. */
     Optional<List<InterviewQuestionDraft>> prepare(String target, ApplicantDetail applicant,
             PostingContent posting,

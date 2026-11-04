@@ -3,11 +3,13 @@ package com.hiremate.ai.infra;
 import com.hiremate.ai.application.AiAgent;
 import com.hiremate.ai.application.AiMode;
 import com.hiremate.ai.application.CandidateAnalysis;
+import com.hiremate.ai.application.CitedQuestionDraft;
 import com.hiremate.ai.application.InterviewAgent;
 import com.hiremate.ai.application.InterviewFollowUps;
 import com.hiremate.ai.application.InterviewFollowUpsRequest;
 import com.hiremate.ai.application.InterviewQuestionsRequest;
 import com.hiremate.ai.application.InterviewerMemo;
+import com.hiremate.ai.application.NcsUse;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.interview.InterviewQuestionDraft;
@@ -27,6 +29,9 @@ import org.springframework.stereotype.Component;
 @ConditionalOnAiMode(agent = AiAgent.INTERVIEW, mode = AiMode.REMOTE)
 class RemoteInterviewAgent implements InterviewAgent {
 
+    private static final ParameterizedTypeReference<List<CitedQuestionDraft>> CITED =
+            new ParameterizedTypeReference<>() {
+            };
     private static final ParameterizedTypeReference<List<InterviewQuestionDraft>> QUESTIONS =
             new ParameterizedTypeReference<>() {
             };
@@ -47,6 +52,16 @@ class RemoteInterviewAgent implements InterviewAgent {
         InterviewQuestionsRequest body = new InterviewQuestionsRequest(applicant, posting, analysis, interview, company,
                 focus, questionCount);
         return client.post(AiAgent.INTERVIEW, "questions", body, QUESTIONS);
+    }
+
+    /** NCS 참고 Chat 요청. 같은 경로에 ncs를 실어 부르고, 질문마다 붙은 ncsCited를 읽는다. */
+    @Override
+    public List<CitedQuestionDraft> citedQuestions(ApplicantDetail applicant, PostingContent posting,
+            CandidateAnalysis analysis, InterviewView interview, CompanyProfile company, String focus,
+            Integer questionCount, NcsUse ncs) {
+        InterviewQuestionsRequest body = new InterviewQuestionsRequest(applicant, posting, analysis, interview, company,
+                focus, questionCount, null, ncs);
+        return client.post(AiAgent.INTERVIEW, "questions", body, CITED);
     }
 
     @Override
