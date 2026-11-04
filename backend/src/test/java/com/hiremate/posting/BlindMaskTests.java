@@ -60,6 +60,9 @@ class BlindMaskTests {
                 .containsExactly("○○학교 컴퓨터공학과 2018.03 ~ 2022.02 졸업", "○○학교에서 데이터베이스를 공부했습니다.");
         assertThat(BlindMask.attendedSentences("Graduated from ○○학교 in 2020. Worked with ○○학교 on a payment app."))
                 .containsExactly("Graduated from ○○학교 in 2020.");
+        // 다른 사람의 출신 학교는 세지 않고, 본인의 출신 학교는 센다
+        assertThat(BlindMask.attendedSentences("○○학교 출신 동료와 코드 리뷰 규칙을 만들었습니다. ○○학교 출신으로 결제 개발을 시작했습니다."))
+                .containsExactly("○○학교 출신으로 결제 개발을 시작했습니다.");
     }
 
     @Test
