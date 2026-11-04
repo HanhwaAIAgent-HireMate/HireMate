@@ -60,7 +60,7 @@ describe('routes', () => {
     ['/hr', '채용'],
     ['/hr/settings', '설정'],
     ['/hr/recruitments/1/posting', '공고 편집'],
-    ['/hr/recruitments/1/posting/poster', '공고 작성'],
+    ['/hr/recruitments/1/posting/poster', '공고 디자인'],
     ['/hr/recruitments/1/posting/publish', '공고 게시'],
     ['/hr/recruitments/1/posting/status', '공고 · 지원 접수'],
     ['/hr/recruitments/1/stages/2', '공통 전형 화면'],
