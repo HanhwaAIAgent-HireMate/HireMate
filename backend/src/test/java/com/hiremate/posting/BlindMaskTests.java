@@ -62,6 +62,9 @@ class BlindMaskTests {
                 "○○학교에서 데이터베이스를 공부했습니다.", "○○학교 캡스톤 프로젝트에서 예약 서비스를 만들었습니다.");
         assertThat(BlindMask.attendedSentences("Graduated from ○○학교 in 2020. Worked with ○○학교 on a payment app."))
                 .containsExactly("Graduated from ○○학교 in 2020.");
+        // 학교에서 일한 경력의 "수강 신청 시스템"은 세지 않고, 학교에서 수강한 과목은 센다
+        assertThat(BlindMask.attendedSentences("○○학교 행정 부서와 수강 신청 시스템의 장애를 줄였습니다. ○○학교에서 네트워크를 수강했습니다."))
+                .containsExactly("○○학교에서 네트워크를 수강했습니다.");
         // 다른 사람의 출신 학교는 세지 않고, 본인의 출신 학교는 센다
         assertThat(BlindMask.attendedSentences("○○학교 출신 동료와 코드 리뷰 규칙을 만들었습니다. ○○학교 출신으로 결제 개발을 시작했습니다."))
                 .containsExactly("○○학교 출신으로 결제 개발을 시작했습니다.");
