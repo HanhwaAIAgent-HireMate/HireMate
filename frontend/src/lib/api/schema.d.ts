@@ -820,6 +820,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/poster/template-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["templateLayout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recruitments/{recruitmentId}/posting/poster/canva-import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["importCanva"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/posting/poster/ai-requests": {
         parameters: {
             query?: never;
@@ -1086,6 +1118,38 @@ export interface paths {
         get: operations["files"];
         put?: never;
         post: operations["uploadFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/canva/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["verify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/canva/authorization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["authorize"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1812,6 +1876,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/companies/me/canva": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["status_1"];
+        put?: never;
+        post?: never;
+        delete: operations["disconnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/canva/designs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["designs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/canva/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["callback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies/current/interviews/notices": {
         parameters: {
             query?: never;
@@ -1903,6 +2015,22 @@ export interface paths {
         put?: never;
         post?: never;
         delete: operations["deleteInterviewerQuestion"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/me/poster-brand/templates/{templateId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteTemplate"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2170,6 +2298,8 @@ export interface components {
                 [key: string]: "AUTO" | "FILE_TEXT" | "CLIPBOARD_CHECK" | "CODE" | "PRESENTATION" | "MESSAGES" | "USERS" | "VIDEO" | "BADGE_CHECK" | "CHAIR" | "HEALTH" | "NONE";
             };
             readableSections: number[];
+            canvasJson: string | null;
+            tagline: string | null;
         };
         PostingContent: {
             title: string;
@@ -2409,6 +2539,7 @@ export interface components {
             color: string;
             /** Format: int32 */
             decoration: number;
+            canvasJson: string | null;
         };
         NoticeTemplateRequest: {
             subject: string;
@@ -2616,6 +2747,78 @@ export interface components {
             /** Format: date-time */
             closeAt: string;
         };
+        TemplateLayoutRegion: {
+            id: string;
+            text: string;
+            /** Format: double */
+            left: number;
+            /** Format: double */
+            top: number;
+            /** Format: double */
+            width: number;
+            /** Format: double */
+            height: number;
+            kind: string;
+        };
+        TemplateLayoutRequest: {
+            regions: components["schemas"]["TemplateLayoutRegion"][];
+        };
+        LayoutSection: {
+            binding: string;
+            elements: number[];
+            /** Format: int32 */
+            heading: number;
+            /** Format: int32 */
+            body: number;
+        };
+        TemplateLayout: {
+            sections: components["schemas"]["LayoutSection"][];
+        };
+        CanvaImportRequest: {
+            designId: string;
+        };
+        CanvaBinding: {
+            elementId: string;
+            binding: string;
+        };
+        CanvaImport: {
+            template: components["schemas"]["CanvaTemplate"];
+            mapping: components["schemas"]["CanvaMapping"];
+        };
+        CanvaMapping: {
+            bindings: components["schemas"]["CanvaBinding"][];
+        };
+        CanvaRegion: {
+            id: string;
+            text: string;
+            /** Format: double */
+            left: number;
+            /** Format: double */
+            top: number;
+            /** Format: double */
+            width: number;
+            /** Format: double */
+            height: number;
+        };
+        CanvaTemplate: {
+            id: string;
+            name: string;
+            editUrl: string;
+            background: string;
+            /** Format: double */
+            width: number;
+            /** Format: double */
+            height: number;
+            regions: components["schemas"]["CanvaRegion"][];
+        };
+        FreeTemplate: {
+            id: string;
+            name: string;
+            sourceUrl: string;
+            license: string;
+            svg: string;
+            thumbnailUrl: string | null;
+        };
         PosterAiRequest: {
             message: string;
             design: components["schemas"]["PosterDesign"] | null;
@@ -2628,14 +2831,26 @@ export interface components {
             text: string;
             design: components["schemas"]["PosterDesign"] | null;
             recommendations: components["schemas"]["Recommendation"][];
+            templates: components["schemas"]["FreeTemplate"][];
         };
         Recommendation: {
             design: components["schemas"]["PosterDesign"];
             reason: string;
         };
+        CanvaDesign: {
+            id: string;
+            name: string;
+            editUrl: string;
+            thumbnailUrl: string;
+        };
         PosterProposal: {
             reply: string;
             recommendations: components["schemas"]["Recommendation"][];
+            templates: components["schemas"]["FreeTemplate"][];
+            selectedTemplateId: string | null;
+            canvaQuery: string | null;
+            canvaDesigns: components["schemas"]["CanvaDesign"][];
+            externalQuery: string | null;
         };
         PostingAiRequest: {
             message: string;
@@ -2720,6 +2935,7 @@ export interface components {
             name: string;
             template: string;
             color: string;
+            canvasJson: string | null;
         };
         InterviewerAccountRequest: {
             name: string;
@@ -2745,6 +2961,15 @@ export interface components {
             size: number;
             /** Format: date-time */
             uploadedAt: string;
+        };
+        CanvaStatus: {
+            configured: boolean;
+            connected: boolean;
+            redirectUri: string;
+            tools: string[];
+        };
+        Authorization: {
+            url: string;
         };
         SignupRequest: {
             companyName: string;
@@ -2882,31 +3107,31 @@ export interface components {
             steps: string[];
         };
         JsonNode: {
-            valueNode: boolean;
-            container: boolean;
-            missingNode: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            string: boolean;
-            integralNumber: boolean;
-            pojo: boolean;
-            floatingPointNumber: boolean;
-            short: boolean;
-            int: boolean;
-            long: boolean;
-            double: boolean;
-            bigDecimal: boolean;
-            bigInteger: boolean;
-            /** @deprecated */
-            textual: boolean;
-            boolean: boolean;
-            binary: boolean;
-            number: boolean;
             empty: boolean;
             array: boolean;
             null: boolean;
             object: boolean;
             float: boolean;
+            container: boolean;
+            missingNode: boolean;
+            double: boolean;
+            binary: boolean;
+            number: boolean;
+            string: boolean;
+            int: boolean;
+            long: boolean;
+            short: boolean;
+            boolean: boolean;
+            /** @deprecated */
+            textual: boolean;
+            pojo: boolean;
+            bigDecimal: boolean;
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            valueNode: boolean;
+            floatingPointNumber: boolean;
+            integralNumber: boolean;
+            bigInteger: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3332,9 +3557,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            headerName: string;
             token: string;
             parameterName: string;
+            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -4921,6 +5146,58 @@ export interface operations {
             };
         };
     };
+    templateLayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateLayout"];
+                };
+            };
+        };
+    };
+    importCanva: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CanvaImportRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CanvaImport"];
+                };
+            };
+        };
+    };
     design: {
         parameters: {
             query?: never;
@@ -5530,6 +5807,46 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CompanyFileInfo"];
+                };
+            };
+        };
+    };
+    verify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CanvaStatus"];
+                };
+            };
+        };
+    };
+    authorize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Authorization"];
                 };
             };
         };
@@ -6592,6 +6909,88 @@ export interface operations {
             };
         };
     };
+    status_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CanvaStatus"];
+                };
+            };
+        };
+    };
+    disconnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    designs: {
+        parameters: {
+            query?: {
+                query?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["CanvaDesign"][];
+                };
+            };
+        };
+    };
+    callback: {
+        parameters: {
+            query?: {
+                state?: string;
+                code?: string;
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     interviewNotices: {
         parameters: {
             query?: never;
@@ -6716,6 +7115,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["InterviewView"];
+                };
+            };
+        };
+    };
+    deleteTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PosterBrand"];
                 };
             };
         };

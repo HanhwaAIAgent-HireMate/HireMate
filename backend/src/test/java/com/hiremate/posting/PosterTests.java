@@ -24,6 +24,28 @@ import tools.jackson.databind.JsonNode;
 class PosterTests extends IntegrationTest {
 
     @Test
+    @DisplayName("외부 포스터 요소와 출처를 저장하고 게시 후에도 그대로 조회한다")
+    void externalCanvasSurvivesPublishing() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String base = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
+        String canvas = "{\"width\":600,\"height\":900,\"objects\":[],\"source\":{\"license\":\"CC0 1.0\"}}";
+        PosterDesign design = new PosterDesign(PosterDesign.Template.CLASSIC, PosterDesign.Mood.TRUST,
+                "#2459a6", 1, true, false, null, PosterDesign.BackgroundStyle.SOLID,
+                Map.of(), List.of(), canvas, "새로운 도전을 함께 시작합니다");
+        JsonNode saved = json(expect(hr.put(base + "/poster", design), 200));
+        assertThat(saved.path("poster").path("canvasJson").asString()).isEqualTo(canvas);
+        assertThat(saved.path("poster").path("tagline").asString()).isEqualTo(design.tagline());
+        expect(hr.post(base + "/publish", Map.of("openAt", Instant.now().minusSeconds(60).toString(),
+                "closeAt", Instant.now().plusSeconds(3600).toString())), 200);
+        JsonNode published = json(expect(anonymous().get("/api/public/postings/"
+                + draft.path("postingId").asString()), 200));
+        assertThat(published.path("poster").path("canvasJson").asString()).isEqualTo(canvas);
+        assertThat(published.path("poster").path("tagline").asString()).isEqualTo(design.tagline());
+        expect(hr.put(base + "/poster", design), 409);
+    }
+
+    @Test
     @DisplayName("포스터 아이콘은 전형을 바꾸지 않고 디자인에만 저장한다")
     void posterIconsDoNotChangeStages() throws Exception {
         TestApi hr = newHr();
@@ -75,10 +97,13 @@ class PosterTests extends IntegrationTest {
     @DisplayName("기업 템플릿을 추가하고 기본값 저장에도 보존하며 다른 기업과 공유하지 않는다")
     void companyTemplatesAreScopedAndPreserved() throws Exception {
         TestApi hr = newHr();
-        Map<String, Object> template = Map.of("name", "여름 채용", "template", "NATURAL", "color", "#167ca7");
+        String canvas = "{\"width\":600,\"height\":850,\"objects\":[]}";
+        Map<String, Object> template = Map.of("name", "여름 채용", "template", "NATURAL", "color", "#167ca7",
+                "canvasJson", canvas);
         JsonNode added = json(expect(hr.post("/api/companies/me/poster-brand/templates", template), 200));
         assertThat(added.path("templates").size()).isEqualTo(1);
         assertThat(added.path("templates").get(0).path("name").asString()).isEqualTo("여름 채용");
+        assertThat(added.path("templates").get(0).path("canvasJson").asString()).isEqualTo(canvas);
         expect(hr.post("/api/companies/me/poster-brand/templates", template), 409);
         expect(hr.put("/api/companies/me/poster-brand", Map.of("template", "CLASSIC", "mood", "TRUST",
                 "color", "#2459a6", "decoration", 1)), 200);
@@ -88,6 +113,45 @@ class PosterTests extends IntegrationTest {
                 .path("templates").size()).isZero();
         expect(hr.post("/api/companies/me/poster-brand/templates", Map.of("name", " ",
                 "template", "CLASSIC", "color", "#2459a6")), 400);
+    }
+
+    @Test
+    @DisplayName("Canva 연결은 HR만 보고 비밀값을 응답하지 않으며 승인 없는 callback은 거부한다")
+    void canvaConnectionIsPrivateAndRequiresConsent() throws Exception {
+        String path = "/api/companies/me/canva";
+        expect(anonymous().get(path), 401);
+        TestApi hr = newHr();
+        JsonNode state = json(expect(hr.get(path), 200));
+        assertThat(state.path("connected").asBoolean()).isFalse();
+        assertThat(state.path("tools").size()).isZero();
+        assertThat(state.has("clientSecret")).isFalse();
+        assertThat(state.has("accessToken")).isFalse();
+        expect(hr.post(path + "/verify", null), 409);
+        expect(hr.get(path + "/callback?state=forged&code=invalid"), 400);
+        expect(hr.delete(path), 204);
+    }
+
+    @Test
+    @DisplayName("추가한 템플릿만 현재 기업에서 삭제하고 기존 공고 디자인은 보존한다")
+    void deleteCustomTemplatePreservesPostingAndOtherCompanies() throws Exception {
+        TestApi hr = newHr();
+        String path = "/api/companies/me/poster-brand/templates";
+        JsonNode brand = json(expect(hr.post(path, Map.of("name", "삭제 테스트", "template", "NATURAL",
+                "color", "#167ca7")), 200));
+        String id = brand.path("templates").get(0).path("id").asString();
+        JsonNode posting = json(expect(hr.post("/api/recruitments", null), 201));
+        String postingPath = "/api/recruitments/" + posting.path("recruitmentId").asString() + "/posting";
+        PosterDesign design = new PosterDesign(PosterDesign.Template.NATURAL, PosterDesign.Mood.NATURAL,
+                "#167ca7", 1, true, false, null);
+        JsonNode saved = json(expect(hr.put(postingPath + "/poster", design), 200)).path("poster");
+        expect(anonymous().delete(path + "/" + id), 401);
+        expect(newHr().delete(path + "/" + id), 404);
+        expect(hr.delete(path + "/CLASSIC"), 400);
+        JsonNode remaining = json(expect(hr.delete(path + "/" + id), 200));
+        assertThat(remaining.path("templates").size()).isZero();
+        assertThat(remaining.path("template").asString()).isEqualTo(brand.path("template").asString());
+        assertThat(json(expect(hr.get(postingPath), 200)).path("poster")).isEqualTo(saved);
+        expect(hr.delete(path + "/" + id), 404);
     }
 
     @Test

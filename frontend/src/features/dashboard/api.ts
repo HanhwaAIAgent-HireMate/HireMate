@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap, type Schemas } from '@/lib/api/client'
+import type { PostingStep } from '@/features/posting/posting-progress'
 
 export type Dashboard = Schemas['DashboardView']
 export type RecruitmentCard = Schemas['RecruitmentCard']
@@ -38,11 +39,11 @@ export function useDashboard(status: StatusFilter, query: string) {
 }
 
 /** 채용 카드를 누르면 지금 진행 중인 단계로 간다. */
-export function currentPath(card: RecruitmentCard) {
+export function currentPath(card: RecruitmentCard, draftStep?: PostingStep) {
   const base = `/hr/recruitments/${card.recruitmentId}`
   switch (card.status) {
     case 'DRAFT':
-      return `${base}/posting`
+      return `${base}/posting${draftStep && draftStep !== 'content' ? `/${draftStep}` : ''}`
     case 'PUBLISHED':
       return `${base}/posting/status`
     case 'IN_PROGRESS':

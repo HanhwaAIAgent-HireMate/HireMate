@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDashboard, type StatusFilter } from '@/features/dashboard/api'
 import { RecruitmentCardItem } from '@/features/dashboard/RecruitmentCardItem'
+import { lastPostingStep } from '@/features/posting/posting-progress'
+import { useMe } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
 const TABS: {
@@ -26,6 +28,7 @@ export function DashboardPage() {
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const dashboard = useDashboard(status, debounced)
+  const me = useMe()
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 250)
@@ -88,7 +91,11 @@ export function DashboardPage() {
             </div>
           )}
           {dashboard.data?.items.map((card) => (
-            <RecruitmentCardItem key={card.recruitmentId} card={card} />
+            <RecruitmentCardItem
+              key={card.recruitmentId}
+              card={card}
+              resumeStep={lastPostingStep(me.data, card.recruitmentId)}
+            />
           ))}
         </div>
       </div>

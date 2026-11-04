@@ -13,6 +13,14 @@ from pydantic import Field
 
 from hiremate_ai.agents.generation.posting import design_poster
 from hiremate_ai.agents.generation.posting.poster import PosterContext, PosterProposal
+from hiremate_ai.agents.generation.posting.poster_canvas import (
+    CanvaMapping,
+    CanvaRegion,
+    LayoutRegion,
+    TemplateLayout,
+    map_canva,
+    plan_template_layout,
+)
 from hiremate_ai.agents.generation.posting.reviser import revise_posting
 from hiremate_ai.agents.generation.posting.types import (
     PostingDraftContext,
@@ -71,3 +79,21 @@ class DesignRequest(ContractModel):
 @router.post("/design")
 async def design(body: DesignRequest, llm: LlmDep) -> PosterProposal:
     return await design_poster(llm, body.context, body.request)
+
+
+class CanvaMapRequest(ContractModel):
+    regions: list[CanvaRegion] = Field(max_length=100)
+
+
+@router.post("/map-canva")
+async def map_template(body: CanvaMapRequest, llm: LlmDep) -> CanvaMapping:
+    return await map_canva(llm, body.regions)
+
+
+class TemplateLayoutRequest(ContractModel):
+    regions: list[LayoutRegion] = Field(min_length=2, max_length=150)
+
+
+@router.post("/template-layout")
+async def template_layout(body: TemplateLayoutRequest, llm: LlmDep) -> TemplateLayout:
+    return await plan_template_layout(llm, body.regions)

@@ -27,7 +27,11 @@ export function useAddPosterTemplate() {
   return useMutation({
     mutationFn: (body: Schemas['PosterTemplateRequest']) =>
       unwrap(api.POST('/api/companies/me/poster-brand/templates', { body })),
-    onSuccess: (brand: PosterBrand) => query.setQueryData(posterBrandKey, brand),
+    onSuccess: async (brand: PosterBrand) => {
+      await query.cancelQueries({ queryKey: posterBrandKey })
+      query.setQueryData(posterBrandKey, brand)
+      await query.invalidateQueries({ queryKey: posterBrandKey })
+    },
   })
 }
 
@@ -42,6 +46,19 @@ export function useSavePoster(recruitmentId: string) {
         }),
       ),
     onSuccess: (posting) => query.setQueryData(postingKeys.posting(recruitmentId), posting),
+  })
+}
+
+export function useDeletePosterTemplate() {
+  const query = useQueryClient()
+  return useMutation({
+    mutationFn: (templateId: string) =>
+      unwrap(
+        api.DELETE('/api/companies/me/poster-brand/templates/{templateId}', {
+          params: { path: { templateId } },
+        }),
+      ),
+    onSuccess: (brand: PosterBrand) => query.setQueryData(posterBrandKey, brand),
   })
 }
 

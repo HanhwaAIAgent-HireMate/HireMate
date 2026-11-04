@@ -67,14 +67,17 @@ export function PosterTemplateDialog({ brand }: { brand: PosterBrand }) {
     },
   }
   const submit = form.handleSubmit((body) =>
-    add.mutate(body, {
-      onSuccess: () => {
-        setOpen(false)
-        form.reset({ ...body, name: '' })
-        toast.success('회사 전용 템플릿을 추가했어요. 공고에서 선택할 수 있어요.')
+    add.mutate(
+      { ...body, canvasJson: null },
+      {
+        onSuccess: () => {
+          setOpen(false)
+          form.reset({ ...body, name: '' })
+          toast.success('회사 전용 템플릿을 추가했어요. 공고에서 선택할 수 있어요.')
+        },
+        onError: (error) => toast.error(errorMessage(error)),
       },
-      onError: (error) => toast.error(errorMessage(error)),
-    }),
+    ),
   )
   return (
     <Dialog open={open} onOpenChange={setOpen}>

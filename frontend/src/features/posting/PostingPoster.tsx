@@ -3,13 +3,17 @@ import { useState, type ReactNode } from 'react'
 
 import type { Posting } from '@/features/posting/api'
 import { conditionRows } from '@/features/posting/conditions'
-import { posterPalette, type PosterDesign } from '@/features/posting/poster-design'
+import { posterPalette, posterTagline, type PosterDesign } from '@/features/posting/poster-design'
+import type { PosterChanges } from './poster-preview'
 import { formatDateTime } from '@/lib/format'
 import type { StageIconName } from '@/features/recruit/StageIcon'
 import type { StageType } from '@/features/recruit/labels'
 import { StageProcess } from '@/features/recruit/StageProcess'
+import { CanvasPoster } from '@/features/posting/CanvasPoster'
+import { preparePosterLogo } from '@/features/posting/poster-canvas'
 
 import './posting-poster.css'
+import '@fontsource-variable/noto-sans-kr'
 
 export type PosterPosting = Pick<
   Posting,
@@ -24,6 +28,7 @@ export function PostingPoster({
   careersUrl,
   compact = false,
   sectionIds = false,
+  changes,
 }: {
   posting: PosterPosting
   design: PosterDesign
@@ -31,10 +36,16 @@ export function PostingPoster({
   careersUrl?: string
   compact?: boolean
   sectionIds?: boolean
+  changes?: PosterChanges
 }) {
   const content = posting.content
   const hasLogo = Boolean(design.showLogo && design.logoFileId && logoUrl)
-  const [logoMetrics, setLogoMetrics] = useState<{ source: string; wordmark: boolean } | null>(null)
+  const logoKey = `${logoUrl}:${design.color}`
+  const [logoMetrics, setLogoMetrics] = useState<{
+    source: string
+    wordmark: boolean
+    image: string
+  } | null>(null)
   const conditions = [
     { label: '고용 형태', value: content.employmentType },
     { label: '경력', value: content.career },
@@ -78,6 +89,7 @@ export function PostingPoster({
             icon: design.stageIcons?.[stage.name] ?? 'AUTO',
           }))}
           color={design.color}
+          highlightedNames={changes?.stages}
         />
       ),
     })
@@ -108,6 +120,16 @@ export function PostingPoster({
         </ul>
       ),
     })
+  if (design.canvasJson)
+    return (
+      <CanvasPoster
+        posting={posting}
+        design={design}
+        logoUrl={logoUrl}
+        sectionIds={sectionIds}
+        changes={changes}
+      />
+    )
   return (
     <article
       className={`posting-poster${compact ? 'poster-compact' : ''}`}
@@ -116,22 +138,39 @@ export function PostingPoster({
       data-decoration={design.decoration}
       data-background={design.backgroundStyle ?? 'SOLID'}
       data-has-logo={hasLogo}
-      data-wordmark={hasLogo && logoMetrics?.wordmark === true && logoMetrics.source === logoUrl}
+      data-wordmark={hasLogo && logoMetrics?.wordmark === true && logoMetrics.source === logoKey}
       style={posterPalette(design.color)}
       aria-label={`${posting.companyName} ${content.title} 채용 포스터`}
+      data-poster-highlight={changes?.all || undefined}
     >
       <header className="poster-hero">
         <div className="poster-brand">
           <span>
             {design.showLogo && design.logoFileId && logoUrl && (
               <img
-                src={logoUrl}
+                src={logoMetrics?.source === logoKey ? logoMetrics.image : logoUrl}
                 alt={`${posting.companyName} 로고`}
                 onLoad={(event) => {
                   const image = event.currentTarget
+                  if (image.src.startsWith('data:')) return
+                  const canvas = document.createElement('canvas')
+                  const ratio = Math.min(
+                    1,
+                    1600 / Math.max(image.naturalWidth, image.naturalHeight),
+                  )
+                  canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio))
+                  canvas.height = Math.max(1, Math.round(image.naturalHeight * ratio))
+                  canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height)
+                  let processed = logoUrl
+                  try {
+                    processed = preparePosterLogo(canvas, design.color).toDataURL('image/png')
+                  } catch {
+                    /* 원본을 표시한다. */
+                  }
                   setLogoMetrics({
-                    source: logoUrl,
+                    source: logoKey,
                     wordmark: image.naturalWidth / Math.max(1, image.naturalHeight) > 2.2,
+                    image: processed,
                   })
                 }}
               />
@@ -146,7 +185,12 @@ export function PostingPoster({
           <span />
           <span />
         </div>
-        <small className="poster-eyebrow">함께할 동료를 찾습니다</small>
+        <small
+          className="poster-eyebrow"
+          data-poster-highlight={changes?.bindings.includes('tagline') || undefined}
+        >
+          {posterTagline(posting, design)}
+        </small>
         <h2>{content.title || '채용 공고'}</h2>
         <div className="poster-tags">
           {[content.jobCategory, content.employmentType, content.career]
@@ -180,6 +224,7 @@ export function PostingPoster({
               className={`poster-block poster-block-${block.kind}`}
               key={block.kind}
               data-readable={design.readableSections?.includes(index + 1) ?? false}
+              data-poster-highlight={changes?.bindings.includes(block.kind) || undefined}
             >
               <div className="poster-section-title">
                 <span className="poster-number">{String(index + 1).padStart(2, '0')}</span>

@@ -1,4 +1,5 @@
 import { ChevronRight, ExternalLink, Settings } from 'lucide-react'
+import { useEffect } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router'
 
 import { useHeaderStore } from '@/app/header-store'
@@ -8,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCompanyProfile } from '@/features/company/api'
 import { InterviewNoticesBell } from '@/features/interview/InterviewNoticesBell'
+import { rememberPostingStep } from '@/features/posting/posting-progress'
 import { useMe, type Member } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
@@ -15,6 +17,9 @@ import { cn } from '@/lib/utils'
 export function HrLayout() {
   const me = useMe()
   const location = useLocation()
+  useEffect(() => {
+    if (me.data?.role === 'HR') rememberPostingStep(me.data, location.pathname)
+  }, [me.data, location.pathname])
 
   if (me.isPending) {
     return (

@@ -122,7 +122,8 @@ public class CompanyService {
 
     /** 현재 기업 안에만 새 템플릿을 추가한다. 공고에는 디자인 값을 복사하므로 기존 공고를 바꾸지 않는다. */
     @Transactional
-    public PosterBrand addPosterTemplate(UUID companyId, String name, String template, String color) {
+    public PosterBrand addPosterTemplate(UUID companyId, String name, String template, String color,
+            String canvasJson) {
         PosterBrand brand = posterBrand(companyId);
         String title = name.strip();
         if (brand.templates().size() >= 12 || brand.templates().stream()
@@ -138,9 +139,22 @@ public class CompanyService {
             default -> "TRUST";
         };
         List<PosterTemplate> templates = new ArrayList<>(brand.templates());
-        templates.add(new PosterTemplate(UUID.randomUUID(), title, template, mood, color, 1));
+        templates.add(new PosterTemplate(UUID.randomUUID(), title, template, mood, color, 1, canvasJson));
         return updatePosterBrand(companyId, new PosterBrand(brand.template(), brand.mood(), brand.color(),
                 brand.decoration(), brand.logoFileId(), templates));
+    }
+
+    /** 추가한 템플릿만 지운다. 공고에 복사된 디자인과 기본 제공 양식은 바꾸지 않는다. */
+    @Transactional
+    public PosterBrand deletePosterTemplate(UUID companyId, UUID templateId) {
+        PosterBrand brand = posterBrand(companyId);
+        List<PosterTemplate> remaining = brand.templates().stream()
+                .filter(item -> !item.id().equals(templateId)).toList();
+        if (remaining.size() == brand.templates().size()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "POSTER_TEMPLATE_NOT_FOUND", "추가한 템플릿을 찾을 수 없어요.");
+        }
+        return updatePosterBrand(companyId, new PosterBrand(brand.template(), brand.mood(), brand.color(),
+                brand.decoration(), brand.logoFileId(), remaining));
     }
 
     /** 네 가지 유형을 모두 돌려준다. 등록하지 않은 유형은 기본 양식이다. */

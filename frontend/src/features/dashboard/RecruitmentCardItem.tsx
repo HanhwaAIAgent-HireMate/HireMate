@@ -1,4 +1,4 @@
-import { Check, ChevronRight, X } from 'lucide-react'
+import { Check, ChevronRight, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { currentPath, useDeleteRecruitment, type RecruitmentCard } from '@/features/dashboard/api'
+import type { PostingStep } from '@/features/posting/posting-progress'
 import { RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import { errorMessage } from '@/lib/api/client'
 import { formatMonthDay } from '@/lib/format'
@@ -28,7 +29,13 @@ const BADGE: Record<RecruitmentCard['status'], string> = {
 }
 
 // DSH-01 채용 카드. 공고에서 정한 전형과 현재 단계를 보여 주고, 끝난 전형은 회색이다
-export function RecruitmentCardItem({ card }: { card: RecruitmentCard }) {
+export function RecruitmentCardItem({
+  card,
+  resumeStep,
+}: {
+  card: RecruitmentCard
+  resumeStep?: PostingStep
+}) {
   const [confirming, setConfirming] = useState(false)
   const deletion = useDeleteRecruitment(card.recruitmentId)
   const draft = card.status === 'DRAFT'
@@ -67,7 +74,7 @@ export function RecruitmentCardItem({ card }: { card: RecruitmentCard }) {
   return (
     <div className="relative">
       <Link
-        to={currentPath(card)}
+        to={currentPath(card, resumeStep)}
         className="flex items-center gap-4 rounded-xl border px-5 py-4 transition-colors hover:border-foreground/20 hover:bg-muted/30"
       >
         <div className="min-w-0 flex-1 space-y-3">
@@ -114,14 +121,16 @@ export function RecruitmentCardItem({ card }: { card: RecruitmentCard }) {
           }}
         >
           <AlertDialogTrigger asChild>
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="icon-sm"
               aria-label={`${card.title} ${deleteLabel}`}
               title={deleteLabel}
-              className="absolute top-1 right-1 z-10 flex size-6 translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black text-white ring-2 ring-background transition-colors hover:bg-black/75 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="absolute top-0 right-0 z-10 translate-x-1/3 -translate-y-1/3 rounded-full bg-background shadow-sm"
             >
-              <X className="size-3.5" strokeWidth={2.5} aria-hidden="true" />
-            </button>
+              <Trash2 aria-hidden="true" />
+            </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
