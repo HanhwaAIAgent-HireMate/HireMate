@@ -56,8 +56,16 @@ from pydantic import BaseModel, Field
 from hiremate_ai.agents.analysis.application.present import notable_facts
 from hiremate_ai.agents.analysis.application.types import VERDICT_LABEL, Actor, ApplicationReview, CriterionResult
 from hiremate_ai.agents.analysis.interview.agent import CONFIRMED, NO_ANSWER, analyze_answers
+from hiremate_ai.agents.generation.interview.ncs import (
+    NCS_RULES,
+    check_cited,
+    interview_sources,
+    ncs_block,
+    ncs_reason,
+    tasks_of,
+)
 from hiremate_ai.agents.generation.interview.quality import checked_role, clarity_problem
-from hiremate_ai.agents.generation.interview.types import InterviewQuestionDraft
+from hiremate_ai.agents.generation.interview.types import CitedQuestionDraft, InterviewQuestionDraft
 from hiremate_ai.agents.guardrails import blocked_attribute, education_term, evidence_source
 from hiremate_ai.contract import (
     ApplicantDetail,
@@ -70,6 +78,7 @@ from hiremate_ai.contract import (
     InterviewerMemo,
     InterviewerRole,
     InterviewView,
+    NcsUse,
     PostingContent,
     Verdict,
 )
@@ -78,6 +87,7 @@ from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 if TYPE_CHECKING:
     from hiremate_ai.llm.client import LlmClient
+    from hiremate_ai.ncs_search.reference import NcsReference
 
 logger = logging.getLogger(__name__)
 
@@ -437,6 +447,8 @@ class Gap:
     important: bool = False
     # 기본 질문 · 근거 표시에 쓰는 주제. 평가 항목이면 공고 문장을 다듬은 말이다 (판정 문장을 그대로 넣지 않으려고)
     title: str = ""
+    # Chat 요청에서 NCS를 참고하는 개념 빈틈이면 인용할 수 있는 원문 번호 (N1 등). 그 밖의 빈틈은 비어 있다
+    ncs: list[str] = field(default_factory=list)
 
     @property
     def priority(self) -> int:
@@ -490,6 +502,8 @@ class State(TypedDict, total=False):
     result: list[str]
     reasons: dict[str, str]
     roles: dict[str, InterviewerRole]  # 🎤 질문 문장 → 담당 면접관
+    ncs: Any  # NcsSources: Chat 요청에서 NCS를 참고하기로 했고 찾은 문장. 없으면 이 키가 없다
+    ncs_cited: dict[str, str]  # 판정을 통과한 NCS 인용: gap_id → 원문 번호
 
 
 _SPACES = re.compile(r"[\s\"'“”‘’.,!?·]+")
@@ -799,6 +813,9 @@ def find_gaps(state: State) -> dict[str, Any]:
     if "확인 안" in focus or "아직" in focus:
         candidates = [gap for gap in candidates if gap.kind in (FOLLOW_UP, REQUIRED, REQUIRED_PARTIAL, CHECK, CLAIM)]
     candidates.sort(key=lambda gap: gap.priority)  # 같은 순위는 만든 순서 유지
+    if state.get("ncs") is not None:
+        # HR이 직무 지식 · NCS 참고 질문을 요청했으므로 NCS 개념 빈틈을 앞자리에 둔다 (남은 자리는 기존 빈틈)
+        candidates = _ncs_gaps(state) + candidates
     gap_limit = _additional_count(state) if state.get("additional") else CODE_SLOTS
     gaps = []
     spare: list[Gap] = []
@@ -1570,6 +1587,8 @@ async def write(state: State) -> dict[str, Any]:
             lines.append(data_block("confirmed", " / ".join(_display_topic(part) for part in gap.confirmed)))
         for evidence in gap.evidence:
             lines.append("  " + data_block("evidence", evidence))
+        if gap.ncs:
+            lines.append("  " + ncs_block(state["ncs"], gap.ncs))
     numbered = "\n".join(f"{sid} {text}" for sid, text in state["sentences"].items())
     final = bool(state.get("final"))
     # 최초 1차는 미리 배분한 자리만 쓴다. 추가 요청과 최종면접의 기존 free_pick 경로는 유지한다.
@@ -1667,10 +1686,70 @@ async def write(state: State) -> dict[str, Any]:
             "fix_errors: " + (" / ".join(state["errors"]) or "-"),
         ]
     )
+    if any(gap.ncs for gap in gaps):
+        user += "\n" + NCS_RULES
     draft = await state["llm"].structured(
         QuestionDraft, agent=AGENT_KEY, system=BALANCED_SYSTEM if state.get("balanced") else SYSTEM, user=user
     )
-    return _validate(state, draft, avoid, want_pick, slots)
+    result = _validate(state, draft, avoid, want_pick, slots)
+    if state.get("ncs") is not None:
+        result = await _check_ncs(state, result)
+    return result
+
+
+def _ncs_gaps(state: State) -> list[Gap]:
+    """찾은 NCS 묶음마다 개념 빈틈 하나 (검색 순서, 요청한 질문 수까지)."""
+    return [
+        Gap("", CONCEPT, task.task_name, "NCS 직무 업무의 원리 · 판단 확인", mode=CONCEPT, ncs=numbers)
+        for task, numbers in tasks_of(state["ncs"])[: _additional_count(state)]
+    ]
+
+
+# 질문 문장에 남은 NCS 원문 번호 (N1 등). 'N+1 쿼리'처럼 숫자가 바로 붙지 않은 말은 잡지 않는다
+_NCS_ID = re.compile(r"(?<![A-Za-z0-9])N\d+(?!\d)")
+
+
+def _ncs_number(value: str) -> str:
+    return value.strip().strip("[]").strip().upper()
+
+
+def _ncs_problem(gap: Gap, item: _DraftQuestion) -> str | None:
+    """NCS 개념 빈틈의 질문만 더 본다: 질문에 번호가 남지 않았는지, 그 빈틈의 원문 번호를 인용했는지."""
+    if _NCS_ID.search(item.question):
+        return "질문에 NCS 번호를 쓰지 않는다"
+    if _ncs_number(item.source_id) not in gap.ncs:
+        return f"NCS 번호는 {', '.join(gap.ncs)} 중 하나를 source_id에 적어야 함"
+    return None
+
+
+async def _check_ncs(state: State, result: dict[str, Any]) -> dict[str, Any]:
+    """이번에 통과한 NCS 질문을 모델 한 번으로 판정한다.
+
+    받쳐 주면 인용을 남기고, 무관하거나 판정이 빠지면 질문만 두고 인용은 뺀다. 지원자가 그 일을 했다고 전제했으면
+    질문을 빼고 다시 쓰게 한다. 판정에 실패하면 이번 인용을 모두 뺀다.
+    """
+    new: dict[str, str] = result.pop("ncs_new", {})
+    cited = dict(state.get("ncs_cited", {}))
+    if not new:
+        return {**result, "ncs_cited": cited}
+    ids = list(new)
+    sources = state["ncs"]
+    verdicts = await check_cited(state["llm"], [(result["kept"][key], sources.items[new[key]][1]) for key in ids])
+    if verdicts is None:
+        return {**result, "ncs_cited": cited}
+    by_index = {verdict.index: verdict for verdict in verdicts}
+    kept, purposes, errors = dict(result["kept"]), dict(result["purposes"]), list(result["errors"])
+    for index, key in enumerate(ids):
+        verdict = by_index.get(index)
+        if verdict is None:
+            continue
+        if verdict.assumes_experience:
+            kept.pop(key, None)
+            purposes.pop(key, None)
+            errors.append(f"{key}: 지원자가 그 일을 했다고 전제하지 않고 원리 · 판단을 묻는다")
+        elif verdict.verdict == "supports":
+            cited[key] = new[key]
+    return {**result, "kept": kept, "purposes": purposes, "errors": errors, "ncs_cited": cited}
 
 
 def _reasoning_sources(state: State) -> dict[str, str]:
@@ -2665,6 +2744,7 @@ def _validate(
     reasoning_targets = dict(state.get("reasoning_targets", {}))
     replan_candidates = dict(state.get("replan_candidates", {}))
     errors: list[str] = []
+    ncs_new: dict[str, str] = {}
     kinds = {gap.gap_id: gap.kind for gap in state["gaps"]}
     open_ids = {gap.gap_id for gap in state["gaps"] if gap.gap_id not in kept and gap.gap_id not in redundant}
     # 경험·확인 질문을 먼저 보존한다. 모델의 응답 순서 때문에 경험 자리가 추론 질문에 밀리지 않게 한다.
@@ -2677,6 +2757,9 @@ def _validate(
             errors.append(f"없는 gap_id 또는 중복 '{item.gap_id}'")
             continue
         gap = next(gap for gap in state["gaps"] if gap.gap_id == gap_id)
+        if gap.ncs and (ncs_problem := _ncs_problem(gap, item)) is not None:
+            errors.append(f"{gap_id}: {ncs_problem}")
+            continue
         reasoning = state.get("balanced") and gap.mode in (CONCEPT, SCENARIO) and not gap.criterion_id
         if state.get("balanced") and gap.mode in (CONCEPT, SCENARIO):
             item = _prepare_reasoning(item, gap.mode)
@@ -2714,6 +2797,9 @@ def _validate(
             if gap.kind in QUOTED_KINDS
             else None
         )
+        if gap.ncs:
+            # NCS 개념 빈틈은 인용한 원문 문장과 이어지는지 본다 (빈틈 주제는 '…하기' 같은 업무 이름뿐이다)
+            evidence = [state["ncs"].items[_ncs_number(item.source_id)][1]]
         if reasoning and any(_similar(item.question, text) for text in state["existing"] + list(kept.values())):
             replan_candidates[gap_id] = item
             reasoning_targets.pop(gap_id, None)
@@ -2778,6 +2864,8 @@ def _validate(
             errors.append(f"{gap_id}: {purpose_problem}")
             continue
         kept[gap_id] = text
+        if gap.ncs:
+            ncs_new[gap_id] = _ncs_number(item.source_id)
         replan_candidates.pop(gap_id, None)
         purposes[gap_id] = (item.purpose or text).strip() if state.get("final") else item.purpose.strip()
         open_ids.discard(gap_id)
@@ -2858,6 +2946,7 @@ def _validate(
         "slot_kept": slot_kept,
         "slot_purposes": slot_purposes,
         "slot_sids": slot_sids,
+        **({"ncs_new": ncs_new} if ncs_new else {}),
     }
 
 
@@ -3057,6 +3146,10 @@ def _gap_reason(state: State, gap: Gap, text: str) -> str:
         lines.append(reason or f"출처: 공고의 직무·평가 기준\n기준 문구: {target.anchor}")
     if gap.criterion_id:
         lines.append(f"질문 기준: {gap.title or gap.topic}")
+    number = state.get("ncs_cited", {}).get(gap.gap_id) if generated else None
+    if number is not None:
+        task, sentence = state["ncs"].items[number]
+        lines.append(ncs_reason(task, sentence))
     return "\n".join(dict.fromkeys(lines))
 
 
@@ -3620,6 +3713,8 @@ async def generate_questions(
     question_count: int | None = None,
     drafts: list[InterviewQuestionDraft] | None = None,
     memo: InterviewerMemo | None = None,
+    ncs: NcsUse = "SKIP",
+    ncs_reference: NcsReference | None = None,
 ) -> list[str]:
     """맞춤 면접 질문을 만든다 (1차 최초: 자기소개 + 3개, 최종면접: 자기소개 + 자리 5개).
 
@@ -3649,10 +3744,26 @@ async def generate_questions(
         "question_count": question_count,
         "company": company,
     }
+    if question_count is not None and ncs != "SKIP" and ncs_reference is not None:
+        # Root 계획이 NCS를 참고하기로 정한 Chat 요청만. 찾지 못하면 키를 두지 않아 지금처럼 만든다
+        sources = await interview_sources(llm, ncs_reference, safe_focus or " / ".join(posting.duties), posting)
+        if sources is not None:
+            state["ncs"] = sources
     out = cast(State, await interview_graph.ainvoke(state))
     if out.get("single"):
         out.update(await _complete_single(out))
-    if drafts is not None:
+    if drafts is not None and "ncs" in state:
+        cited = {out["kept"][key] for key in out.get("ncs_cited", {}) if key in out["kept"]}
+        drafts.extend(
+            CitedQuestionDraft(
+                text=text,
+                reason=out["reasons"].get(text),
+                interviewer_role=out["roles"].get(text),
+                ncs_cited=text in cited,
+            )
+            for text in out["result"]
+        )
+    elif drafts is not None:
         drafts.extend(
             InterviewQuestionDraft(text=text, reason=out["reasons"].get(text), interviewer_role=out["roles"].get(text))
             for text in out["result"]
