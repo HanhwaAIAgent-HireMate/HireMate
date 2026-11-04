@@ -9,6 +9,7 @@ import com.hiremate.apply.CriterionMark;
 import com.hiremate.company.CompanyService;
 import com.hiremate.company.Talent;
 import com.hiremate.global.ApiException;
+import com.hiremate.posting.BlindMask;
 import com.hiremate.posting.PostingService;
 import com.hiremate.posting.ScreeningRubric;
 import com.hiremate.recruit.RecruitService;
@@ -318,7 +319,18 @@ public class ScreeningService {
         return new CandidateDetail(toRow(context.type(), candidate, applicant.info(), recommended, null, lines),
                 applicant.info().email(),
                 applicant.phone(), applicant.info().submittedAt(), applicant.certificates(), applicant.documents(),
-                candidate.getMemo());
+                candidate.getMemo(), schoolMentions(companyId, context.recruitmentId(), applicant));
+    }
+
+    /** 블라인드 채용인데 서류에 출신 학교를 쓴 문장. 서류 본문은 저장할 때 학교 이름을 가려 두었다. */
+    private List<String> schoolMentions(UUID companyId, UUID recruitmentId, ApplicantDetail applicant) {
+        if (!postings.view(companyId, recruitmentId).content().blind()) {
+            return List.of();
+        }
+        return applicant.documents().stream()
+                .flatMap(document -> BlindMask.attendedSentences(document.text()).stream())
+                .distinct()
+                .toList();
     }
 
     @Transactional
