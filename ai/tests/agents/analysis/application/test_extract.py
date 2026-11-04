@@ -118,6 +118,53 @@ def test_merge_drops_education_facts_only_for_blind_hiring() -> None:
     assert [period.company for period in periods] == ["한빛대학교"]
 
 
+MASKED_TEXT = (
+    "학력\n○○학교 컴퓨터공학과 2016.03 ~ 2020.02 졸업, 학점 ○○\n"
+    "학업 경험\n○○학교에서 자료구조와 데이터베이스를 깊이 공부했습니다.\n"
+    "석사 학위를 받았습니다."
+)
+MASKED_DOCUMENT = ApplicantDocument(
+    type=DocumentType.RESUME, file_id=uuid4(), file_name="이력서.pdf", size=1, text=MASKED_TEXT
+)
+MASKED_FACTS = ExtractedFacts(
+    facts=[
+        ExtractedFact(
+            kind="EDUCATION", statement="컴퓨터공학을 전공했다", actor="SELF", evidence=["○○학교 컴퓨터공학과"]
+        ),
+        ExtractedFact(
+            kind="EDUCATION",
+            statement="자료구조와 데이터베이스를 공부했다",
+            actor="SELF",
+            evidence=["○○학교에서 자료구조와 데이터베이스를 깊이 공부했습니다."],
+        ),
+        ExtractedFact(
+            kind="EDUCATION", statement="석사 학위를 받았다", actor="SELF", evidence=["석사 학위를 받았습니다."]
+        ),
+        ExtractedFact(
+            kind="ACHIEVEMENT", statement="학점이 높다", actor="SELF", evidence=["2016.03 ~ 2020.02 졸업, 학점 ○○"]
+        ),
+    ],
+    periods=[
+        ExtractedPeriod(
+            company="○○학교",
+            kind="EDUCATION",
+            start="2016-03",
+            end="2020-02",
+            evidence=["○○학교 컴퓨터공학과 2016.03 ~ 2020.02 졸업"],
+        )
+    ],
+)
+
+
+def test_blind_merge_keeps_what_was_studied_and_drops_degree_and_grades() -> None:
+    """학교 이름 · 학점을 가려 저장한 블라인드 서류에서, 전공과 공부한 과목은 직무 역량이라 남긴다.
+    학위 · 학점처럼 학력 수준이 드러나는 사실과, 다닌 햇수가 드러나는 학력 기간은 뺀다."""
+    facts, periods = merge([MASKED_DOCUMENT], [MASKED_FACTS], TODAY, blind=True)
+
+    assert [fact.statement for fact in facts] == ["컴퓨터공학을 전공했다", "자료구조와 데이터베이스를 공부했다"]
+    assert periods == []
+
+
 LETTER_TEXT = (
     "학업 경험\n학점 4.1/4.5로 졸업했습니다.\n협업 경험\n팀과 정산 배치 구조를 바꿨습니다. 학점 관리도 꾸준히 했습니다."
 )
