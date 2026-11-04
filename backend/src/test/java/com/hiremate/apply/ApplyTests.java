@@ -12,6 +12,7 @@ import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures.Posting;
 import com.hiremate.TestMailConfiguration;
+import com.hiremate.posting.DocumentType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -54,6 +55,9 @@ class ApplyTests extends IntegrationTest {
         String download = hr.getBytes("/api/recruitments/" + recruitmentId + "/applications/" + info.applicationId()
                 + "/documents/RESUME").headers().firstValue("Content-Disposition").orElseThrow();
         assertThat(download).doesNotContain("resume.pdf");
+        // 원본에 이름만 있으면 열기 전에 묻지 않고 이름이 보인다고만 안내한다
+        assertThat(applications.originalWarnings(hr.companyId(), info.applicationId()))
+                .containsExactly(new OriginalWarning(DocumentType.RESUME, List.of(), true));
         // 저장한 본문은 가리기 전 글이라, 실제 이름 · 이메일로 찾으면 찾지 못한다
         assertThat(applications.searchDocuments(hr.companyId(), recruitmentId, "Java")).hasSize(1);
         assertThat(applications.searchDocuments(hr.companyId(), recruitmentId, "Yuna")).isEmpty();

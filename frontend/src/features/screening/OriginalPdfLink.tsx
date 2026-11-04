@@ -13,22 +13,35 @@ import {
 } from '@/components/ui/alert-dialog'
 
 /**
- * 원본 PDF 열기. 블라인드 채용에서 원본에 가린 정보(출신 학교 · 학점)가 그대로 있으면 열기 전에 알린다.
- * 원본을 확인해야 할 때가 있어 막지는 않는다. 가린 정보가 없으면 바로 연다
+ * 원본 PDF 열기. 블라인드 채용에서 원본에 가린 정보(출신 학교 · 학점)가 그대로 있으면 열기 전에 묻는다.
+ * 이력서에 쓰는 게 자연스러운 이름은 묻지 않고 옆에 안내만 한다. 원본을 확인해야 할 때가 있어 막지는 않는다
  */
-export function OriginalPdfLink({ href, hidden }: { href: string; hidden: string[] }) {
+export function OriginalPdfLink({
+  href,
+  hidden,
+  showsName = false,
+}: {
+  href: string
+  hidden: string[]
+  showsName?: boolean
+}) {
   const [confirming, setConfirming] = useState(false)
   const className = 'inline-flex items-center gap-1 hover:text-foreground'
+  const note = showsName && <span className="mr-2">원본에는 이름이 보여요</span>
   if (hidden.length === 0) {
     return (
-      <a href={href} target="_blank" rel="noreferrer" className={className}>
-        <ExternalLink className="size-3" />
-        원본 PDF
-      </a>
+      <span className="inline-flex items-center">
+        {note}
+        <a href={href} target="_blank" rel="noreferrer" className={className}>
+          <ExternalLink className="size-3" />
+          원본 PDF
+        </a>
+      </span>
     )
   }
   return (
-    <>
+    <span className="inline-flex items-center">
+      {note}
       <button type="button" onClick={() => setConfirming(true)} className={className}>
         <ExternalLink className="size-3" />
         원본 PDF
@@ -55,7 +68,7 @@ export function OriginalPdfLink({ href, hidden }: { href: string; hidden: string
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </span>
   )
 }
 

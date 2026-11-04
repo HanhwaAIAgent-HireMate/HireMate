@@ -21,6 +21,12 @@ describe('원본 PDF 열기', () => {
     expect(open).toHaveBeenCalledWith('/doc', '_blank', 'noreferrer')
   })
 
+  it('원본에 이름이 있으면 묻지 않고 안내만 한다', () => {
+    render(<OriginalPdfLink href="/doc" hidden={[]} showsName />)
+    expect(screen.getByText('원본에는 이름이 보여요')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '원본 PDF' })).toHaveAttribute('href', '/doc')
+  })
+
   it('조사를 마지막 낱말에 맞춘다', () => {
     render(<OriginalPdfLink href="/doc" hidden={['출신 학교']} />)
     fireEvent.click(screen.getByRole('button', { name: '원본 PDF' }))
