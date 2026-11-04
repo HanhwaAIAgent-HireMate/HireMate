@@ -99,7 +99,7 @@ describe('접수 기간', () => {
     fireEvent.change(screen.getByLabelText('접수 시작'), { target: { value: '2026-11-01T09:00' } })
     fireEvent.change(screen.getByLabelText('접수 마감'), { target: { value: '2026-11-03T18:00' } })
     expect(screen.getByRole('button', { name: '글 공고 게시' })).toBeDisabled()
-    expect(screen.getByText('접수 마감은 시작보다 늦고, 지금보다 뒤여야 해요.')).toBeInTheDocument()
+    expect(screen.getByText('접수 마감은 지금보다 뒤여야 해요.')).toBeInTheDocument()
   })
 
   it('이미 지난 시작 시간은 게시한 때로 보낸다', async () => {
