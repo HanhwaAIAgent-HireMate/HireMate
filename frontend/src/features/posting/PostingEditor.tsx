@@ -283,6 +283,7 @@ export function PostingEditor({
           stub: answer.stub,
           steps: received.current,
           seconds: Math.round((Date.now() - startedAt) / 1000),
+          ncsSources: answer.ncsSources,
         },
       ])
     } catch (error) {

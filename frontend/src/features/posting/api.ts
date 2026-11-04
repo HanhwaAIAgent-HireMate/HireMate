@@ -7,6 +7,8 @@ import { readEvents } from '@/lib/api/sse'
 export type Posting = Schemas['PostingView']
 export type PostingContent = Schemas['PostingContent']
 export type PostingFocus = Schemas['PostingFocus']
+/** 공고 수정 답이 참고한 NCS 출처. 공고에는 저장하지 않고 Chat 답에만 보인다 */
+export type NcsSource = Schemas['NcsSource']
 export type PublicPosting = Schemas['PublicPostingView']
 export type RequiredDocument = Schemas['RequiredDocument']
 /** 서류 필수 조건. HR이 공고 작성 화면에서 '필수'로 표시한 줄이다. 지원자에게는 보내지 않는다 */
