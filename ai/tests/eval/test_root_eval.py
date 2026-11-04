@@ -99,6 +99,8 @@ def failures(plan: ChatPlan, expect: dict[str, Any], context: ChatContext) -> li
         found.append(f"question_targets {sorted(questioned)}")
     if expect.get("question_replace") is not None and plan.question_replace != expect["question_replace"]:
         found.append(f"question_replace {plan.question_replace}")
+    if "question_ncs" in expect and plan.question_ncs != expect["question_ncs"]:
+        found.append(f"question_ncs {plan.question_ncs}")
     for name, status in expect.get("statuses", {}).items():
         owned = [
             item for item in plan.items if item.application_id is not None and names.get(item.application_id) == name
