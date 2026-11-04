@@ -105,15 +105,12 @@ function StepList({ steps, running = false }: { steps: ChatStep[]; running?: boo
   )
 }
 
-/** 지금 단계 아래의 일. 가장 최근 일과 그 결과만 보이고, 앞선 일은 개수로 접는다 */
+/** 지금 단계 아래의 일. 가장 최근 일과 그 결과만 보인다. 앞선 일은 답이 나온 뒤 펼쳐서 본다 */
 function CurrentWork({ works }: { works: StepNode[] }) {
   const latest = works.at(-1)
   if (!latest) return null
   return (
     <ol className="mt-1 space-y-0.5 text-xs leading-4">
-      {works.length > 1 && (
-        <li className="text-muted-foreground">앞서 한 일 {works.length - 1}개</li>
-      )}
       {flatten([latest]).map((line) => (
         <WorkLine key={line.index} line={line} />
       ))}
