@@ -1,5 +1,5 @@
 import { ArrowRight, FileText, Lock, Settings, X } from 'lucide-react'
-import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 
@@ -140,8 +140,13 @@ export function PostingEditor({
   const save = useSavePosting(id)
   const saveStages = useSaveStages(id)
   // 기다리는 동안 받은 Posting Agent의 처리 단계. 요청마다 새로 쌓는다
+  // 답에 처리 과정으로 남기려고 ref에도 둔다 (답을 받은 때의 단계를 읽는다)
   const [steps, setSteps] = useState<ChatStep[]>([])
-  const ai = usePostingAiRequest(id, (step) => setSteps((current) => addStep(current, step)))
+  const received = useRef<ChatStep[]>([])
+  const ai = usePostingAiRequest(id, (step) => {
+    received.current = addStep(received.current, step)
+    setSteps(received.current)
+  })
   const apply = useApplySuggestion(id)
   const discard = useDiscardSuggestion(id)
   const saving = save.isPending || saveStages.isPending
@@ -250,7 +255,9 @@ export function PostingEditor({
       { role: 'user', text: message, focus: target ? focusLabel(target) : undefined },
     ])
     if (!(await saveDraft(true))) return
+    received.current = []
     setSteps([])
+    const startedAt = Date.now()
     try {
       const answer = await ai.mutateAsync({ message, focus: sent })
       // 그 줄의 수정안이 생기면 칸이 잠겨 고르기를 푼다. 아니면 서버의 줄 순서(= 다시 연 화면의 순서)로 남긴다
@@ -263,7 +270,14 @@ export function PostingEditor({
       }
       setMessages((current) => [
         ...current,
-        { role: 'ai', text: answer.reply, agent: answer.agent, stub: answer.stub },
+        {
+          role: 'ai',
+          text: answer.reply,
+          agent: answer.agent,
+          stub: answer.stub,
+          steps: received.current,
+          seconds: Math.round((Date.now() - startedAt) / 1000),
+        },
       ])
     } catch (error) {
       setMessages((current) => [...current, { role: 'ai', text: errorMessage(error) }])
