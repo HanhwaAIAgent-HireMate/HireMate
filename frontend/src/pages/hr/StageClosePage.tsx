@@ -161,12 +161,13 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
         )}
       >
         <div className="flex flex-col gap-4">
-          {/* 다음 전형 안내(일정 · 장소 등)는 합격 안내 메일을 쓰기 전에 채우도록 메일 카드 위에 둔다 */}
+          {/* 다음 전형 안내(일정 · 장소 등)는 합격 안내 메일을 쓰기 전에 채우도록 메일 카드 위에 둔다.
+              전형을 종료한 뒤에도 다음 전형 전까지 고칠 수 있게, 공고 작성 때처럼 채용 종료 전까지 연다 */}
           {next && (
             <NextStageGuide
               recruitmentId={overview.recruitmentId}
               stageId={next.stageId}
-              editable={!done}
+              editable={overview.recruitmentStatus !== 'CLOSED'}
             />
           )}
           <StepCard
