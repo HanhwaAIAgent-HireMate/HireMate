@@ -68,6 +68,18 @@ function valueAxis(max: number, extra: Record<string, unknown> = {}) {
   }
 }
 
+/** 이름들의 같은 앞 낱말을 뺀다. 모두 같은 이름이거나 같은 앞부분이 없으면 그대로 둔다 */
+export function withoutCommonPrefix(labels: string[]) {
+  const words = labels.map((label) => label.split(' '))
+  let shared = 0
+  while (
+    words.every((w) => w.length > shared + 1) &&
+    words.every((w) => w[shared] === words[0][shared])
+  )
+    shared++
+  return shared === 0 ? labels : words.map((w) => w.slice(shared).join(' '))
+}
+
 /** 세로로 늘어놓는 이름 축. wrap이면 긴 이름(평가 항목)을 자르지 않고 두 줄까지 줄바꿈한다 */
 function nameAxis(names: string[], width = 120, wrap = false) {
   return {
@@ -235,23 +247,28 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
     case 'donut': {
       const parts = data.metrics(block.metrics)
       const total = parts.reduce((sum, p) => sum + p.value, 0) || 1
+      // 조각 이름의 같은 앞부분('최종 합격자 신입' · '최종 합격자 7년 이상'의 '최종 합격자')은 범례에서 뺀다
+      const names = withoutCommonPrefix(parts.map((p) => p.label))
+      // 가운데는 가장 큰 조각이다. 첫 조각이 0%여도 '0%'를 크게 보여 주지 않는다
+      const biggest = parts.reduce((top, p, i) => (p.value > parts[top].value ? i : top), 0)
       return {
-        height: 200,
+        // 범례를 아래에 두어 카드가 좁아도 도넛과 겹치지 않는다
+        height: 200 + 20 * Math.ceil(parts.length / 2),
         option: base({
           legend: {
-            orient: 'vertical',
-            right: 0,
-            top: 'middle',
+            orient: 'horizontal',
+            left: 'center',
+            bottom: 0,
             itemWidth: 11,
             itemHeight: 11,
-            itemGap: 9,
+            itemGap: 12,
             textStyle: { color: INK, fontSize: 12 },
           },
           title: {
-            text: `${Math.round((100 * parts[0].value) / total)}%`,
-            subtext: parts[0].label.split(' ').at(-1),
-            left: '29%',
-            top: '36%',
+            text: `${Math.round((100 * parts[biggest].value) / total)}%`,
+            subtext: names[biggest],
+            left: '49.5%',
+            top: '26%',
             textAlign: 'center',
             itemGap: 2,
             textStyle: { fontSize: 20, fontWeight: 700, color: INK, fontFamily: FONT },
@@ -260,13 +277,13 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
           series: [
             {
               type: 'pie',
-              radius: ['46%', '68%'],
-              center: ['30%', '50%'],
+              radius: ['42%', '62%'],
+              center: ['50%', '38%'],
               padAngle: 1.5,
               itemStyle: { borderRadius: 3 },
               label: { show: false },
               data: parts.map((p, i) => ({
-                name: `${p.label}  ${p.value}${p.unit}`,
+                name: `${names[i]}  ${p.value}${p.unit}`,
                 value: p.value,
                 itemStyle: { color: SLICES[i % SLICES.length] },
               })),

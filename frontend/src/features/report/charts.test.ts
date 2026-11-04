@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { chartFor, type ChartContext } from './charts'
+import { chartFor, withoutCommonPrefix, type ChartContext } from './charts'
 import type { Block, Fact, ReportBundle } from './types'
 
 function fact(applicant: string, value: number): Fact {
@@ -90,5 +90,17 @@ describe('분포 차트 기준선', () => {
     const { height } = chartFor(block, ctx)
 
     expect(height).toBeGreaterThan(250)
+  })
+})
+
+describe('도넛 조각 이름', () => {
+  it('같은 앞 낱말은 빼고, 같은 앞부분이 없으면 그대로 둔다', () => {
+    expect(withoutCommonPrefix(['최종 합격자 신입', '최종 합격자 7년 이상'])).toEqual([
+      '신입',
+      '7년 이상',
+    ])
+    expect(withoutCommonPrefix(['충족', '미충족'])).toEqual(['충족', '미충족'])
+    // 이름이 모두 같은 앞부분뿐이면 빈 이름이 되지 않게 그대로 둔다
+    expect(withoutCommonPrefix(['전체', '전체'])).toEqual(['전체', '전체'])
   })
 })
