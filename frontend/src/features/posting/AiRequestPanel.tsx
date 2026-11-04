@@ -1,7 +1,11 @@
 import { ArrowUp, AtSign, Bot, History, Sparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
+import { LiveSteps } from '@/features/chat/ChatSteps'
+import type { ChatStep } from '@/features/chat/steps'
 import { cn } from '@/lib/utils'
+
+const WAITING: ChatStep = { text: '수정안을 만들고 있어요', depth: 0 }
 
 /** focus는 HR이 줄을 골라 보낸 요청의 줄 이름이다 (예: 우대 사항 3번) */
 export type AiMessage = {
@@ -15,6 +19,7 @@ export type AiMessage = {
 /**
  * 공고 작성 · 안내 초안의 [AI 수정 요청] 패널. 문서를 고치는 요청만 받고, 바뀐 부분은 본문에 표시된다.
  * focus가 있으면 입력칸 위에 고른 줄을 보여 주고, ×로 고르기를 푼다.
+ * steps를 넘기면(처리 단계를 SSE로 받는 Agent) 기다리는 동안 단계를 AI Chat처럼 보인다. 없으면 기다리는 문구만 보인다.
  */
 export function AiRequestPanel({
   messages,
@@ -23,6 +28,7 @@ export function AiRequestPanel({
   pending,
   disabled,
   focus,
+  steps,
   onSend,
   onReset,
 }: {
@@ -32,6 +38,7 @@ export function AiRequestPanel({
   pending: boolean
   disabled?: boolean
   focus?: { label: string; onClear: () => void }
+  steps?: ChatStep[]
   onSend: (message: string) => void
   onReset?: () => void
 }) {
@@ -101,12 +108,15 @@ export function AiRequestPanel({
             </div>
           ),
         )}
-        {pending && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Sparkles className="size-4 animate-pulse text-ai" />
-            수정안을 만들고 있어요…
-          </div>
-        )}
+        {pending &&
+          (steps ? (
+            <LiveSteps steps={steps.length ? steps : [WAITING]} />
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Sparkles className="size-4 animate-pulse text-ai" />
+              수정안을 만들고 있어요…
+            </div>
+          ))}
         <div ref={bottom} />
       </div>
       {focus && (

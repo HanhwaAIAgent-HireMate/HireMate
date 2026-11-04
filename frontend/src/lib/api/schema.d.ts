@@ -2827,31 +2827,31 @@ export interface components {
             steps: string[];
         };
         JsonNode: {
+            /** @enum {string} */
+            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            string: boolean;
+            integralNumber: boolean;
+            valueNode: boolean;
+            pojo: boolean;
+            number: boolean;
+            floatingPointNumber: boolean;
+            short: boolean;
+            int: boolean;
+            long: boolean;
+            double: boolean;
+            bigDecimal: boolean;
+            bigInteger: boolean;
+            /** @deprecated */
+            textual: boolean;
+            boolean: boolean;
+            binary: boolean;
+            container: boolean;
+            missingNode: boolean;
             empty: boolean;
             array: boolean;
             null: boolean;
             object: boolean;
             float: boolean;
-            container: boolean;
-            missingNode: boolean;
-            pojo: boolean;
-            int: boolean;
-            /** @deprecated */
-            textual: boolean;
-            number: boolean;
-            double: boolean;
-            binary: boolean;
-            short: boolean;
-            long: boolean;
-            boolean: boolean;
-            string: boolean;
-            bigInteger: boolean;
-            floatingPointNumber: boolean;
-            bigDecimal: boolean;
-            valueNode: boolean;
-            /** @enum {string} */
-            nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            integralNumber: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3275,9 +3275,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
+            headerName: string;
             parameterName: string;
             token: string;
-            headerName: string;
         };
         CsrfResponse: {
             token: string;
@@ -4885,13 +4885,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
+            /** @description SSE. status · done · error 이벤트 */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["PostingAiAnswer"];
+                    "text/event-stream": components["schemas"]["ChatStatus"] | components["schemas"]["PostingAiAnswer"] | components["schemas"]["ChatError"];
                 };
             };
         };

@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { api, unwrap, type Schemas } from '@/lib/api/client'
+import type { ChatStep } from '@/features/chat/steps'
+import { api, ApiError, unwrap, type Schemas } from '@/lib/api/client'
+import { readEvents } from '@/lib/api/sse'
 
 export type Posting = Schemas['PostingView']
 export type PostingContent = Schemas['PostingContent']
@@ -136,20 +138,49 @@ export function useClosePosting(recruitmentId: string) {
   )
 }
 
-/** [AI 수정 요청]. focus가 있으면 그 줄만 고친다. 수정안이 생기면 공고 캐시의 suggestion이 바뀐다. */
-export function usePostingAiRequest(recruitmentId: string) {
+export type PostingAiAnswer = Schemas['PostingAiAnswer']
+
+/**
+ * [AI 수정 요청]. focus가 있으면 그 줄만 고친다. 수정안이 생기면 공고 캐시의 suggestion이 바뀐다.
+ * 답은 SSE로 온다. 기다리는 동안 Posting Agent의 처리 단계를 onStep으로 넘긴다.
+ */
+export function usePostingAiRequest(recruitmentId: string, onStep: (step: ChatStep) => void) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ message, focus }: { message: string; focus: PostingFocus | null }) =>
-      unwrap(
+    mutationFn: async ({ message, focus }: { message: string; focus: PostingFocus | null }) => {
+      // 입력 오류는 스트림을 열기 전에 일반 오류 응답으로 온다
+      const stream = await unwrap(
         api.POST('/api/recruitments/{recruitmentId}/posting/ai-requests', {
           params: { path: { recruitmentId } },
           body: { message, focus },
+          parseAs: 'stream',
         }),
-      ),
+      )
+      if (!stream) throw new ApiError(502, 'AI_UNAVAILABLE', '')
+      return readPostingAnswer(stream, onStep)
+    },
     onSuccess: (answer) =>
       queryClient.setQueryData(postingKeys.posting(recruitmentId), answer.posting),
   })
+}
+
+/**
+ * 공고 AI 요청의 응답 스트림(SSE)을 읽는다. status는 onStep으로 넘기고 done의 답을 돌려준다.
+ * error 이벤트나 done 없이 끝난 스트림은 ApiError로 던진다.
+ */
+export async function readPostingAnswer(
+  body: ReadableStream<Uint8Array>,
+  onStep: (step: ChatStep) => void,
+): Promise<PostingAiAnswer> {
+  for await (const { event, data } of readEvents(body)) {
+    if (event === 'status') onStep(JSON.parse(data) as ChatStep)
+    else if (event === 'done') return JSON.parse(data) as PostingAiAnswer
+    else if (event === 'error') {
+      const error = JSON.parse(data) as Schemas['ChatError']
+      throw new ApiError(error.status, error.code, '')
+    }
+  }
+  throw new ApiError(502, 'AI_UNAVAILABLE', '')
 }
 
 export function usePublicPosting(postingId: string) {

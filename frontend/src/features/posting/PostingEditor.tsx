@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { addStep, type ChatStep } from '@/features/chat/steps'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
 import {
   useApplySuggestion,
@@ -138,7 +139,9 @@ export function PostingEditor({
   const [stagesError, setStagesError] = useState<string | null>(null)
   const save = useSavePosting(id)
   const saveStages = useSaveStages(id)
-  const ai = usePostingAiRequest(id)
+  // 기다리는 동안 받은 Posting Agent의 처리 단계. 요청마다 새로 쌓는다
+  const [steps, setSteps] = useState<ChatStep[]>([])
+  const ai = usePostingAiRequest(id, (step) => setSteps((current) => addStep(current, step)))
   const apply = useApplySuggestion(id)
   const discard = useDiscardSuggestion(id)
   const saving = save.isPending || saveStages.isPending
@@ -247,6 +250,7 @@ export function PostingEditor({
       { role: 'user', text: message, focus: target ? focusLabel(target) : undefined },
     ])
     if (!(await saveDraft(true))) return
+    setSteps([])
     try {
       const answer = await ai.mutateAsync({ message, focus: sent })
       // 그 줄의 수정안이 생기면 칸이 잠겨 고르기를 푼다. 아니면 서버의 줄 순서(= 다시 연 화면의 순서)로 남긴다
@@ -650,6 +654,7 @@ export function PostingEditor({
           pending={ai.isPending || save.isPending}
           disabled={!editable}
           focus={picked ? { label: focusLabel(picked), onClear: () => setFocus(null) } : undefined}
+          steps={steps}
           onSend={(message) => void sendRequest(message)}
           onReset={() => setMessages([])}
         />

@@ -213,8 +213,9 @@ src/hiremate_ai/
 - 여러 Agent가 같이 쓰는 backend 타입은 `contract.py`에 있다. 한 Agent만 쓰는 요청, 응답 타입은 그 Agent 패키지 안(라우터 파일, 패키지 안 여러 모듈이 같이 쓰면 `types.py`)에 두고
   공통 타입을 조합한다. 계약 타입을 바꾸면 `contract/`의 샘플도 고친다 (`contract/README.md`).
 - backend 연동 엔드포인트는 `POST /agents/{agent}/{method}`다. 요청 본문은 backend Agent 인터페이스 메서드의
-  매개변수 이름을 키로 한 JSON 객체, 응답은 반환 타입의 JSON이다. Root `plan`만 SSE로 응답한다. 처리 중 단계(`status`)와
-  검증을 마친 항목(`item`)을 먼저 보내고 마지막 `done`에 반환 타입의 JSON을 담는다. 모델이 쓴 문장을 검사 전에 보내지 않는다.
+  매개변수 이름을 키로 한 JSON 객체, 응답은 반환 타입의 JSON이다. Root `plan`과 Posting `revise`는 SSE로 응답한다.
+  처리 중 단계(`status`)와 검증을 마친 항목(`item`)을 먼저 보내고 마지막 `done`에 반환 타입의 JSON을 담는다.
+  모델이 쓴 문장을 검사 전에 보내지 않는다.
 - 모델은 `llm.client`의 `LlmClient`로만 부른다. 호출은 `ai.llm_calls`에 기록된다. 라우터는 `LlmDep`으로 받고,
   테스트는 `app.dependency_overrides[get_llm]`에 `FakeLlm`을 넣는다. 실제 모델 연결 설정은 `ai/.env.example`에 있다.
 - `LANGSMITH_TRACING=true`면 모델 호출이 LangSmith에도 기록된다. `LlmDep`을 받는 요청 하나, 워커 작업 하나가 기록 하나다.
