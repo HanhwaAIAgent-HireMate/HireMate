@@ -165,8 +165,8 @@ public class MailStyleService {
         MailBrand brand = brand(companyId, draft);
         String companyName = companies.profile(companyId).name();
         NoticeTemplateInfo template = companies.noticeTemplate(companyId, NoticeTemplateType.NEXT_STAGE);
-        Map<String, String> values = Map.of("{지원자명}", "홍길동", "{회사명}", companyName, "{공고명}", "예시 공고",
-                "{전형명}", "서류 전형");
+        Map<String, String> values = Map.of("{지원자명}", "홍길동", "{지원번호}", "1", "{회사명}", companyName,
+                "{공고명}", "예시 공고", "{전형명}", "서류 전형");
         MailContent sample = new MailContent(companyName, "예시 공고", List.of(
                 new MailContent.Text(template.greeting()),
                 new MailContent.Text("서류 전형에 합격하셨음을 알려드리며, 진심으로 축하드립니다.\n\n다음 전형은 1차 면접입니다."),
