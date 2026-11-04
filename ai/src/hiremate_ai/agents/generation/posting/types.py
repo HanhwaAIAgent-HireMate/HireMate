@@ -83,11 +83,32 @@ class PostingSuggestion(ContractModel):
     changed_fields: list[str]
 
 
+class NcsSource(ContractModel):
+    """수정안이 참고한 NCS 출처 하나 (ai.application.PostingAgent.NcsSource). 공고 줄 하나와 그 줄을 받쳐 준 원문이다.
+
+    field는 그 줄이 있는 칸의 PostingContent JSON 이름, number는 그 칸의 몇 번째 줄인지(1부터)다.
+    출처는 HR이 보고 판단하는 참고자료라 Chat 답에만 보이고 공고나 수정안에는 넣지 않는다.
+    """
+
+    field: Literal["duties", "qualifications", "preferred"]
+    number: int
+    line: str
+    duty_name: str
+    unit_code: str
+    unit_name: str
+    task_name: str
+    sentence: str
+
+
 class RevisionResult(ContractModel):
-    """PostingAgent.Result. reply는 Chat에 보여 줄 답이고, 되묻거나 처리할 수 없는 요청이면 suggestion이 null이다."""
+    """PostingAgent.Result. reply는 Chat에 보여 줄 답이고, 되묻거나 처리할 수 없는 요청이면 suggestion이 null이다.
+
+    ncs_sources는 수정안이 참고했고 원문이 받쳐 준다고 판정한 NCS 출처다. 참고하지 않았으면 빈 목록이다.
+    """
 
     reply: str
     suggestion: PostingSuggestion | None
+    ncs_sources: list[NcsSource] = []
 
 
 class RevisionStep(ContractModel):

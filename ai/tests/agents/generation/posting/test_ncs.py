@@ -15,7 +15,7 @@ from hiremate_ai.agents.generation.posting.ncs import (
     cite_lines,
     find_sources,
     keep_supported,
-    source_lines,
+    ncs_sources,
     sources_block,
 )
 from hiremate_ai.contract import PostingContent
@@ -192,12 +192,30 @@ async def test_keep_supported_shows_line_and_source_to_model() -> None:
     assert "서버 프로그램을 구현 한다" in llm.calls[0].user
 
 
-def test_source_line_format() -> None:
-    line = Cited(label="주요 업무", number=2, line="서버 개발", source="S1")
-
-    assert source_lines([line], sources()) == [
-        '주요 업무 2번 ← 응용SW엔지니어링 › 서버프로그램 구현 › 서버 프로그램 구현하기: "서버 프로그램을 구현 한다"'
+def test_ncs_sources_keep_first_source_per_line() -> None:
+    two = NcsSources(items={"S1": (task(), "서버 프로그램을 구현 한다"), "S2": (task(), "서버 프로그램을 테스트 한다")})
+    entries = [
+        Cited(label="주요 업무", number=2, line="서버 개발", source="S1"),
+        Cited(label="주요 업무", number=2, line="서버 개발", source="S2"),
+        Cited(label="우대 사항", number=1, line="테스트 경험", source="S2"),
     ]
+
+    shown = ncs_sources(entries, two)
+
+    assert [(source.field, source.number, source.sentence) for source in shown] == [
+        ("duties", 2, "서버 프로그램을 구현 한다"),
+        ("preferred", 1, "서버 프로그램을 테스트 한다"),
+    ]
+    assert shown[0].model_dump() == {
+        "field": "duties",
+        "number": 2,
+        "line": "서버 개발",
+        "dutyName": "응용SW엔지니어링",
+        "unitCode": UNIT,
+        "unitName": "서버프로그램 구현",
+        "taskName": "서버 프로그램 구현하기",
+        "sentence": "서버 프로그램을 구현 한다",
+    }
 
 
 def test_units_fixture_is_ordered() -> None:

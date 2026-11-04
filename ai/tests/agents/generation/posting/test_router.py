@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from ncs_context import UNIT, FakeNcs
 
 from hiremate_ai.agents.generation.posting.ncs import (
-    NCS_HEADER,
     LineCitation,
     NcsQuery,
     SupportReview,
@@ -163,6 +162,7 @@ def test_revise_returns_backend_result_shape() -> None:
             "requiredExtras": None,
             "changedFields": ["preferred"],
         },
+        "ncsSources": [],
     }
 
 
@@ -182,7 +182,20 @@ def test_revise_passes_ncs_dependency() -> None:
     response = client(llm, FakeNcs()).post("/agents/posting/revise", json=body("NCS 참고해서 주요 업무 추가해 줘"))
 
     assert response.status_code == 200
-    assert f"\n\n{NCS_HEADER}\n주요 업무 2번 ← " in done_of(response)["reply"]
+    done = done_of(response)
+    assert "←" not in done["reply"]
+    assert done["ncsSources"] == [
+        {
+            "field": "duties",
+            "number": 2,
+            "line": duty,
+            "dutyName": "응용SW엔지니어링",
+            "unitCode": UNIT,
+            "unitName": "서버프로그램 구현",
+            "taskName": "서버 프로그램 구현하기",
+            "sentence": "서버 프로그램을 구현 한다",
+        }
+    ]
 
 
 def test_revise_changes_only_the_line_hr_picked() -> None:
@@ -206,7 +219,7 @@ def test_revise_returns_null_suggestion_when_nothing_changes() -> None:
 
     response = client(llm).post("/agents/posting/revise", json=body("음"))
 
-    assert done_of(response) == {"reply": NOTHING_CHANGED_REPLY, "suggestion": None}
+    assert done_of(response) == {"reply": NOTHING_CHANGED_REPLY, "suggestion": None, "ncsSources": []}
 
 
 def test_revise_rejects_unknown_status() -> None:

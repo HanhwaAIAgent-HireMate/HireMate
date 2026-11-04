@@ -1,4 +1,4 @@
-"""공고 수정의 NCS 참고. NCS는 HR이 보고 판단하는 참고자료라 출처는 채팅 답에만 붙이고 공고에는 넣지 않는다.
+"""공고 수정의 NCS 참고. NCS는 HR이 보고 판단하는 참고자료라 출처는 Chat 답의 출처 목록에만 두고 공고에는 넣지 않는다.
 
 1. 검색어 만들기: 모델 한 번으로 요청을 NCS식 업무 문장으로 바꾸고 능력단위 목록에서 최대 5개를 고른다.
 2. 검색: 원문 요청, 바꾼 문장, 고른 단위로 '책임 및 역할' 묶음을 찾는다(ncs_search).
@@ -15,6 +15,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from hiremate_ai.agents.generation.posting.types import NcsSource
 from hiremate_ai.config import settings
 from hiremate_ai.contract import PostingContent
 from hiremate_ai.llm.client import LlmClient
@@ -26,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 AGENT = "posting"
 
-NCS_HEADER = "참고한 NCS:"
 NCS_NOT_FOUND = "참고할 NCS 자료를 찾지 못했어요."
 NCS_UNAVAILABLE = "NCS 검색에 문제가 생겨 NCS 없이 수정안을 만들었어요."
 NCS_SOURCES_DROPPED = "일부 줄은 NCS 원문과 맞지 않아 출처에서 뺐어요."
@@ -234,13 +234,29 @@ async def keep_supported(llm: LlmClient, cited: list[Cited], sources: NcsSources
     return kept, None if len(kept) == len(cited) else NCS_SOURCES_DROPPED
 
 
-def source_lines(cited: list[Cited], sources: NcsSources) -> list[str]:
-    """답 끝에 붙이는 출처 줄. 예: 주요 업무 2번 ← 직무 › 능력단위 › 주요 업무: "원문 문장"."""
-    lines = []
+def ncs_sources(cited: list[Cited], sources: NcsSources) -> list[NcsSource]:
+    """Chat 답에 보일 출처 목록. 줄 하나에 출처가 여럿이면 받쳐 준다고 판정한 첫 출처 하나만 남긴다."""
+    shown: list[NcsSource] = []
     for entry in cited:
+        field = _CITED_FIELDS[entry.label]
+        if any((source.field, source.number) == (field, entry.number) for source in shown):
+            continue
         task, sentence = sources.items[entry.source]
-        lines.append(f'{entry.label} {entry.number}번 ← {_path(task)}: "{sentence}"')
-    return lines
+        shown.append(
+            NcsSource.model_validate(
+                {
+                    "field": field,
+                    "number": entry.number,
+                    "line": entry.line,
+                    "duty_name": task.duty_name,
+                    "unit_code": task.unit_code,
+                    "unit_name": task.unit_name,
+                    "task_name": task.task_name,
+                    "sentence": sentence,
+                }
+            )
+        )
+    return shown
 
 
 async def with_sources(
@@ -253,22 +269,14 @@ async def with_sources(
     content: PostingContent,
     changed: list[str],
     clean: Callable[[str], str],
-) -> str:
-    """수정안 답에 NCS 안내와 출처를 붙인다.
+) -> tuple[str, list[NcsSource]]:
+    """수정안 답에 NCS 안내를 붙이고, 원문이 받쳐 준다고 판정한 출처 목록을 함께 돌려준다.
 
     찾지 못했다는 안내는 HR이 NCS를 요청했을 때만 낸다. NCS를 요청했는데 남은 출처가 없으면 안내를 하나만 낸다.
     """
     if sources is None:
-        return "\n".join([reply, search_notice]) if use == "REQUESTED" and search_notice else reply
+        return ("\n".join([reply, search_notice]) if use == "REQUESTED" and search_notice else reply), []
     kept, notice = await keep_supported(llm, cite_lines(citations, content, changed, sources, clean), sources)
     if use == "REQUESTED" and not kept and notice != NCS_REVIEW_FAILED:
         notice = NCS_NOT_FOUND
-    text = "\n".join([reply, notice]) if notice else reply
-    # 줄 하나에 출처가 여럿이면 답이 길어져 읽기 어렵다. 받쳐 준다고 판정한 첫 출처만 보인다
-    shown: list[Cited] = []
-    for entry in kept:
-        if all((entry.label, entry.number) != (other.label, other.number) for other in shown):
-            shown.append(entry)
-    if shown:
-        text += "\n\n" + "\n".join([NCS_HEADER, *source_lines(shown, sources)])
-    return text
+    return ("\n".join([reply, notice]) if notice else reply), ncs_sources(kept, sources)

@@ -411,7 +411,7 @@ async def revise_posting(
 
     수정안이 검사에 걸리면 이유를 붙여 한 번 더 쓰게 한다. 차별 조건은 다시 쓰게 하지 않고 바로 거절한다.
     focus가 있으면 HR이 고른 그 줄만 고친다. ncs가 있고 대상 고르기에서 참고하기로 하면 본문을 쓸 때 NCS 문장을
-    참고자료로 주고, 받쳐 준다고 판정한 출처만 답 끝에 붙인다. 고른 줄과 직무별 표에는 NCS를 붙이지 않는다.
+    참고자료로 주고, 받쳐 준다고 판정한 출처만 ncs_sources로 돌려준다. 고른 줄과 직무별 표에는 NCS를 붙이지 않는다.
     report가 있으면 모델을 부르기 전에 처리 단계 문구를 알린다.
     """
     step = report or _silent
@@ -484,7 +484,7 @@ async def revise_posting(
                 return result
             if sources is not None:
                 step(SOURCES_CHECK_STEP, 0)
-            reply = await with_sources(
+            reply, ncs_sources = await with_sources(
                 llm,
                 result.reply,
                 route.ncs,
@@ -495,7 +495,7 @@ async def revise_posting(
                 draft.changed,
                 _clean_item,
             )
-            return result.model_copy(update={"reply": reply})
+            return result.model_copy(update={"reply": reply, "ncs_sources": ncs_sources})
     return RevisionResult(reply=CHECK_FAILED_REPLY, suggestion=None)
 
 

@@ -82,3 +82,7 @@ Chat 추가 요청은 기존 추가 문항 수를 따른다.
 `InterviewView.Question.version`은 답변 자동 저장 버전이다. 화면은 expectedVersion으로 보내고,
 응답의 최신 버전으로 다음 저장을 보낸다. AI는 버전을 변경하지 않는다.
 면접관 배정·개인 메모는 별도 API에만 두며 AI 계약이나 대화 context에 넣지 않는다.
+
+`NcsSource`는 공고 수정(`posting/revise`) 응답의 `ncsSources` 한 항목이다. 수정안이 참고했고 원문이 받쳐 준다고
+판정한 NCS 출처이며, `field`(공고 칸의 JSON 이름) · `number`(그 칸의 몇 번째 줄, 1부터) · `line`(그 줄)과 NCS 원문 위치를 담는다.
+HR이 보고 판단하는 참고자료라 Chat 답에만 보이고, 공고와 수정안에는 저장하지 않는다. 참고하지 않았으면 빈 목록이다.
