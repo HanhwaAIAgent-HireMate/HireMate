@@ -186,6 +186,17 @@ export function useSelectionActions(stageId: string, tabId: string) {
   }
 }
 
+/** 블라인드 위반 의심 해제. HR이 서류를 확인한 뒤 누르면 지원자가 리스트의 원래 자리로 돌아간다 */
+export function useClearSchoolMention(stageId: string, applicationId: string) {
+  return useStageMutation(stageId, () =>
+    unwrap(
+      api.POST('/api/stages/{stageId}/candidates/{applicationId}/school-clear', {
+        params: { path: { stageId, applicationId } },
+      }),
+    ),
+  )
+}
+
 /** 결정은 탭과 상관없다. 되돌리기만 누른 탭(tabId)에 없던 지원자를 그 탭에 넣는다 */
 export function useDecisionActions(stageId: string, tabId: string) {
   return {

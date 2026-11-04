@@ -16,10 +16,13 @@ export function CandidateTile({
   active,
   action,
   note,
+  suspect = false,
   onOpen,
 }: {
   row: CandidateRow
   documentStage: boolean
+  /** 블라인드 위반 의심. 노란 칸에 보통 글자색으로 보인다 (낮은 평가가 아니라 확인이 필요한 지원자다) */
+  suspect?: boolean
   scoreStage: boolean
   active: boolean
   action: ReactNode
@@ -27,7 +30,7 @@ export function CandidateTile({
   note?: ReactNode
   onOpen: () => void
 }) {
-  const gray = documentStage && !row.aboveLine
+  const gray = documentStage && !row.aboveLine && !suspect
   const missing = documentStage ? row.missingRequired.length : 0
   return (
     // 카드 어디를 눌러도 지원자 카드가 열린다. 키보드는 이름 버튼으로 연다
@@ -43,6 +46,7 @@ export function CandidateTile({
         row.decision === 'PASS' && 'border-pass-foreground/30 bg-pass',
         row.decision === 'FAIL' && 'border-fail-foreground/30 bg-fail',
         gray && row.decision === 'PENDING' && 'border-dashed bg-muted/50',
+        suspect && row.decision === 'PENDING' && 'border-amber-200 bg-amber-50',
         row.aiSelected && 'border-ai shadow-[0_3px_10px_-4px_var(--ai)] ring-1 ring-ai/30',
         active && !row.aiSelected && 'border-foreground/40',
       )}

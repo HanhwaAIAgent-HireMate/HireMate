@@ -1,4 +1,4 @@
-import { ArrowLeft, NotebookPen, RotateCw } from 'lucide-react'
+import { ArrowLeft, ChevronDown, NotebookPen, RotateCw } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   careerLabel,
   useCandidateDetail,
+  useClearSchoolMention,
   useRetryAnalysis,
   useSaveMemo,
   type StageOverview,
@@ -21,6 +22,7 @@ import { CandidateInterviewProgress } from '@/features/interview/CandidateInterv
 import { DocumentViewer } from '@/features/screening/DocumentViewer'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
+import { cn } from '@/lib/utils'
 
 /** 가운데 영역의 지원자 카드. 전형 종류에 맞는 Viewer를 보여 주고, 결정은 위쪽 체크박스와 맨 아래 버튼으로 한다. */
 export function CandidateCard({
@@ -103,8 +105,13 @@ export function CandidateCard({
                 applicationId={applicationId}
               />
             )}
-            {detail.data.schoolMentions.length > 0 && (
-              <SchoolMentions mentions={detail.data.schoolMentions} />
+            {overview.type === 'DOCUMENT' && detail.data.schoolMentions.length > 0 && (
+              <SchoolMentions
+                stageId={overview.stageId}
+                applicationId={applicationId}
+                mentions={detail.data.schoolMentions}
+                editable={editable}
+              />
             )}
             {overview.type === 'INTERVIEW' ? (
               <InterviewViewer
@@ -166,23 +173,62 @@ function RetryAnalysis({
 }
 
 /**
- * 블라인드 채용인데 서류에 출신 학교를 쓴 문장. 학교 이름은 가린 채로 보여 주고, 감점이나 불합격은 담당자가 정한다
- * (아키텍처 규칙 1)
+ * 서류 전형의 블라인드 위반 의심. 출신 학교를 쓴 문장을 학교 이름을 가린 채 접어 두고, HR이 확인해 해제하면 리스트의
+ * 원래 자리로 돌아간다. 해제는 결정이나 감점이 아니다 (아키텍처 규칙 1)
  */
-function SchoolMentions({ mentions }: { mentions: string[] }) {
+function SchoolMentions({
+  stageId,
+  applicationId,
+  mentions,
+  editable,
+}: {
+  stageId: string
+  applicationId: string
+  mentions: string[]
+  editable: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const clear = useClearSchoolMention(stageId, applicationId)
   return (
-    <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-      <p className="font-semibold">
-        블라인드 위반 의심: 서류에 출신 학교를 쓴 문장이 {mentions.length}개 있어요
-      </p>
-      <ul className="space-y-0.5 text-xs">
-        {mentions.map((mention) => (
-          <li key={mention}>· {mention}</li>
-        ))}
-      </ul>
-      <p className="text-xs text-amber-800">
-        학교 이름은 가려져 있어요. 반영할지는 담당자가 정해요.
-      </p>
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="inline-flex items-center gap-1 font-semibold"
+        >
+          <ChevronDown className={cn('size-4 transition-transform', !open && '-rotate-90')} />
+          블라인드 위반 의심 문장 {mentions.length}개
+        </button>
+        {editable && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={clear.isPending}
+            onClick={() =>
+              clear.mutate(undefined, {
+                onSuccess: () => toast.success('블라인드 위반 의심을 해제했어요.'),
+                onError: (error) => toast.error(errorMessage(error)),
+              })
+            }
+          >
+            해제
+          </Button>
+        )}
+      </div>
+      {open && (
+        <div className="mt-1.5 space-y-1.5">
+          <ul className="space-y-0.5 text-xs">
+            {mentions.map((mention) => (
+              <li key={mention}>· {mention}</li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">
+            학교 이름은 가려져 있어요. 출신 학교가 아니면 해제하세요. 반영할지는 담당자가 정해요.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
