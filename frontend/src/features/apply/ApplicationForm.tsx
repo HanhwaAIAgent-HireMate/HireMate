@@ -4,6 +4,16 @@ import { useRef, useState, type ReactNode } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -14,7 +24,13 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { useSubmitApplication, type ApplicationInput } from '@/features/apply/api'
+import {
+  DOCUMENT_LABELS,
+  useSchoolCheck,
+  useSubmitApplication,
+  type ApplicationInput,
+  type SchoolCheck,
+} from '@/features/apply/api'
 import type { PublicPosting } from '@/features/posting/api'
 import { ApiError, errorMessage } from '@/lib/api/client'
 import { formatDateTime } from '@/lib/format'
@@ -65,6 +81,12 @@ export function ApplicationForm({
   const requirePortfolio = required('PORTFOLIO')
   const requireCertificate = required('CERTIFICATE')
   const submit = useSubmitApplication(posting.postingId)
+  const checkSchools = useSchoolCheck(posting.postingId)
+  // 블라인드 채용 서류에서 찾은 학교 이름. 있으면 다시 올리거나 그대로 내게 묻는다
+  const [found, setFound] = useState<{
+    input: ApplicationInput
+    documents: SchoolCheck['documents']
+  } | null>(null)
   const [serverError, setServerError] = useState('')
   const form = useForm<Values>({
     resolver: zodResolver(schema(requirePortfolio, requireCertificate)),
@@ -108,21 +130,40 @@ export function ApplicationForm({
 
   const onValid = (data: Values) => {
     setServerError('')
-    submit.mutate(
-      { ...data, name: data.name.trim(), email: data.email.trim() } as ApplicationInput,
-      {
-        onSuccess: (result) => onSubmitted(result),
-        onError: (error) =>
-          setServerError(
-            error instanceof ApiError && error.code === 'ALREADY_APPLIED'
-              ? '이미 이 이메일로 지원했어요.'
-              : error instanceof ApiError && error.code === 'POSTING_NOT_OPEN'
-                ? '지원 접수 기간이 아니에요.'
-                : errorMessage(error),
-          ),
-      },
-    )
+    const input = { ...data, name: data.name.trim(), email: data.email.trim() } as ApplicationInput
+    if (!posting.content.blind) {
+      send(input)
+      return
+    }
+    // 확인은 알림일 뿐이라, 확인하지 못하면 그대로 제출한다
+    checkSchools.mutate(input, {
+      onSuccess: ({ documents }) =>
+        documents.length > 0 ? setFound({ input, documents }) : send(input),
+      onError: () => send(input),
+    })
   }
+
+  // 다시 올릴 서류의 위치로 이동한다
+  const reupload = () => {
+    const type = found?.documents[0]?.type
+    setFound(null)
+    const key =
+      type === 'COVER_LETTER' ? 'coverLetter' : type === 'PORTFOLIO' ? 'portfolio' : 'resume'
+    document.getElementById(`apply-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  const send = (input: ApplicationInput) =>
+    submit.mutate(input, {
+      onSuccess: (result) => onSubmitted(result),
+      onError: (error) =>
+        setServerError(
+          error instanceof ApiError && error.code === 'ALREADY_APPLIED'
+            ? '이미 이 이메일로 지원했어요.'
+            : error instanceof ApiError && error.code === 'POSTING_NOT_OPEN'
+              ? '지원 접수 기간이 아니에요.'
+              : errorMessage(error),
+        ),
+    })
 
   const onInvalid = () => {
     const first = sections.find((section) =>
@@ -272,10 +313,44 @@ export function ApplicationForm({
             </li>
           ))}
         </ul>
-        <Button type="submit" className="mt-5 h-10 w-full" disabled={submit.isPending}>
+        <Button
+          type="submit"
+          className="mt-5 h-10 w-full"
+          disabled={submit.isPending || checkSchools.isPending}
+        >
           제출하기
         </Button>
       </aside>
+      <AlertDialog open={found !== null} onOpenChange={(open) => !open && setFound(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>서류에 학교 이름으로 보이는 말이 있어요</AlertDialogTitle>
+            <AlertDialogDescription>
+              블라인드 채용이라 지우고 다시 올리는 것을 권해요. 학교에서 일한 경력처럼 출신 학교가
+              아니라면 그대로 제출해도 돼요.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="space-y-1 rounded-lg bg-muted p-3 text-sm">
+            {found?.documents.map((document) => (
+              <li key={document.type}>
+                <span className="font-semibold">{DOCUMENT_LABELS[document.type]}</span>{' '}
+                {document.names.map((name) => `"${name}"`).join(', ')}
+              </li>
+            ))}
+          </ul>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={reupload}>다시 올리기</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (found) send(found.input)
+                setFound(null)
+              }}
+            >
+              그대로 제출
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </form>
   )
 }
