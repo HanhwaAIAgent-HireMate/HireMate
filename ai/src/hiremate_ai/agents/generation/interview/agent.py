@@ -1726,7 +1726,8 @@ async def _check_ncs(state: State, result: dict[str, Any]) -> dict[str, Any]:
     """이번에 통과한 NCS 질문을 모델 한 번으로 판정한다.
 
     받쳐 주면 인용을 남기고, 무관하거나 판정이 빠지면 질문만 두고 인용은 뺀다. 지원자가 그 일을 했다고 전제했으면
-    질문을 빼고 다시 쓰게 한다. 판정에 실패하면 이번 인용을 모두 뺀다.
+    질문을 빼고 다시 쓰게 한다. 판정에 실패하면 경험 전제를 확인하지 못했으므로 이번 NCS 질문을 모두 빼고 다시 쓰게 한다
+    (다시 써도 안 되면 기본 질문으로 채운다).
     """
     new: dict[str, str] = result.pop("ncs_new", {})
     cited = dict(state.get("ncs_cited", {}))
@@ -1735,10 +1736,14 @@ async def _check_ncs(state: State, result: dict[str, Any]) -> dict[str, Any]:
     ids = list(new)
     sources = state["ncs"]
     verdicts = await check_cited(state["llm"], [(result["kept"][key], sources.items[new[key]][1]) for key in ids])
-    if verdicts is None:
-        return {**result, "ncs_cited": cited}
-    by_index = {verdict.index: verdict for verdict in verdicts}
     kept, purposes, errors = dict(result["kept"]), dict(result["purposes"]), list(result["errors"])
+    if verdicts is None:
+        for key in ids:
+            kept.pop(key, None)
+            purposes.pop(key, None)
+            errors.append(f"{key}: NCS 출처 판정을 마치지 못해 다시 쓴다")
+        return {**result, "kept": kept, "purposes": purposes, "errors": errors, "ncs_cited": cited}
+    by_index = {verdict.index: verdict for verdict in verdicts}
     for index, key in enumerate(ids):
         verdict = by_index.get(index)
         if verdict is None:
