@@ -62,6 +62,14 @@ public class StageController {
         screening.promote(member.companyId(), stageId, applicationId);
     }
 
+    /** 블라인드 위반 의심 해제. HR이 서류를 확인한 뒤 누르면 지원자가 리스트의 원래 자리로 돌아간다. */
+    @PostMapping("/candidates/{applicationId}/school-clear")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void clearSchoolMention(AuthenticatedMember member, @PathVariable UUID stageId,
+            @PathVariable UUID applicationId) {
+        screening.clearSchoolMention(member.companyId(), stageId, applicationId);
+    }
+
     @PostMapping("/decisions")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void decide(AuthenticatedMember member, @PathVariable UUID stageId,

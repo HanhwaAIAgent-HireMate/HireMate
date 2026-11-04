@@ -58,6 +58,10 @@ public class StageCandidate {
     @Column(nullable = false)
     private boolean promoted;
 
+    /** 블라인드 채용 서류 전형에서 HR이 서류를 확인해 블라인드 위반 의심을 해제했다. */
+    @Column(nullable = false)
+    private boolean schoolCleared;
+
     private BigDecimal score;
 
     @Column(nullable = false)
@@ -74,6 +78,10 @@ public class StageCandidate {
 
     public void promote() {
         this.promoted = true;
+    }
+
+    public void clearSchoolMention() {
+        this.schoolCleared = true;
     }
 
     /** 결정한 지원자는 탭의 선택 지원자에 보이지 않는다. 탭에 남은 행은 되돌릴 때를 위해 둔다. */

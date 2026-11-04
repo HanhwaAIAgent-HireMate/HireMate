@@ -3,6 +3,7 @@ package com.hiremate.screening;
 import com.hiremate.activity.ActivityService;
 import com.hiremate.apply.AnalysisStatus;
 import com.hiremate.apply.ApplicantDetail;
+import com.hiremate.apply.ApplicantDocument;
 import com.hiremate.apply.ApplicantInfo;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.apply.CriterionMark;
@@ -139,7 +140,8 @@ public class ScreeningService {
         StageContext context = context(companyId, stageId);
         List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
         Map<UUID, TabSelection> selected = tabId == null ? Map.of() : visible(tabs.tab(companyId, stageId, tabId), all);
-        List<CandidateRow> rows = rows(context, all, selected, filter);
+        Set<UUID> suspects = schoolSuspects(context, all);
+        List<CandidateRow> rows = rows(context, all, selected, filter, suspects);
         if (query != null && !query.isBlank()) {
             String keyword = query.trim().toLowerCase(Locale.ROOT);
             Set<UUID> textMatches = new HashSet<>(
@@ -149,7 +151,8 @@ public class ScreeningService {
         }
         int from = Math.min(Math.max(page, 0) * Math.clamp(size, 1, 200), rows.size());
         int to = Math.min(from + Math.clamp(size, 1, 200), rows.size());
-        return new CandidatePage(rows.size(), rows.subList(from, to));
+        return new CandidatePage(rows.size(), rows.subList(from, to), rows.stream().map(CandidateRow::applicationId)
+                .filter(suspects::contains).toList());
     }
 
     /** 탭의 선택 지원자. 넣은 순서이고, 결정한 지원자는 빠진다. */
@@ -159,7 +162,7 @@ public class ScreeningService {
         List<StageCandidate> all = candidates.findByStageIdAndCompanyId(stageId, companyId);
         Map<UUID, TabSelection> selected = visible(tabs.tab(companyId, stageId, tabId), all);
         // 넣은 순서대로, 한 번에 넣었으면 리스트 순서대로 둔다
-        List<CandidateRow> rows = rows(context, all, selected, CandidateFilter.NONE).stream()
+        List<CandidateRow> rows = rows(context, all, selected, CandidateFilter.NONE, Set.of()).stream()
                 .filter(CandidateRow::selected)
                 .sorted(Comparator.comparing(row -> selected.get(row.applicationId()).getSelectedAt()))
                 .toList();
@@ -319,15 +322,44 @@ public class ScreeningService {
         return new CandidateDetail(toRow(context.type(), candidate, applicant.info(), recommended, null, lines),
                 applicant.info().email(),
                 applicant.phone(), applicant.info().submittedAt(), applicant.certificates(), applicant.documents(),
-                candidate.getMemo(), schoolMentions(companyId, context.recruitmentId(), applicant));
+                candidate.getMemo(), checksSchools(context, candidate)
+                        ? schoolMentions(applicant.documents()) : List.of());
     }
 
-    /** 블라인드 채용인데 서류에 출신 학교를 쓴 문장. 서류 본문은 저장할 때 학교 이름을 가려 두었다. */
-    private List<String> schoolMentions(UUID companyId, UUID recruitmentId, ApplicantDetail applicant) {
-        if (!postings.view(companyId, recruitmentId).content().blind()) {
-            return List.of();
+    /** 서류 전형에서 블라인드 위반 의심을 해제한다. 지원자는 리스트의 원래 자리로 돌아간다. 결정이나 감점이 아니다. */
+    @Transactional
+    public void clearSchoolMention(UUID companyId, UUID stageId, UUID applicationId) {
+        StageContext context = activeContext(companyId, stageId);
+        if (context.type() != StageType.DOCUMENT) {
+            throw new ApiException(HttpStatus.CONFLICT, "NOT_DOCUMENT_STAGE", "Only document stages check schools.");
         }
-        return applicant.documents().stream()
+        candidate(companyId, stageId, applicationId).clearSchoolMention();
+    }
+
+    /** 블라인드 채용 서류 전형에서 해제하지 않은 지원자만 출신 학교를 쓴 문장을 본다. */
+    private boolean checksSchools(StageContext context, StageCandidate candidate) {
+        return context.type() == StageType.DOCUMENT && !candidate.isSchoolCleared()
+                && postings.view(context.companyId(), context.recruitmentId()).content().blind();
+    }
+
+    /** 서류 전형에서 블라인드 위반이 의심되는 지원자: 서류에 출신 학교를 쓰고 HR이 아직 해제하지 않았다. */
+    private Set<UUID> schoolSuspects(StageContext context, List<StageCandidate> all) {
+        if (context.type() != StageType.DOCUMENT
+                || !postings.view(context.companyId(), context.recruitmentId()).content().blind()) {
+            return Set.of();
+        }
+        Map<UUID, List<ApplicantDocument>> documents = applications.documents(context.companyId(),
+                context.recruitmentId());
+        return all.stream()
+                .filter(candidate -> !candidate.isSchoolCleared())
+                .map(StageCandidate::getApplicationId)
+                .filter(id -> !schoolMentions(documents.getOrDefault(id, List.of())).isEmpty())
+                .collect(Collectors.toSet());
+    }
+
+    /** 서류에 출신 학교를 쓴 문장. 서류 본문은 저장할 때 학교 이름을 가려 두었다. */
+    private static List<String> schoolMentions(List<ApplicantDocument> documents) {
+        return documents.stream()
                 .flatMap(document -> BlindMask.attendedSentences(document.text()).stream())
                 .distinct()
                 .toList();
@@ -471,15 +503,17 @@ public class ScreeningService {
                 .collect(Collectors.toMap(ApplicantInfo::applicationId, Function.identity()));
     }
 
+    /** suspects는 서류 전형에서 블라인드 위반이 의심되는 지원자다. 리스트 맨 아래에 모인다. */
     private List<CandidateRow> rows(StageContext context, List<StageCandidate> all,
-            Map<UUID, TabSelection> selected, CandidateFilter filter) {
+            Map<UUID, TabSelection> selected, CandidateFilter filter, Set<UUID> suspects) {
         Map<UUID, ApplicantInfo> infos = infos(context);
         Lines lines = lines(context);
         Set<UUID> recommended = recommended(lines, infos);
         // 서류는 점수를 매기지 않는다. 평가 점수가 같거나 점수가 없는 전형은 이름 순이다
         Comparator<CandidateRow> byName = Comparator.comparing(CandidateRow::name, NAME_ORDER);
         Comparator<CandidateRow> order = switch (context.type()) {
-            case DOCUMENT -> Comparator.comparing((CandidateRow row) -> !row.aboveLine())
+            case DOCUMENT -> Comparator.comparing((CandidateRow row) -> suspects.contains(row.applicationId()))
+                    .thenComparing(row -> !row.aboveLine())
                     .thenComparing(row -> row.analysisStatus() != AnalysisStatus.DONE)
                     .thenComparing(row -> row.metCount() + row.talentCount(), Comparator.reverseOrder())
                     .thenComparing(CandidateRow::name, NAME_ORDER);
