@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -189,7 +190,21 @@ public class ApplicationService {
     /** 제출 문서 본문에 낱말이 들어 있는 지원서. */
     @Transactional(readOnly = true)
     public List<UUID> searchDocuments(UUID companyId, UUID recruitmentId, String keyword) {
-        return documents.searchText(recruitmentId, companyId, keyword);
+        List<UUID> found = documents.searchText(recruitmentId, companyId, keyword);
+        if (found.isEmpty() || !hidesIdentity(companyId, recruitmentId)) {
+            return found;
+        }
+        // 저장한 본문은 가리기 전 글이라, 실제 이름 · 이메일 · 전화번호로 찾으면 그 지원자를 결과에서 뺀다
+        Set<UUID> revealing = applications.findByIdInAndCompanyId(found, companyId).stream()
+                .filter(application -> !BlindMask.maskApplicant(keyword, application.getName())
+                        .equals(BlindMask.maskApplicant(keyword, "")))
+                .map(JobApplication::getId)
+                .collect(Collectors.toSet());
+        String withoutContacts = BlindMask.maskApplicant(keyword, "");
+        if (!withoutContacts.equals(keyword)) {
+            return List.of();
+        }
+        return found.stream().filter(id -> !revealing.contains(id)).toList();
     }
 
     @Transactional(readOnly = true)
