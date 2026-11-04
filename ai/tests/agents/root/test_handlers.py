@@ -228,3 +228,19 @@ def test_precheck_tells_interviewers_they_cannot_change_selection(
         assert answer is not None and answer.message == INTERVIEWER_LOCKED
     # 면접관도 질문 만들기는 된다
     assert precheck(interviewer, questions, interviewer.candidates[:1]) is None
+
+
+def test_handle_questions_carries_ncs(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW)
+    rows = rows_of(context, "정유민")
+    form = QuestionsPlan(scope=Scope(sources=["mentions"]), checks="none", ncs="HELPFUL")
+
+    handled = handle_questions(context, form, rows)
+
+    assert handled.plan.question_ncs == "HELPFUL"
+
+
+def test_questions_plan_defaults_to_skip_ncs() -> None:
+    assert QuestionsPlan(scope=Scope(sources=["mentions"]), checks="none").ncs == "SKIP"

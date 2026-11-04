@@ -135,6 +135,8 @@ def questions_plan(
         "question_focus": focus,
         "question_memos": memos,
         "question_replace": form.replace,
+        # 메모 질문은 면접 기록에서 확인할 점을 묻는 것이라 NCS를 참고하지 않는다
+        "question_ncs": "SKIP" if form.checks == "memos" else form.ncs,
     }
     return plan.model_copy(update=update)
 

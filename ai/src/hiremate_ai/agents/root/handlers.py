@@ -143,7 +143,11 @@ def handle_edit(context: ChatContext, form: EditPlan, rows: Sequence[CandidateRo
 def handle_questions(context: ChatContext, form: QuestionsPlan, rows: Sequence[CandidateRow]) -> Handled:
     """확인할 점 없이 만드는 면접 질문. backend가 요청 문장을 그대로 질문 생성 Agent에 넘긴다."""
     plan = ChatPlan.answer(Intent.ANSWER, QUESTIONS_REQUESTED.format(count=len(rows)), agents=[INTERVIEW_AGENT])
-    update = {"question_targets": [row.application_id for row in rows], "question_replace": form.replace}
+    update = {
+        "question_targets": [row.application_id for row in rows],
+        "question_replace": form.replace,
+        "question_ncs": form.ncs,
+    }
     return Handled(plan.model_copy(update=update), "ANSWER")
 
 

@@ -7,7 +7,7 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -107,6 +107,11 @@ _DOCUMENT_LABELS = {
     DocumentType.PORTFOLIO: "포트폴리오",
     DocumentType.CERTIFICATE: "자격증",
 }
+
+
+NcsUse = Literal["SKIP", "REQUESTED", "HELPFUL"]
+"""면접 질문을 만들 때 NCS를 참고할지 (Root 계획이 정한다). REQUESTED는 HR이 NCS를 참고하라고 한 요청이라,
+참고하지 못하면 backend가 알린다. 없으면 SKIP이고 지금처럼 만든다."""
 
 
 class StageType(StrEnum):

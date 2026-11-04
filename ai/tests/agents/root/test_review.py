@@ -16,7 +16,7 @@ from hiremate_ai.agents.root.review import (
     review_items,
 )
 from hiremate_ai.agents.root.scope import Scope
-from hiremate_ai.agents.root.types import ChatContext
+from hiremate_ai.agents.root.types import ChatContext, ChatPlan, Intent
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, InterviewerMemo, PostingContent, StageType
 from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
 from hiremate_ai.llm.fake import FakeLlm, FakeReply, LlmCall
@@ -285,3 +285,47 @@ async def test_later_stage_gap_is_rewritten(
     _, checked = await review_items(llm, context, ledger, "정리했어요.", [draft(ref, text=text)])
 
     assert checked[0].item.text == "결제 API를 개발했어요."
+
+
+async def test_questions_plan_carries_ncs(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW)
+    row = context.candidates[0]
+    ledger = Ledger()
+    ref = ledger.add(row.application_id, "외부 연동 설계 경험", source="이력서", cap="CHECK")
+    focus = [FocusDraft(candidate="C1", text="외부 연동을 본인이 설계했는지", refs=[ref])]
+    _, checked = await review_items(
+        FakeLlm(judged(("I1", "SUPPORTED"), ("M", "SUPPORTED"))), context, ledger, "정리", focus_drafts(focus)
+    )
+    form = QuestionsPlan(scope=Scope(sources=["mentions"]), checks="documents", ncs="REQUESTED")
+
+    plan = questions_plan(context, [row], form, checked)
+
+    assert plan is not None and plan.question_ncs == "REQUESTED"
+
+
+async def test_memos_never_use_ncs(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, stage_type=StageType.INTERVIEW)
+    row = context.candidates[0]
+    memo = InterviewerMemo(stage_id=context.stage_id, stage_name="1차 면접", text="리더 역할 확인")
+    ledger = Ledger()
+    ref = ledger.add(row.application_id, "[1차 면접] 리더 역할 확인", source="면접관메모", cap="CHECK", memo=memo)
+    focus = [FocusDraft(candidate="C1", text="리더 역할을 실제로 맡았는지", refs=[ref])]
+    _, checked = await review_items(
+        FakeLlm(judged(("I1", "SUPPORTED"), ("M", "SUPPORTED"))), context, ledger, "정리", focus_drafts(focus)
+    )
+    form = QuestionsPlan(scope=Scope(sources=["mentions"]), checks="memos", ncs="REQUESTED")
+
+    plan = questions_plan(context, [row], form, checked)
+
+    assert plan is not None and plan.question_ncs == "SKIP"
+
+
+def test_old_turn_without_question_ncs() -> None:
+    saved = ChatPlan.answer(Intent.ANSWER, "답").model_dump(mode="json", by_alias=True)
+    saved.pop("questionNcs", None)
+
+    assert ChatPlan.model_validate(saved).question_ncs == "SKIP"
