@@ -45,7 +45,7 @@ export function PostingPosterPage() {
       ) : (
         <div className="p-6">
           <div className="mb-4 flex items-center gap-3">
-            <h1 className="text-xl font-bold">공고 작성</h1>
+            <h1 className="text-xl font-bold">공고 디자인</h1>
             <span className="text-sm text-muted-foreground">Poster</span>
           </div>
           {posting.isError ? (
@@ -213,7 +213,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
   )
   return (
     <>
-      <PostingStepHeader title="공고 작성" caption="Poster">
+      <PostingStepHeader title="공고 디자인" caption="Poster">
         <Button
           variant="outline"
           className="min-w-20"
@@ -382,7 +382,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
                   ))}
                 </div>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   className="mt-2"
                   onClick={() => {
