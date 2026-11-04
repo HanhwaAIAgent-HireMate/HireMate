@@ -141,7 +141,8 @@ def test_revise_returns_backend_result_shape() -> None:
         ContentChanges(
             changes=[
                 FieldChange(field="우대 사항", text=None, items=["금융 도메인 경험", "결제 · 정산 시스템 운영 경험"])
-            ]
+            ],
+            left_out=[],
         ),
     )
 
@@ -155,7 +156,7 @@ def test_revise_returns_backend_result_shape() -> None:
         ("status", {"text": "수정안을 쓰고 있어요", "depth": 0}),
     ]
     assert done_of(response) == {
-        "reply": "우대 사항 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요.",
+        "reply": "우대 사항(1줄 추가) 수정안을 만들었어요. 바뀐 부분을 확인하고 적용해 주세요.",
         "suggestion": {
             "content": {**CONTENT, "preferred": ["금융 도메인 경험", "결제 · 정산 시스템 운영 경험"]},
             "stages": None,
@@ -173,6 +174,7 @@ def test_revise_passes_ncs_dependency() -> None:
         CitedContentChanges(
             changes=[FieldChange(field="주요 업무", text=None, items=["결제 승인 · 정산 API 개발", duty])],
             citations=[LineCitation(field="주요 업무", line=duty, sources=["S1"])],
+            left_out=[],
         ),
         SupportReview(verdicts=[SupportVerdict(index=0, verdict="supports")]),
     )

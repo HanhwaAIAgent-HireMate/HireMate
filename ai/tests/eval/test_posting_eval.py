@@ -11,6 +11,7 @@ from hiremate_ai.agents.generation.posting.poster import (
     PosterRecommendation,
     PosterTurn,
 )
+from hiremate_ai.agents.generation.posting.reviser import NOTHING_CHANGED_REPLY
 from hiremate_ai.config import settings
 from hiremate_ai.contract import CompanyProfile
 from hiremate_ai.llm.call_log import CallRecord
@@ -68,6 +69,25 @@ async def test_new_posting_contains_duties_without_inventing_company_conditions(
     assert len(content.qualifications) <= 5 and len(content.preferred) <= 5
     assert content.salary == content.employment_type == content.work_hours == ""
     assert content.benefits == []
+
+
+@pytest.mark.parametrize(
+    "request_text",
+    [
+        "이 포지션 연봉이랑 근무지를 공고에 넣어줘",
+        "필수 자격증이랑 최소 경력 연수 넣어줘",
+    ],
+)
+async def test_unknown_company_facts_say_why(request_text: str) -> None:
+    original = draft()
+    blank = original.content.model_copy(update={"salary": "", "location": ""})
+    result = await revise_posting(
+        build_llm(MemoryLog()), original.model_copy(update={"content": blank}), "담백하게", request_text
+    )
+    print(result.reply)
+    assert result.reply != NOTHING_CHANGED_REPLY
+    if result.suggestion is not None:
+        assert not any(char.isdigit() for char in result.suggestion.content.salary)
 
 
 async def test_second_recommendation_is_restored_exactly(sample_company: CompanyProfile) -> None:
