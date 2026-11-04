@@ -135,8 +135,9 @@ def merge(
 ) -> tuple[list[Fact], list[Period]]:
     """원문에서 찾은 근거만 남겨 합친다. 근거가 하나도 남지 않은 사실과 기간은 버린다 (아키텍처 규칙 7).
 
-    블라인드 채용(blind)이면 학력 사실 · 기간과, 사실이나 근거 문장에 학력 · 출신 학교가 나오는 사실을 버린다.
-    근거 문장은 원문 그대로여야 해서 학교 이름만 가리지 않고 그 사실을 통째로 뺀다 (규칙 7).
+    블라인드 채용(blind)이면 출신 학교와 학력 수준(학위 · 학점 등)이 드러나는 사실과 학력 기간을 버린다.
+    서류의 학교 이름 · 학점은 저장할 때 "○○"로 가려 두므로, 전공이나 공부한 과목처럼 직무와 관련된 학력 사실은 남긴다.
+    근거 문장은 원문 그대로여야 해서 낱말만 가리지 않고 그 사실을 통째로 뺀다 (규칙 7).
     """
     facts: list[Fact] = []
     periods: list[Period] = []
@@ -146,7 +147,7 @@ def merge(
             quotes = quotes_in([document], fact.evidence)
             key = _normalize(fact.statement)
             kind = fact.kind.strip().upper()
-            if blind and _mentions_education(kind, fact.statement, quotes):
+            if blind and _mentions_education(fact.statement, quotes):
                 continue
             if quotes and key not in seen:
                 seen.add(key)
@@ -162,7 +163,8 @@ def merge(
             found = quotes_in([document], period.evidence)
             months = months_between(period.start, period.end, today)
             kind = period.kind.strip().upper()
-            if blind and _mentions_education(kind, f"{period.company} {period.role}", found):
+            # 학력 기간은 다닌 햇수로 학력 수준을 짐작할 수 있어 통째로 뺀다
+            if blind and (kind == "EDUCATION" or _mentions_education(f"{period.company} {period.role}", found)):
                 continue
             if found and months is not None:
                 periods.append(
@@ -180,9 +182,9 @@ def merge(
     return facts, periods
 
 
-def _mentions_education(kind: str, text: str, quotes: Sequence[Quote]) -> bool:
-    """블라인드 채용에서 빼는 사실인지. 학력 종류이거나, 글이나 근거 문장에 학력 · 출신 학교가 나온다."""
-    return kind == "EDUCATION" or any(education_term(part) for part in [text, *(quote.sentence for quote in quotes)])
+def _mentions_education(text: str, quotes: Sequence[Quote]) -> bool:
+    """블라인드 채용에서 빼는 내용인지. 글이나 근거 문장에 출신 학교나 학력 수준(학위 · 학점 등) 낱말이 나온다."""
+    return any(education_term(part) for part in [text, *(quote.sentence for quote in quotes)])
 
 
 async def summarize(
