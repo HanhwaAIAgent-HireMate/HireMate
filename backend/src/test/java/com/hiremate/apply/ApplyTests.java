@@ -36,8 +36,9 @@ class ApplyTests extends IntegrationTest {
         TestApi hr = newHr();
         Posting posting = publishBlind(hr, "");
         Map<String, Object> form = form("blind-name@example.com", false);
+        form.put("name", "Yuna Noh");
         form.put("resume", new TestApi.FilePart("resume.pdf", "application/pdf",
-                pdf("Contact blind-name@example.com or 010-1234-5678. Java Spring payment 5 years")));
+                pdf("Yuna Noh. Contact blind-name@example.com or 010-1234-5678. Java Spring payment 5 years")));
         expect(anonymous().multipart(posting.applyPath(), form), 201);
         UUID recruitmentId = UUID.fromString(posting.recruitmentId());
 
@@ -46,8 +47,12 @@ class ApplyTests extends IntegrationTest {
         assertThat(info.email()).isEmpty();
         ApplicantDetail detail = applications.detail(hr.companyId(), info.applicationId());
         assertThat(detail.phone()).isEmpty();
-        assertThat(detail.documents().getFirst().text()).contains("Contact ○○○ or ○○○.", "Java Spring")
-                .doesNotContain("blind-name@example.com", "010-1234-5678");
+        assertThat(detail.documents().getFirst().text()).contains("○○○. Contact ○○○ or ○○○.", "Java Spring")
+                .doesNotContain("Yuna", "blind-name@example.com", "010-1234-5678");
+        // 저장한 본문은 가리기 전 글이라, 실제 이름 · 이메일로 찾으면 찾지 못한다
+        assertThat(applications.searchDocuments(hr.companyId(), recruitmentId, "Java")).hasSize(1);
+        assertThat(applications.searchDocuments(hr.companyId(), recruitmentId, "Yuna")).isEmpty();
+        assertThat(applications.searchDocuments(hr.companyId(), recruitmentId, "blind-name@example.com")).isEmpty();
         assertThat(json(expect(hr.get("/api/recruitments/" + recruitmentId + "/applications"), 200))
                 .path("items").get(0).path("name").asString()).isEqualTo("1번 지원자");
 
@@ -65,7 +70,7 @@ class ApplyTests extends IntegrationTest {
         assertThat(applications.applicants(hr.companyId(), recruitmentId).getFirst().name()).isEqualTo("1번 지원자");
         expect(hr.post("/api/stages/" + progress.path("stages").get(0).path("id").asString() + "/confirm", null), 200);
         ApplicantInfo revealed = applications.applicants(hr.companyId(), recruitmentId).getFirst();
-        assertThat(revealed.name()).isEqualTo("정유민");
+        assertThat(revealed.name()).isEqualTo("Yuna Noh");
         assertThat(revealed.email()).isEqualTo("blind-name@example.com");
     }
 
