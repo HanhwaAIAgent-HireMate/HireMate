@@ -104,7 +104,8 @@ class AgentReportTests extends IntegrationTest {
         assertThat(marks).containsOnlyKeys("document.criterion.Q-01", "document.criterion.Q-02");
         assertThat(marks.get("document.criterion.Q-01").path("value").asString()).isEqualTo("MET");
         assertThat(marks.get("document.criterion.Q-02").path("value").asString()).isEqualTo("PARTIAL");
-        assertThat(marks.get("document.criterion.Q-01").path("label").asString()).startsWith("Q-01 ");
+        // 리포트 차트에 내부 번호(Q-01)가 보이지 않게 이름표는 항목 문장만 쓴다
+        assertThat(marks.get("document.criterion.Q-01").path("label").asString()).doesNotContain("Q-01");
         assertThat(marks.get("document.criterion.Q-01").path("stageId").asString()).isEqualTo(stage.stageId());
     }
 

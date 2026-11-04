@@ -12,7 +12,6 @@ import { toReportView, useAgentReport, useReportDistribution, useRequestCompareR
 import { DistributionView } from './DistributionView'
 import { ReportBody, ReportTitle } from './ReportBody'
 import { ReportProgress } from './ReportProgress'
-import { skillLabel } from '@/features/report/skills'
 
 export type ReportTab = 'deep' | 'distribution'
 
@@ -169,14 +168,7 @@ function DeepReport({
             <ReportTitle report={view} />
           </h3>
           <div className="flex flex-wrap gap-1">
-            {view.skills.map((skill) => (
-              <span
-                key={skill}
-                className="rounded-md bg-ai-soft px-2 py-0.5 text-[11.5px] font-semibold text-ai"
-              >
-                지침 · {skillLabel(skill)}
-              </span>
-            ))}
+            {/* Report Agent가 읽은 스킬 이름은 내부 작업 정보라 담당자 화면에 보이지 않는다 */}
             {view.fallback && (
               <span className="rounded-md bg-fail px-2 py-0.5 text-[11.5px] font-semibold text-fail-foreground">
                 기본 구성

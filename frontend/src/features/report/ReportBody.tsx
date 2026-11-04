@@ -114,19 +114,9 @@ export function ReportBody({ report }: { report: ReportView }) {
               {String(index + 1).padStart(2, '0')}
             </span>
             <h3 className="text-base font-bold">{ctx.text(section.title)}</h3>
-            {section.area && (
-              <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                영역
-              </span>
-            )}
           </div>
           <p className="text-sm leading-6 font-semibold text-foreground/90">
-            {/* 섹션 한 줄 요약은 Report Agent가 그 섹션의 표를 읽고 쓴 해석이다. 기본 구성이면 코드가 쓴 문구라 표시하지 않는다 */}
-            {!report.fallback && (
-              <span className="mr-1.5 rounded bg-ai-soft px-1.5 py-0.5 align-[1px] text-[11px] font-bold text-ai">
-                ◇ AI 해석
-              </span>
-            )}
+            {/* 섹션 한 줄 요약은 Report Agent가 그 섹션의 표를 읽고 쓴 해석이다. 'AI 해석' 표시는 붙이지 않는다 */}
             {ctx.text(section.takeaway)}
           </p>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
