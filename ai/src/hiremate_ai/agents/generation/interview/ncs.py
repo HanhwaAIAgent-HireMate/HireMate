@@ -76,11 +76,30 @@ class NcsCheck(BaseModel):
     verdicts: list[NcsVerdict]
 
 
-_cache: dict[tuple[str, tuple[str, ...]], tuple[float, NcsSources | None]] = {}
+SearchKey = tuple[str, str, tuple[str, ...]]
+"""검색 기억의 키: (요청, 직무 이름, 공고 주요 업무). 검색에 들어가는 입력을 모두 담는다."""
+
+_cache: dict[SearchKey, tuple[float, NcsSources | None]] = {}
+
+
+def _now() -> float:
+    return time.monotonic()
 
 
 def clear_cache() -> None:
     _cache.clear()
+
+
+def cached_keys() -> list[SearchKey]:
+    return list(_cache)
+
+
+def remember(key: SearchKey, sources: NcsSources | None) -> None:
+    """검색 결과를 기억하고, 기한이 지난 기억은 이때 지운다 (서버를 오래 띄워도 쌓이지 않게)."""
+    now = _now()
+    for old in [old for old, (saved, _) in _cache.items() if now - saved >= CACHE_SECONDS]:
+        del _cache[old]
+    _cache[key] = (now, sources)
 
 
 async def interview_sources(
@@ -90,15 +109,14 @@ async def interview_sources(
 
     검색 서비스 실패(UNAVAILABLE)는 잠깐의 문제일 수 있어 기억하지 않는다.
     """
-    key = (focus, tuple(posting.duties))
-    now = time.monotonic()
-    hit = _cache.get(key)
-    if hit is not None and now - hit[0] < CACHE_SECONDS:
-        return hit[1]
     job = posting.job_category or posting.title
+    key: SearchKey = (focus, job, tuple(posting.duties))
+    hit = _cache.get(key)
+    if hit is not None and _now() - hit[0] < CACHE_SECONDS:
+        return hit[1]
     sources, miss = await find_sources(llm, ncs, focus, job, agent=AGENT, system=QUERY_SYSTEM, prefix="N")
     if miss != "UNAVAILABLE":
-        _cache[key] = (now, sources)
+        remember(key, sources)
     return sources
 
 

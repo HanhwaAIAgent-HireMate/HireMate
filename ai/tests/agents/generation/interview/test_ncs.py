@@ -320,8 +320,10 @@ async def test_check_failure_drops_all_citations(
     analysis: CandidateAnalysis,
     interview: InterviewView,
 ) -> None:
+    """판정을 받지 못한 NCS 질문은 경험 전제를 확인하지 못했으므로 남기지 않는다. 다시 써도 안 되면 기본 질문이다."""
+    llm = fake(model(checks=[Malformed(), Malformed()]))
     drafts = await run(
-        fake(model(checks=[Malformed()])),
+        llm,
         sample_applicants["이도윤"],
         sample_posting,
         analysis,
@@ -331,7 +333,36 @@ async def test_check_failure_drops_all_citations(
     )
 
     assert drafts and cited(drafts) == []
+    assert GOOD not in [draft.text for draft in drafts]
     assert all("출처: NCS" not in (draft.reason or "") for draft in drafts)
+    writes = [call for call in llm.calls if call.output is QuestionDraft]
+    assert len(writes) == 2 and "출처 판정을 마치지 못해" in writes[1].user
+
+
+async def test_job_name_is_part_of_search_reuse(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    analysis: CandidateAnalysis,
+    interview: InterviewView,
+) -> None:
+    """주요 업무가 같아도 직무가 다른 공고는 검색을 따로 한다."""
+    reference = FakeNcs(found=[BATCH])
+    llm = fake(model())
+    other = sample_posting.model_copy(update={"job_category": "데이터 엔지니어"})
+    for posting in (sample_posting, other):
+        await run(llm, sample_applicants["이도윤"], posting, analysis, interview, ncs="HELPFUL", reference=reference)
+
+    assert len(reference.searches) == 2
+
+
+def test_expired_searches_are_dropped(monkeypatch: pytest.MonkeyPatch, sample_posting: PostingContent) -> None:
+    """기한이 지난 검색 기억은 새로 기억할 때 지운다."""
+    clock = iter([0.0, interview_ncs.CACHE_SECONDS + 1])
+    monkeypatch.setattr(interview_ncs, "_now", lambda: next(clock))
+    interview_ncs.remember(("첫 요청", "직무", ()), None)
+    interview_ncs.remember(("둘째 요청", "직무", ()), None)
+
+    assert interview_ncs.cached_keys() == [("둘째 요청", "직무", ())]
 
 
 async def test_requested_not_found_has_no_cited(
