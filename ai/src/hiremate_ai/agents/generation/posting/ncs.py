@@ -155,7 +155,9 @@ async def _find(llm: LlmClient, ncs: NcsReference, request: str, job: str) -> tu
         logger.warning("NCS 검색어 만들기 실패: %s", type(error).__name__)
         return None, NCS_UNAVAILABLE
     known = {unit.code for unit in units}
-    chosen = list(dict.fromkeys(code for code in query.units if code in known))[:MAX_UNITS]
+    # 모델이 '코드 단위명: 주요 업무' 줄을 통째로 적기도 해서 앞의 코드만 본다
+    codes = (unit.split(maxsplit=1)[0] if unit.strip() else "" for unit in query.units)
+    chosen = list(dict.fromkeys(code for code in codes if code in known))[:MAX_UNITS]
     try:
         found = await ncs.search(request, query.tasks, chosen)
     except NcsUnavailable as error:

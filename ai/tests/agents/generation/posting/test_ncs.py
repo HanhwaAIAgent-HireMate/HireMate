@@ -41,6 +41,16 @@ async def test_find_sources_drops_unknown_units() -> None:
     assert notice is None
 
 
+async def test_find_sources_accepts_unit_lines_copied_whole() -> None:
+    """모델이 능력단위 목록의 줄을 통째로 적어도 앞의 코드로 고른다 (실제 모델 평가에서 본 답)."""
+    ncs = FakeNcs()
+    whole = f"{UNIT} 서버프로그램 구현: 서버 프로그램 구현하기"
+
+    await find_sources(FakeLlm(query([whole])), ncs, "서버 업무 추천해줘", "백엔드 개발")
+
+    assert ncs.searches[0][2] == [UNIT]
+
+
 async def test_find_sources_gives_unit_list_and_request_to_model() -> None:
     llm = FakeLlm(query())
 
