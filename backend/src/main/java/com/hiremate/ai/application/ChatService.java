@@ -58,6 +58,8 @@ public class ChatService {
     private static final String KEPT_QUESTIONS = "직접 넣은 질문 %d개와 답변을 기록한 질문 %d개는 남겼어요.";
     public static final String INTERVIEWER_LOCKED =
             "면접관 모드에서는 선택 지원자를 바꿀 수 없어요. 지원자 분석과 질문 만들기는 할 수 있어요.";
+    /** NCS를 참고하라고 했는데 인용한 질문이 없을 때 Chat 답 끝에 붙이는 안내. */
+    static final String NCS_MISSED = "요청하신 NCS를 참고하지 못해, NCS 없이 질문을 만들었어요.";
     static final String INTERVIEWER_REPLACE = "면접관 모드에서는 기존 질문을 지우지 않고 새 질문만 더해요.";
 
     private final ScreeningService screening;
@@ -308,7 +310,7 @@ public class ChatService {
                 : Stream.concat(plan.agents().stream(), Stream.of(ReportResults.AGENT)).toList();
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), plan.message(), plan.items(),
                 plan.sources(), agents, plan.questionTargets(), plan.questionFocus(), plan.questionMemos(),
-                plan.questionReplace(), report);
+                plan.questionReplace(), report, plan.questionNcs());
     }
 
     private Map<UUID, Boolean> selected(UUID companyId, UUID stageId, UUID tabId) {
@@ -371,7 +373,7 @@ public class ChatService {
                 .filter(item -> item.applicationId() == null || targets.contains(item.applicationId())).toList();
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), targets, message, items,
                 plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos(),
-                plan.questionReplace(), plan.report());
+                plan.questionReplace(), plan.report(), plan.questionNcs());
     }
 
     /**
@@ -385,6 +387,7 @@ public class ChatService {
         List<ChatItem> summaries = new ArrayList<>();
         List<String> shortfalls = new ArrayList<>();
         List<String> kept = new ArrayList<>();
+        List<String> ncsMissed = new ArrayList<>();
         int limit = requestedQuestionCount(message);
         for (UUID applicationId : plan.questionTargets()) {
             String name = candidates.stream().filter(row -> row.applicationId().equals(applicationId))
@@ -406,9 +409,19 @@ public class ChatService {
             Set<UUID> before = interviews.questionIds(companyId, stageId, applicationId);
             String focus = plan.questionFocus().getOrDefault(applicationId, message);
             InterviewerMemo memo = plan.questionMemos().get(applicationId);
-            InterviewView view = memo == null
-                    ? interviews.generate(companyId, stageId, applicationId, focus, limit, role)
-                    : interviews.generateFromMemo(companyId, stageId, applicationId, focus, memo, role);
+            InterviewView view;
+            if (memo != null) {
+                view = interviews.generateFromMemo(companyId, stageId, applicationId, focus, memo, role);
+            } else if (plan.questionNcs() == NcsUse.SKIP) {
+                view = interviews.generate(companyId, stageId, applicationId, focus, limit, role);
+            } else {
+                InterviewAiService.NcsGenerated generated = interviews.generateWithNcs(companyId, stageId,
+                        applicationId, focus, limit, role, plan.questionNcs());
+                view = generated.view();
+                if (plan.questionNcs() == NcsUse.REQUESTED && !generated.cited()) {
+                    ncsMissed.add(plan.questionTargets().size() > 1 ? name + ": " + NCS_MISSED : NCS_MISSED);
+                }
+            }
             List<InterviewView.Question> added = view.questions().stream()
                     .filter(question -> !before.contains(question.questionId()))
                     .filter(question -> !question.text().equals(InterviewService.INTRO)).toList();
@@ -423,11 +436,12 @@ public class ChatService {
         }
         List<ChatItem> items = plan.items().isEmpty() ? summaries : plan.items();
         List<String> notes = new ArrayList<>(shortfalls);
+        notes.addAll(ncsMissed);
         notes.addAll(kept);
         String reply = plan.message() + (notes.isEmpty() ? "" : "\n" + String.join("\n", notes));
         return new ChatPlan(plan.intent(), plan.mode(), plan.edit(), plan.targets(), reply, items,
                 plan.sources(), plan.agents(), plan.questionTargets(), plan.questionFocus(), plan.questionMemos(),
-                plan.questionReplace(), plan.report());
+                plan.questionReplace(), plan.report(), plan.questionNcs());
     }
 
     static int requestedQuestionCount(String message) {

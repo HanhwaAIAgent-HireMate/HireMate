@@ -143,6 +143,25 @@ public class InterviewAiService {
                         .limit(limit).toList(), role));
     }
 
+    /** NCS 참고 Chat 요청의 결과. cited는 카드에 넣은 질문 가운데 NCS 원문을 인용한 질문이 있었는가다. */
+    public record NcsGenerated(InterviewView view, boolean cited) {
+    }
+
+    /**
+     * Root 계획이 NCS 참고를 정한 Chat 요청. {@link #generate(UUID, UUID, UUID, String, int, InterviewerRole)}와 같은 순서로
+     * 질문을 넣고, 넣은 질문이 NCS를 인용했는지 함께 돌려준다.
+     */
+    public NcsGenerated generateWithNcs(UUID companyId, UUID stageId, UUID applicationId, String focus, int limit,
+            InterviewerRole role, NcsUse ncs) {
+        Inputs in = inputs(companyId, stageId, applicationId, interviews.view(companyId, stageId, applicationId));
+        List<CitedQuestionDraft> added = agent.citedQuestions(in.applicant(), in.posting(), in.analysis(),
+                in.current(), in.company(), focus, limit, ncs).stream()
+                .filter(question -> !question.text().equals(InterviewService.INTRO)).limit(limit).toList();
+        InterviewView view = interviews.addGeneratedQuestions(companyId, stageId, applicationId,
+                withRole(added.stream().map(CitedQuestionDraft::draft).toList(), role));
+        return new NcsGenerated(view, added.stream().anyMatch(CitedQuestionDraft::ncsCited));
+    }
+
     private static List<InterviewQuestionDraft> withRole(List<InterviewQuestionDraft> drafts, InterviewerRole role) {
         return role == null ? drafts : drafts.stream()
                 .map(draft -> new InterviewQuestionDraft(draft.text(), draft.reason(), role)).toList();
