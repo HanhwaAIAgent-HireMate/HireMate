@@ -35,3 +35,12 @@ class InterviewFollowUps(ContractModel):
 
     needed: bool
     suggestions: list[FollowUpSuggestion] = Field(default_factory=list)
+
+
+class CitedQuestionDraft(InterviewQuestionDraft):
+    """NCS를 참고한 Chat 요청의 질문. ncs_cited는 이 질문이 판정을 통과한 NCS 원문을 인용했는가다.
+
+    NCS를 참고하지 않는 요청(자동 생성, SKIP)은 지금처럼 InterviewQuestionDraft만 쓴다.
+    """
+
+    ncs_cited: bool = False
