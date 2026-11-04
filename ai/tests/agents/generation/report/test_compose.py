@@ -895,7 +895,7 @@ async def test_agent_loads_skills_and_reads_tools_without_other_agents() -> None
     # 화면의 AI 작업 과정: 읽은 지침, 도구로 읽은 자료, 검사 결과
     assert composed.steps[0].startswith("지침 3개를 읽음")
     assert "판정 · 값 30개를 읽음 (3명)" in composed.steps
-    assert "설계서 검사 1번째에 통과" in composed.steps
+    assert "구성 검사를 1번째에 통과" in composed.steps
 
 
 async def test_agent_rewrites_twice_then_falls_back() -> None:
@@ -915,7 +915,7 @@ async def test_model_server_error_falls_back_instead_of_failing() -> None:
     composed = await compose_report(bundle(), FakeLlm(server_down))
     assert composed.fallback
     assert composed.spec.summary == NO_SUMMARY
-    assert composed.steps[-1] == "모델 서버 오류로 설계서를 받지 못해 코드가 기본 구성을 만듦"
+    assert composed.steps[-1] == "모델 서버 오류로 AI 구성을 받지 못해 코드가 숫자와 표로 만듦"
 
 
 async def test_agent_fixes_on_retry() -> None:
@@ -1272,7 +1272,7 @@ def test_repair_expands_wildcard_keys_in_parts() -> None:
     drawn = [block for block in fixed.all_blocks() if isinstance(block, TallyBlock)]
     assert drawn[0].keys == ["document.criterion.Q-01", "document.criterion.Q-05"]
     assert not any("없는 값 key" in p for p in problems(fixed, bundle()))
-    assert "값 key의 *를 항목으로 폄" in notes
+    assert "그래프에 넣을 항목을 하나씩 채움" in notes
 
 
 def test_repair_pairs_one_item_perspectives_without_a_rewrite() -> None:

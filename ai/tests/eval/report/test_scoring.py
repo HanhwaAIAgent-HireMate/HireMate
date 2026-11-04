@@ -14,7 +14,7 @@ CASES = {case.id: case for case in cases()}
 def composed(case_id: str, spec: ReportSpec, steps: list[str] | None = None) -> ComposedReport:
     case = CASES[case_id]
     return ComposedReport(
-        spec=spec, skills=[], fallback=False, bundle=bundle(case), steps=steps or ["설계서 검사 1번째에 통과"]
+        spec=spec, skills=[], fallback=False, bundle=bundle(case), steps=steps or ["구성 검사를 1번째에 통과"]
     )
 
 

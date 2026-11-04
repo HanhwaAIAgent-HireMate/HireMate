@@ -47,7 +47,7 @@ export function AgentReportModal({
               <>
                 <p className="flex items-center gap-2">
                   <Loader2 className="size-4 animate-spin" />
-                  스킬을 읽고 전형 기록을 살펴 그래프와 근거를 고르는 중이에요.
+                  지침을 읽고 전형 기록을 살펴 그래프와 근거를 고르는 중이에요.
                 </p>
                 <ReportProgress
                   createdAt={report.data?.createdAt}

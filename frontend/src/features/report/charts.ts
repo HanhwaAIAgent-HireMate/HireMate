@@ -68,14 +68,17 @@ function valueAxis(max: number, extra: Record<string, unknown> = {}) {
   }
 }
 
-function nameAxis(names: string[], width = 120) {
+/** 세로로 늘어놓는 이름 축. wrap이면 긴 이름(평가 항목)을 자르지 않고 두 줄까지 줄바꿈한다 */
+function nameAxis(names: string[], width = 120, wrap = false) {
   return {
     type: 'category',
     data: names,
     inverse: true,
     axisTick: { show: false },
     axisLine: { show: false },
-    axisLabel: { color: INK, fontSize: 12, width, overflow: 'truncate' },
+    axisLabel: wrap
+      ? { color: INK, fontSize: 12, width, overflow: 'break', lineHeight: 15 }
+      : { color: INK, fontSize: 12, width, overflow: 'truncate' },
   }
 }
 
@@ -408,14 +411,16 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
         rowNames = block.by === 'key' ? block.keys.map(data.label) : people.map(who)
         values = cells.map((row) => statuses.map((s) => row.filter((v) => v === s).length))
       }
+      // 항목마다 그린 막대는 항목 이름이 길어 자르면 어떤 항목인지 알 수 없으므로 줄바꿈해 다 보여 준다
+      const items = block.type === 'tally' && block.by === 'key'
       return {
-        height: 50 + 34 * values.length,
+        height: 50 + (items ? 46 : 34) * values.length,
         option: base({
           legend,
           tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
           grid: { left: 8, right: 16, top: 30, bottom: 8, containLabel: true },
           xAxis: valueAxis(100, { show: false }),
-          yAxis: nameAxis(rowNames, 140),
+          yAxis: items ? nameAxis(rowNames, 220, true) : nameAxis(rowNames, 140),
           series: bands.map((band, j) => ({
             type: 'bar',
             name: band,

@@ -230,6 +230,7 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
           <ReportStep
             stageId={overview.stageId}
             open={allSent}
+            loading={!notices || reports.isPending}
             latest={latest}
             active={step === 3}
             onRequested={() => void reports.refetch()}
@@ -312,12 +313,15 @@ function CloseSteps({ overview, notices }: { overview: StageOverview; notices?: 
 function ReportStep({
   stageId,
   open,
+  loading,
   latest,
   active,
   onRequested,
 }: {
   stageId: string
   open: boolean
+  /** 안내 · 리포트 목록을 아직 받지 못했다. 그동안 '대기 · 잠금'으로 잘못 보이지 않게 한다 */
+  loading: boolean
   latest: ReportSummary | null
   active: boolean
   onRequested: () => void
@@ -346,7 +350,7 @@ function ReportStep({
       title="전형 결과 리포트"
       active={active}
       badge={
-        !open ? (
+        loading ? undefined : !open ? (
           <Badge>대기</Badge>
         ) : latest?.status === 'DONE' ? (
           <Badge done>완료</Badge>
@@ -355,7 +359,9 @@ function ReportStep({
         )
       }
     >
-      {!open ? (
+      {loading ? (
+        <Skeleton className="h-24 w-full" />
+      ) : !open ? (
         <div className="flex flex-col items-center gap-2 rounded-lg bg-muted/50 px-3 py-6 text-center">
           <Lock className="size-4 text-muted-foreground" />
           <p className="text-xs text-muted-foreground">

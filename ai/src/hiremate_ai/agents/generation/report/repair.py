@@ -75,7 +75,7 @@ def repair(
             done.append(note)
         return after
 
-    sections = step(spec.sections, _expand_wildcards(spec.sections, bundle), "값 key의 *를 항목으로 폄")
+    sections = step(spec.sections, _expand_wildcards(spec.sections, bundle), "그래프에 넣을 항목을 하나씩 채움")
     sections = [section.model_copy(update={"blocks": _complete_rows(section.blocks, bundle)}) for section in sections]
     sections = step(sections, _merged_singles(sections), "항목 하나짜리 그래프를 하나로 합침")
     drawable = _without_undrawable(sections, bundle)

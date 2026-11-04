@@ -73,6 +73,8 @@ export function DistributionView({
 }) {
   const [target, setTarget] = useState<number | null>(null)
   const [sort, setSort] = useState<DistributionSort>('BASIC')
+  // 비교를 요청한 그룹. 기다리는 동안 그 그룹 버튼에만 도는 표시를 붙인다
+  const [asked, setAsked] = useState<string | null>(null)
   const query = useReportDistribution(stageId, target, sort, true)
   const note = useDistributionNote(stageId, target, sort)
   const charts = note.data?.charts ?? {}
@@ -115,7 +117,7 @@ export function DistributionView({
 
       <Section
         title="지원자에서 서류 통과 목표까지"
-        caption="전체 지원자 → 서류 분석 완료 → 필수 조건을 모두 충족한 사람(전형 화면의 선 위) → 서류 통과 목표 순서로 세고, 담당자가 실제로 합격 처리한 인원을 맨 아래에 두었어요."
+        caption="전체 지원자 → 서류 분석 완료 → 필수 조건을 모두 충족한 사람 → 서류 통과 목표 순서로 세고, 담당자가 실제로 합격 처리한 인원을 맨 아래에 두었어요."
         read="막대 길이는 전체 지원자 대비예요. 필수 조건 충족자와 목표의 차이만큼 담당자가 더 골라내거나 더 올려야 해요."
         ai={charts.funnel}
       >
@@ -162,8 +164,12 @@ export function DistributionView({
               key={`${group.id}-${data.target}-${sort}`}
               group={group}
               size={data.deepSize}
-              onDeepDive={onDeepDive}
+              onDeepDive={(ids) => {
+                setAsked(group.id)
+                onDeepDive(ids)
+              }}
               pending={deepPending}
+              busy={deepPending && asked === group.id}
             />
           ))}
         </div>
@@ -715,11 +721,15 @@ function GroupCard({
   size,
   onDeepDive,
   pending,
+  busy,
 }: {
   group: Group
   size: number
   onDeepDive: (applicationIds: string[]) => void
+  /** 어느 그룹이든 비교를 기다리는 중이면 모든 버튼을 막는다 */
   pending: boolean
+  /** 이 그룹이 요청한 비교를 기다리는 중 */
+  busy: boolean
 }) {
   const [page, setPage] = useState(0)
   const pages = Math.ceil(group.people.length / size)
@@ -767,7 +777,7 @@ function GroupCard({
               disabled={pending || shown.length < 2}
               onClick={() => onDeepDive(shown.map((person) => person.applicationId))}
             >
-              {pending && <Loader2 className="animate-spin" />}이 {shown.length}명 비교
+              {busy && <Loader2 className="animate-spin" />}이 {shown.length}명 비교
             </Button>
             {pages > 1 && (
               <div className="ml-auto flex items-center gap-1">

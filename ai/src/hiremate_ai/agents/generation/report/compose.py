@@ -59,6 +59,17 @@ takeaway는 '무엇을 보여 줘요'가 아니라 그림에서 읽은 사실이
 스킬 목록:
 {catalog}"""
 
+SKILL_NAMES = {
+    "visual-guide": "그래프 고르기",
+    "compare": "지원자 비교",
+    "evidence": "근거 고르기",
+    "final": "채용 최종 리포트",
+    "stage-document": "서류 전형 결과",
+    "stage-assessment": "평가 전형 결과",
+    "stage-interview": "면접 전형 결과",
+}
+"""화면의 AI 작업 과정에 보일 지침 이름 (frontend report/skills.ts와 같다)."""
+
 _STAGE_SKILL = {
     StageType.DOCUMENT: "stage-document",
     StageType.ASSESSMENT: "stage-assessment",
@@ -118,19 +129,19 @@ async def compose_report(bundle: ReportBundle, llm: LlmClient) -> ComposedReport
         # 모델 서버 오류(사용 한도, 연결 끊김, 요청 거절)도 SDK가 다시 시도한 뒤라 빈 화면 대신 기본 구성을 낸다
         if isinstance(error, APIError):
             logger.warning("모델 서버 오류로 리포트를 기본 구성으로 만든다 (%s)", type(error).__name__)
-            tried = "모델 서버 오류로 설계서를 받지 못해 코드가 기본 구성을 만듦"
+            tried = "모델 서버 오류로 AI 구성을 받지 못해 코드가 숫자와 표로 만듦"
         else:
             logger.warning("리포트를 기본 구성으로 만든다 (reason=%s)", error.reason.value)
-            tried = f"설계서 검사 {len(repaired)}번에 모두 걸려 코드가 숫자와 표로 기본 구성을 만듦" if repaired else ""
+            tried = f"AI 구성이 검사를 {len(repaired)}번 모두 넘지 못해 코드가 숫자와 표로 만듦" if repaired else ""
         return ComposedReport(
             spec=fallback_spec(bundle),
             skills=scope.skills,
             fallback=True,
             bundle=bundle,
-            steps=steps(scope, [tried or "설계서를 받지 못해 코드가 기본 구성을 만듦"]),
+            steps=steps(scope, [tried or "AI 구성을 받지 못해 코드가 숫자와 표로 만듦"]),
         )
     spec = repaired[-1] if repaired else spec
-    finished = [f"설계서 검사 {max(1, len(repaired))}번째에 통과"]
+    finished = [f"구성 검사를 {max(1, len(repaired))}번째에 통과"]
     finished += [f"코드 보완: {note}" for note in notes]
     return ComposedReport(
         spec=spec.model_copy(update={"skills": scope.skills}),
@@ -155,7 +166,8 @@ def guard_focus(bundle: ReportBundle) -> tuple[ReportBundle, list[str]]:
 
 def steps(scope: ReportScope, finished: list[str]) -> list[str]:
     """화면의 AI 작업 과정. 읽은 스킬, 도구로 읽은 자료, 검사 · 보완 순서다."""
-    lines = [f"지침 {len(scope.skills)}개를 읽음 ({', '.join(scope.skills)})"] if scope.skills else []
+    read = ", ".join(SKILL_NAMES.get(name, name) for name in scope.skills)
+    lines = [f"지침 {len(scope.skills)}개를 읽음 ({read})"] if scope.skills else []
     lines += list(dict.fromkeys(scope.log))
     if scope.read:
         lines.append(f"근거 {sum(scope.read.values())}건을 읽음 ({len(scope.read)}명)")
