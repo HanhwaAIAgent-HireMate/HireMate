@@ -129,7 +129,7 @@ function GuideCard({
       )}
       {locked && (
         <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-          안내 메일을 보내서 고칠 수 없어요. 바뀐 내용은 받은 지원자에게 전화로 알려 주세요.
+          안내 메일을 보내서 고칠 수 없어요. 바뀐 내용은 받은 지원자에게 별도로 안내해 주세요.
         </p>
       )}
       <Field label="일정" problem={problems.schedule}>

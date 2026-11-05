@@ -73,7 +73,7 @@ it('안내 메일 화면의 [입력하러 가기](#next-stage-guide)로 오면 �
   expect(scroll).toHaveBeenCalled()
 })
 
-it('안내 메일을 받은 지원자가 있으면 고칠 수 없고 전화로 알리라고 안내한다', async () => {
+it('안내 메일을 받은 지원자가 있으면 고칠 수 없고 지원자에게 별도로 안내하라고 알린다', async () => {
   stubGuides(3)
   renderGuide('/close')
 
