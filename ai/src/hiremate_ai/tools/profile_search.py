@@ -15,24 +15,306 @@ Root에 연결하는 예
     toolkit = RootToolkit(search=search, ...)
 """
 
+import asyncio
+import logging
+import math
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
+from functools import cache
+from typing import Protocol
 from uuid import UUID
 
+import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hiremate_ai.agents.guardrails import blocked_attribute
+from hiremate_ai.agents.guardrails import blocked_attribute, personal_fact
+from hiremate_ai.config import settings
 from hiremate_ai.contract import DocumentType
 from hiremate_ai.db.profile import CandidateProfile, ItemCategory, ProfileItem, Verification
-from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
+from hiremate_ai.ncs_search.reference import EmbedClient, NcsUnavailable
+from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SearchResults, SourcedSentence
 from hiremate_ai.tools.scope import ToolScope
 
 # 조건 하나에 모으는 근거 문장 수. Root의 재확인이 이 가운데 근거를 고른다
 SENTENCES_PER_CONCEPT = 3
+PROFILE_EMBEDDING_MODEL = "BAAI/bge-m3"
+MIN_PROFILE_SIMILARITY = 0.35
+EMBEDDING_DIMENSIONS = 1024
+logger = logging.getLogger(__name__)
 
 type TermsOf = Callable[[str], list[str]]
 """조건 하나("금융 도메인 경험")를 찾을 낱말들(["금융"])로 바꾸는 함수."""
+
+
+class ProfileEmbedder(Protocol):
+    async def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+type ProfileIndexer = Callable[[UUID, UUID, UUID], Awaitable[None]]
+
+
+async def index_profile_safely(
+    indexer: ProfileIndexer,
+    company_id: UUID,
+    recruitment_id: UUID,
+    application_id: UUID,
+    *,
+    budget_seconds: float | None = None,
+) -> None:
+    try:
+        async with asyncio.timeout(budget_seconds):
+            await indexer(company_id, recruitment_id, application_id)
+    except (NcsUnavailable, TimeoutError, ValueError):
+        logger.warning("프로필 임베딩을 만들지 못했습니다", exc_info=True)
+
+
+class DenseProfileEmbedder:
+    def __init__(self, client: EmbedClient) -> None:
+        self._client = client
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        return [vector.dense for vector in await self._client.embed(texts)]
+
+
+@cache
+def get_profile_embedder() -> ProfileEmbedder:
+    http = httpx.AsyncClient(timeout=settings.ncs_embed_timeout_seconds)
+    return DenseProfileEmbedder(EmbedClient(http, settings.ncs_embed_url))
+
+
+def profile_indexer(
+    sessions: async_sessionmaker[AsyncSession], embedder: ProfileEmbedder, *, model: str | None = None
+) -> ProfileIndexer:
+    async def index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
+        async with sessions() as session:
+            await index_profile_embeddings(
+                session, embedder, company_id, recruitment_id, application_id, model=model or settings.ncs_model
+            )
+            await session.commit()
+
+    return index
+
+
+def profile_embedding_search(
+    sessions: async_sessionmaker[AsyncSession], embedder: ProfileEmbedder, *, model: str
+) -> "ProfileEmbeddingSearch":
+    return ProfileEmbeddingSearch(sessions, embedder, model=model)
+
+
+class ProfileEmbeddingSearch:
+    def __init__(self, sessions: async_sessionmaker[AsyncSession], embedder: ProfileEmbedder, *, model: str) -> None:
+        self._sessions = sessions
+        self._embedder = embedder
+        self._model = model
+        self._indexer = profile_indexer(sessions, embedder, model=model)
+        self._pending: dict[tuple[UUID, UUID, UUID], asyncio.Task[None]] = {}
+        self._gate = asyncio.Semaphore(2)
+
+    async def __call__(self, scope: ToolScope, concepts: Sequence[str], pool: Sequence[UUID]) -> list[CandidateMatch]:
+        order = [candidate for candidate in dict.fromkeys(pool) if candidate in scope.application_ids]
+        if not order:
+            return []
+        async with self._sessions() as session:
+            profiles = list(
+                await session.scalars(
+                    select(CandidateProfile).where(
+                        CandidateProfile.company_id == scope.company_id,
+                        CandidateProfile.recruitment_id == scope.recruitment_id,
+                        CandidateProfile.application_id.in_(order),
+                    )
+                )
+            )
+            indexed = {
+                profile.application_id
+                for profile in profiles
+                if (items := [item for item in profile.items if _semantic_candidate(item)])
+                and all(
+                    _embeddable(item) and item.embedding is not None and item.embedding_model == self._model
+                    for item in items
+                )
+            }
+            repair_ids = [
+                profile.application_id
+                for profile in profiles
+                if any(
+                    _embeddable(item) and (item.embedding is None or item.embedding_model != self._model)
+                    for item in profile.items
+                )
+            ]
+            has_vectors = any(
+                item.embedding is not None and item.embedding_model == self._model and _embeddable(item)
+                for profile in profiles
+                for item in profile.items
+            )
+            warnings = []
+            if len(indexed) != len(order):
+                warnings.append("일부 지원자의 프로필 임베딩이 준비되지 않아 의미 검색이 불완전해요.")
+            matches: list[CandidateMatch] = []
+            if has_vectors:
+                try:
+                    matches = await search_profile_embeddings(
+                        session, self._embedder, scope, concepts, order, model=self._model
+                    )
+                except (NcsUnavailable, ValueError):
+                    warnings = ["의미 검색에 실패해 키워드 검색 결과만 보여 드려요."]
+        for application_id in repair_ids:
+            self._schedule(scope, application_id)
+        return SearchResults(matches, warnings=warnings)
+
+    def _schedule(self, scope: ToolScope, application_id: UUID) -> None:
+        key = (scope.company_id, scope.recruitment_id, application_id)
+        if key in self._pending:
+            return
+        task = asyncio.create_task(self._repair(key))
+        self._pending[key] = task
+        task.add_done_callback(lambda _: self._pending.pop(key, None))
+
+    async def _repair(self, key: tuple[UUID, UUID, UUID]) -> None:
+        try:
+            async with self._gate:
+                await self._indexer(*key)
+        except (NcsUnavailable, SQLAlchemyError, ValueError):
+            logger.warning("프로필 임베딩을 다시 만들지 못했습니다", exc_info=True)
+
+    async def wait_pending(self) -> None:
+        if self._pending:
+            await asyncio.gather(*list(self._pending.values()))
+
+
+async def backfill_profile_embeddings(
+    sessions: async_sessionmaker[AsyncSession],
+    embedder: ProfileEmbedder,
+    company_id: UUID,
+    recruitment_id: UUID,
+    *,
+    model: str = PROFILE_EMBEDDING_MODEL,
+) -> int:
+    async with sessions() as session:
+        candidates = list(
+            await session.scalars(
+                select(CandidateProfile.application_id)
+                .where(CandidateProfile.company_id == company_id, CandidateProfile.recruitment_id == recruitment_id)
+                .order_by(CandidateProfile.application_id)
+            )
+        )
+    for application_id in candidates:
+        async with sessions() as session:
+            await index_profile_embeddings(session, embedder, company_id, recruitment_id, application_id, model=model)
+            await session.commit()
+    return len(candidates)
+
+
+async def index_profile_embeddings(
+    session: AsyncSession,
+    embedder: ProfileEmbedder,
+    company_id: UUID,
+    recruitment_id: UUID,
+    application_id: UUID,
+    *,
+    model: str = PROFILE_EMBEDDING_MODEL,
+) -> None:
+    profile = await session.scalar(
+        select(CandidateProfile).where(
+            CandidateProfile.company_id == company_id,
+            CandidateProfile.recruitment_id == recruitment_id,
+            CandidateProfile.application_id == application_id,
+        )
+    )
+    if profile is None:
+        return
+    items = [
+        item
+        for item in profile.items
+        if _embeddable(item) and (item.embedding is None or item.embedding_model != model)
+    ]
+    for start in range(0, len(items), 4):
+        batch = items[start : start + 4]
+        vectors = await embedder.embed([f"{item.content}\n{item.evidence or ''}"[:2000] for item in batch])
+        if len(vectors) != len(batch) or any(not _valid_vector(vector) for vector in vectors):
+            raise ValueError("프로필 임베딩이 올바르지 않습니다")
+        for item, vector in zip(batch, vectors, strict=True):
+            item.embedding = vector
+            item.embedding_model = model
+    await session.flush()
+
+
+async def search_profile_embeddings(
+    session: AsyncSession,
+    embedder: ProfileEmbedder,
+    scope: ToolScope,
+    concepts: Sequence[str],
+    pool: Sequence[UUID],
+    *,
+    model: str = PROFILE_EMBEDDING_MODEL,
+) -> list[CandidateMatch]:
+    criteria = [concept for concept in concepts if concept.strip() and not blocked_attribute(concept)]
+    order = [candidate for candidate in dict.fromkeys(pool) if candidate in scope.application_ids]
+    if not criteria or not order:
+        return []
+    vectors = []
+    for start in range(0, len(criteria), 4):
+        batch = criteria[start : start + 4]
+        found = await embedder.embed(batch)
+        if len(found) != len(batch) or any(not _valid_vector(vector) for vector in found):
+            raise ValueError("검색어 임베딩이 올바르지 않습니다")
+        vectors.extend(found)
+    profiles = await session.scalars(
+        select(CandidateProfile).where(
+            CandidateProfile.company_id == scope.company_id,
+            CandidateProfile.recruitment_id == scope.recruitment_id,
+            CandidateProfile.application_id.in_(order),
+        )
+    )
+    by_id = {profile.application_id: profile for profile in profiles}
+    matches: list[CandidateMatch] = []
+    for application_id in order:
+        profile = by_id.get(application_id)
+        if profile is None:
+            continue
+        items = [
+            item
+            for item in profile.items
+            if _embeddable(item) and item.embedding_model == model and item.embedding is not None
+        ]
+        sentences: list[SourcedSentence] = []
+        hits = 0
+        for vector in vectors:
+            ranked = sorted(
+                ((_cosine(vector, item.embedding), index, item) for index, item in enumerate(items)),
+                key=lambda result: (-result[0], result[1]),
+            )
+            selected = [item for score, _, item in ranked if score >= MIN_PROFILE_SIMILARITY][:SENTENCES_PER_CONCEPT]
+            hits += bool(selected)
+            for item in selected:
+                sentence = SourcedSentence(sentence=item.evidence or item.content, source=item.source)
+                if sentence not in sentences:
+                    sentences.append(sentence)
+        if hits:
+            matches.append(CandidateMatch(application_id=application_id, sentences=sentences, hits=hits))
+    return sorted(matches, key=lambda match: -match.hits)
+
+
+def _valid_vector(vector: list[float]) -> bool:
+    return len(vector) == EMBEDDING_DIMENSIONS and all(math.isfinite(value) for value in vector) and any(vector)
+
+
+def _embeddable(item: ProfileItem) -> bool:
+    return _semantic_candidate(item) and not personal_fact(f"{item.content}\n{item.evidence or ''}")
+
+
+def _semantic_candidate(item: ProfileItem) -> bool:
+    return _usable(item) and item.category != ItemCategory.QUALIFICATION
+
+
+def _cosine(left: Sequence[float], right: Sequence[float] | None) -> float:
+    if right is None:
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    norm = math.sqrt(sum(a * a for a in left) * sum(b * b for b in right))
+    return dot / norm if norm else 0.0
+
 
 _DOCUMENT_LABELS = {document.label for document in DocumentType}
 _WORD = re.compile(r"[가-힣]{2,}|[A-Za-z][A-Za-z+#.]+")

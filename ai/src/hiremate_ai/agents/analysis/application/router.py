@@ -36,6 +36,7 @@ from hiremate_ai.contract import (
 from hiremate_ai.db.analysis_store import DbAnalysisArtifacts
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.client import LlmDep
+from hiremate_ai.tools.profile_search import ProfileIndexer, get_profile_embedder, index_profile_safely, profile_indexer
 
 router = APIRouter(tags=["application"])
 
@@ -48,8 +49,15 @@ def get_store() -> ReviewStore:
 StoreDep = Annotated[ReviewStore, Depends(get_store)]
 
 
+def get_profile_indexer() -> ProfileIndexer:
+    return profile_indexer(session_factory(), get_profile_embedder())
+
+
+IndexerDep = Annotated[ProfileIndexer, Depends(get_profile_indexer)]
+
+
 @router.post("/agents/application/analyze")
-async def analyze(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> ApplicationAnalysis:
+async def analyze(request: AnalyzeRequest, llm: LlmDep, store: StoreDep, indexer: IndexerDep) -> ApplicationAnalysis:
     try:
         review = await analyze_application(
             llm,
@@ -58,14 +66,22 @@ async def analyze(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> Appl
             request.posting,
             request.rubric,
             budget_seconds=settings.application_timeout_seconds,
+            review_extraction=True,
         )
     except RubricScopeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    await index_profile_safely(
+        indexer,
+        request.rubric.company_id,
+        request.rubric.recruitment_id,
+        review.application_id,
+        budget_seconds=settings.ncs_embed_timeout_seconds,
+    )
     return to_analysis(review)
 
 
 @router.post("/agents/candidate-analyst/analyze")
-async def candidate(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> CandidateAnalysis:
+async def candidate(request: AnalyzeRequest, llm: LlmDep, store: StoreDep, indexer: IndexerDep) -> CandidateAnalysis:
     try:
         review = await analyze_application(
             llm,
@@ -74,6 +90,7 @@ async def candidate(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> Ca
             request.posting,
             request.rubric,
             budget_seconds=settings.application_card_timeout_seconds,
+            review_extraction=True,
         )
     except RubricScopeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -86,6 +103,13 @@ async def candidate(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> Ca
         if latest is None:
             raise HTTPException(status_code=503, detail="분석이 아직 끝나지 않았다") from error
         review = latest
+    await index_profile_safely(
+        indexer,
+        request.rubric.company_id,
+        request.rubric.recruitment_id,
+        review.application_id,
+        budget_seconds=settings.ncs_embed_timeout_seconds,
+    )
     return to_candidate_analysis(review, request.applicant.documents)
 
 

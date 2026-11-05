@@ -5,7 +5,7 @@ import pytest
 from application_context import YUMIN_SUMMARY, make_posting, make_rubric, scripted, yumin_script
 from fastapi.testclient import TestClient
 
-from hiremate_ai.agents.analysis.application.router import get_store
+from hiremate_ai.agents.analysis.application.router import get_profile_indexer, get_store
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.contract import ApplicantDetail, PostingContent
 from hiremate_ai.db.analysis_store import AnalysisArtifactStore
@@ -39,7 +39,12 @@ class MemoryStore:
 @pytest.fixture
 def store() -> Iterator[MemoryStore]:
     memory = MemoryStore()
+
+    async def no_index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
+        pass
+
     app.dependency_overrides[get_store] = lambda: memory
+    app.dependency_overrides[get_profile_indexer] = lambda: no_index
     yield memory
     app.dependency_overrides.clear()
 
@@ -101,3 +106,56 @@ def test_rubric_of_another_recruitment_is_rejected(
 
     assert response.status_code == 400
     assert store.saved == 0
+
+
+def test_candidate_card_reuses_worker_review(
+    store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    import asyncio
+
+    from hiremate_ai.agents.analysis.application.service import analyze_application
+
+    llm = yumin_llm()
+    applicant = sample_applicants["정유민"]
+    rubric = make_rubric()
+    asyncio.run(
+        analyze_application(
+            llm,
+            store,
+            applicant,
+            make_posting(sample_posting),
+            rubric,
+            budget_seconds=20,
+            review_extraction=True,
+        )
+    )
+    calls = len(llm.calls)
+    app.dependency_overrides[get_llm] = lambda: llm
+
+    response = TestClient(app).post("/agents/candidate-analyst/analyze", json=body(applicant, sample_posting, rubric))
+
+    assert response.status_code == 200
+    assert len(llm.calls) == calls
+    assert store.saved == 1
+
+
+def test_application_route_indexes_saved_profile(
+    store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    from hiremate_ai.agents.analysis.application import router
+
+    assert hasattr(router, "get_profile_indexer")
+    indexed: list[tuple[UUID, UUID, UUID]] = []
+
+    async def index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
+        indexed.append((company_id, recruitment_id, application_id))
+
+    app.dependency_overrides[get_llm] = yumin_llm
+    app.dependency_overrides[router.get_profile_indexer] = lambda: index
+    applicant = sample_applicants["정유민"]
+    rubric = make_rubric()
+
+    response = TestClient(app).post("/agents/application/analyze", json=body(applicant, sample_posting, rubric))
+
+    assert response.status_code == 200
+    assert indexed == [(rubric.company_id, rubric.recruitment_id, applicant.info.application_id)]

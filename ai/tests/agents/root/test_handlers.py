@@ -50,7 +50,11 @@ def rows_of(context: ChatContext, *names: str) -> list[CandidateRow]:
 def resume_match(applicants: Applicants, name: str) -> CandidateMatch:
     """지원자 이력서의 실제 문장 하나로 검색 결과를 만든다. 재확인은 원문에 있는 문장만 근거로 받는다."""
     applicant = applicants[name]
-    sentence = next(line.strip() for line in applicant.documents[0].text.splitlines() if len(line.strip()) >= 8)
+    sentence = next(
+        line.strip()
+        for line in applicant.documents[0].text.splitlines()
+        if len(line.strip()) >= 8 and applicant.info.name not in line and "@" not in line
+    )
     return CandidateMatch(
         application_id=applicant.info.application_id,
         sentences=[SourcedSentence(sentence=sentence, source=applicant.documents[0].type.label)],

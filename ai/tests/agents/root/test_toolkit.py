@@ -212,7 +212,7 @@ async def test_merged_search_fills_each_condition_with_later_search_up_to_limit(
 
     (match,) = await merged_search(profiles, documents)(scope, ["금융"], [a])
 
-    assert [sourced.sentence for sourced in match.sentences] == ["카드 결제", "정산", "은행"]
+    assert [sourced.sentence for sourced in match.sentences] == ["카드 결제", "정산", "은행", "보험"]
 
 
 async def test_profile_toolkit_search_puts_profile_sentences_first(
@@ -592,3 +592,34 @@ async def test_db_readers_read_saved_profile_and_missing_review(
     assert saved is not None and saved.lines and saved.front
     assert missing is None
     assert await review(scope, sample_applicants["정유민"].info.application_id) is None
+
+
+async def test_merged_search_keeps_evidence_from_each_search() -> None:
+    application_id = uuid4()
+    profiles = fixed({"금융": {application_id: ["프로필 1", "프로필 2", "프로필 3"]}}, "이력서")
+    documents = fixed({"금융": {application_id: ["원문 근거"]}}, "이력서")
+    semantic = fixed({"금융": {application_id: ["의미 검색 근거"]}}, "이력서")
+    scope = ToolScope(uuid4(), uuid4(), uuid4(), frozenset({application_id}))
+
+    (result,) = await merged_search(profiles, documents, semantic)(scope, ["금융"], [application_id])
+
+    assert [sentence.sentence for sentence in result.sentences] == [
+        "프로필 1",
+        "원문 근거",
+        "의미 검색 근거",
+        "프로필 2",
+        "프로필 3",
+    ]
+
+
+async def test_merged_search_preserves_more_than_one_quote_from_each_search() -> None:
+    application_id = uuid4()
+    profiles = fixed({"결제": {application_id: ["프로필 근거 1", "프로필 근거 2"]}}, "이력서")
+    documents = fixed({"결제": {application_id: ["원문 근거 1", "원문 근거 2"]}}, "이력서")
+    semantic = fixed({"결제": {application_id: ["의미 근거 1", "의미 근거 2"]}}, "이력서")
+    scope = ToolScope(uuid4(), uuid4(), uuid4(), frozenset({application_id}))
+
+    (result,) = await merged_search(profiles, documents, semantic)(scope, ["결제"], [application_id])
+
+    assert len(result.sentences) == 6
+    assert "프로필 근거 2" in [sentence.sentence for sentence in result.sentences]
