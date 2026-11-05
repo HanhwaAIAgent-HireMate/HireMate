@@ -44,6 +44,12 @@ export interface ChartContext {
 export interface Chart {
   option: EChartsCoreOption
   height: number
+  /**
+   * 둥근 차트(도넛 · 레이더)의 그림 폭(px). 이때 범례는 화면이 그림 옆에 글로 그리고,
+   * 그림과 범례를 한 덩어리로 카드 가운데에 둔다
+   */
+  width?: number
+  legend?: { label: string; value?: string; color: string }[]
 }
 
 function base(extra: EChartsCoreOption): EChartsCoreOption {
@@ -56,6 +62,20 @@ function base(extra: EChartsCoreOption): EChartsCoreOption {
 }
 
 const legend = { top: 0, left: 0, itemWidth: 11, itemHeight: 11, textStyle: { color: SUB } }
+
+// 모든 차트를 같은 자리에 맞춘다. 범례는 왼쪽 위, 그림은 카드 제목과 같은 왼쪽 끝에서 같은 높이로 시작한다
+/** 범례 아래 그림이 시작하는 높이(px). 범례가 없는 차트도 같은 높이에서 시작해 나란한 카드가 맞는다 */
+const PLOT_TOP = 30
+/** 지원자 이름 칸 폭(px) */
+const NAME_WIDTH = 120
+/** 평가 항목 이름 칸 폭(px). 항목 이름은 길어 자르지 않고 두 줄까지 줄바꿈한다 */
+const ITEM_WIDTH = 200
+/** 막대 두께(px). 그룹 · 전체처럼 두 막대를 붙여 그리는 차트만 따로 얇게 한다 */
+const BAR_WIDTH = 18
+/** 막대 끝 값 글자 */
+const VALUE_LABEL = { color: INK, fontSize: 11.5 }
+/** 도넛의 바깥 반지름(px). 원 오른쪽에 범례를 세로로 두어 휴대폰 폭(카드 약 290px)에도 함께 들어가는 크기다 */
+const RING = 60
 
 function valueAxis(max: number, extra: Record<string, unknown> = {}) {
   return {
@@ -80,17 +100,56 @@ export function withoutCommonPrefix(labels: string[]) {
   return shared === 0 ? labels : words.map((w) => w.slice(shared).join(' '))
 }
 
+/**
+ * 이름 축 차트의 그림 영역. 이름 칸 폭만큼 왼쪽을 비워 이름은 카드 왼쪽 끝(8px)에서, 막대는 칸 폭 뒤에서 시작한다.
+ * 칸 폭이 같은 차트끼리는 막대 시작점이 같다. 가로축 눈금을 보이면 아래에 그 자리를 둔다
+ */
+function nameGrid(width: number, right: number, ticks: boolean) {
+  return { left: width + 16, right, top: PLOT_TOP, bottom: ticks ? 26 : 8 }
+}
+
+/** 이 폭(px)보다 좁은 카드(휴대폰)에서는 이름 칸을 줄여 막대 자리를 남긴다 */
+const NARROW_CARD = 480
+
+/**
+ * 이름 축 차트 옵션. 카드가 좁으면 이름 칸을 반쯤으로 줄인다(ECharts media).
+ * 이름은 그만큼 줄바꿈하거나 말줄임한다
+ */
+function withNameColumn(option: EChartsCoreOption, width: number): EChartsCoreOption {
+  const column = (size: number) => ({
+    grid: { left: size + 16 },
+    yAxis: { axisLabel: { width: size, margin: size + 8 } },
+  })
+  // 넓은 폭도 따로 적는다. 좁았다가 넓어질 때(창 크기 조절) 좁은 칸이 남지 않게 한다
+  return {
+    baseOption: option,
+    media: [
+      { query: { minWidth: NARROW_CARD + 1 }, option: column(width) },
+      {
+        query: { maxWidth: NARROW_CARD },
+        option: column(Math.round(width * 0.55)),
+      },
+    ],
+  }
+}
+
 /** 세로로 늘어놓는 이름 축. wrap이면 긴 이름(평가 항목)을 자르지 않고 두 줄까지 줄바꿈한다 */
-function nameAxis(names: string[], width = 120, wrap = false) {
+function nameAxis(names: string[], width: number, wrap = false) {
   return {
     type: 'category',
     data: names,
     inverse: true,
     axisTick: { show: false },
     axisLine: { show: false },
-    axisLabel: wrap
-      ? { color: INK, fontSize: 12, width, overflow: 'break', lineHeight: 15 }
-      : { color: INK, fontSize: 12, width, overflow: 'truncate' },
+    // 이름을 칸 왼쪽에 붙여 카드 제목과 같은 줄에서 시작하고, 칸 폭이 같으면 막대도 같은 곳에서 시작한다
+    axisLabel: {
+      color: INK,
+      fontSize: 12,
+      width,
+      align: 'left',
+      margin: width + 8,
+      ...(wrap ? { overflow: 'break', lineHeight: 15 } : { overflow: 'truncate' }),
+    },
   }
 }
 
@@ -228,7 +287,13 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
         height: 250 + layers * LABEL_STEP,
         option: base({
           legend: { ...legend, show: groups.length > 1 },
-          grid: { left: 30, right: 16, top: 44 + layers * LABEL_STEP, bottom: 26 },
+          grid: {
+            left: 8,
+            right: 16,
+            top: 44 + layers * LABEL_STEP,
+            bottom: 8,
+            containLabel: true,
+          },
           xAxis: [
             {
               type: 'category',
@@ -251,24 +316,22 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
       const names = withoutCommonPrefix(parts.map((p) => p.label))
       // 가운데는 가장 큰 조각이다. 첫 조각이 0%여도 '0%'를 크게 보여 주지 않는다
       const biggest = parts.reduce((top, p, i) => (p.value > parts[top].value ? i : top), 0)
+      // 그림은 원만 그리고, 범례(이름과 값)는 화면이 원 오른쪽에 글로 적는다
+      const size = 2 * RING + 16
       return {
-        // 범례를 아래에 두어 카드가 좁아도 도넛과 겹치지 않는다
-        height: 200 + 20 * Math.ceil(parts.length / 2),
+        height: size,
+        width: size,
+        legend: parts.map((p, i) => ({
+          label: names[i],
+          value: `${p.value}${p.unit}`,
+          color: SLICES[i % SLICES.length],
+        })),
         option: base({
-          legend: {
-            orient: 'horizontal',
-            left: 'center',
-            bottom: 0,
-            itemWidth: 11,
-            itemHeight: 11,
-            itemGap: 12,
-            textStyle: { color: INK, fontSize: 12 },
-          },
           title: {
             text: `${Math.round((100 * parts[biggest].value) / total)}%`,
             subtext: names[biggest],
-            left: '49.5%',
-            top: '26%',
+            left: 'center',
+            top: size / 2 - 20,
             textAlign: 'center',
             itemGap: 2,
             textStyle: { fontSize: 20, fontWeight: 700, color: INK, fontFamily: FONT },
@@ -277,8 +340,8 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
           series: [
             {
               type: 'pie',
-              radius: ['42%', '62%'],
-              center: ['50%', '38%'],
+              radius: [Math.round(RING * 0.68), RING],
+              center: ['50%', '50%'],
               padAngle: 1.5,
               itemStyle: { borderRadius: 3 },
               label: { show: false },
@@ -297,43 +360,46 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
       const refs = data.metrics(block.reference)
       return {
         height: 60 + 36 * block.applicants.length,
-        option: base({
-          grid: { left: 8, right: 56, top: 26, bottom: 8, containLabel: true },
-          xAxis: valueAxis(top),
-          yAxis: nameAxis(block.applicants.map(who)),
-          series: block.keys.map((key) => ({
-            type: 'bar',
-            name: data.label(key),
-            barMaxWidth: 16,
-            data: block.applicants.map((number) => ({
-              value: data.value(number, key),
-              itemStyle: { color: color(number) ?? '#6A84B2', borderRadius: [0, 4, 4, 0] },
+        option: withNameColumn(
+          base({
+            grid: nameGrid(NAME_WIDTH, 56, true),
+            xAxis: valueAxis(top),
+            yAxis: nameAxis(block.applicants.map(who), NAME_WIDTH),
+            series: block.keys.map((key) => ({
+              type: 'bar',
+              name: data.label(key),
+              barMaxWidth: BAR_WIDTH,
+              data: block.applicants.map((number) => ({
+                value: data.value(number, key),
+                itemStyle: { color: color(number) ?? '#6A84B2', borderRadius: [0, 4, 4, 0] },
+              })),
+              label: {
+                show: true,
+                position: 'right',
+                ...VALUE_LABEL,
+                formatter: `{c}/${top}`,
+              },
+              markLine: refs.length
+                ? {
+                    symbol: 'none',
+                    silent: true,
+                    data: refs.map((r) => ({
+                      xAxis: r.value,
+                      // 이름 축이 위에서 아래로 늘어서므로 기준선 이름은 위쪽 끝(start)에 두어 가로축 눈금과 겹치지 않게 한다
+                      label: {
+                        formatter: `${r.label} ${r.value}`,
+                        position: 'start',
+                        color: INK,
+                        fontSize: 10.5,
+                      },
+                      lineStyle: { color: '#4A4F57', type: 'dashed' },
+                    })),
+                  }
+                : undefined,
             })),
-            label: {
-              show: true,
-              position: 'right',
-              color: INK,
-              fontSize: 12,
-              formatter: `{c}/${top}`,
-            },
-            markLine: refs.length
-              ? {
-                  symbol: 'none',
-                  silent: true,
-                  data: refs.map((r) => ({
-                    xAxis: r.value,
-                    label: {
-                      formatter: `${r.label} ${r.value}`,
-                      position: 'end',
-                      color: INK,
-                      fontSize: 10.5,
-                    },
-                    lineStyle: { color: '#4A4F57', type: 'dashed' },
-                  })),
-                }
-              : undefined,
-          })),
-        }),
+          }),
+          NAME_WIDTH,
+        ),
       }
     }
     case 'stacked': {
@@ -344,54 +410,60 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
       })
       return {
         height: 70 + 36 * block.applicants.length,
-        option: base({
-          legend,
-          grid: { left: 8, right: 16, top: 30, bottom: 8, containLabel: true },
-          xAxis: valueAxis(top),
-          yAxis: nameAxis(names),
-          series: block.keys.map((key, i) => ({
-            type: 'bar',
-            name: `${data.label(key)} /${data.max(key) ?? 0}`,
-            stack: 's',
-            barMaxWidth: 20,
-            itemStyle: { color: PARTS[i % PARTS.length] },
-            data: block.applicants.map((number) => data.value(number, key)),
-            label: { show: true, color: i === 0 ? '#fff' : INK, fontSize: 11.5, fontWeight: 600 },
-          })),
-        }),
+        option: withNameColumn(
+          base({
+            legend,
+            grid: nameGrid(NAME_WIDTH, 16, true),
+            xAxis: valueAxis(top),
+            yAxis: nameAxis(names, NAME_WIDTH),
+            series: block.keys.map((key, i) => ({
+              type: 'bar',
+              name: `${data.label(key)} /${data.max(key) ?? 0}`,
+              stack: 's',
+              barMaxWidth: BAR_WIDTH,
+              itemStyle: { color: PARTS[i % PARTS.length] },
+              data: block.applicants.map((number) => data.value(number, key)),
+              label: { show: true, color: i === 0 ? '#fff' : INK, fontSize: 11.5, fontWeight: 600 },
+            })),
+          }),
+          NAME_WIDTH,
+        ),
       }
     }
     case 'share': {
       const shares = sharePercents(bundle, block.keys, block.groupKey, block.groupValue)
       const group = block.groupValue === 'PASS' ? '합격자' : word(block.groupValue)
       return {
-        height: 50 + 34 * block.keys.length,
-        option: base({
-          legend,
-          grid: { left: 8, right: 40, top: 28, bottom: 8, containLabel: true },
-          xAxis: valueAxis(100, {
-            axisLabel: { color: MUTED, fontSize: 11, formatter: '{value}%' },
+        height: 50 + 40 * block.keys.length,
+        option: withNameColumn(
+          base({
+            legend,
+            grid: nameGrid(ITEM_WIDTH, 40, true),
+            xAxis: valueAxis(100, {
+              axisLabel: { color: MUTED, fontSize: 11, formatter: '{value}%' },
+            }),
+            yAxis: nameAxis(block.keys.map(data.label), ITEM_WIDTH, true),
+            series: [
+              [group, '#6F9C85'],
+              ['전체', '#C9CCD2'],
+            ].map(([label, fill], i) => ({
+              type: 'bar',
+              name: label,
+              barMaxWidth: 10,
+              barGap: '20%',
+              itemStyle: { color: fill, borderRadius: [0, 3, 3, 0] },
+              data: block.keys.map((k) => shares.get(k)?.[i] ?? 0),
+              label: {
+                show: true,
+                position: 'right',
+                ...VALUE_LABEL,
+                color: i === 0 ? INK : MUTED,
+                formatter: '{c}%',
+              },
+            })),
           }),
-          yAxis: nameAxis(block.keys.map(data.label), 110),
-          series: [
-            [group, '#6F9C85'],
-            ['전체', '#C9CCD2'],
-          ].map(([label, fill], i) => ({
-            type: 'bar',
-            name: label,
-            barMaxWidth: 10,
-            barGap: '20%',
-            itemStyle: { color: fill, borderRadius: [0, 3, 3, 0] },
-            data: block.keys.map((k) => shares.get(k)?.[i] ?? 0),
-            label: {
-              show: true,
-              position: 'right',
-              color: i === 0 ? INK : MUTED,
-              fontSize: 11,
-              formatter: '{c}%',
-            },
-          })),
-        }),
+          ITEM_WIDTH,
+        ),
       }
     }
     case 'composition':
@@ -431,41 +503,54 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
       // 항목마다 그린 막대는 항목 이름이 길어 자르면 어떤 항목인지 알 수 없으므로 줄바꿈해 다 보여 준다
       const items = block.type === 'tally' && block.by === 'key'
       return {
-        height: 50 + (items ? 46 : 34) * values.length,
-        option: base({
-          legend,
-          tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-          grid: { left: 8, right: 16, top: 30, bottom: 8, containLabel: true },
-          xAxis: valueAxis(100, { show: false }),
-          yAxis: items ? nameAxis(rowNames, 220, true) : nameAxis(rowNames, 140),
-          series: bands.map((band, j) => ({
-            type: 'bar',
-            name: band,
-            stack: 'p',
-            barMaxWidth: 22,
-            itemStyle: { color: colors[j % colors.length] },
-            label: {
-              show: true,
-              color: block.type === 'composition' && j >= 3 ? '#fff' : INK,
-              fontSize: 11,
-              fontWeight: 600,
-            },
-            data: values.map((row) => {
-              const total = row.reduce((sum, v) => sum + v, 0) || 1
-              const pct = (100 * row[j]) / total
-              const shown = block.type === 'composition' ? `${pct.toFixed(0)}%` : String(row[j])
-              return { value: Number(pct.toFixed(1)), label: { formatter: pct >= 5 ? shown : '' } }
-            }),
-          })),
-        }),
+        height: 50 + (items ? 50 : 34) * values.length,
+        option: withNameColumn(
+          base({
+            legend,
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            grid: nameGrid(items ? ITEM_WIDTH : NAME_WIDTH, 16, false),
+            xAxis: valueAxis(100, { show: false }),
+            yAxis: items ? nameAxis(rowNames, ITEM_WIDTH, true) : nameAxis(rowNames, NAME_WIDTH),
+            series: bands.map((band, j) => ({
+              type: 'bar',
+              name: band,
+              stack: 'p',
+              barMaxWidth: BAR_WIDTH,
+              itemStyle: { color: colors[j % colors.length] },
+              label: {
+                show: true,
+                color: block.type === 'composition' && j >= 3 ? '#fff' : INK,
+                fontSize: 11,
+                fontWeight: 600,
+              },
+              data: values.map((row) => {
+                const total = row.reduce((sum, v) => sum + v, 0) || 1
+                const pct = (100 * row[j]) / total
+                const shown = block.type === 'composition' ? `${pct.toFixed(0)}%` : String(row[j])
+                return {
+                  value: Number(pct.toFixed(1)),
+                  label: { formatter: pct >= 5 ? shown : '' },
+                }
+              }),
+            })),
+          }),
+          items ? ITEM_WIDTH : NAME_WIDTH,
+        ),
       }
     }
     case 'radar':
+      // 도넛처럼 범례(지원자)는 화면이 그림 오른쪽에 글로 적는다
       return {
         height: 260,
+        width: 300,
+        legend: block.applicants.map((number) => ({
+          label: who(number),
+          color: color(number) ?? '#6A84B2',
+        })),
         option: base({
-          legend: { top: 0 },
           radar: {
+            center: ['50%', '52%'],
+            radius: '62%',
             indicator: block.keys.map((k) => ({ name: data.label(k), max: data.max(k) ?? 100 })),
             splitLine: { lineStyle: { color: GRID } },
             axisName: { color: SUB },

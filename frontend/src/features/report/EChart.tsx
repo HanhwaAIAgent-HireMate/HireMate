@@ -26,6 +26,13 @@ register([
   SVGRenderer,
 ])
 
+/** 움직임을 끈 옵션. 카드 폭별 옵션(baseOption · media)이면 기본 옵션에 끈다 */
+function withoutAnimation(option: EChartsCoreOption): EChartsCoreOption {
+  if ('baseOption' in option)
+    return { ...option, baseOption: { ...(option.baseOption as object), animation: false } }
+  return { ...option, animation: false }
+}
+
 /** ECharts 한 장. 부모 폭이 바뀌면 다시 맞춘다 */
 export function EChart({
   option,
@@ -46,7 +53,7 @@ export function EChart({
     const element = ref.current
     if (!element) return
     const chart = init(element, null, { renderer: 'svg' })
-    chart.setOption(still ? { ...option, animation: false } : option)
+    chart.setOption(still ? withoutAnimation(option) : option)
     const observer = new ResizeObserver(() => chart.resize())
     observer.observe(element)
     return () => {

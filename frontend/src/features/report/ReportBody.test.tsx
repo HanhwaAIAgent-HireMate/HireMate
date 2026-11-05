@@ -158,7 +158,24 @@ describe('리포트 본문', () => {
     expect(screen.getByText(/성과 수치 1건/)).toBeInTheDocument()
     expect(container.querySelector('mark')).toHaveTextContent('40%')
     const text = container.textContent ?? ''
-    expect(text.indexOf('성과 수치 1건')).toBeLessThan(text.indexOf('PR 리뷰 규칙'))
+    expect(text.indexOf('성과 수치 1건')).toBeLessThan(text.indexOf('AI 분석'))
+  })
+
+  it('근거는 접어 두고 판정 개수와 근거 수만 먼저 보여 준다', () => {
+    const { container } = render(<ReportBody report={report} />)
+    expect(screen.getByText('근거 보기 · 1개')).toBeInTheDocument()
+    expect(screen.getByText('✓ 충족 1')).toBeInTheDocument()
+    expect(container.querySelector('details[open]')).toBeNull()
+  })
+
+  it('판정이 갈린 항목의 근거는 처음부터 펼쳐 둔다', () => {
+    const split = structuredClone(report)
+    split.spec.splits = [{ key: 'document.criterion.Q-04', text: '', evidence: [] }]
+    split.bundle.evidence[0] = { ...split.bundle.evidence[0], id: 'e-A-0017-Q-04' }
+    const block = split.spec.sections[0].blocks.find((b) => b.type === 'evidence')
+    if (block?.type === 'evidence') block.items[0].evidence = ['e-A-0017-Q-04']
+    const { container } = render(<ReportBody report={split} />)
+    expect(container.querySelectorAll('details[open]').length).toBeGreaterThan(0)
   })
 
   it('판정이 갈린 이유를 요약 아래에 항목 이름과 함께 보여 준다', () => {
