@@ -4,8 +4,9 @@ from openai import APIConnectionError
 from hiremate_ai.agents.generation.report.bundle import Evidence, ReportBundle
 from hiremate_ai.agents.generation.report.check import problems
 from hiremate_ai.agents.generation.report.compose import compose_report
+from hiremate_ai.agents.generation.report.derive import stage_digests
 from hiremate_ai.agents.generation.report.fallback import fallback_spec
-from hiremate_ai.agents.generation.report.final import _Draft, _Finalist, _Point
+from hiremate_ai.agents.generation.report.final import _Draft, _Finalist, _Point, _StageNote
 from hiremate_ai.agents.generation.report.spec import EvidenceBlock, TextBlock
 from hiremate_ai.llm.fake import FakeLlm, LlmCall
 
@@ -101,3 +102,37 @@ async def test_final_report_is_records_only_when_the_model_server_fails() -> Non
     assert composed.fallback
     assert composed.spec == fallback_spec(bundle)
     assert composed.steps[-1] == "AI 문장을 넣지 못해 기록만 담음"
+
+
+def test_stage_digest_compares_passed_and_failed_groups() -> None:
+    digests = {digest.area: digest for digest in stage_digests(with_evidence())}
+
+    assert digests["document"].lines[0] == "합격 3명, 불합격 1명"
+    assert any(
+        "합격자 3명 중 충족 3명(100%), 불합격자 1명 중 충족 0명(0%)" in line for line in digests["document"].lines
+    )
+    assert any("불합격자 55점(평균 55)" in line and "15점 높음" in line for line in digests["document"].lines)
+
+
+async def test_stage_notes_become_section_takeaways_only_when_they_pass() -> None:
+    draft = GOOD.model_copy(
+        update={
+            "stages": [
+                # 코드가 센 숫자(100% · 0%)만 쓴 그룹 해석은 서류 섹션의 읽을 점이 된다
+                _StageNote(
+                    area="document", text="서버 개발 3년 항목은 합격자 100%, 불합격자 0%가 충족해 합격을 갈랐어요."
+                ),
+                # 지원자 한 명을 집은 해석, 자료에 없는 숫자는 버린다
+                _StageNote(area="interview", text="A-0012는 면접 점수가 높았어요."),
+                _StageNote(area="interview", text="면접 점수 차이는 9점이었어요."),
+            ]
+        }
+    )
+    bundle = with_evidence()
+    composed = await compose_report(bundle, FakeLlm(draft, draft))
+
+    takeaways = {section.area: section.takeaway for section in composed.spec.sections if section.area}
+    assert takeaways["document"].startswith("서버 개발 3년 항목은 합격자 100%")
+    assert takeaways["interview"] == fallback_spec(bundle).sections[3].takeaway
+    assert "전형 1개의 합격 · 불합격 기록을 견주어 해석함" in composed.steps
+    assert [p for p in problems(composed.spec, bundle) if "근거 부품" not in p] == []

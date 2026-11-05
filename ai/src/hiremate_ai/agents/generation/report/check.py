@@ -17,6 +17,7 @@ from hiremate_ai.agents.generation.report.derive import (
     score_view,
     share_percents,
     split_keys,
+    stage_digests,
     tally,
     top_percent,
     values_of,
@@ -524,7 +525,9 @@ def _evidence_problems(ids: list[str], bundle: ReportBundle, applicant: str | No
 
 
 def _text_problems(spec: ReportSpec, bundle: ReportBundle) -> list[str]:
-    allowed_numbers = numbers_in(bundle) | _drawn_numbers(spec, bundle) | _counted_numbers(bundle)
+    allowed_numbers = (
+        numbers_in(bundle) | _drawn_numbers(spec, bundle) | _counted_numbers(bundle) | stage_numbers(bundle)
+    )
     known = {applicant.number for applicant in bundle.applicants}
     found = []
     for label, text in _texts(spec):
@@ -698,6 +701,12 @@ def _counted_numbers(bundle: ReportBundle) -> set[str]:
         counts, rate = tally(bundle, key, people)
         values += [*counts.values(), rate]
     return {text for value in values for text in _spellings(value)}
+
+
+def stage_numbers(bundle: ReportBundle) -> set[str]:
+    """최종 리포트에서 전형마다 합격 · 불합격 그룹을 견주어 센 숫자 (derive.stage_digests).
+    모델이 받은 숫자라 문장에 써도 된다."""
+    return {text for digest in stage_digests(bundle) for value in digest.numbers for text in _spellings(value)}
 
 
 def _spellings(value: float) -> set[str]:

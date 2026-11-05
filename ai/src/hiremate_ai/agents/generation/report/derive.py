@@ -134,3 +134,89 @@ def split_keys(bundle: ReportBundle) -> list[str]:
     verdicts = {(fact.applicant, fact.key): fact.value for fact in bundle.facts if isinstance(fact.value, str)}
     keys = [key for area in bundle.areas for key in area.keys]
     return [key for key in keys if len({verdicts.get((number, key)) for number in bundle.targets} - {None}) > 1]
+
+
+@dataclass(frozen=True)
+class StageDigest:
+    """최종 리포트의 전형 하나에서 합격자와 불합격자를 견준 기록. lines는 모델에게 주는 줄, numbers는 그 줄의 숫자다.
+    모델은 이 숫자로 전형 해석을 쓰고, check.py는 같은 계산으로 문장의 숫자를 맞춰 본다."""
+
+    area: str
+    label: str
+    lines: list[str]
+    numbers: list[float]
+
+
+def stage_digests(bundle: ReportBundle) -> list[StageDigest]:
+    """최종 리포트 영역(전형)마다 합격 · 불합격 그룹의 항목 충족 수와 점수 범위 · 평균. 결정이 없거나 한쪽 그룹이
+    비면 견줄 수 없어 뺀다. 지원자 한 명씩이 아니라 그룹 단위로만 센다."""
+    if bundle.kind is not ReportKind.FINAL:
+        return []
+    digests = []
+    for area in bundle.areas:
+        decisions = values_of(bundle, f"{area.id}.decision")
+        passed = [number for number, value in decisions.items() if value == "PASS"]
+        failed = [number for number, value in decisions.items() if value != "PASS"]
+        if not passed or not failed:
+            continue
+        lines: list[str] = []
+        numbers: list[float] = [len(passed), len(failed)]
+        for key in [area.score_key, *area.keys] if area.score_key else area.keys:
+            values = values_of(bundle, key)
+            label = next((fact.label for fact in bundle.facts if fact.key == key), key)
+            if any(isinstance(value, float | int) for value in values.values()):
+                line, found = _score_line(label, values, passed, failed)
+            else:
+                line, found = _verdict_line(label, values, passed, failed)
+            if line:
+                lines.append(line)
+                numbers += found
+        if lines:
+            head = f"합격 {len(passed)}명, 불합격 {len(failed)}명"
+            digests.append(StageDigest(area=area.id, label=area.label, lines=[head, *lines], numbers=numbers))
+    return digests
+
+
+def _verdict_line(
+    label: str, values: dict[str, float | str], passed: list[str], failed: list[str]
+) -> tuple[str | None, list[float]]:
+    def met(people: list[str]) -> tuple[int, int]:
+        known = [number for number in people if number in values]
+        return sum(values[number] in POSITIVE for number in known), len(known)
+
+    (pass_met, pass_n), (fail_met, fail_n) = met(passed), met(failed)
+    if not pass_n or not fail_n:
+        return None, []
+    pass_rate, fail_rate = round(100 * pass_met / pass_n), round(100 * fail_met / fail_n)
+    all_met, all_n = pass_met + fail_met, pass_n + fail_n
+    line = (
+        f"{label}: 합격자 {pass_n}명 중 충족 {pass_met}명({pass_rate}%), "
+        f"불합격자 {fail_n}명 중 충족 {fail_met}명({fail_rate}%), 전체 {all_n}명 중 충족 {all_met}명"
+    )
+    return line, [pass_met, pass_n, pass_rate, fail_met, fail_n, fail_rate, all_met, all_n, abs(pass_rate - fail_rate)]
+
+
+def _score_line(
+    label: str, values: dict[str, float | str], passed: list[str], failed: list[str]
+) -> tuple[str | None, list[float]]:
+    def scores(people: list[str]) -> list[float]:
+        return [float(value) for number in people if isinstance(value := values.get(number), float | int)]
+
+    top, bottom = scores(passed), scores(failed)
+    if not top or not bottom:
+        return None, []
+    top_mean, bottom_mean = round(sum(top) / len(top), 1), round(sum(bottom) / len(bottom), 1)
+    gap = round(top_mean - bottom_mean, 1)
+    edge = round(min(top) - max(bottom), 1)
+    # 합격자 최저가 불합격자 최고보다 높으면 점수 구간이 나뉜 것이고, 아니면 두 그룹 점수가 겹친다
+    border = f"합격자 최저가 불합격자 최고보다 {edge:g}점 높음" if edge >= 0 else f"두 그룹 점수가 {-edge:g}점 겹침"
+    line = (
+        f"{label}: 합격자 {_span(top)}점(평균 {top_mean:g}), "
+        f"불합격자 {_span(bottom)}점(평균 {bottom_mean:g}), 평균 차이 {gap:g}점, {border}"
+    )
+    return line, [min(top), max(top), top_mean, min(bottom), max(bottom), bottom_mean, gap, abs(edge)]
+
+
+def _span(scores: list[float]) -> str:
+    low, high = min(scores), max(scores)
+    return f"{low:g}" if low == high else f"{low:g}~{high:g}"
