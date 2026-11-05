@@ -194,16 +194,12 @@ public class ApplicationService {
         if (found.isEmpty() || !hidesIdentity(companyId, recruitmentId)) {
             return found;
         }
-        // 저장한 본문은 가리기 전 글이라, 실제 이름 · 이메일 · 전화번호로 찾으면 그 지원자를 결과에서 뺀다
+        // 저장한 본문은 가리기 전 글이라, 실제 이름으로 찾으면 그 지원자를 결과에서 뺀다
         Set<UUID> revealing = applications.findByIdInAndCompanyId(found, companyId).stream()
                 .filter(application -> !BlindMask.maskApplicant(keyword, application.getName())
                         .equals(BlindMask.maskApplicant(keyword, "")))
                 .map(JobApplication::getId)
                 .collect(Collectors.toSet());
-        String withoutContacts = BlindMask.maskApplicant(keyword, "");
-        if (!withoutContacts.equals(keyword)) {
-            return List.of();
-        }
         return found.stream().filter(id -> !revealing.contains(id)).toList();
     }
 
@@ -212,7 +208,7 @@ public class ApplicationService {
         JobApplication application = application(companyId, applicationId);
         Identity identity = new Identity(companyId);
         return new ApplicantDetail(identity.info(application),
-                identity.hides(application) ? "" : application.getPhone(), application.getCertificates(),
+                application.getPhone(), application.getCertificates(),
                 documents.findByApplicationId(applicationId).stream()
                         .sorted(Comparator.comparing(ApplicationDocument::getType))
                         .map(document -> identity.document(application, document))
@@ -331,8 +327,9 @@ public class ApplicationService {
     }
 
     /**
-     * 블라인드 채용에서 마지막 전형 결과를 확정하기 전이면 HR · 면접관 화면과 AI에 지원자 이름 · 이메일 · 연락처를 주지 않는다.
-     * 이름은 지원번호로 부르고, 서류 본문의 이름 · 이메일 · 전화번호도 가린다. 결과를 확정하면 최종 합격자 처리를 위해 보인다.
+     * 블라인드 채용에서 마지막 전형 결과를 확정하기 전이면 HR · 면접관 화면과 AI에 지원자 이름을 주지 않는다. 이름은
+     * 지원번호로 부르고, 서류 본문과 파일 이름의 이름도 가린다. 이메일과 연락처는 지원자에게 따로 안내할 때 필요해 그대로 준다.
+     * 결과를 확정하면 최종 합격자 처리를 위해 이름도 보인다.
      */
     private boolean hidesIdentity(UUID companyId, UUID recruitmentId) {
         if (!postings.view(companyId, recruitmentId).content().blind()) {
@@ -381,7 +378,7 @@ public class ApplicationService {
     private static ApplicantInfo toInfo(JobApplication application, boolean hidden) {
         return new ApplicantInfo(application.getId(), application.getRecruitmentId(), application.getApplicationNo(),
                 hidden ? ApplicantInfo.blindName(application.getApplicationNo()) : application.getName(),
-                hidden ? "" : application.getEmail(), application.getCareerYears(),
+                application.getEmail(), application.getCareerYears(),
                 application.getLastCompany(), application.shortfalls(), application.getAnalysisStatus(),
                 application.getSubmittedAt(), application.criterionMarks(), application.highTalents(),
                 application.midTalents());

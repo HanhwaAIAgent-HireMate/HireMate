@@ -77,12 +77,8 @@ public final class BlindMask {
                     + "|출신(?!\\s*(?:동료|친구|선배|후배|동기|팀원|직원|개발자|학생|분들?|사람|멘토|교수|선생))"
                     + "|(?i:\\b(?:graduat\\w*|studied|studying|major\\w*|attended|alumn\\w*|enrolled)\\b)");
 
-    /** 가린 지원자 이름 · 이메일 · 전화번호 자리에 넣는 말. */
+    /** 가린 지원자 이름 자리에 넣는 말. */
     public static final String APPLICANT_MASK = "○○○";
-
-    private static final Pattern EMAIL_ADDRESS = Pattern.compile("[\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+");
-
-    private static final Pattern PHONE_NUMBER = Pattern.compile("(?<!\\d)0\\d{1,2}[-. ]?\\d{3,4}[-. ]?\\d{4}(?!\\d)");
 
     /** 성을 뺀 이름 뒤에 올 수 있는 말. "다온커머스"처럼 이름으로 시작하는 다른 낱말은 가리지 않는다. */
     private static final String NAME_AFTER = "(?=$|[^가-힣]|이|가|은|는|을|를|의|에게|님|와|과|도|로|으로|입니다|이에요|예요)";
@@ -109,12 +105,12 @@ public final class BlindMask {
     }
 
     /**
-     * 지원서에 적은 이름(성을 뺀 이름과 영문 이름의 낱말 포함), 이메일, 전화번호를 가린 본문. 블라인드 채용에서 마지막 전형
-     * 결과를 확정하기 전까지 HR · 면접관 · AI에 서류 본문을 줄 때 쓴다. 저장한 본문은 바꾸지 않는다.
+     * 지원서에 적은 이름을 가린 본문. 성을 뺀 이름, 영문으로 쓴 이름의 낱말, 한글 이름의 흔한 영문 표기(노유나 → Yuna Noh)도
+     * 가린다. 블라인드 채용에서 마지막 전형 결과를 확정하기 전까지 HR · 면접관 · AI에 서류 본문을 줄 때 쓴다. 이메일과
+     * 전화번호는 지원자에게 연락할 때 필요해 가리지 않는다. 저장한 본문은 바꾸지 않는다.
      */
     public static String maskApplicant(String text, String name) {
-        String masked = EMAIL_ADDRESS.matcher(text).replaceAll(APPLICANT_MASK);
-        masked = PHONE_NUMBER.matcher(masked).replaceAll(APPLICANT_MASK);
+        String masked = text;
         String trimmed = name == null ? "" : name.strip();
         if (trimmed.isEmpty()) {
             return masked;
@@ -126,11 +122,15 @@ public final class BlindMask {
         }
         for (String word : trimmed.split("\\s+")) {
             if (word.matches("[A-Za-z]{2,}")) {
-                patterns.add("(?i)\\b" + Pattern.quote(word) + "\\b");
+                // 이메일 주소 안의 글자는 연락에 필요해 가리지 않는다
+                patterns.add("(?i)\\b" + Pattern.quote(word) + "\\b(?![\\w.+-]*@)");
             }
         }
         for (String pattern : patterns) {
             masked = Pattern.compile(pattern).matcher(masked).replaceAll(APPLICANT_MASK);
+        }
+        for (Pattern romanized : RomanizedName.patterns(trimmed)) {
+            masked = romanized.matcher(masked).replaceAll(APPLICANT_MASK);
         }
         return masked;
     }
