@@ -8,7 +8,7 @@ import {
 } from '@/features/interview/scheduling'
 import { ApiError, errorMessage } from '@/lib/api/client'
 
-/** 결과 확정 뒤 면접 일정 배정 상태를 알린다. 메일 발송 흐름은 바꾸지 않는다. */
+/** 결과 확정 뒤 면접 일정 배정 상태를 알린다. 배정을 마쳐야 합격 안내를 보낼 수 있다. */
 export function InterviewSchedulingStatus({
   stageId,
   guidesPath,

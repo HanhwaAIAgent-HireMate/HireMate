@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { VariableField } from '@/features/company/VariableField'
+import { useInterviewScheduling } from '@/features/interview/scheduling'
 import {
   needsDraft,
   noticeBadge,
@@ -206,6 +207,15 @@ function Editor({
   const edit = useEditNotice(notice.stageId, notice.group)
   const saveOnboarding = useSaveOnboarding(notice.stageId, notice.group)
   const send = useSendNotice(notice.stageId)
+  // 다음 전형이 면접이면 면접 시간을 배정한 뒤에 합격 안내를 보낸다 (보내면 다음 전형 안내가 잠긴다)
+  const scheduling = useInterviewScheduling(
+    notice.stageId,
+    notice.group === 'PASS' && notice.status === 'DRAFT',
+  )
+  const waitingSchedule =
+    notice.group === 'PASS' &&
+    notice.status === 'DRAFT' &&
+    !(scheduling.data && ['READY', 'NOT_APPLICABLE'].includes(scheduling.data.status))
   const ai = useNoticeAiRequest(notice.stageId, notice.group)
   const editable = notice.status === 'DRAFT'
   const final = notice.templateType === 'FINAL_PASS'
@@ -298,10 +308,21 @@ function Editor({
       <div className="flex items-center gap-3 border-b px-6 py-4">
         <h1 className="text-xl font-bold">{notice.label}</h1>
         <span className="text-xs text-muted-foreground">{stageName} 종료 · ② 합격·불합격 안내</span>
+        {waitingSchedule && scheduling.data && (
+          <span className="ml-auto text-xs text-amber-700">
+            다음 면접 시간을 배정한 뒤 보낼 수 있어요.{' '}
+            <Link to={closePath} className="underline underline-offset-2">
+              배정 상태 보기
+            </Link>
+          </span>
+        )}
         <Button
-          className="ml-auto"
+          className={cn(!(waitingSchedule && scheduling.data) && 'ml-auto')}
           disabled={
-            !(editable || notice.status === 'PARTIAL') || send.isPending || proposal !== null
+            !(editable || notice.status === 'PARTIAL') ||
+            send.isPending ||
+            proposal !== null ||
+            waitingSchedule
           }
           onClick={() => (missingGuide ? setConfirmingGuide(true) : void onSend())}
         >

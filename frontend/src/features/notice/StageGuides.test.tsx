@@ -15,7 +15,7 @@ beforeAll(() => {
 
 afterEach(() => vi.unstubAllGlobals())
 
-function stubGuides() {
+function stubGuides(notifiedCount = 0) {
   vi.stubGlobal(
     'fetch',
     vi.fn((request: Request | string) => {
@@ -29,7 +29,7 @@ function stubGuides() {
             name: '1차 면접',
             guide: { schedule: null, method: null, place: '', preparation: '', note: '' },
             missing: ['일정', '진행 방식', '장소·접속 링크', '준비 사항'],
-            notifiedCount: 0,
+            notifiedCount,
           },
         ]),
       )
@@ -63,4 +63,15 @@ it('안내 메일 화면의 [입력하러 가기](#next-stage-guide)로 오면 �
 
   expect(await screen.findByLabelText('1차 면접 일정')).toBeInTheDocument()
   expect(scroll).toHaveBeenCalled()
+})
+
+it('안내 메일을 받은 지원자가 있으면 고칠 수 없고 전화로 알리라고 안내한다', async () => {
+  stubGuides(3)
+  renderGuide('/close')
+
+  expect(await screen.findByLabelText('1차 면접 일정')).toBeDisabled()
+  expect(screen.getByLabelText('1차 면접 준비 사항')).toBeDisabled()
+  expect(screen.getByText(/안내 메일을 보내서 고칠 수 없어요/)).toBeInTheDocument()
+  expect(screen.getByText('3명에게 보냄')).toBeInTheDocument()
+  expect(screen.queryByText(/비어 있음/)).not.toBeInTheDocument()
 })
