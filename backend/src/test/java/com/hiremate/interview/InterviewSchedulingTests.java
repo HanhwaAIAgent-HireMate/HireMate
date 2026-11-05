@@ -193,6 +193,33 @@ class InterviewSchedulingTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("배정을 마쳐 READY여도 이번에 보낼 합격자 중 면접 일시가 빈 지원자가 있으면 합격 메일을 보내지 않는다")
+    void blocksPassMailWhenAnApplicantHasNoInterviewTime() throws Exception {
+        Room room = room(2, false);
+        guide(room, room.next(), friday());
+        confirm(room, room.ids());
+        await(room, "READY");
+        // 배정을 마친 뒤 HR이 한 지원자의 일정을 비운 상황
+        InterviewSchedule cleared = schedule(room, 1);
+        Instant kept = cleared.getScheduledAt();
+        cleared.change(null, "");
+        schedules.saveAndFlush(cleared);
+        expect(room.hr().post(room.path() + "/notices/prepare", null), 200);
+        int before = mail.sent.size();
+
+        assertThat(json(expect(room.hr().post(room.path() + "/notices/PASS/send", null), 409)).path("code")
+                .asString()).isEqualTo("INTERVIEW_TIME_MISSING");
+        assertThat(mail.sent).hasSize(before);
+
+        // 일정을 다시 정하면 보낼 수 있다
+        InterviewSchedule restored = schedule(room, 1);
+        restored.change(kept, "");
+        schedules.saveAndFlush(restored);
+        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
+        assertThat(mail.sent).hasSize(before + 2);
+    }
+
+    @Test
     @DisplayName("합격 메일의 면접 일정에는 지원자마다 배정한 일시를 쓰고, 안내한 일시를 발송 이력에 남긴다")
     void passMailCarriesEachApplicantsInterviewTime() throws Exception {
         Room room = room(2, false);
