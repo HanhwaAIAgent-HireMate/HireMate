@@ -32,6 +32,7 @@ dev = [
 # NCS 질의 임베딩 서비스(hiremate_ai.ncs_search)만 쓴다. ai 서버 · 워커 기본 설치에는 넣지 않는다
 ncs = [
     "FlagEmbedding>=1.4.2",
+    "torch>=2.15.0",
 ]
 
 [build-system]
@@ -72,3 +73,12 @@ name = "ruff_format"
 type = "module"
 module = "ruff"
 options = "format REVISION_SCRIPT_FILENAME"
+
+# 운영 서버에는 GPU가 없다. Linux에서는 CUDA 라이브러리가 빠진 CPU 전용 torch를 받는다
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
