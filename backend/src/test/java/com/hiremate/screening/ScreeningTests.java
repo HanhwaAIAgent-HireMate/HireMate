@@ -498,10 +498,11 @@ class ScreeningTests extends IntegrationTest {
         scheduleNextInterview(hr, stage.path());
         expect(hr.post(stage.path() + "/notices/PASS/send", null), 200);
         assertThat(mail.sent).anySatisfy(message -> assertThat(message)
-                .contains("지원자1님", "다음 전형은 1차 면접입니다.", "■ 1차 면접 안내\n- 일정: " + secondText)
+                // 다음 전형이 면접이라 일정 줄에는 지원자에게 배정한 면접 시각이 붙는다
+                .contains("지원자1님", "다음 전형은 1차 면접입니다.", "■ 1차 면접 안내\n- 일정: " + secondText + " ")
                 .doesNotContain("신분증"));
         assertThat(mail.html).anySatisfy(html -> assertThat(html)
-                .containsSubsequence("지원자1님", ">1차 면접 안내</td>", ">" + secondText + "</td>"));
+                .containsSubsequence("지원자1님", ">1차 면접 안내</td>", ">" + secondText + " "));
         assertThat(json(expect(hr.get(guides), 200)).get(0).path("notifiedCount").asInt()).isEqualTo(1);
     }
 
