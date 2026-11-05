@@ -6,6 +6,18 @@ RUN uv sync --locked --no-dev --no-install-project
 COPY ai/src ./src
 RUN uv sync --locked --no-dev
 
+FROM build AS embedding-build
+RUN uv sync --locked --no-dev --group ncs
+
+FROM python:3.13-slim-bookworm AS embedding
+WORKDIR /app
+ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 HF_HOME=/var/cache/huggingface NCS_EMBED_HOST=0.0.0.0
+COPY --from=embedding-build /app /app
+RUN mkdir -p /var/cache/huggingface && chown 10001:10001 /var/cache/huggingface
+USER 10001:10001
+EXPOSE 8002
+CMD ["python", "-m", "hiremate_ai.ncs_search"]
+
 FROM python:3.13-slim-bookworm
 WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
