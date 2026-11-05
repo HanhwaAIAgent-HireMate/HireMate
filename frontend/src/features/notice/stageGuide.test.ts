@@ -11,13 +11,21 @@ import {
   todayIso,
 } from './stageGuide'
 
-const empty: StageGuide = { schedule: null, method: null, place: '', preparation: '', note: '' }
+const empty: StageGuide = {
+  schedule: null,
+  time: null,
+  method: null,
+  place: '',
+  preparation: '',
+  note: '',
+}
 
 function view(stageId: string, name: string, schedule: string | null): StageGuideView {
   return {
     stageId,
     seq: 0,
     name,
+    type: 'ASSESSMENT',
     guide: { ...empty, schedule },
     missing: [],
     notifiedCount: 0,
@@ -88,6 +96,7 @@ describe('전형별 안내 입력 검사', () => {
     expect(
       missingGuideFields({
         schedule: '2026-11-03',
+        time: null,
         method: 'OFFLINE',
         place: '본사',
         preparation: '신분증',

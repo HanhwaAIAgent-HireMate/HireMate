@@ -2191,6 +2191,8 @@ export interface components {
         StageGuideRequest: {
             /** Format: date */
             schedule: string | null;
+            /** @example 14:00 */
+            time: string | null;
             /** @enum {string|null} */
             method: "ONLINE" | "OFFLINE" | null;
             place: string;
@@ -2200,6 +2202,8 @@ export interface components {
         StageGuide: {
             /** Format: date */
             schedule: string | null;
+            /** @example 14:00:00 */
+            time: string | null;
             /** @enum {string|null} */
             method: "ONLINE" | "OFFLINE" | null;
             place: string;
@@ -2212,6 +2216,8 @@ export interface components {
             /** Format: int32 */
             seq: number;
             name: string;
+            /** @enum {string} */
+            type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
             guide: components["schemas"]["StageGuide"];
             missing: string[];
             /** Format: int32 */
@@ -3112,26 +3118,26 @@ export interface components {
             null: boolean;
             object: boolean;
             float: boolean;
-            container: boolean;
-            missingNode: boolean;
-            double: boolean;
-            binary: boolean;
             number: boolean;
-            string: boolean;
-            int: boolean;
-            long: boolean;
-            short: boolean;
-            boolean: boolean;
-            /** @deprecated */
-            textual: boolean;
-            pojo: boolean;
+            container: boolean;
+            integralNumber: boolean;
+            valueNode: boolean;
+            missingNode: boolean;
+            bigInteger: boolean;
             bigDecimal: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            valueNode: boolean;
             floatingPointNumber: boolean;
-            integralNumber: boolean;
-            bigInteger: boolean;
+            long: boolean;
+            string: boolean;
+            /** @deprecated */
+            textual: boolean;
+            short: boolean;
+            boolean: boolean;
+            int: boolean;
+            binary: boolean;
+            pojo: boolean;
+            double: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3557,8 +3563,8 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            token: string;
             parameterName: string;
+            token: string;
             headerName: string;
         };
         CsrfResponse: {

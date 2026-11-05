@@ -15,7 +15,7 @@ beforeAll(() => {
 
 afterEach(() => vi.unstubAllGlobals())
 
-function stubGuides(notifiedCount = 0) {
+function stubGuides(notifiedCount = 0, type = 'INTERVIEW') {
   vi.stubGlobal(
     'fetch',
     vi.fn((request: Request | string) => {
@@ -27,7 +27,15 @@ function stubGuides(notifiedCount = 0) {
             stageId: 'interview',
             seq: 2,
             name: '1차 면접',
-            guide: { schedule: null, method: null, place: '', preparation: '', note: '' },
+            type,
+            guide: {
+              schedule: null,
+              time: null,
+              method: null,
+              place: '',
+              preparation: '',
+              note: '',
+            },
             missing: ['일정', '진행 방식', '장소·접속 링크', '준비 사항'],
             notifiedCount,
           },
@@ -74,4 +82,17 @@ it('안내 메일을 받은 지원자가 있으면 고칠 수 없고 전화로 �
   expect(screen.getByText(/안내 메일을 보내서 고칠 수 없어요/)).toBeInTheDocument()
   expect(screen.getByText('3명에게 보냄')).toBeInTheDocument()
   expect(screen.queryByText(/비어 있음/)).not.toBeInTheDocument()
+})
+
+it('면접이 아닌 전형은 시작 시각을 받고, 면접은 지원자마다 배정한다고 알린다', async () => {
+  stubGuides(0, 'ASSESSMENT')
+  renderGuide('/close')
+  expect(await screen.findByLabelText('1차 면접 시작 시각')).toBeInTheDocument()
+})
+
+it('면접 전형은 시각 칸 대신 지원자마다 배정한다고 알린다', async () => {
+  stubGuides()
+  renderGuide('/close')
+  expect(await screen.findByText('시간은 지원자마다 배정돼요')).toBeInTheDocument()
+  expect(screen.queryByLabelText('1차 면접 시작 시각')).not.toBeInTheDocument()
 })
