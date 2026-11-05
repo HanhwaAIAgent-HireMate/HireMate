@@ -50,7 +50,7 @@ PR 검사를 통과한 변경을 `main`에 머지하면 GitHub Actions 배포 �
 실행기는 ARM64 이미지를 빌드하고 AI 스키마를 마이그레이션한 뒤 서비스를 적용하고 HTTPS 상태를 확인한다.
 배포 실패 시 자동 롤백은 하지 않는다. 배포 전 RDS 백업과 마이그레이션 호환성을 확인한다.
 
-`compose.production.yaml`은 Nginx, backend, AI API, AI 워커와 Redis를 실행한다.
+`compose.production.yaml`은 Nginx, backend, AI API, AI 워커, 내부 임베딩 서비스와 Redis를 실행한다.
 RDS와 S3는 별도 AWS 리소스이며 Redis 데이터는 EC2의 Docker 볼륨에 남는다.
 운영 값은 서버의 `/opt/hiremate/runtime.env`에 넣고 저장소에 올리지 않는다. 필요한 키는 `.env.example`에 있다.
 데이터베이스 URL에는 RDS 엔드포인트를 쓰고 TLS 호스트 검증을 켠다. JDBC URL에는
@@ -100,6 +100,58 @@ cd ai && uv sync && uv run alembic upgrade head && uv run uvicorn hiremate_ai.ma
 # backend에서 이 Agent들을 remote로 켤 때(예: HIREMATE_AI_AGENTS_INTERVIEW_ANALYST=remote) 같이 띄운다
 cd ai && uv run python -m hiremate_ai.worker
 ```
+
+## 지원자 검색과 프로필 임베딩
+
+지원서 분석은 문서별 1차 추출 뒤 원문과 비교하는 2차 검토를 수행한다. 추가하거나 수정한 사실의 근거를
+확인한 뒤 프로필을 저장한다. 지원자 검색은 프로필과 제출 문서의 키워드 검색에 프로필 의미 검색을 결합하고,
+검색된 근거와 주변 문맥으로 조건을 다시 확인한다. 같은 프로세스에서는 동일한 조건과 근거의 검증된 판정을
+재사용한다. 프로세스가 바뀌면 모델 판정이 달라질 수 있다.
+
+backend의 기본 AI 모드는 `stub`이다. 실제 지원서 분석과 Chat 검색을 연결하려면 backend 실행 환경에
+`HIREMATE_AI_AGENTS_APPLICATION=remote`와 `HIREMATE_AI_AGENTS_ROOT=remote`를 지정하고 AI 서버와 워커를 실행한다.
+지원자 카드 분석과 프로필 조회도 연결할 때는 각각 `HIREMATE_AI_AGENTS_CANDIDATE_ANALYST=remote`와
+`HIREMATE_AI_AGENTS_PROFILE=remote`를 지정한다.
+
+의미 검색에는 NCS와 같은 내부 BGE-M3 임베딩 서비스를 사용한다. 로컬에서는 AI 서버와 별도 터미널에서 실행한다.
+처음 실행할 때 모델을 내려받으므로 시간이 걸릴 수 있다. 기본 주소는 `http://127.0.0.1:8002`다.
+
+```bash
+cd ai
+uv run --group ncs python -m hiremate_ai.ncs_search
+```
+
+AI 서버와 임베딩 서비스의 `NCS_MODEL`은 같아야 한다. 서비스 주소와 요청 시간 제한은 각각 `NCS_EMBED_URL`과
+`NCS_EMBED_TIMEOUT_SECONDS`로 설정한다. 서비스가 꺼져 있거나 일부 프로필의 색인이 없으면 키워드 검색을
+사용하고 의미 검색이 불완전하다고 알린다. 이후 같은 범위를 검색할 때 누락된 색인을 백그라운드에서 재시도한다.
+색인 작업이 끝난 뒤 다시 검색해야 새 결과가 반영될 수 있다.
+
+기존 프로필은 AI 마이그레이션을 적용하고 임베딩 서비스를 켠 뒤 기업과 채용을 지정해 색인할 수 있다.
+실행 환경의 `DATABASE_URL`과 `NCS_EMBED_URL`은 대상 DB와 내부 서비스에 연결되어야 한다.
+
+```bash
+cd ai
+uv run alembic upgrade head
+uv run python scripts/profile_embeddings.py --company-id "$HIREMATE_COMPANY_ID" --recruitment-id "$HIREMATE_RECRUITMENT_ID"
+```
+
+두 환경 변수에는 각각 대상 기업과 채용의 UUID를 넣는다. 중간에 실패해도 완료한 프로필의 색인은 유지되며,
+서비스 복구 후 같은 명령을 다시 실행할 수 있다. 색인은 저장된 프로필을 대상으로 한다. 기존 분석에 2차 검토가
+자동으로 소급되지는 않으므로 새 검토 결과가 필요하면 먼저 지원서를 다시 분석한다.
+
+운영 Compose는 임베딩 서비스를 내부망에서 실행하고 모델 파일을 Docker 볼륨에 보관한다. 운영 이미지에는
+색인 스크립트가 포함되지 않으므로, 서비스가 실행 중이고 저장소가 있는 환경에서 다음과 같이 스크립트를
+읽기 전용으로 연결해 실행한다. 두 UUID 환경 변수를 먼저 설정하고 저장소 루트에서 실행한다.
+
+```bash
+docker compose -f compose.production.yaml run --rm --no-deps \
+  -v "$PWD/ai/scripts/profile_embeddings.py:/app/profile_embeddings.py:ro" \
+  ai python /app/profile_embeddings.py \
+  --company-id "$HIREMATE_COMPANY_ID" --recruitment-id "$HIREMATE_RECRUITMENT_ID"
+```
+
+가상 지원자 10명의 검색 비교, 실제 모델 평가 방법과 측정의 한계는
+[지원자 검색 개선 비교](ai/tests/eval/profile_search_comparison.md)에 있다.
 
 ## 공고·포스터 실제 AI 연결
 
