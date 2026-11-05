@@ -13,7 +13,12 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, ExtractedPeriod, LetterSummary
+from hiremate_ai.agents.analysis.application.extract import (
+    ExtractedFacts,
+    ExtractedPeriod,
+    ExtractionCorrections,
+    LetterSummary,
+)
 from hiremate_ai.agents.analysis.application.judge import CriteriaJudgement, CriterionVerdict
 from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
 from hiremate_ai.agents.analysis.application.types import Criterion, EvaluationRules, ScreeningRubric
@@ -135,6 +140,8 @@ class Script:
     def __call__(self, call: LlmCall) -> BaseModel:
         if call.output is ExtractedFacts:
             return next((value for key, value in self.extract.items() if key in call.user), ExtractedFacts())
+        if call.output is ExtractionCorrections:
+            return ExtractionCorrections()
         if call.output is LetterSummary:
             return self.summary
         if call.output is CriteriaJudgement:

@@ -29,6 +29,7 @@ def test_hash_invalidates_date_actual_recipe_and_scope(
     first = digest()
     assert digest(today=date(2026, 10, 28)) != first
     assert digest(recipe={"model": "two"}) != first
+    assert digest(review_extraction=True) != first
     assert (
         input_hash(
             applicant,
@@ -93,4 +94,35 @@ async def test_unknown_model_identity_never_reuses_review(
     store = DbReviewStore(sessions_of(db_session))
     first = await analyze_application(llm, store, applicant, sample_posting, make_rubric(), budget_seconds=20)
     second = await analyze_application(llm, store, applicant, sample_posting, make_rubric(), budget_seconds=20)
+    assert first.input_hash != second.input_hash
+
+
+def test_review_cache_changes_when_extraction_recipe_changes(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    applicant = sample_applicants["정유민"]
+    rubric = make_rubric()
+    options: dict[str, Any] = {"today": date(2026, 10, 27), "recipe": {"model": "one"}, "review_extraction": True}
+
+    first = input_hash(applicant, sample_posting, rubric, "version", extraction_version="first", **options)
+    second = input_hash(applicant, sample_posting, rubric, "version", extraction_version="second", **options)
+
+    assert first != second
+
+
+async def test_application_does_not_reuse_review_after_extraction_policy_changes(
+    db_session: AsyncSession,
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from hiremate_ai.agents.analysis.application import service
+
+    applicant = sample_applicants["정유민"].model_copy(update={"documents": []})
+    store = DbReviewStore(sessions_of(db_session))
+    monkeypatch.setattr(service, "extraction_recipe", lambda llm, *, review: "first", raising=False)
+    first = await analyze_application(FakeLlm(), store, applicant, sample_posting, make_rubric(), budget_seconds=20)
+    monkeypatch.setattr(service, "extraction_recipe", lambda llm, *, review: "second")
+    second = await analyze_application(FakeLlm(), store, applicant, sample_posting, make_rubric(), budget_seconds=20)
+
     assert first.input_hash != second.input_hash

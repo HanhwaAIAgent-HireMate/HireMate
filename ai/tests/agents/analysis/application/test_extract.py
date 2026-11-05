@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from application_context import TODAY
+from pydantic import BaseModel
 
 from hiremate_ai.agents.analysis.application.extract import (
     ExtractedFact,
@@ -14,7 +15,7 @@ from hiremate_ai.agents.analysis.application.extract import (
 )
 from hiremate_ai.agents.analysis.application.types import Actor
 from hiremate_ai.contract import ApplicantDocument, DocumentType
-from hiremate_ai.llm.fake import FakeLlm
+from hiremate_ai.llm.fake import FakeLlm, LlmCall
 
 TEXT = "경력\n한빛카드 결제플랫폼팀 2022.03 ~ 현재\n- 카드 결제 승인 · 정산 API를\nJava와 Spring Boot로 개발했습니다."
 DOCUMENT = ApplicantDocument(type=DocumentType.RESUME, file_id=uuid4(), file_name="이력서.pdf", size=1, text=TEXT)
@@ -198,3 +199,207 @@ async def test_summarize_drops_education_only_for_blind_hiring() -> None:
 
     assert [section.title for section in sections] == ["학업 경험", "협업 경험"]
     assert len(sections[1].quotes) == 2
+
+
+async def test_second_review_corrects_and_adds_document_facts() -> None:
+    from hiremate_ai.agents.analysis.application.extract import extract_documents
+    from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
+
+    original = ExtractedFacts(
+        facts=[
+            ExtractedFact(
+                kind="EXPERIENCE",
+                statement="결제 플랫폼을 혼자 총괄했다",
+                actor="SELF",
+                evidence=["Java와 Spring Boot로 개발했습니다."],
+            )
+        ]
+    )
+
+    def correction(call: LlmCall) -> BaseModel:
+        return call.output.model_validate(
+            {
+                "facts": [
+                    {
+                        "index": 1,
+                        "replacement": {
+                            "kind": "EXPERIENCE",
+                            "statement": "결제 API를 개발했다",
+                            "actor": "SELF",
+                            "evidence": ["Java와 Spring Boot로 개발했습니다."],
+                        },
+                    }
+                ],
+                "periods": [],
+                "added_facts": [
+                    {
+                        "kind": "SKILL",
+                        "statement": "Spring Boot를 사용했다",
+                        "actor": "SELF",
+                        "evidence": ["Java와 Spring Boot로 개발했습니다."],
+                    },
+                    {
+                        "kind": "EXPERIENCE",
+                        "statement": "가짜 성과",
+                        "actor": "SELF",
+                        "evidence": ["서류에 없는 내용입니다."],
+                    },
+                ],
+                "added_periods": [],
+            }
+        )
+
+    supported = ReviewJudgement(
+        reviews=[ClaimReview(id="F1", verdict="SUPPORTED"), ClaimReview(id="F2", verdict="SUPPORTED")]
+    )
+    llm = FakeLlm(original, correction, supported)
+    [reviewed] = await extract_documents(llm, [DOCUMENT], 1, review=True)
+    facts, _ = merge([DOCUMENT], [reviewed], TODAY)
+
+    assert [fact.statement for fact in facts] == ["결제 API를 개발했다", "Spring Boot를 사용했다"]
+    assert len(llm.calls) == 3
+    assert "결제 플랫폼을 혼자 총괄했다" in llm.calls[1].user
+    assert TEXT in llm.calls[1].user
+
+
+async def test_second_review_does_not_replace_evidence_with_invented_quote() -> None:
+    from hiremate_ai.agents.analysis.application.extract import extract_documents
+
+    original = ExtractedFacts(
+        facts=[
+            ExtractedFact(
+                kind="EXPERIENCE",
+                statement="결제 API를 개발했다",
+                actor="SELF",
+                evidence=["Java와 Spring Boot로 개발했습니다."],
+            )
+        ]
+    )
+
+    def correction(call: LlmCall) -> BaseModel:
+        return call.output.model_validate(
+            {
+                "facts": [
+                    {
+                        "index": 1,
+                        "replacement": {
+                            "kind": "EXPERIENCE",
+                            "statement": "시스템을 주도했다",
+                            "actor": "SELF",
+                            "evidence": ["이 문장은 원문에 없습니다."],
+                        },
+                    }
+                ]
+            }
+        )
+
+    [reviewed] = await extract_documents(FakeLlm(original, correction), [DOCUMENT], 1, review=True)
+    facts, _ = merge([DOCUMENT], [reviewed], TODAY)
+
+    assert [fact.statement for fact in facts] == ["결제 API를 개발했다"]
+
+
+async def test_second_review_drops_claim_not_supported_by_its_real_quote() -> None:
+    from hiremate_ai.agents.analysis.application.extract import extract_documents
+    from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
+
+    original = ExtractedFacts()
+
+    def correction(call: LlmCall) -> BaseModel:
+        return call.output.model_validate(
+            {
+                "added_facts": [
+                    {
+                        "kind": "ACHIEVEMENT",
+                        "statement": "중복 승인을 0건으로 줄였다",
+                        "actor": "SELF",
+                        "evidence": ["Java와 Spring Boot로 개발했습니다."],
+                    }
+                ]
+            }
+        )
+
+    judgement = ReviewJudgement(reviews=[ClaimReview(id="F1", verdict="UNSUPPORTED", reason="수치 근거 없음")])
+    llm = FakeLlm(original, correction, judgement)
+    [reviewed] = await extract_documents(llm, [DOCUMENT], 1, review=True)
+    facts, _ = merge([DOCUMENT], [reviewed], TODAY)
+
+    assert facts == []
+
+
+async def test_second_review_preserves_original_if_deletion_is_not_supported() -> None:
+    from hiremate_ai.agents.analysis.application.extract import extract_documents
+    from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
+
+    original = ExtractedFacts(
+        facts=[
+            ExtractedFact(
+                kind="EXPERIENCE",
+                statement="결제 API를 개발했다",
+                actor="SELF",
+                evidence=["카드 결제 승인 \N{MIDDLE DOT} 정산 API를\nJava와 Spring Boot로 개발했습니다."],
+            )
+        ]
+    )
+
+    def correction(call: LlmCall) -> BaseModel:
+        return call.output.model_validate({"facts": [{"index": 1, "replacement": None}]})
+
+    judgment = ReviewJudgement(reviews=[ClaimReview(id="F1", verdict="SUPPORTED")])
+    [reviewed] = await extract_documents(FakeLlm(original, correction, judgment), [DOCUMENT], 1, review=True)
+
+    assert [fact.statement for fact in reviewed.facts] == ["결제 API를 개발했다"]
+
+
+async def test_second_review_keeps_a_quote_that_supports_the_added_fact() -> None:
+    from hiremate_ai.agents.analysis.application.extract import extract_documents
+    from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
+
+    def correction(call: LlmCall) -> BaseModel:
+        return call.output.model_validate(
+            {
+                "added_facts": [
+                    {
+                        "kind": "EXPERIENCE",
+                        "statement": "Java와 Spring Boot를 사용했다",
+                        "actor": "SELF",
+                        "evidence": ["한빛카드 결제플랫폼팀 2022.03 ~ 현재", "Java와 Spring Boot로 개발했습니다."],
+                    }
+                ]
+            }
+        )
+
+    judgment = ReviewJudgement(
+        reviews=[ClaimReview(id="F1", verdict="UNSUPPORTED"), ClaimReview(id="F2", verdict="SUPPORTED")]
+    )
+    [reviewed] = await extract_documents(FakeLlm(ExtractedFacts(), correction, judgment), [DOCUMENT], 1, review=True)
+
+    assert len(reviewed.facts) == 1
+    assert reviewed.facts[0].evidence == ["Java와 Spring Boot로 개발했습니다."]
+
+
+async def test_second_review_fails_when_claim_verification_is_omitted() -> None:
+    import pytest
+
+    from hiremate_ai.agents.analysis.application.extract import extract_documents
+    from hiremate_ai.agents.analysis.application.review import ReviewJudgement
+    from hiremate_ai.llm.chat import LlmOutputError
+
+    def correction(call: LlmCall) -> BaseModel:
+        return call.output.model_validate(
+            {
+                "added_facts": [
+                    {
+                        "kind": "SKILL",
+                        "statement": "Spring Boot를 사용했다",
+                        "actor": "SELF",
+                        "evidence": ["Java와 Spring Boot로 개발했습니다."],
+                    }
+                ]
+            }
+        )
+
+    with pytest.raises(LlmOutputError):
+        await extract_documents(
+            FakeLlm(ExtractedFacts(), correction, ReviewJudgement(reviews=[])), [DOCUMENT], 1, review=True
+        )
