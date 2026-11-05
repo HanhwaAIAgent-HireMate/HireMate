@@ -132,24 +132,25 @@ function GuideCard({
           안내 메일을 보내서 고칠 수 없어요. 바뀐 내용은 받은 지원자에게 전화로 알려 주세요.
         </p>
       )}
-      <Field
-        label="일정"
-        problem={problems.schedule}
-        hint={view.type === 'INTERVIEW' ? '면접 시간은 지원자마다 배정돼요' : undefined}
-      >
+      <Field label="일정" problem={problems.schedule}>
         {/* 면접이 아닌 전형은 공고 게시처럼 날짜와 시작 시각을 한 칸으로 받는다. 면접은 지원자마다 시간을 배정해 날짜만 받는다 */}
         {view.type === 'INTERVIEW' ? (
-          <Input
-            type="date"
-            aria-label={`${view.name} 일정`}
-            value={draft.schedule ?? ''}
-            // 이미 지난 일정은 그대로 둘 수 있게, 바꾸지 않았으면 지난 날도 범위에 넣는다
-            min={keepPast ? undefined : range.min}
-            max={range.max}
-            disabled={!canEdit}
-            onChange={(event) => change({ schedule: event.target.value || null })}
-            className="w-44"
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              type="date"
+              aria-label={`${view.name} 일정`}
+              value={draft.schedule ?? ''}
+              // 이미 지난 일정은 그대로 둘 수 있게, 바꾸지 않았으면 지난 날도 범위에 넣는다
+              min={keepPast ? undefined : range.min}
+              max={range.max}
+              disabled={!canEdit}
+              onChange={(event) => change({ schedule: event.target.value || null })}
+              className="w-44"
+            />
+            <span className="text-[11px] text-muted-foreground">
+              면접 시간은 지원자마다 배정돼요
+            </span>
+          </div>
         ) : (
           <Input
             type="datetime-local"
