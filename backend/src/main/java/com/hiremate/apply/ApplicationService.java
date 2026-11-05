@@ -173,6 +173,12 @@ public class ApplicationService {
                 .toList();
     }
 
+    /** 블라인드 채용 공고인지. 안내 메일에 지원자 본인의 지원번호를 알려 줄 때 쓴다. */
+    @Transactional(readOnly = true)
+    public boolean blind(UUID companyId, UUID recruitmentId) {
+        return postings.view(companyId, recruitmentId).content().blind();
+    }
+
     /** 채용 지원자 전원의 제출 문서. AI Chat이 후보의 근거를 찾을 때 쓴다. */
     @Transactional(readOnly = true)
     public Map<UUID, List<ApplicantDocument>> documents(UUID companyId, UUID recruitmentId) {
@@ -331,7 +337,7 @@ public class ApplicationService {
      * 결과를 확정하면 최종 합격자 처리를 위해 이름도 보인다.
      */
     private boolean hidesIdentity(UUID companyId, UUID recruitmentId) {
-        if (!postings.view(companyId, recruitmentId).content().blind()) {
+        if (!blind(companyId, recruitmentId)) {
             return false;
         }
         return recruits.get(companyId, recruitmentId).stages().stream()
