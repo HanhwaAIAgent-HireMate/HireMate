@@ -46,12 +46,14 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       BACKEND_BASE_URL: http://backend:8080
+      NCS_EMBED_URL: http://embedding:8002
       PGSSLMODE: verify-full
       PGSSLROOTCERT: /etc/ssl/certs/rds-ca-bundle.pem
     volumes:
       - /opt/hiremate/rds-ca-bundle.pem:/etc/ssl/certs/rds-ca-bundle.pem:ro
     depends_on:
       - redis
+      - embedding
     restart: unless-stopped
 
   worker:
@@ -61,12 +63,27 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       BACKEND_BASE_URL: http://backend:8080
+      NCS_EMBED_URL: http://embedding:8002
       PGSSLMODE: verify-full
       PGSSLROOTCERT: /etc/ssl/certs/rds-ca-bundle.pem
     volumes:
       - /opt/hiremate/rds-ca-bundle.pem:/etc/ssl/certs/rds-ca-bundle.pem:ro
     depends_on:
       - redis
+      - embedding
+    restart: unless-stopped
+
+  embedding:
+    image: hiremate-embedding:current
+    build:
+      context: .
+      dockerfile: ai/Dockerfile
+      target: embedding
+    env_file: /opt/hiremate/runtime.env
+    environment:
+      NCS_EMBED_HOST: 0.0.0.0
+    volumes:
+      - embedding-model-cache:/var/cache/huggingface
     restart: unless-stopped
 
   redis:
@@ -78,3 +95,4 @@ services:
 
 volumes:
   redis-data:
+  embedding-model-cache:
