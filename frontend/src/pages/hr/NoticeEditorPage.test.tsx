@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
@@ -60,6 +60,9 @@ function mockServer(current: Notice, routes: Record<string, () => Promise<Respon
     if (method === 'GET' && path === '/api/stages/s1/notices')
       return Promise.resolve(Response.json([current]))
     const route = routes[`${method} ${path}`]
+    // 다음 면접 배정은 따로 정하지 않으면 끝난 상태다 (합격 안내는 배정한 뒤에 보낸다)
+    if (!route && method === 'GET' && path === '/api/stages/s1/interview-scheduling')
+      return Promise.resolve(Response.json({ status: 'READY' }))
     return route ? route() : Promise.resolve(Response.json({ code: 'NOT_FOUND' }, { status: 404 }))
   })
   vi.stubGlobal('fetch', fetch)
@@ -132,8 +135,23 @@ describe('안내 초안 화면', () => {
     })
     renderEditor()
 
-    fireEvent.click(await screen.findByRole('button', { name: '3명에게 발송' }))
+    // 다음 면접 배정 상태를 확인한 뒤에 보낼 수 있다
+    const sendButton = await screen.findByRole('button', { name: '3명에게 발송' })
+    await waitFor(() => expect(sendButton).toBeEnabled())
+    fireEvent.click(sendButton)
     expect(await screen.findByText('메일을 보내고 있어요')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '보내는 중…' })).toBeDisabled()
+  })
+
+  it('다음 면접 시간을 배정하지 않았으면 합격 안내를 보낼 수 없다고 알린다', async () => {
+    mockServer(notice('서류 전형에 합격하셨습니다.'), {
+      'GET /api/stages/s1/interview-scheduling': () =>
+        Promise.resolve(Response.json({ status: 'DATE_REQUIRED' })),
+    })
+    renderEditor()
+
+    expect(await screen.findByText(/다음 면접 시간을 배정한 뒤 보낼 수 있어요/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '3명에게 발송' })).toBeDisabled()
+    expect(screen.getByRole('link', { name: '배정 상태 보기' })).toBeInTheDocument()
   })
 })

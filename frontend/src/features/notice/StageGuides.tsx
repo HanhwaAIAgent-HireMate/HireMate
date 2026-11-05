@@ -2,16 +2,6 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router'
 import { toast } from 'sonner'
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -102,8 +92,10 @@ function GuideCard({
   editable: boolean
 }) {
   const [draft, setDraft] = useState<StageGuide>(view.guide)
-  const [confirming, setConfirming] = useState(false)
   const save = useSaveStageGuide(recruitmentId, view.stageId)
+  // 안내 메일을 받은 지원자가 있으면 잠근다. 시스템에는 지원자가 받은 안내를 그대로 두고, 바뀐 내용은 HR이 연락한다
+  const locked = view.notifiedCount > 0
+  const canEdit = editable && !locked
   const today = todayIso()
   const dirty = JSON.stringify(draft) !== JSON.stringify(view.guide)
   const problems = guideProblems(draft, view.guide, bounds, today)
@@ -127,10 +119,15 @@ function GuideCard({
               {view.notifiedCount}명에게 보냄
             </span>
           )}
-          {empty.length > 0 && (
+          {empty.length > 0 && !locked && (
             <span className="text-[11px] text-amber-700">비어 있음: {empty.join(', ')}</span>
           )}
         </div>
+      )}
+      {locked && (
+        <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+          안내 메일을 보내서 고칠 수 없어요. 바뀐 내용은 받은 지원자에게 전화로 알려 주세요.
+        </p>
       )}
       <Field label="일정" problem={problems.schedule}>
         <Input
@@ -140,7 +137,7 @@ function GuideCard({
           // 이미 지난 일정은 그대로 둘 수 있게, 바꾸지 않았으면 지난 날도 범위에 넣는다
           min={view.guide.schedule && view.guide.schedule < range.min ? undefined : range.min}
           max={range.max}
-          disabled={!editable}
+          disabled={!canEdit}
           onChange={(event) => change({ schedule: event.target.value || null })}
           className="w-44"
         />
@@ -148,7 +145,7 @@ function GuideCard({
       <Field label="진행 방식">
         <Select
           value={draft.method ?? ''}
-          disabled={!editable}
+          disabled={!canEdit}
           onValueChange={(method) => change({ method: method as GuideMethod })}
         >
           <SelectTrigger aria-label={`${view.name} 진행 방식`} className="w-44">
@@ -176,7 +173,7 @@ function GuideCard({
                 : '진행 방식을 먼저 골라 주세요'
           }
           maxLength={PLACE_MAX}
-          disabled={!editable || (!draft.method && !draft.place)}
+          disabled={!canEdit || (!draft.method && !draft.place)}
           onChange={(event) => change({ place: event.target.value })}
         />
       </Field>
@@ -187,7 +184,7 @@ function GuideCard({
           placeholder="예: 신분증, 노트북"
           maxLength={PREPARATION_MAX}
           rows={2}
-          disabled={!editable}
+          disabled={!canEdit}
           onChange={(event) => change({ preparation: event.target.value })}
           className="min-h-0"
         />
@@ -199,38 +196,18 @@ function GuideCard({
           placeholder="한 줄에 하나씩 써요. 예: 시작 시간은 오후 2시예요"
           maxLength={NOTE_MAX}
           rows={2}
-          disabled={!editable}
+          disabled={!canEdit}
           onChange={(event) => change({ note: event.target.value })}
           className="min-h-0"
         />
       </Field>
-      {editable && dirty && (
+      {canEdit && dirty && (
         <div className="flex justify-end">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={save.isPending || invalid}
-            onClick={() => (view.notifiedCount > 0 ? setConfirming(true) : submit())}
-          >
+          <Button size="sm" variant="outline" disabled={save.isPending || invalid} onClick={submit}>
             안내 저장
           </Button>
         </div>
       )}
-      <AlertDialog open={confirming} onOpenChange={setConfirming}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>이미 {view.notifiedCount}명에게 이 안내를 보냈어요</AlertDialogTitle>
-            <AlertDialogDescription>
-              고친 내용은 이미 보낸 메일에 반영되지 않아요. 안내를 받은 지원자에게는 따로 연락해
-              주세요.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={submit}>저장</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
