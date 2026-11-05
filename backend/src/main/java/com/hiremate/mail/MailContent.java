@@ -78,11 +78,21 @@ public record MailContent(String sender, String caption, List<Block> blocks, Str
         @Override
         public Guide fill(Map<String, String> values) {
             return new Guide(replace(lead, values), replace(title, values),
-                    items.stream().map(item -> new Item(item.label(), replace(item.value(), values))).toList(),
+                    items.stream().map(item -> new Item(item.label(), replace(item.value(), values), item.hint()))
+                            .toList(),
                     notes.stream().map(note -> replace(note, values)).toList());
         }
     }
 
-    public record Item(String label, String value) {
+    /**
+     * 안내 상자의 칸 하나.
+     *
+     * @param hint 미리보기에서만 값 아래에 흐리게 쓰는 메모. 텍스트 메일에는 넣지 않는다. 없으면 빈 문자열
+     */
+    public record Item(String label, String value, String hint) {
+
+        public Item(String label, String value) {
+            this(label, value, "");
+        }
     }
 }

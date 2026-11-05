@@ -75,8 +75,8 @@ public class NoticeService {
     private static final DateTimeFormatter GUIDE_TIME = DateTimeFormatter.ofPattern("HH:mm");
     /** 다음 면접 안내 메일의 지원자별 면접 일시. 보낼 때 지원자마다 채우는 안의 변수다. */
     private static final String INTERVIEW_TIME = "{면접일시}";
-    /** 미리보기의 면접 일정 옆에 두는 메모. 실제 메일에는 지원자별 시각이 들어간다. */
-    static final String PREVIEW_TIME_NOTE = "(시각은 지원자마다 배정된 시간으로 들어가요)";
+    /** 미리보기의 면접 일정 아래에 두는 메모. 실제 메일에는 메모 대신 지원자별 시각이 들어간다. */
+    static final String PREVIEW_TIME_NOTE = "보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요";
 
     private final NoticeRepository notices;
     private final NoticeDeliveryRepository deliveries;
@@ -219,12 +219,12 @@ public class NoticeService {
         String companyName = companies.profile(companyId).name();
         Map<String, String> values = new HashMap<>(values(PREVIEW_APPLICANT, PREVIEW_APPLICATION_NO, companyName,
                 recruitment, stageId));
-        Optional<String> interviewTime = previewInterviewTime(notice, recruitment);
-        interviewTime.ifPresent(time -> values.put(INTERVIEW_TIME, time));
+        Optional<String> interviewDate = previewInterviewDate(notice, recruitment);
+        interviewDate.ifPresent(date -> values.put(INTERVIEW_TIME, date));
+        MailContent content = content(notice, recruitment, companyName, interviewDate.isPresent(),
+                applications.blind(companyId, recruitment.id())).fill(values);
         return MailPreview.of(fill(notice.getSubject(), values),
-                content(notice, recruitment, companyName, interviewTime.isPresent(),
-                        applications.blind(companyId, recruitment.id())).fill(values),
-                mailStyles.brand(companyId));
+                interviewDate.isPresent() ? withScheduleHint(content) : content, mailStyles.brand(companyId));
     }
 
     /** 공고 작성 화면의 전형 안내. 첫 전형은 안내하는 메일이 없어 뺀다. */
@@ -434,12 +434,33 @@ public class NoticeService {
                 .orElse(Map.of());
     }
 
-    /** 미리보기의 면접 일시. 시각은 지원자마다 달라, 날짜 옆에 보낼 때 지원자별 시각이 들어간다고 적는다. */
-    private static Optional<String> previewInterviewTime(Notice notice, RecruitmentInfo recruitment) {
+    /** 합격 안내이고 다음 전형이 면접인지. 그러면 안내의 일정 줄에 지원자마다 배정한 면접 시각이 붙는다. */
+    private static boolean interviewNext(Notice notice, RecruitmentInfo recruitment) {
+        return notice.getGroupType() == NoticeGroup.PASS && nextStage(notice, recruitment)
+                .filter(next -> next.type() == StageType.INTERVIEW).isPresent();
+    }
+
+    /** 미리보기의 면접 일시. 시각은 지원자마다 달라 날짜만 쓴다. */
+    private static Optional<String> previewInterviewDate(Notice notice, RecruitmentInfo recruitment) {
+        if (!interviewNext(notice, recruitment)) {
+            return Optional.empty();
+        }
         return nextStage(notice, recruitment)
-                .filter(next -> notice.getGroupType() == NoticeGroup.PASS && next.type() == StageType.INTERVIEW)
-                .map(next -> (next.guide().schedule() == null ? "" : GUIDE_DATE.format(next.guide().schedule()) + " ")
-                        + PREVIEW_TIME_NOTE);
+                .map(next -> next.guide().schedule() == null ? "" : GUIDE_DATE.format(next.guide().schedule()));
+    }
+
+    /** 미리보기의 일정 칸 아래에 흐린 작은 글씨로 보낼 때 시각이 들어간다는 메모를 둔다. 보내는 메일에는 없다. */
+    private static MailContent withScheduleHint(MailContent content) {
+        List<MailContent.Block> blocks = content.blocks().stream()
+                .map(block -> block instanceof MailContent.Guide guide
+                        ? new MailContent.Guide(guide.lead(), guide.title(), guide.items().stream()
+                                .map(item -> item.label().equals("일정")
+                                        ? new MailContent.Item(item.label(), item.value(), PREVIEW_TIME_NOTE)
+                                        : item)
+                                .toList(), guide.notes())
+                        : block)
+                .toList();
+        return new MailContent(content.sender(), content.caption(), blocks, content.closing(), content.footer());
     }
 
     /** 일정 줄을 지원자별 면접 일시 변수로 바꾼 안내 칸. */
@@ -537,11 +558,14 @@ public class NoticeService {
         };
     }
 
-    private static NoticeView toView(Notice notice, RecruitmentInfo recruitment) {
+    private NoticeView toView(Notice notice, RecruitmentInfo recruitment) {
+        String guide = guideText(notice, recruitment);
         return new NoticeView(notice.getId(), notice.getStageId(), notice.getGroupType(), notice.getTemplateType(),
                 label(notice.getTemplateType()), notice.getSubject(), notice.getGreeting(), notice.getContent(),
-                guideText(notice, recruitment), guideMissing(notice, recruitment), notice.onboarding(),
-                notice.getClosing(), notice.getRequiredText(), notice.getRecipientCount(), notice.getStatus(),
-                notice.getSentCount(), notice.getFailedCount(), notice.getSentAt());
+                guide, guideMissing(notice, recruitment), notice.onboarding(),
+                applications.blind(recruitment.companyId(), recruitment.id()) ? APPLICATION_NO_LINE : null,
+                !guide.isEmpty() && interviewNext(notice, recruitment), notice.getClosing(), notice.getRequiredText(),
+                notice.getRecipientCount(), notice.getStatus(), notice.getSentCount(), notice.getFailedCount(),
+                notice.getSentAt());
     }
 }

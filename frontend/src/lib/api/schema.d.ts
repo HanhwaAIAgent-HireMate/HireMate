@@ -2111,6 +2111,8 @@ export interface components {
             guide: string;
             guideMissing: string[];
             onboarding: components["schemas"]["OnboardingGuide"];
+            applicationNoLine: string | null;
+            interviewTimeHint: boolean;
             closing: string;
             requiredText: string;
             /** Format: int32 */
@@ -3135,25 +3137,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            missingNode: boolean;
-            integralNumber: boolean;
+            binary: boolean;
+            pojo: boolean;
+            short: boolean;
+            long: boolean;
+            double: boolean;
+            int: boolean;
+            /** @deprecated */
+            textual: boolean;
+            boolean: boolean;
+            string: boolean;
             floatingPointNumber: boolean;
             bigInteger: boolean;
             valueNode: boolean;
-            container: boolean;
             bigDecimal: boolean;
+            container: boolean;
+            integralNumber: boolean;
+            missingNode: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            binary: boolean;
-            string: boolean;
-            int: boolean;
-            long: boolean;
-            short: boolean;
-            boolean: boolean;
-            double: boolean;
-            /** @deprecated */
-            textual: boolean;
-            pojo: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
