@@ -1,0 +1,233 @@
+{
+  "description": "가상 지원자 10명의 다섯 질문에 대한 표본 정답. 두 질문의 경계 사례는 미확정으로 분류한다.",
+  "dataset_sha256": "b05a5b3df53540f8df6b6fdf5205e42ccf483e0c4aaabf09db9620a191fb76f6",
+  "candidates": [
+    "이재희",
+    "강준서",
+    "박재현",
+    "이도윤",
+    "강혜원",
+    "김다인",
+    "김하늘",
+    "박연우",
+    "성혜린",
+    "엄하은"
+  ],
+  "cases": [
+    {
+      "id": "pg-integration",
+      "include": [
+        {
+          "name": "이재희",
+          "document_type": "RESUME",
+          "quote": "외부 PG사 9곳과의 결제 연동 모듈을 공통화해 신규 연동 기간을 5주에서 2주로 줄였습니다."
+        }
+      ],
+      "exclude": [
+        "강준서",
+        "박재현",
+        "이도윤",
+        "강혜원",
+        "김다인",
+        "김하늘",
+        "박연우",
+        "성혜린",
+        "엄하은"
+      ]
+    },
+    {
+      "id": "batch-settlement",
+      "include": [
+        {
+          "name": "강준서",
+          "document_type": "RESUME",
+          "quote": "가맹점 정산 배치를 Spring Batch로 다시 만들어 처리 시간을 6시간에서 50분으로 줄였습니다."
+        },
+        {
+          "name": "엄하은",
+          "document_type": "RESUME",
+          "quote": "가맹점 정산 배치를 Spring Batch로 다시 만들어 처리 시간을 3시간에서"
+        }
+      ],
+      "exclude": [
+        "이재희",
+        "박재현",
+        "이도윤",
+        "강혜원",
+        "김다인",
+        "김하늘",
+        "박연우",
+        "성혜린"
+      ]
+    },
+    {
+      "id": "kafka-isolation",
+      "include": [
+        {
+          "name": "강혜원",
+          "document_type": "PORTFOLIO",
+          "quote": "Kafka로 분리해 서비스 간 결합도를 낮추고 장애 전파를"
+        },
+        {
+          "name": "김다인",
+          "document_type": "RESUME",
+          "quote": "Kafka로 분리해 서비스 간 결합도를 낮추고 장애 전파를"
+        },
+        {
+          "name": "박재현",
+          "document_type": "RESUME",
+          "quote": "Kafka로 분리해 서비스 간 결합도를 낮추고 장애 전파를"
+        },
+        {
+          "name": "박연우",
+          "document_type": "RESUME",
+          "quote": "Kafka로 분리해 서비스 간 결합도를 낮추고 장애 전파를"
+        },
+        {
+          "name": "엄하은",
+          "document_type": "RESUME",
+          "quote": "Kafka로 분리해 서비스 간 결합도를 낮추고 장애 전파를"
+        }
+      ],
+      "exclude": [
+        "이재희",
+        "강준서",
+        "이도윤",
+        "김하늘",
+        "성혜린"
+      ]
+    },
+    {
+      "id": "payment-real-work",
+      "include": [
+        {
+          "name": "강준서",
+          "document_type": "RESUME",
+          "quote": "가맹점 정산 배치를 Spring Batch로 다시 만들어 처리 시간을 6시간에서 50분으로 줄였습니다."
+        },
+        {
+          "name": "강혜원",
+          "document_type": "RESUME",
+          "quote": "오픈뱅킹 API를 연동해 계좌 간편결제 기능을 출시했습니다."
+        },
+        {
+          "name": "김다인",
+          "document_type": "RESUME",
+          "quote": "카드 승인 API를 Java와 Spring Boot로 개발해 하루 80만 건의 승인 요청을 처리했습니다."
+        },
+        {
+          "name": "김하늘",
+          "document_type": "RESUME",
+          "quote": "간편결제 정산 시스템을 Spring Boot로 새로 만들었습니다."
+        },
+        {
+          "name": "박연우",
+          "document_type": "RESUME",
+          "quote": "외부 PG사 6곳과의 결제 연동 모듈을 공통화해 신규 연동 기간을 5주에서"
+        },
+        {
+          "name": "성혜린",
+          "document_type": "RESUME",
+          "quote": "외부 PG사 6곳과의 결제 연동 모듈을 공통화해 신규 연동 기간을 4주에서 1주로 줄였습니다."
+        },
+        {
+          "name": "엄하은",
+          "document_type": "RESUME",
+          "quote": "가맹점 정산 배치를 Spring Batch로 다시 만들어 처리 시간을 3시간에서"
+        },
+        {
+          "name": "이재희",
+          "document_type": "RESUME",
+          "quote": "외부 PG사 9곳과의 결제 연동 모듈을 공통화해 신규 연동 기간을 5주에서 2주로 줄였습니다."
+        }
+      ],
+      "exclude": [
+        "이도윤"
+      ],
+      "exclude_evidence": [
+        {
+          "name": "이도윤",
+          "document_type": "COVER_LETTER",
+          "quote": "실제 서비스 경험은 없지만"
+        }
+      ],
+      "uncertain": [
+        "박재현"
+      ],
+      "uncertain_evidence": [
+        {
+          "name": "박재현",
+          "document_type": "RESUME",
+          "quote": "Go로 결제 로그 수집기를 만들어 하루 5억 건의 로그를 처리했습니다."
+        }
+      ],
+      "uncertain_reason": "실제 결제 로그 수집과 이벤트 분리 경험을 해당 질문의 서비스 개발 실무에 포함할지 기준이 불분명하다."
+    },
+    {
+      "id": "finance-work",
+      "include": [
+        {
+          "name": "강준서",
+          "document_type": "RESUME",
+          "quote": "가맹점 정산 배치를 Spring Batch로 다시 만들어 처리 시간을 6시간에서 50분으로 줄였습니다."
+        },
+        {
+          "name": "강혜원",
+          "document_type": "RESUME",
+          "quote": "오픈뱅킹 API를 연동해 계좌 간편결제 기능을 출시했습니다."
+        },
+        {
+          "name": "김다인",
+          "document_type": "RESUME",
+          "quote": "카드 승인 API를 Java와 Spring Boot로 개발해 하루 80만 건의 승인 요청을 처리했습니다."
+        },
+        {
+          "name": "김하늘",
+          "document_type": "RESUME",
+          "quote": "간편결제 정산 시스템을 Spring Boot로 새로 만들었습니다."
+        },
+        {
+          "name": "박연우",
+          "document_type": "RESUME",
+          "quote": "외부 PG사 6곳과의 결제 연동 모듈을 공통화해 신규 연동 기간을 5주에서"
+        },
+        {
+          "name": "성혜린",
+          "document_type": "RESUME",
+          "quote": "외부 PG사 6곳과의 결제 연동 모듈을 공통화해 신규 연동 기간을 4주에서 1주로 줄였습니다."
+        },
+        {
+          "name": "엄하은",
+          "document_type": "RESUME",
+          "quote": "가맹점 정산 배치를 Spring Batch로 다시 만들어 처리 시간을 3시간에서"
+        },
+        {
+          "name": "이재희",
+          "document_type": "RESUME",
+          "quote": "외부 PG사 9곳과의 결제 연동 모듈을 공통화해 신규 연동 기간을 5주에서 2주로 줄였습니다."
+        }
+      ],
+      "exclude": [
+        "이도윤"
+      ],
+      "exclude_evidence": [
+        {
+          "name": "이도윤",
+          "document_type": "COVER_LETTER",
+          "quote": "실제 서비스 경험은 없지만"
+        }
+      ],
+      "uncertain": [
+        "박재현"
+      ],
+      "uncertain_evidence": [
+        {
+          "name": "박재현",
+          "document_type": "RESUME",
+          "quote": "Go로 결제 로그 수집기를 만들어 하루 5억 건의 로그를 처리했습니다."
+        }
+      ],
+      "uncertain_reason": "실제 결제 로그 수집과 이벤트 분리 경험을 해당 질문의 서비스 개발 실무에 포함할지 기준이 불분명하다."
+    }
+  ]
+}
