@@ -1,80 +1,28 @@
 import { ExternalLink } from 'lucide-react'
-import { useState } from 'react'
-
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 
 /**
- * 원본 PDF 열기. 블라인드 채용에서 원본에 가린 정보(출신 학교 · 학점)가 그대로 있으면 열기 전에 묻는다.
- * 이력서에 쓰는 게 자연스러운 이름은 묻지 않고 옆에 안내만 한다. 원본을 확인해야 할 때가 있어 막지는 않는다
+ * 원본 PDF 열기. 블라인드 채용에서 원본에 지원자 이름이 있으면 옆에 안내만 한다. 화면은 이름을 가려 보여 주므로 원본을 열면
+ * 이름이 보인다는 것을 미리 알린다. 원본에 남은 출신 학교 · 학점은 HR이 블라인드 위반을 확인하려고 여는 것이라 묻지 않는다
  */
 export function OriginalPdfLink({
   href,
-  hidden,
   showsName = false,
 }: {
   href: string
-  hidden: string[]
   showsName?: boolean
 }) {
-  const [confirming, setConfirming] = useState(false)
-  const className = 'inline-flex items-center gap-1 hover:text-foreground'
-  const note = showsName && <span className="mr-2">원본에는 이름이 보여요</span>
-  if (hidden.length === 0) {
-    return (
-      <span className="inline-flex items-center">
-        {note}
-        <a href={href} target="_blank" rel="noreferrer" className={className}>
-          <ExternalLink className="size-3" />
-          원본 PDF
-        </a>
-      </span>
-    )
-  }
   return (
     <span className="inline-flex items-center">
-      {note}
-      <button type="button" onClick={() => setConfirming(true)} className={className}>
+      {showsName && <span className="mr-2">원본에는 이름이 보여요</span>}
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1 hover:text-foreground"
+      >
         <ExternalLink className="size-3" />
         원본 PDF
-      </button>
-      <AlertDialog open={confirming} onOpenChange={setConfirming}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>원본 PDF를 열까요?</AlertDialogTitle>
-            <AlertDialogDescription>
-              이 원본에는 블라인드로 가린 {subject(hidden.join(' · '))} 그대로 있어요. 열면 화면에서
-              가린 정보를 보게 돼요.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                window.open(href, '_blank', 'noreferrer')
-                setConfirming(false)
-              }}
-            >
-              열기
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      </a>
     </span>
   )
-}
-
-/** 받침이 있으면 '이', 없으면 '가'를 붙인다 (출신 학교가, 학점이) */
-function subject(word: string) {
-  const last = word.charCodeAt(word.length - 1) - 0xac00
-  const batchim = last >= 0 && last <= 11171 && last % 28 !== 0
-  return word + (batchim ? '이' : '가')
 }

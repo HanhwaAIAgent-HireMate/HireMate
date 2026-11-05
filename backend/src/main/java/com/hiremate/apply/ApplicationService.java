@@ -263,22 +263,21 @@ public class ApplicationService {
     }
 
     /**
-     * 원본 PDF를 열면 블라인드로 가린 정보가 보이는 서류. 블라인드 채용에서 마지막 전형 결과를 확정하기 전에만 알린다.
-     * 출신 학교 · 학점은 열기 전에 묻고, 이력서에 쓰는 게 자연스러운 이름은 안내만 한다.
+     * 원본 PDF에 지원자 이름이 그대로 있는 서류. 블라인드 채용에서 마지막 전형 결과를 확정하기 전에만 알린다. 화면은 이름을
+     * 가려 보여 주므로, 원본을 열면 이름이 보인다고 안내만 한다. 원본에 남은 출신 학교 · 학점은 HR이 블라인드 위반을
+     * 확인하려고 여는 것이라 알리지 않는다.
      */
     @Transactional(readOnly = true)
-    public List<OriginalWarning> originalWarnings(UUID companyId, UUID applicationId) {
+    public List<DocumentType> originalsWithName(UUID companyId, UUID applicationId) {
         JobApplication application = application(companyId, applicationId);
         if (!new Identity(companyId).hides(application)) {
             return List.of();
         }
         return documents.findByApplicationId(applicationId).stream()
-                .sorted(Comparator.comparing(ApplicationDocument::getType))
-                .map(document -> new OriginalWarning(document.getType(),
-                        BlindMask.hiddenOnOriginal(document.getText()),
-                        !BlindMask.maskApplicant(document.getText(), application.getName())
-                                .equals(BlindMask.maskApplicant(document.getText(), ""))))
-                .filter(warning -> !warning.kinds().isEmpty() || warning.showsName())
+                .filter(document -> !BlindMask.maskApplicant(document.getText(), application.getName())
+                        .equals(document.getText()))
+                .map(ApplicationDocument::getType)
+                .sorted()
                 .toList();
     }
 
