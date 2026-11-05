@@ -238,10 +238,10 @@ public final class MailLayout {
                 .collect(Collectors.joining());
     }
 
-    /** 칸 값 옆의 흐린 작은 메모. 미리보기에서만 쓴다. */
+    /** 칸 값 아래의 흐린 작은 메모. 미리보기에서만 쓴다. */
     private static String hint(MailContent.Item item) {
         return item.hint().isBlank() ? ""
-                : " <span style=\"font-size:11px;color:" + MUTED + ";\">" + escape(item.hint()) + "</span>";
+                : "<br><span style=\"font-size:11px;color:" + MUTED + ";\">" + escape(item.hint()) + "</span>";
     }
 
     /**
