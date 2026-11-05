@@ -105,3 +105,15 @@ describe('전형별 안내 입력 검사', () => {
     ).toEqual([])
   })
 })
+
+describe('오늘로 정한 시작 시각', () => {
+  const bounds = { before: undefined, after: undefined }
+  it('지난 시간은 고를 수 없고, 바꾸지 않은 시각은 그대로 둘 수 있다', () => {
+    const draft = { ...empty, schedule: '2026-11-05', time: '09:00' }
+    expect(guideProblems(draft, empty, bounds, '2026-11-05', '10:30').schedule).toBe(
+      '지난 시간은 고를 수 없어요.',
+    )
+    expect(guideProblems(draft, empty, bounds, '2026-11-05', '08:30').schedule).toBeUndefined()
+    expect(guideProblems(draft, draft, bounds, '2026-11-05', '10:30').schedule).toBeUndefined()
+  })
+})

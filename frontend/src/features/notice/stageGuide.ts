@@ -25,6 +25,12 @@ export function todayIso(now = new Date()) {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
+/** 지금 시각을 HH:mm으로. 오늘로 정한 시작 시각이 지났는지 볼 때 쓴다 */
+export function nowTime(now = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}`
+}
+
 /** YYYY-MM-DD에 날짜를 더한다 */
 export function addDays(date: string, days: number) {
   const [year, month, day] = date.split('-').map(Number)
@@ -72,13 +78,18 @@ export function guideProblems(
   saved: StageGuide,
   bounds: ScheduleBounds,
   today: string,
+  now?: string,
 ): GuideProblems {
   const problems: GuideProblems = {}
   const { schedule } = draft
+  const time = draft.time?.slice(0, 5)
+  const timeChanged = schedule !== saved.schedule || time !== saved.time?.slice(0, 5)
   if (schedule && !ISO_DATE.test(schedule)) {
     problems.schedule = '날짜를 다시 골라 주세요.'
   } else if (schedule && schedule !== saved.schedule && schedule < today) {
     problems.schedule = '지난 날짜는 고를 수 없어요.'
+  } else if (schedule === today && time && now && timeChanged && time <= now) {
+    problems.schedule = '지난 시간은 고를 수 없어요.'
   } else if (schedule && bounds.before && schedule <= bounds.before.date) {
     problems.schedule = `앞 전형(${bounds.before.name}, ${bounds.before.date})보다 뒤 날짜를 골라 주세요.`
   } else if (schedule && bounds.after && schedule >= bounds.after.date) {
