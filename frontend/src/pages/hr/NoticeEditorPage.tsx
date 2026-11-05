@@ -76,6 +76,8 @@ const ONBOARDING_FIELDS: GuideField<keyof OnboardingGuide>[] = [
   },
 ]
 const ONBOARDING_ID = 'onboarding'
+/** 보낼 모습은 메일을 실제 폭으로 그린 뒤 줄여, 편집 화면 폭에 맞추고 스크롤을 줄인다 */
+const PREVIEW_SCALE = 0.8
 /** 다음 면접 안내의 일정 옆에 두는 메모. 미리보기의 메모와 같은 말이다 */
 const INTERVIEW_TIME_HINT = '보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요'
 /** 입사 안내를 비워 두면 backend가 본문 아래에 붙이는 문장 */
@@ -412,11 +414,12 @@ function Editor({
             </TabsList>
           </Tabs>
           {view === 'preview' ? (
-            <div className="mx-auto max-w-[640px]">
+            <div className="mx-auto w-fit">
               <MailFrame
                 preview={preview.data}
                 title={`${notice.label} 미리보기`}
                 settingsLink="메일 색 · 로고 바꾸기"
+                scale={PREVIEW_SCALE}
               />
             </div>
           ) : (
