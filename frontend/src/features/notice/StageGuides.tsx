@@ -102,6 +102,7 @@ function GuideCard({
   const invalid = Object.keys(problems).length > 0
   const empty = missingGuideFields(draft)
   const range = scheduleRange(bounds, today)
+  const keepPast = Boolean(view.guide.schedule && range.min && view.guide.schedule < range.min)
   const change = (patch: Partial<StageGuide>) => setDraft((current) => ({ ...current, ...patch }))
 
   const submit = () =>
@@ -129,33 +130,42 @@ function GuideCard({
           안내 메일을 보내서 고칠 수 없어요. 바뀐 내용은 받은 지원자에게 전화로 알려 주세요.
         </p>
       )}
-      <Field label="일정" problem={problems.schedule}>
-        <div className="flex items-center gap-2">
+      <Field
+        label="일정"
+        problem={problems.schedule}
+        hint={view.type === 'INTERVIEW' ? '면접 시간은 지원자마다 배정돼요' : undefined}
+      >
+        {/* 면접이 아닌 전형은 공고 게시처럼 날짜와 시작 시각을 한 칸으로 받는다. 면접은 지원자마다 시간을 배정해 날짜만 받는다 */}
+        {view.type === 'INTERVIEW' ? (
           <Input
             type="date"
             aria-label={`${view.name} 일정`}
             value={draft.schedule ?? ''}
             // 이미 지난 일정은 그대로 둘 수 있게, 바꾸지 않았으면 지난 날도 범위에 넣는다
-            min={view.guide.schedule && view.guide.schedule < range.min ? undefined : range.min}
+            min={keepPast ? undefined : range.min}
             max={range.max}
             disabled={!canEdit}
             onChange={(event) => change({ schedule: event.target.value || null })}
             className="w-44"
           />
-          {/* 면접이 아닌 전형은 시작 시각을 받는다. 면접은 지원자마다 시간을 자동으로 배정한다 */}
-          {view.type === 'INTERVIEW' ? (
-            <span className="text-[11px] text-muted-foreground">시간은 지원자마다 배정돼요</span>
-          ) : (
-            <Input
-              type="time"
-              aria-label={`${view.name} 시작 시각`}
-              value={draft.time?.slice(0, 5) ?? ''}
-              disabled={!canEdit}
-              onChange={(event) => change({ time: event.target.value || null })}
-              className="w-32"
-            />
-          )}
-        </div>
+        ) : (
+          <Input
+            type="datetime-local"
+            aria-label={`${view.name} 일정`}
+            value={draft.schedule ? `${draft.schedule}T${draft.time?.slice(0, 5) ?? '00:00'}` : ''}
+            min={keepPast || !range.min ? undefined : `${range.min}T00:00`}
+            max={range.max ? `${range.max}T23:59` : undefined}
+            disabled={!canEdit}
+            onChange={(event) => {
+              const value = event.target.value
+              change({
+                schedule: value ? value.slice(0, 10) : null,
+                time: value ? value.slice(11, 16) : null,
+              })
+            }}
+            className="w-56"
+          />
+        )}
       </Field>
       <Field label="진행 방식">
         <Select
