@@ -39,7 +39,9 @@ public class PostingService {
     static final String DEFAULT_TITLE = "새 채용";
     /** 근무지 칸 길이. PostingContentRequest, job_postings 테이블과 같다. */
     private static final int MAX_LOCATION = 100;
-    static final List<StageDraft> DEFAULT_STAGES = List.of(new StageDraft("서류 전형", StageType.DOCUMENT));
+    /** 새 공고의 전형 절차. 서류 전형은 맨 앞에 고정이고(화면에서 고치거나 옮길 수 없다), 최종 합격은 화면이 끝에 붙인다. */
+    static final List<StageDraft> DEFAULT_STAGES = List.of(new StageDraft("서류 전형", StageType.DOCUMENT),
+            new StageDraft("1차 면접", StageType.INTERVIEW), new StageDraft("최종 면접", StageType.INTERVIEW));
     /** 수정안의 changedFields에서 전형 절차와 필수 제출 서류의 이름. 나머지는 PostingContent의 JSON 이름이다. */
     static final String STAGES_FIELD = "stages";
     static final String DOCUMENTS_FIELD = "requiredDocuments";

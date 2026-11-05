@@ -39,6 +39,7 @@ import { MailFrame } from '@/features/notice/MailFrame'
 import { sentenceDiff } from '@/features/notice/sentenceDiff'
 import { NEXT_STAGE_GUIDE_ID } from '@/features/notice/StageGuides'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
+import { errorReply } from '@/features/posting/errorReply'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import { useStageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
@@ -251,7 +252,7 @@ function Editor({
         { role: 'ai', text: answer.reply, agent: answer.agent, stub: answer.stub },
       ])
     } catch (error) {
-      setMessages((current) => [...current, { role: 'ai', text: errorMessage(error) }])
+      setMessages((current) => [...current, errorReply(error)])
     }
   }
 
