@@ -1,4 +1,4 @@
-"""화면에 보일 답의 문장 정리와 공통 값. 지원자 번호(C2)를 이름으로 바꾸고 항목 문장을 줄인다."""
+"""화면에 보일 답의 문장 정리와 공통 값. 지원자 번호(C2)를 이름으로 바꾸고 항목 문장을 한 줄로 정리한다."""
 
 import re
 
@@ -8,7 +8,6 @@ from hiremate_ai.agents.root.toolkit import AGENT_NAMES, resolve_ref
 from hiremate_ai.agents.root.types import ChatContext
 from hiremate_ai.db.profile import ItemAgent
 
-TEXT_LENGTH = 120
 BULK_LIMIT = 20
 FOCUS_WITH_REQUEST = "{focus} (담당자 요청: {request})"
 QUESTIONS_REQUESTED = "{count}명의 면접 질문 생성을 요청했어요."
@@ -57,6 +56,6 @@ def readable(text: str, context: ChatContext) -> str:
     return re.sub(r"\s{2,}", " ", text).strip()
 
 
-def shorten(text: str) -> str:
-    trimmed = " ".join(text.split())
-    return trimmed if len(trimmed) <= TEXT_LENGTH else trimmed[: TEXT_LENGTH - 1] + "…"
+def one_line(text: str) -> str:
+    """줄바꿈과 겹친 공백을 한 칸으로 줄인다. 문장은 중간에서 자르지 않는다."""
+    return " ".join(text.split())

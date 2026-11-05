@@ -287,6 +287,24 @@ async def test_later_stage_gap_is_rewritten(
     assert checked[0].item.text == "결제 API를 개발했어요."
 
 
+async def test_long_item_text_is_kept_whole(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 항목 문장을 중간에서 자르고 '…'를 붙이면 담당자가 끝까지 읽을 수 없다
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    ledger = Ledger()
+    ref = ledger.add(context.candidates[0].application_id, "본인 · 결제 API 개발", source="이력서", cap="OK")
+    text = (
+        "카드 결제 승인 API를 Java와 Spring Boot로 개발하고, 정산 배치에서 실패한 건을 다시 처리하는 흐름을 "
+        "직접 설계해 운영했어요. 장애가 나면 회고를 문서로 남겨 같은 문제가 반복되지 않게 했다고 적었어요."
+    )
+    llm = FakeLlm(judged(("I1", "SUPPORTED"), ("M", "SUPPORTED")))
+
+    _, checked = await review_items(llm, context, ledger, "정리했어요.", [draft(ref, text=f"{text}\n")])
+
+    assert checked[0].item.text == text
+
+
 async def test_questions_plan_carries_ncs(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
