@@ -124,6 +124,8 @@ def input_hash(
     *,
     today: date,
     recipe: Mapping[str, Any],
+    review_extraction: bool = False,
+    extraction_version: str | None = None,
 ) -> str:
     """분석 결과를 바꿀 수 있는 입력만 묶어 해시한다. 공고 제목이나 복지가 바뀌어도 다시 분석하지 않는다.
 
@@ -135,6 +137,8 @@ def input_hash(
         "scope": [str(rubric.company_id), str(rubric.recruitment_id), str(applicant.info.application_id)],
         "today": today.isoformat(),
         "recipe": dict(recipe),
+        "review_extraction": review_extraction,
+        "extraction_version": extraction_version,
         "policy": {
             "full_text_chars": settings.application_full_text_chars,
             "rechecks": settings.application_rechecks,

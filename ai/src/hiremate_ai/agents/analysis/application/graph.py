@@ -69,6 +69,7 @@ class ReviewInput:
     deadline: float | None = None
     company_id: UUID | None = None
     artifacts: AnalysisArtifactStore | None = None
+    review_extraction: bool = False
 
 
 class ReviewState(TypedDict, total=False):
@@ -90,7 +91,7 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
         context = runtime.context
         documents = readable(context.applicant.documents)
         artifacts = context.artifacts
-        recipe = extraction_recipe(llm)
+        recipe = extraction_recipe(llm, review=context.review_extraction)
         cached = None
         if artifacts is not None and recipe is not None and context.company_id is not None:
             cached = [
@@ -104,7 +105,9 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
                 for document in documents
             ]
         extracted, sections = await asyncio.gather(
-            extract_documents(llm, documents, settings.application_concurrency, cached=cached),
+            extract_documents(
+                llm, documents, settings.application_concurrency, cached=cached, review=context.review_extraction
+            ),
             summarize(llm, documents, blind=context.posting.blind),
         )
         if artifacts is not None and recipe is not None and context.company_id is not None:

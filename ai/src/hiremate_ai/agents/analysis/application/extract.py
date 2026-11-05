@@ -14,11 +14,14 @@ from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.analysis.application.ask import ask
 from hiremate_ai.agents.analysis.application.career import months_between
+from hiremate_ai.agents.analysis.application.review import REVIEW_SYSTEM as CLAIM_REVIEW_SYSTEM
+from hiremate_ai.agents.analysis.application.review import Claim, ReviewJudgement, review_claims
 from hiremate_ai.agents.analysis.application.types import Actor, DocumentSection, Fact, Period, Quote
 from hiremate_ai.agents.guardrails import education_term, evidence_source
 from hiremate_ai.contract import ApplicantDocument, DocumentType
+from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
 from hiremate_ai.llm.client import LlmClient
-from hiremate_ai.llm.prompt import UNTRUSTED_RULE, document_block
+from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block, document_block
 from hiremate_ai.llm.recipe import analysis_recipe, fingerprint
 
 EXTRACT_SYSTEM = f"""너는 채용 서류 한 건에서 지원자에 관한 사실을 뽑는다. 판단이나 점수는 매기지 않는다.
@@ -85,7 +88,36 @@ class ExtractedFacts(BaseModel):
     periods: list[ExtractedPeriod] = []
 
 
-def extraction_recipe(llm: LlmClient) -> str | None:
+class FactCorrection(BaseModel):
+    index: int
+    replacement: ExtractedFact | None
+
+
+class PeriodCorrection(BaseModel):
+    index: int
+    replacement: ExtractedPeriod | None
+
+
+class ExtractionCorrections(BaseModel):
+    facts: list[FactCorrection] = []
+    periods: list[PeriodCorrection] = []
+    added_facts: list[ExtractedFact] = []
+    added_periods: list[ExtractedPeriod] = []
+
+
+REVIEW_SYSTEM = f"""너는 지원서의 사실 추출 결과를 원문과 비교해 검토한다.
+원문에서 누락된 직무 경험, 역할, 기술, 수치 성과와 기간을 추가한다.
+기존 항목이 원문을 과장하거나 잘못 설명하면 번호와 함께 수정하거나 삭제한다.
+변경할 항목만 번호로 지정하고, 정확한 항목은 그대로 둔다. 번호는 1부터 시작한다.
+추가와 수정 항목의 근거는 원문의 글자 그대로 적는다. 팀 성과를 개인 성과로 바꾸지 않는다.
+나이, 성별, 출신 지역, 혼인 여부, 신체 조건을 추가하지 않는다.
+
+{UNTRUSTED_RULE}"""
+CLAIM_BATCH_SIZE = 8
+EXTRACTION_REVIEW_VERSION = "2"
+
+
+def extraction_recipe(llm: LlmClient, *, review: bool = False) -> str | None:
     recipe = analysis_recipe(llm)
     return (
         fingerprint(
@@ -94,6 +126,12 @@ def extraction_recipe(llm: LlmClient) -> str | None:
                 "llm": recipe,
                 "system": EXTRACT_SYSTEM,
                 "schema": ExtractedFacts.model_json_schema(),
+                "review": REVIEW_SYSTEM if review else None,
+                "review_version": EXTRACTION_REVIEW_VERSION if review else None,
+                "review_schema": ExtractionCorrections.model_json_schema() if review else None,
+                "claim_review": CLAIM_REVIEW_SYSTEM if review else None,
+                "claim_schema": ReviewJudgement.model_json_schema() if review else None,
+                "claim_batch_size": CLAIM_BATCH_SIZE if review else None,
             }
         )
         if recipe is not None
@@ -107,6 +145,7 @@ async def extract_documents(
     concurrency: int,
     *,
     cached: Sequence[ExtractedFacts | None] | None = None,
+    review: bool = False,
 ) -> list[ExtractedFacts]:
     """문서마다 한 번씩, 동시에 concurrency개까지 모델을 부른다. 결과는 documents 순서다."""
     gate = asyncio.Semaphore(concurrency)
@@ -118,15 +157,162 @@ async def extract_documents(
         if saved is not None:
             return saved
         async with gate:
-            return await ask(
+            result = await ask(
                 llm,
                 ExtractedFacts,
                 system=EXTRACT_SYSTEM,
                 user=f"{document_block(document)}\n\n위 {document.type.label}에서 사실과 기간을 뽑아 줘.",
             )
+            if not review:
+                return result
+            corrections = await ask(
+                llm,
+                ExtractionCorrections,
+                system=REVIEW_SYSTEM,
+                user=(
+                    f"{document_block(document)}\n\n"
+                    f"{data_block('first_extraction', result.model_dump_json())}\n\n"
+                    "원문과 비교하여 누락 및 오류를 검토해 줘."
+                ),
+            )
+            corrections = await _validated_corrections(llm, document, result, corrections)
+            return _apply_corrections(document, result, corrections)
 
     return list(
         await asyncio.gather(*(one(document, saved) for document, saved in zip(documents, previous, strict=True)))
+    )
+
+
+async def _validated_corrections(
+    llm: LlmClient, document: ApplicantDocument, original: ExtractedFacts, corrections: ExtractionCorrections
+) -> ExtractionCorrections:
+    claims: list[Claim] = []
+    actions: dict[tuple[str, int], tuple[bool, list[tuple[str, Quote]]]] = {}
+    approved: dict[tuple[str, int], str | None] = {}
+
+    def add(kind: str, index: int, claim: str, evidence: list[str], *, deletion: bool = False) -> None:
+        quotes = quotes_in([document], evidence)
+        if not quotes:
+            if deletion:
+                approved[(kind, index)] = None
+            return
+        choices: list[tuple[str, Quote]] = []
+        for quote in _review_quotes(document, quotes):
+            claim_id = f"F{len(claims) + 1}"
+            claims.append(Claim(claim_id, claim, [quote]))
+            choices.append((claim_id, quote))
+        actions[(kind, index)] = (deletion, choices)
+
+    for position, change in enumerate(corrections.facts):
+        if not 1 <= change.index <= len(original.facts):
+            continue
+        target = change.replacement or original.facts[change.index - 1]
+        add(
+            "fact",
+            position,
+            f"{target.statement} 수행 주체: {target.actor}",
+            target.evidence,
+            deletion=change.replacement is None,
+        )
+    for position, period_change in enumerate(corrections.periods):
+        if not 1 <= period_change.index <= len(original.periods):
+            continue
+        target_period = period_change.replacement or original.periods[period_change.index - 1]
+        add(
+            "period",
+            position,
+            _period_claim(target_period),
+            target_period.evidence,
+            deletion=period_change.replacement is None,
+        )
+    for position, fact in enumerate(corrections.added_facts):
+        add("new_fact", position, f"{fact.statement} 수행 주체: {fact.actor}", fact.evidence)
+    for position, period in enumerate(corrections.added_periods):
+        add("new_period", position, _period_claim(period), period.evidence)
+
+    reviews = {}
+    for start in range(0, len(claims), CLAIM_BATCH_SIZE):
+        reviews.update(await review_claims(llm, claims[start : start + CLAIM_BATCH_SIZE]))
+    for key, (deletion, choices) in actions.items():
+        supported = [quote for claim_id, quote in choices if (v := reviews.get(claim_id)) and v.verdict == "SUPPORTED"]
+        if not supported and any(claim_id not in reviews for claim_id, _ in choices):
+            raise LlmOutputError("추가 사실의 근거 검토가 누락됐다", reason=LlmFailureReason.VALIDATION)
+        if deletion:
+            if not supported and all(claim_id in reviews for claim_id, _ in choices):
+                approved[key] = None
+        elif supported:
+            approved[key] = supported[0].sentence
+
+    facts = []
+    for index, change in enumerate(corrections.facts):
+        if ("fact", index) in approved:
+            evidence = approved[("fact", index)]
+            replacement = change.replacement
+            if replacement is not None and evidence is not None:
+                replacement = replacement.model_copy(update={"evidence": [evidence]})
+            facts.append(change.model_copy(update={"replacement": replacement}))
+    periods = []
+    for index, period_change in enumerate(corrections.periods):
+        if ("period", index) in approved:
+            evidence = approved[("period", index)]
+            period_replacement = period_change.replacement
+            if period_replacement is not None and evidence is not None:
+                period_replacement = period_replacement.model_copy(update={"evidence": [evidence]})
+            periods.append(period_change.model_copy(update={"replacement": period_replacement}))
+    return ExtractionCorrections(
+        facts=facts,
+        periods=periods,
+        added_facts=[
+            fact.model_copy(update={"evidence": [approved[("new_fact", index)]]})
+            for index, fact in enumerate(corrections.added_facts)
+            if ("new_fact", index) in approved
+        ],
+        added_periods=[
+            period.model_copy(update={"evidence": [approved[("new_period", index)]]})
+            for index, period in enumerate(corrections.added_periods)
+            if ("new_period", index) in approved
+        ],
+    )
+
+
+def _review_quotes(document: ApplicantDocument, quotes: list[Quote]) -> list[Quote]:
+    if len(quotes) < 2:
+        return quotes
+    starts = [document.text.find(quote.sentence) for quote in quotes]
+    if any(start < 0 for start in starts):
+        return quotes
+    start = min(starts)
+    end = max(position + len(quote.sentence) for position, quote in zip(starts, quotes, strict=True))
+    if end - start > 600:
+        return quotes
+    combined = Quote(document=document.type, sentence=document.text[start:end])
+    return [*quotes, combined] if combined not in quotes else quotes
+
+
+def _period_claim(period: ExtractedPeriod) -> str:
+    return f"{period.company} {period.role} {period.kind} {period.start}부터 {period.end or '현재'}까지"
+
+
+def _apply_corrections(
+    document: ApplicantDocument, original: ExtractedFacts, corrections: ExtractionCorrections
+) -> ExtractedFacts:
+    fact_changes = {
+        change.index: change.replacement
+        for change in corrections.facts
+        if change.replacement is None or quotes_in([document], change.replacement.evidence)
+    }
+    period_changes = {
+        change.index: change.replacement
+        for change in corrections.periods
+        if change.replacement is None or quotes_in([document], change.replacement.evidence)
+    }
+    facts = [fact_changes.get(index, fact) for index, fact in enumerate(original.facts, start=1)]
+    periods = [period_changes.get(index, period) for index, period in enumerate(original.periods, start=1)]
+    return ExtractedFacts(
+        facts=[fact for fact in facts if fact is not None]
+        + [fact for fact in corrections.added_facts if quotes_in([document], fact.evidence)],
+        periods=[period for period in periods if period is not None]
+        + [period for period in corrections.added_periods if quotes_in([document], period.evidence)],
     )
 
 
