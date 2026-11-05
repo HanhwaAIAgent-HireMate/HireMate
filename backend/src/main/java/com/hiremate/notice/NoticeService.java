@@ -9,6 +9,7 @@ import com.hiremate.company.NoticeTemplateInfo;
 import com.hiremate.company.NoticeTemplateType;
 import com.hiremate.global.ApiException;
 import com.hiremate.interview.InterviewScheduling;
+import com.hiremate.interview.InterviewService;
 import com.hiremate.mail.MailBrand;
 import com.hiremate.mail.MailContent;
 import com.hiremate.mail.MailPreview;
@@ -26,11 +27,14 @@ import com.hiremate.recruit.StageInfo;
 import com.hiremate.recruit.StageType;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.StageResults;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -66,6 +70,8 @@ public class NoticeService {
     /** 메일에 쓰는 전형 일정 (예: 2026년 11월 3일(화)). */
     private static final DateTimeFormatter GUIDE_DATE = DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN);
     private static final DateTimeFormatter GUIDE_TIME = DateTimeFormatter.ofPattern("HH:mm");
+    /** 다음 면접 안내 메일의 지원자별 면접 일시. 보낼 때 지원자마다 채우는 안의 변수다. */
+    private static final String INTERVIEW_TIME = "{면접일시}";
 
     private final NoticeRepository notices;
     private final NoticeDeliveryRepository deliveries;
@@ -77,10 +83,12 @@ public class NoticeService {
     private final MailService mail;
     private final ActivityService activity;
     private final InterviewScheduling scheduling;
+    private final InterviewService interviews;
 
     public NoticeService(NoticeRepository notices, NoticeDeliveryRepository deliveries, ScreeningService screening,
             RecruitService recruits, ApplicationService applications, CompanyService companies,
-            MailStyleService mailStyles, MailService mail, ActivityService activity, InterviewScheduling scheduling) {
+            MailStyleService mailStyles, MailService mail, ActivityService activity, InterviewScheduling scheduling,
+            InterviewService interviews) {
         this.notices = notices;
         this.deliveries = deliveries;
         this.screening = screening;
@@ -91,6 +99,7 @@ public class NoticeService {
         this.mail = mail;
         this.activity = activity;
         this.scheduling = scheduling;
+        this.interviews = interviews;
     }
 
     /** 결과를 확정한 전형의 안내 초안. 처음 열면 설정의 안내 메일 양식으로 그룹별 초안을 만든다. */
@@ -158,7 +167,9 @@ public class NoticeService {
         Map<UUID, NoticeDelivery> previous = deliveries.findByNoticeId(notice.getId()).stream()
                 .collect(Collectors.toMap(NoticeDelivery::getApplicationId, Function.identity()));
         String companyName = companies.profile(companyId).name();
-        MailContent content = content(notice, recruitment, companyName);
+        // 다음 전형이 면접이면 안내의 일정 줄에 지원자마다 배정한 면접 일시를 넣는다
+        Map<UUID, Instant> interviewTimes = interviewTimes(companyId, notice, recruitment);
+        MailContent content = content(notice, recruitment, companyName, !interviewTimes.isEmpty());
         MailBrand brand = mailStyles.brand(companyId);
         int sent = 0;
         int failed = 0;
@@ -168,14 +179,16 @@ public class NoticeService {
                 sent++;
                 continue;
             }
-            Map<String, String> values = values(applicant.name(), companyName, recruitment, stageId);
+            Instant interviewAt = interviewTimes.get(applicant.applicationId());
+            Map<String, String> values = new HashMap<>(values(applicant.name(), companyName, recruitment, stageId));
+            values.put(INTERVIEW_TIME, interviewAt == null ? "" : formatInterview(interviewAt));
             MailResult result = mail.send(applicant.email(), fill(notice.getSubject(), values),
                     content.fill(values), brand);
             if (delivery == null) {
                 delivery = deliveries.save(new NoticeDelivery(notice.getId(), applicant.applicationId(),
                         applicant.email()));
             }
-            delivery.result(result.sent(), result.error());
+            delivery.result(result.sent(), result.error(), interviewAt);
             if (result.sent()) {
                 sent++;
             } else {
@@ -303,9 +316,15 @@ public class NoticeService {
 
     /** 메일 내용. 인사말과 본문, 붙일 안내, 맺음말, 필수 문구 순서다. 변수는 아직 채우지 않았다. */
     private static MailContent content(Notice notice, RecruitmentInfo recruitment, String companyName) {
+        return content(notice, recruitment, companyName, false);
+    }
+
+    /** interviewTime이면 다음 전형 안내의 일정 줄을 지원자별 면접 일시 변수로 둔다. 보낼 때 지원자마다 채운다. */
+    private static MailContent content(Notice notice, RecruitmentInfo recruitment, String companyName,
+            boolean interviewTime) {
         List<MailContent.Block> blocks = new ArrayList<>(List.of(new MailContent.Text(notice.getGreeting()),
                 new MailContent.Text(notice.getContent())));
-        guideBlock(notice, recruitment).ifPresent(blocks::add);
+        guideBlock(notice, recruitment, interviewTime).ifPresent(blocks::add);
         return new MailContent(companyName, recruitment.title(), blocks, notice.getClosing(),
                 notice.getRequiredText());
     }
@@ -343,6 +362,50 @@ public class NoticeService {
                 .orElse(0);
         return new StageGuideView(stage.id(), stage.seq(), stage.name(), stage.type(), stage.guide(),
                 missing(items(stage.guide())), notified);
+    }
+
+    /**
+     * 면접 전형(stageId)의 지원자별로, 앞 전형의 합격 안내 메일에 안내한 면접 일시. 아직 보내지 않았거나 면접 일시 없이 보낸
+     * 지원자는 빠진다. 면접 화면이 지금 일정과 비교해 발송 뒤 바뀐 일정을 알린다.
+     */
+    @Transactional(readOnly = true)
+    public List<NotifiedInterview> notifiedInterviews(UUID companyId, UUID stageId) {
+        RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
+        int seq = recruitment.stage(stageId).orElseThrow().seq();
+        return recruitment.stages().stream()
+                .filter(before -> before.seq() == seq - 1)
+                .findFirst()
+                .flatMap(before -> notices.findByStageIdAndCompanyIdAndGroupType(before.id(), companyId,
+                        NoticeGroup.PASS))
+                .map(pass -> deliveries.findByNoticeId(pass.getId()).stream()
+                        .filter(delivery -> delivery.isSent() && delivery.getInterviewAt() != null)
+                        .map(delivery -> new NotifiedInterview(delivery.getApplicationId(), delivery.getInterviewAt(),
+                                delivery.getSentAt()))
+                        .toList())
+                .orElse(List.of());
+    }
+
+    /** 다음 면접 전형에 지원자마다 배정한 면접 일시. 다음 전형이 면접이 아니거나 합격 안내가 아니면 비어 있다. */
+    private Map<UUID, Instant> interviewTimes(UUID companyId, Notice notice, RecruitmentInfo recruitment) {
+        return nextStage(notice, recruitment)
+                .filter(next -> notice.getGroupType() == NoticeGroup.PASS && next.type() == StageType.INTERVIEW)
+                .map(next -> interviews.schedules(companyId, next.id()).stream()
+                        .collect(Collectors.toMap(InterviewService.StageSchedule::applicationId,
+                                InterviewService.StageSchedule::scheduledAt)))
+                .orElse(Map.of());
+    }
+
+    /** 일정 줄을 지원자별 면접 일시 변수로 바꾼 안내 칸. */
+    private static Map<String, String> withInterviewTime(Map<String, String> items) {
+        Map<String, String> replaced = new LinkedHashMap<>(items);
+        replaced.put("일정", INTERVIEW_TIME);
+        return replaced;
+    }
+
+    /** 메일에 쓰는 면접 일시 (예: 2026년 11월 12일(목) 14:00). */
+    static String formatInterview(Instant at) {
+        ZonedDateTime local = at.atZone(KOREA);
+        return GUIDE_DATE.format(local) + " " + GUIDE_TIME.format(local);
     }
 
     /** 전형 안내 칸 이름과 값. 메일과 화면 경고에 같은 이름을 쓴다. 기타 안내(note)는 이름 없이 ※로 붙여 여기 없다. */
@@ -389,15 +452,17 @@ public class NoticeService {
      * 다음 전형 안내가 없으면 아무것도 붙이지 않고, 입사 안내가 없으면 담당자가 따로 안내한다고 쓴다.
      */
     static String guideText(Notice notice, RecruitmentInfo recruitment) {
-        return guideBlock(notice, recruitment).map(MailContent.Block::text).orElse("");
+        return guideBlock(notice, recruitment, false).map(MailContent.Block::text).orElse("");
     }
 
     /** guideText의 메일 블록. 안내가 있으면 안내 상자, 입사 안내가 없으면 따로 안내한다는 문장이다. */
-    private static Optional<MailContent.Block> guideBlock(Notice notice, RecruitmentInfo recruitment) {
+    private static Optional<MailContent.Block> guideBlock(Notice notice, RecruitmentInfo recruitment,
+            boolean interviewTime) {
         return switch (notice.getTemplateType()) {
             case NEXT_STAGE -> nextStage(notice, recruitment)
                     .filter(next -> next.guide().hasContent())
-                    .map(next -> guide(GUIDE_LEAD, next.name() + " 안내", items(next.guide()), next.guide().note()));
+                    .map(next -> guide(GUIDE_LEAD, next.name() + " 안내", interviewTime
+                            ? withInterviewTime(items(next.guide())) : items(next.guide()), next.guide().note()));
             case FINAL_PASS -> Optional.of(notice.onboarding().hasContent()
                     ? guide(ONBOARDING_LEAD, "입사 안내", items(notice.onboarding()), notice.onboarding().note())
                     : new MailContent.Text(ONBOARDING_LATER));

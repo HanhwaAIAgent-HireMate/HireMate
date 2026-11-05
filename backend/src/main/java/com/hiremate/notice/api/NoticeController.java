@@ -6,6 +6,7 @@ import com.hiremate.mail.MailPreview;
 import com.hiremate.notice.NoticeGroup;
 import com.hiremate.notice.NoticeService;
 import com.hiremate.notice.NoticeView;
+import com.hiremate.notice.NotifiedInterview;
 import com.hiremate.notice.OnboardingGuide;
 import com.hiremate.screening.ScreeningService;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -55,6 +56,15 @@ public class NoticeController {
             @PathVariable NoticeGroup group, @Valid @RequestBody OnboardingRequest request) {
         return notices.changeOnboarding(member.companyId(), stageId, group, new OnboardingGuide(request.startDate(),
                 request.place(), request.documents(), request.preparation(), request.note()));
+    }
+
+    /**
+     * 면접 전형(stageId)의 지원자별로 앞 전형의 합격 안내 메일에 안내한 면접 일시. 면접 화면이 발송 뒤 바뀐 일정을 알아보는 데
+     * 쓴다.
+     */
+    @GetMapping("/notified-interviews")
+    public List<NotifiedInterview> notifiedInterviews(AuthenticatedMember member, @PathVariable UUID stageId) {
+        return notices.notifiedInterviews(member.companyId(), stageId);
     }
 
     /** 지원자가 받을 모습. 저장한 초안으로 만들고 지원자 이름은 예시다. */

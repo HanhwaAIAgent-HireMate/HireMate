@@ -1316,6 +1316,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/notified-interviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["notifiedInterviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/notices": {
         parameters: {
             query?: never;
@@ -3119,25 +3135,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
+            short: boolean;
+            pojo: boolean;
+            double: boolean;
+            binary: boolean;
+            int: boolean;
+            string: boolean;
+            long: boolean;
+            boolean: boolean;
+            /** @deprecated */
+            textual: boolean;
             container: boolean;
-            integralNumber: boolean;
-            valueNode: boolean;
+            floatingPointNumber: boolean;
             missingNode: boolean;
-            bigInteger: boolean;
             bigDecimal: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            floatingPointNumber: boolean;
-            long: boolean;
-            string: boolean;
-            /** @deprecated */
-            textual: boolean;
-            short: boolean;
-            boolean: boolean;
-            int: boolean;
-            binary: boolean;
-            pojo: boolean;
-            double: boolean;
+            integralNumber: boolean;
+            valueNode: boolean;
+            bigInteger: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3267,6 +3283,14 @@ export interface components {
             charts: {
                 [key: string]: string;
             };
+        };
+        NotifiedInterview: {
+            /** Format: uuid */
+            applicationId: string;
+            /** Format: date-time */
+            interviewAt: string;
+            /** Format: date-time */
+            sentAt: string;
         };
         MailPreview: {
             subject: string;
@@ -6113,6 +6137,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["DistributionNote"];
+                };
+            };
+        };
+    };
+    notifiedInterviews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NotifiedInterview"][];
                 };
             };
         };

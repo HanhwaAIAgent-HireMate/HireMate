@@ -20,10 +20,13 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -187,6 +190,33 @@ class InterviewSchedulingTests extends IntegrationTest {
         guide(room, room.next(), friday().minusDays(1));
         await(room, "READY");
         expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
+    }
+
+    @Test
+    @DisplayName("합격 메일의 면접 일정에는 지원자마다 배정한 일시를 쓰고, 안내한 일시를 발송 이력에 남긴다")
+    void passMailCarriesEachApplicantsInterviewTime() throws Exception {
+        Room room = room(2, false);
+        guide(room, room.next(), friday());
+        confirm(room, room.ids());
+        await(room, "READY");
+        List<Instant> assigned = times(room, room.ids());
+        expect(room.hr().post(room.path() + "/notices/prepare", null), 200);
+        int before = mail.sent.size();
+        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
+
+        DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy년 M월 d일(E) HH:mm", Locale.KOREAN);
+        List<String> sent = mail.sent.subList(before, mail.sent.size());
+        for (Instant at : assigned) {
+            assertThat(sent).anyMatch(text -> text.contains("- 일정: " + format.format(at.atZone(KOREA))));
+        }
+        JsonNode notified = json(expect(room.hr().get("/api/stages/" + room.next() + "/notified-interviews"), 200));
+        Map<String, Instant> byApplicant = new HashMap<>();
+        notified.forEach(row -> byApplicant.put(row.path("applicationId").asString(),
+                Instant.parse(row.path("interviewAt").asString())));
+        for (int i = 0; i < room.ids().size(); i++) {
+            assertThat(byApplicant.get(room.ids().get(i).toString())).isEqualTo(assigned.get(i));
+        }
+        expect(newHr().get("/api/stages/" + room.next() + "/notified-interviews"), 404);
     }
 
     @Test
