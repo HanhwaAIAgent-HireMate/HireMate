@@ -1,5 +1,5 @@
 import { LoaderCircle, Lock, Send } from 'lucide-react'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
@@ -76,6 +76,8 @@ const ONBOARDING_FIELDS: GuideField<keyof OnboardingGuide>[] = [
   },
 ]
 const ONBOARDING_ID = 'onboarding'
+/** 다음 면접 안내의 일정 옆에 두는 메모. 미리보기의 메모와 같은 말이다 */
+const INTERVIEW_TIME_HINT = '보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요'
 /** 입사 안내를 비워 두면 backend가 본문 아래에 붙이는 문장 */
 const ONBOARDING_LATER = '입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.'
 
@@ -502,12 +504,19 @@ function Editor({
                           </>
                         )}
                       </p>
-                      <p className="leading-6 whitespace-pre-line">{notice.guide}</p>
-                      {notice.interviewTimeHint && (
-                        <p className="text-xs text-muted-foreground">
-                          보낼 때 일정에 지원자마다 배정된 면접 시각이 함께 들어가요
-                        </p>
-                      )}
+                      <p className="leading-6 whitespace-pre-line">
+                        {notice.guide.split('\n').map((line, index) => (
+                          <Fragment key={index}>
+                            {index > 0 && '\n'}
+                            {line}
+                            {notice.interviewTimeHint && line.startsWith('- 일정:') && (
+                              <span className="ml-1.5 text-[11px] text-muted-foreground">
+                                {INTERVIEW_TIME_HINT}
+                              </span>
+                            )}
+                          </Fragment>
+                        ))}
+                      </p>
                     </div>
                   )
                 )}
