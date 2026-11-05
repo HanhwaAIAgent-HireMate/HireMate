@@ -62,6 +62,7 @@ public class NoticeService {
     private static final Pattern HTTP_URL = Pattern.compile("^https?://[^\\s/?#]+\\S*$", Pattern.CASE_INSENSITIVE);
     /** 메일에 쓰는 전형 일정 (예: 2026년 11월 3일(화)). */
     private static final DateTimeFormatter GUIDE_DATE = DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN);
+    private static final DateTimeFormatter GUIDE_TIME = DateTimeFormatter.ofPattern("HH:mm");
 
     private final NoticeRepository notices;
     private final NoticeDeliveryRepository deliveries;
@@ -330,14 +331,15 @@ public class NoticeService {
                         NoticeGroup.PASS))
                 .map(Notice::getSentCount)
                 .orElse(0);
-        return new StageGuideView(stage.id(), stage.seq(), stage.name(), stage.guide(),
+        return new StageGuideView(stage.id(), stage.seq(), stage.name(), stage.type(), stage.guide(),
                 missing(items(stage.guide())), notified);
     }
 
     /** 전형 안내 칸 이름과 값. 메일과 화면 경고에 같은 이름을 쓴다. 기타 안내(note)는 이름 없이 ※로 붙여 여기 없다. */
     private static Map<String, String> items(StageGuide guide) {
         Map<String, String> items = new LinkedHashMap<>();
-        items.put("일정", guide.schedule() == null ? "" : GUIDE_DATE.format(guide.schedule()));
+        String time = guide.time() == null ? "" : " " + GUIDE_TIME.format(guide.time());
+        items.put("일정", guide.schedule() == null ? "" : GUIDE_DATE.format(guide.schedule()) + time);
         items.put("진행 방식", guide.method() == null ? "" : guide.method().label());
         items.put("장소·접속 링크", guide.place());
         items.put("준비 사항", guide.preparation());

@@ -359,8 +359,15 @@ class PostingTests extends IntegrationTest {
         assertThat(saved.path("stages").get(0).path("name").asString()).isEqualTo("서류 전형");
         assertThat(saved.path("stages").get(1).path("type").asString()).isEqualTo("ASSESSMENT");
         String coding = saved.path("stages").get(1).path("id").asString();
-        expect(hr.put("/api/stages/" + coding + "/guide", Map.of("schedule", day(5), "method", "ONLINE",
-                "place", "", "preparation", "", "note", "")), 200);
+        // 면접이 아닌 전형은 시작 시각을 받고, 면접은 지원자마다 시간을 배정해 시각을 버린다
+        JsonNode codingGuide = json(expect(hr.put("/api/stages/" + coding + "/guide", Map.of("schedule", day(5),
+                "time", "14:00", "method", "ONLINE", "place", "", "preparation", "", "note", "")), 200));
+        assertThat(codingGuide.path("type").asString()).isEqualTo("ASSESSMENT");
+        assertThat(codingGuide.path("guide").path("time").asString()).isEqualTo("14:00:00");
+        String interview = saved.path("stages").get(2).path("id").asString();
+        assertThat(json(expect(hr.put("/api/stages/" + interview + "/guide", Map.of("schedule", day(9),
+                "time", "10:00", "place", "", "preparation", "", "note", "")), 200)).path("guide").path("time")
+                .isNull()).isTrue();
 
         JsonNode moved = json(expect(hr.put(base + "/stages", Map.of("stages", List.of(stage("서류 전형", "DOCUMENT"),
                 stage("1차 면접", "INTERVIEW"), stage("코딩테스트", "ASSESSMENT")))), 200));

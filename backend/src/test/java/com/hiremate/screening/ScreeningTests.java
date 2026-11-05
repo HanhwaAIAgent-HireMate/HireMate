@@ -435,6 +435,26 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("다음 전형이 면접이 아니면 안내 메일의 일정에 시작 시각을 붙인다")
+    void nextStageNoticeCarriesStartTimeForAssessment() throws Exception {
+        Stage stage = startDocumentStage(1, "전형은 서류, 직무역량 평가 순으로 해줘");
+        TestApi hr = stage.hr();
+        String recruitment = json(expect(hr.get(stage.path()), 200)).path("recruitmentId").asString();
+        String guidePath = "/api/stages/" + json(expect(hr.get("/api/recruitments/" + recruitment + "/stage-guides"),
+                200)).get(0).path("stageId").asString() + "/guide";
+        LocalDate day = LocalDate.now().plusDays(10);
+        expect(hr.put(guidePath, Map.of("schedule", day.toString(), "time", "14:00", "method", "ONLINE",
+                "place", "https://test.example.com", "preparation", "노트북", "note", "")), 200);
+        expect(hr.post(stage.path() + "/decisions",
+                Map.of("applicationIds", stage.ids(), "decision", "PASS")), 204);
+        expect(hr.post(stage.path() + "/confirm", null), 200);
+
+        JsonNode notices = json(expect(hr.post(stage.path() + "/notices/prepare", null), 200));
+        assertThat(notices.get(0).path("guide").asString()).contains("- 일정: "
+                + day.format(DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN)) + " 14:00");
+    }
+
+    @Test
     @DisplayName("다음 전형 안내에는 보내는 때의 다음 전형 안내가 붙고, 공고 화면은 안내를 받은 지원자 수를 알려 준다")
     void nextStageNoticeCarriesStageGuide() throws Exception {
         Stage stage = startDocumentStage(2);
