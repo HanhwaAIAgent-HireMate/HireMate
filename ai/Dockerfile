@@ -1,13 +1,14 @@
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS build
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+# uv 다운로드 캐시는 BuildKit 캐시 마운트에 두어 이미지 층에 남기지 않는다
 COPY ai/pyproject.toml ai/uv.lock ai/.python-version ./
-RUN uv sync --locked --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-install-project
 COPY ai/src ./src
-RUN uv sync --locked --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev
 
 FROM build AS embedding-build
-RUN uv sync --locked --no-dev --group ncs
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --group ncs
 
 FROM python:3.13-slim-bookworm AS embedding
 WORKDIR /app
