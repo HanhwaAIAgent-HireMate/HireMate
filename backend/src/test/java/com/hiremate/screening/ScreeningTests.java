@@ -491,7 +491,7 @@ class ScreeningTests extends IntegrationTest {
         assertThat(notices.get(1).path("guideMissing").size()).isZero();
         JsonNode preview = json(expect(hr.get(stage.path() + "/notices/PASS/preview"), 200));
         assertThat(preview.path("html").asString()).containsSubsequence("홍길동님", ">1차 면접 안내</td>", ">일정</td>",
-                ">" + firstText + " <span", "보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요</span>",
+                ">" + firstText + "<br><span", "보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요</span>",
                 "※ 건물 주차는 지원되지 않습니다.");
 
         LocalDate second = first.plusDays(1);
