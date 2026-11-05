@@ -5,6 +5,8 @@
 - 요약: 지원부터 최종 합격까지의 흐름과 다음 채용에서 다시 볼 점
 - 최종 합격자별 판단 근거: 키워드와 근거 id (원문은 화면이 근거 id로 붙인다)
 - 전형 간 특이사항: 서로 다른 전형 기록이 어긋나거나 이어지는 점. 근거 id를 붙인다
+- 전형별 해석: 코드가 센 합격 · 불합격 그룹 비교(derive.stage_digests)에서 담당자가 다음 채용에 쓸 점 한 문장.
+  전형 섹션의 읽을 점이 된다. 쓰지 못하면 코드가 쓴 인원 문장이 남는다
 
 문장은 리포트 설계서와 같은 검사(차별 조건, 순위 · 추천, 판정 코드, 합니다체, 자료에 없는 숫자)를 거치고,
 근거 id는 그 최종 합격자의 것이어야 한다. 끝내 걸린 문장은 버리고, 모델이 아무것도 쓰지 못하면 코드 구성만 낸다.
@@ -24,7 +26,9 @@ from hiremate_ai.agents.generation.report.check import (
     numbers_in,
     problems,
     sentence_problems,
+    stage_numbers,
 )
+from hiremate_ai.agents.generation.report.derive import stage_digests
 from hiremate_ai.agents.generation.report.enrich import stage_prefix
 from hiremate_ai.agents.generation.report.fallback import fallback_spec, finalists
 from hiremate_ai.agents.generation.report.repair import plain_text
@@ -57,10 +61,18 @@ class _Point(BaseModel):
     evidence: list[str] = Field(description="그 문장의 근거 id 1개 이상 (최종 합격자의 것)")
 
 
+class _StageNote(BaseModel):
+    area: str = Field(description="전형 비교 자료의 영역 id (예: document, assessment)")
+    text: str = Field(description="그 전형에서 담당자가 다음 채용에 쓸 점 한 문장. 해요체")
+
+
 class _Draft(BaseModel):
     summary: str = Field(description="요약 두세 문장: 지원부터 최종 합격까지의 흐름과 다음 채용에서 다시 볼 점")
     finalists: list[_Finalist] = Field(description="최종 합격자마다 한 항목")
     notable: list[_Point] = Field(description=f"전형 간 특이사항 0~{MAX_NOTABLE}개. 근거가 없으면 비운다")
+    stages: list[_StageNote] = Field(
+        default_factory=list, description="전형 비교 자료의 영역마다 해석 한 문장. 자료가 없으면 비운다"
+    )
 
 
 SYSTEM = f"""너는 채용 담당자를 돕는 Report Agent다. 채용이 끝난 뒤 최종 리포트에 들어갈 문장만 쓴다.
@@ -71,6 +83,13 @@ SYSTEM = f"""너는 채용 담당자를 돕는 Report Agent다. 채용이 끝난
 - finalists: 최종 합격자마다 합격을 받친 근거의 키워드와 근거 id. 근거 id는 자료에 있는 그 지원자의 것만 쓴다.
 - notable: 전형 간 특이사항. 예: 서류에서 확인 필요였던 점이 면접에서 확인됐다, 서류 강점과 평가 점수가 어긋난다.
   근거 id가 없으면 쓰지 않는다.
+- stages: '전형별 합격 · 불합격 비교'의 영역마다 한 문장.
+  인원("30명 중 8명 합격")은 화면에 이미 있으니 되풀이하지 않는다.
+  다음 중 그 전형에서 가장 눈에 띄는 하나를 쓴다.
+  · 무엇이 합격을 갈랐나: 합격자와 불합격자의 충족 비율이나 평균 점수 차이가 가장 큰 항목
+  · 기준이 제대로 작동했나: 전체 중 충족한 사람이 거의 없거나 거의 모두인 항목(서류만으로 가리기 어려웠던 기준)
+  · 점수가 얼마나 촘촘했나: 합격자 최저와 불합격자 최고의 차이, 두 그룹 점수가 겹친 영역
+  항목은 번호(Q-01) 대신 짧은 이름으로 쓴다. 그룹 단위로만 쓰고 지원자 한 명을 집어 쓰지 않는다.
 
 반드시 지킬 것:
 - 숫자는 자료에 있는 값만 쓴다. 새로 계산하지 않는다.
@@ -101,6 +120,11 @@ def facts_text(bundle: ReportBundle, people: list[str]) -> str:
                 lines.append(f"- {fact.label}: {shown}" + (f" / {fact.max:g}" if fact.max else ""))
         own = [item for item in bundle.evidence if item.applicant == number][:MAX_FINALIST_EVIDENCE]
         lines += [f"- 근거 {item.id} · {item.line()}" for item in own] or ["- 근거 문장 없음"]
+    if digests := stage_digests(bundle):
+        lines.append("\n전형별 합격 · 불합격 비교 (코드가 센 값)")
+        for digest in digests:
+            lines.append(f"[{digest.area}] {digest.label}")
+            lines += [f"- {line}" for line in digest.lines]
     return "\n".join(lines)
 
 
@@ -111,7 +135,8 @@ def _clean_keywords(keywords: list[str]) -> list[str]:
 
 def _review(draft: _Draft, bundle: ReportBundle, people: list[str]) -> tuple[_Draft, list[str]]:
     """검사를 통과한 문장만 남긴 초안과, 걸린 까닭. 판정 코드는 먼저 화면 말로 바꾼다."""
-    allowed = numbers_in(bundle)
+    allowed = numbers_in(bundle) | stage_numbers(bundle)
+    areas = {digest.area for digest in stage_digests(bundle)}
     owner = {item.id: item.applicant for item in bundle.evidence}
     found: list[str] = []
 
@@ -143,12 +168,28 @@ def _review(draft: _Draft, bundle: ReportBundle, people: list[str]) -> tuple[_Dr
             found.append(f"notable[{index}]: 최종 합격자의 근거 id가 없다")
             continue
         kept_points.append(_Point(text=text, evidence=evidence))
-    return _Draft(summary=summary, finalists=kept_finalists, notable=kept_points), found
+    kept_notes: dict[str, _StageNote] = {}
+    for index, note in enumerate(draft.stages):
+        label = f"stages[{index}]"
+        if note.area not in areas:
+            found.append(f"{label}: 비교 자료에 없는 영역 id: {note.area}")
+        elif _APPLICANT.search(note.text):
+            found.append(f"{label}: 전형 해석은 그룹 단위로 쓰고 지원자번호를 쓰지 않는다")
+        elif note.area not in kept_notes and (text := sentence(label, note.text)) is not None:
+            kept_notes[note.area] = _StageNote(area=note.area, text=text)
+    return (
+        _Draft(summary=summary, finalists=kept_finalists, notable=kept_points, stages=list(kept_notes.values())),
+        found,
+    )
 
 
 def _merge(spec: ReportSpec, draft: _Draft) -> ReportSpec:
     """코드 구성에 모델 문장을 넣는다. 요약을 바꾸고, 최종 합격자 섹션에 판단 근거를, 그 뒤에 특이사항 섹션을 둔다."""
-    sections = list(spec.sections)
+    notes = {note.area: note.text for note in draft.stages}
+    sections = [
+        section.model_copy(update={"takeaway": notes[section.area]}) if section.area in notes else section
+        for section in spec.sections
+    ]
     if draft.finalists:
         evidence = EvidenceBlock(
             title="최종 합격자 판단 근거",
@@ -211,6 +252,8 @@ async def compose_final(bundle: ReportBundle, llm: LlmClient) -> tuple[ReportSpe
         # 합친 설계서가 검사에 걸리면 모델 문장을 빼고 기록만 낸다
         logger.warning("최종 리포트에 넣은 문장이 검사에 걸려 기록만 낸다: %s", " | ".join(left))
         merged = spec
+    if best.stages and merged != spec:
+        steps.append(f"전형 {len(best.stages)}개의 합격 · 불합격 기록을 견주어 해석함")
     written = merged != spec
     if not written:
         steps.append("AI 문장을 넣지 못해 기록만 담음")
@@ -224,4 +267,5 @@ def _combine(current: _Draft, new: _Draft) -> _Draft:
         summary=new.summary or current.summary,
         finalists=list(people.values()),
         notable=new.notable or current.notable,
+        stages=list(({note.area: note for note in current.stages} | {note.area: note for note in new.stages}).values()),
     )
