@@ -39,6 +39,10 @@ BLIND_BLOCKED_REPLY = (
 """블라인드 채용에서 학력 조건으로 찾거나 거르는 요청에 돌려주는 답."""
 
 _SPACES = re.compile(r"\s+")
+_PERSONAL_FACT = re.compile(
+    r"나이|연령|\d+\s*(?:살|세(?!대))|성별|남자|여자|남성|여성|출신|고향|결혼|혼인|기혼|미혼|자녀"
+    r"|여대|여고|키가|키\s*\d|몸무게|체중|외모|신체|장애(?:인|\s*(?:여부|유무|등급))|장애가\s*있|장애를\s*가진"
+)
 _LEADING_MARKS = re.compile(r"^[\s·•\-*\"'“”‘’]+|[\s\"'“”‘’]+$")
 
 
@@ -52,6 +56,11 @@ def blocked_attribute(message: str, *, blind: bool = False) -> str | None:
     if match is None and blind:
         match = _BLIND_ATTRIBUTE.search(message)
     return match.group() if match else None
+
+
+def personal_fact(text: str, *, blind: bool = False) -> bool:
+    """근거에 개인 속성이 적혀 있는지 확인한다. 검색 지시 판정과 구분한다."""
+    return bool(_PERSONAL_FACT.search(text) or (blind and _BLIND_ATTRIBUTE.search(text)))
 
 
 def education_term(text: str) -> str | None:

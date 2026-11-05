@@ -15,6 +15,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -102,6 +103,8 @@ class ProfileItem(Base):
     verification: Mapped[str] = mapped_column(String(12))  # Verification 값 (확인 상태)
     source: Mapped[str] = mapped_column(String(50))  # 출처 (예: 이력서, 자기소개서, 평가 결과, 면접 답변)
     stage_id: Mapped[UUID | None]  # 평가 · 면접 항목이면 그 전형 ID. 지원서 항목은 None
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+    embedding_model: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     profile: Mapped[CandidateProfile] = relationship(back_populates="items")

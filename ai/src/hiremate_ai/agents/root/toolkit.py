@@ -30,19 +30,25 @@ from hiremate_ai.agents.root.ledger import (
 from hiremate_ai.agents.root.stages import DECISION_LABELS, STAGE_LABELS, StageData, not_yet, stage_data, stage_plan
 from hiremate_ai.agents.root.turns import Turn, verified_turn_items
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, Decision, StageStatus
+from hiremate_ai.config import settings
 from hiremate_ai.contract import InterviewQuestion, StageType
 from hiremate_ai.db.analysis_store import AnalysisArtifactReader, DbAnalysisArtifacts
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block
-from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SourcedSentence
+from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SearchResults, SourcedSentence
 from hiremate_ai.tools.profile_lookup import (
     Sessions,
     ordered_items,
     profile_front,
     read_profile,
 )
-from hiremate_ai.tools.profile_search import profile_search
+from hiremate_ai.tools.profile_search import (
+    ProfileEmbedder,
+    get_profile_embedder,
+    profile_embedding_search,
+    profile_search,
+)
 from hiremate_ai.tools.scope import ToolScope
 
 
@@ -178,22 +184,30 @@ async def keyword_search(scope: ToolScope, concepts: Sequence[str], pool: Sequen
 def merged_search(*searches: CandidateSearch) -> CandidateSearch:
     """검색 여럿을 조건마다 불러 지원자별로 합친다. 어느 검색에서든 걸린 조건을 맞은 조건으로 센다.
 
-    조건마다 앞 검색의 문장부터 SENTENCES_PER_CONCEPT개까지 쓴다. 재확인에 넣는 문장 수는 검색 하나일 때와 같다.
+    조건마다 검색별 근거를 번갈아 고르고 각 검색에서 최대 SENTENCES_PER_CONCEPT개씩 쓴다.
     """
 
     async def search(scope: ToolScope, concepts: Sequence[str], pool: Sequence[UUID]) -> list[CandidateMatch]:
         sentences: dict[UUID, list[SourcedSentence]] = {}
         hits: dict[UUID, int] = {}
+        warnings: list[str] = []
         for concept in concepts:
-            found: dict[UUID, list[SourcedSentence]] = {}
+            found: dict[UUID, list[list[SourcedSentence]]] = {}
             for each in searches:
-                for match in await each(scope, [concept], pool):
-                    picked = found.setdefault(match.application_id, [])
-                    picked += [sourced for sourced in match.sentences if sourced not in picked]
-            for application_id, picked in found.items():
+                results = await each(scope, [concept], pool)
+                if isinstance(results, SearchResults):
+                    warnings.extend(warning for warning in results.warnings if warning not in warnings)
+                for match in results:
+                    found.setdefault(match.application_id, []).append(match.sentences)
+            for application_id, groups in found.items():
                 hits[application_id] = hits.get(application_id, 0) + 1
                 kept = sentences.setdefault(application_id, [])
-                kept += [sourced for sourced in picked[:SENTENCES_PER_CONCEPT] if sourced not in kept]
+                picked: list[SourcedSentence] = []
+                for index in range(SENTENCES_PER_CONCEPT):
+                    for group in groups:
+                        if index < len(group) and group[index] not in picked:
+                            picked.append(group[index])
+                kept += [sourced for sourced in picked if sourced not in kept]
         matches = [
             CandidateMatch(
                 application_id=application_id, sentences=sentences[application_id], hits=hits[application_id]
@@ -201,7 +215,7 @@ def merged_search(*searches: CandidateSearch) -> CandidateSearch:
             for application_id in dict.fromkeys(pool)
             if application_id in hits
         ]
-        return sorted(matches, key=lambda match: -match.hits)
+        return SearchResults(sorted(matches, key=lambda match: -match.hits), warnings=warnings)
 
     return search
 
@@ -694,6 +708,7 @@ class RootToolkit:
     search: CandidateSearch
     evidence: ProfileEvidence = no_profile_evidence
     judged: dict[str, dict[str, Any]] = field(default_factory=dict, compare=False)
+    judged_candidates: dict[str, dict[str, Any]] = field(default_factory=dict, compare=False)
     artifacts: AnalysisArtifactReader | None = None
     profile: ProfileReader = no_profile
     review: ReviewReader = no_review
@@ -704,13 +719,18 @@ def default_toolkit() -> RootToolkit:
     return RootToolkit(search=keyword_search)
 
 
-def profile_toolkit(sessions: async_sessionmaker[AsyncSession]) -> RootToolkit:
+def profile_toolkit(
+    sessions: async_sessionmaker[AsyncSession], *, embedder: ProfileEmbedder | None = None
+) -> RootToolkit:
     """지원자 프로필을 함께 쓰는 묶음.
 
     찾기는 프로필 문장을 먼저 쓰고, 모자라거나 프로필이 없으면 제출 문서 문장으로 채운다.
     답 근거는 분석 Agent가 프로필에 남긴 근거와도 맞춰 본다 (평가 제출물처럼 ChatContext에 원문이 없는 자료).
     """
-    search = merged_search(profile_search(sessions, terms=concept_terms), keyword_search)
+    searches = [profile_search(sessions, terms=concept_terms), keyword_search]
+    if embedder is not None:
+        searches.append(profile_embedding_search(sessions, embedder, model=settings.ncs_model))
+    search = merged_search(*searches)
     return RootToolkit(
         search=search,
         evidence=profile_evidence(sessions),
@@ -727,7 +747,7 @@ def get_toolkit() -> RootToolkit:
     프로세스에 하나만 만들어 찾기 재확인의 판정 기억을 요청끼리 같이 쓴다.
     DB 없이 찾기 · 분석을 거치는 테스트는 default_toolkit으로 바꿔 넣는다.
     """
-    return profile_toolkit(session_factory())
+    return profile_toolkit(session_factory(), embedder=get_profile_embedder())
 
 
 ToolkitDep = Annotated[RootToolkit, Depends(get_toolkit)]

@@ -13,6 +13,7 @@ class SourcedSentence:
 
     sentence: str
     source: str
+    anchor: str | None = None
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,12 @@ class CandidateMatch:
     application_id: UUID
     sentences: list[SourcedSentence]
     hits: int
+
+
+class SearchResults(list[CandidateMatch]):
+    def __init__(self, matches: Sequence[CandidateMatch] = (), *, warnings: Sequence[str] = ()) -> None:
+        super().__init__(matches)
+        self.warnings = list(warnings)
 
 
 type CandidateSearch = Callable[[ToolScope, Sequence[str], Sequence[UUID]], Awaitable[list[CandidateMatch]]]

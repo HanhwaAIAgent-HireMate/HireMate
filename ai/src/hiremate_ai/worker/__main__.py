@@ -19,6 +19,7 @@ from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.batch import BatchDispatcher, BatchLlm
 from hiremate_ai.llm.call_log import DbCallLog
 from hiremate_ai.llm.client import get_llm
+from hiremate_ai.tools.profile_search import get_profile_embedder, profile_indexer
 from hiremate_ai.worker.batch import ApplicationBatchJobs
 from hiremate_ai.worker.batch_store import RedisBatchStore
 from hiremate_ai.worker.handlers import job_handlers
@@ -88,7 +89,8 @@ async def main() -> None:
                 )
             instant_llm = get_llm()
             reviews = DbReviewStore(sessions)
-            handlers = job_handlers(instant_llm, reviews, sessions)
+            indexer = profile_indexer(sessions, get_profile_embedder())
+            handlers = job_handlers(instant_llm, reviews, sessions, profile_indexer=indexer)
             worker = Worker(
                 redis,
                 handlers,
@@ -107,7 +109,9 @@ async def main() -> None:
                             consumer=f"{options.consumer}:application-batch",
                             concurrency=settings.application_batch_concurrency,
                         )
-                        batch_handlers = job_handlers(instant_llm, reviews, sessions, application_llm=application_llm)
+                        batch_handlers = job_handlers(
+                            instant_llm, reviews, sessions, application_llm=application_llm, profile_indexer=indexer
+                        )
                         tasks.create_task(Worker(redis, batch_handlers, batch_options, batch=batch).run(stop))
             finally:
                 if cleanup is not None:
