@@ -110,6 +110,7 @@ class RootFocusChatTests extends IntegrationTest {
                 204);
         expect(hr.post(stagePath + "/confirm", null), 200);
         expect(hr.post(stagePath + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, stagePath);
         expect(hr.post(stagePath + "/notices/PASS/send", null), 200);
         return "/api/stages/" + json(expect(hr.post(stagePath + "/finish", null), 200)).path("nextStageId").asString();
     }

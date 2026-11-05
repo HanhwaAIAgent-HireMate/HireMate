@@ -52,6 +52,7 @@ class InterviewAnalysisTests extends IntegrationTest {
                 Map.of("applicationIds", List.of(applicationId.toString()), "decision", "PASS")), 204);
         expect(hr.post(document + "/confirm", null), 200);
         expect(hr.post(document + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, document);
         expect(hr.post(document + "/notices/PASS/send", null), 200);
         String stageId = json(expect(hr.post(document + "/finish", null), 200)).path("nextStageId").asString();
         String stage = "/api/stages/" + stageId;

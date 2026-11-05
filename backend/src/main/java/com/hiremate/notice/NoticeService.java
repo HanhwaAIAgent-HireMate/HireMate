@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -52,6 +53,8 @@ public class NoticeService {
     static final String ONBOARDING_LEAD = "입사 일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.";
     static final String ONBOARDING_LATER = "입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.";
     static final String PREVIEW_APPLICANT = "홍길동";
+    /** 합격 안내를 보낼 수 있는 다음 면접 배정 상태. 다음 전형이 면접이 아니면 NOT_APPLICABLE이다. */
+    private static final Set<String> SCHEDULED = Set.of("READY", "NOT_APPLICABLE");
 
     /** 전형 안내 일정을 오늘과 비교할 때 쓰는 시간대. */
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
@@ -141,6 +144,11 @@ public class NoticeService {
         if (notice.getContent().isBlank()) {
             throw new ApiException(HttpStatus.CONFLICT, "NOTICE_EMPTY", "Write the notice content first.");
         }
+        // 다음 전형이 면접이면 면접 시간을 배정한 뒤에 합격 안내를 보낸다. 보내면 다음 전형 안내가 잠겨 날짜를 고칠 수 없다
+        if (group == NoticeGroup.PASS && !SCHEDULED.contains(scheduling.status(companyId, stageId).status())) {
+            throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_SCHEDULE_NOT_READY",
+                    "Schedule the next interview before sending the pass notice.");
+        }
         StageResults results = screening.results(companyId, stageId);
         List<UUID> recipients = group == NoticeGroup.PASS ? results.passed() : results.failed();
         Map<UUID, NoticeDelivery> previous = deliveries.findByNoticeId(notice.getId()).stream()
@@ -197,15 +205,21 @@ public class NoticeService {
                 .toList();
     }
 
-    /** 이미 보낸 메일은 바뀌지 않는다. 화면은 notifiedCount로 받은 사람이 있음을 알린다. */
+    /**
+     * 안내 메일을 받은 지원자가 있으면 고칠 수 없다. 이미 보낸 메일은 바뀌지 않으므로, 바뀐 내용은 HR이 따로 연락하고
+     * 시스템에는 지원자가 받은 안내를 그대로 둔다. 다시 보내는 지원자도 같은 안내를 받는다.
+     */
     @Transactional
     public StageGuideView changeGuide(UUID companyId, UUID stageId, StageGuide guide) {
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
-        checkGuide(recruitment, recruitment.stage(stageId).orElseThrow(), guide);
-        scheduling.guideChanged(companyId, stageId, guide.schedule(),
-                guideView(companyId, recruitment, recruitment.stage(stageId).orElseThrow()).notifiedCount() == 0);
-        StageInfo stage = recruits.changeGuide(companyId, stageId, guide);
-        return guideView(companyId, recruits.getByStage(companyId, stageId), stage);
+        StageInfo stage = recruitment.stage(stageId).orElseThrow();
+        if (guideView(companyId, recruitment, stage).notifiedCount() > 0) {
+            throw new ApiException(HttpStatus.CONFLICT, "GUIDE_LOCKED", "The guide was already sent to applicants.");
+        }
+        checkGuide(recruitment, stage, guide);
+        scheduling.guideChanged(companyId, stageId, guide.schedule(), true);
+        StageInfo changed = recruits.changeGuide(companyId, stageId, guide);
+        return guideView(companyId, recruits.getByStage(companyId, stageId), changed);
     }
 
     /**

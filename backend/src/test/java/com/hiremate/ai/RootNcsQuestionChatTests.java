@@ -144,6 +144,7 @@ class RootNcsQuestionChatTests extends IntegrationTest {
                 204);
         expect(hr.post(document + "/confirm", null), 200);
         expect(hr.post(document + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, document);
         expect(hr.post(document + "/notices/PASS/send", null), 200);
         String interview = "/api/stages/"
                 + json(expect(hr.post(document + "/finish", null), 200)).path("nextStageId").asString();

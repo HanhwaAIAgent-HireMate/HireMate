@@ -207,6 +207,7 @@ class RootMemoryChatTests extends IntegrationTest {
                 Map.of("applicationIds", List.of(setup.applicant()), "decision", "PASS")), 204);
         expect(hr.post(setup.path() + "/confirm", null), 200);
         expect(hr.post(setup.path() + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, setup.path());
         expect(hr.post(setup.path() + "/notices/PASS/send", null), 200);
 
         expect(hr.post(setup.path() + "/finish", null), 200);
@@ -227,6 +228,7 @@ class RootMemoryChatTests extends IntegrationTest {
         expect(hr.post(setup.path() + "/confirm", null), 200);
         expect(hr.post(setup.chatPath(setup.tabId()), ask), 200);
         expect(hr.post(setup.path() + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, setup.path());
         expect(hr.post(setup.path() + "/notices/PASS/send", null), 200);
         expect(hr.post(setup.path() + "/finish", null), 200);
 
