@@ -1316,6 +1316,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stages/{stageId}/notified-interviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["notifiedInterviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stages/{stageId}/notices": {
         parameters: {
             query?: never;
@@ -2191,6 +2207,8 @@ export interface components {
         StageGuideRequest: {
             /** Format: date */
             schedule: string | null;
+            /** @example 14:00 */
+            time: string | null;
             /** @enum {string|null} */
             method: "ONLINE" | "OFFLINE" | null;
             place: string;
@@ -2200,6 +2218,8 @@ export interface components {
         StageGuide: {
             /** Format: date */
             schedule: string | null;
+            /** @example 14:00:00 */
+            time: string | null;
             /** @enum {string|null} */
             method: "ONLINE" | "OFFLINE" | null;
             place: string;
@@ -2212,6 +2232,8 @@ export interface components {
             /** Format: int32 */
             seq: number;
             name: string;
+            /** @enum {string} */
+            type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
             guide: components["schemas"]["StageGuide"];
             missing: string[];
             /** Format: int32 */
@@ -3113,25 +3135,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
+            missingNode: boolean;
+            integralNumber: boolean;
+            floatingPointNumber: boolean;
             bigInteger: boolean;
+            valueNode: boolean;
+            container: boolean;
             bigDecimal: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            floatingPointNumber: boolean;
-            integralNumber: boolean;
+            binary: boolean;
             string: boolean;
+            int: boolean;
+            long: boolean;
+            short: boolean;
+            boolean: boolean;
+            double: boolean;
             /** @deprecated */
             textual: boolean;
-            boolean: boolean;
-            int: boolean;
-            binary: boolean;
-            double: boolean;
             pojo: boolean;
-            short: boolean;
-            long: boolean;
-            missingNode: boolean;
-            valueNode: boolean;
-            container: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3261,6 +3283,14 @@ export interface components {
             charts: {
                 [key: string]: string;
             };
+        };
+        NotifiedInterview: {
+            /** Format: uuid */
+            applicationId: string;
+            /** Format: date-time */
+            interviewAt: string;
+            /** Format: date-time */
+            sentAt: string;
         };
         MailPreview: {
             subject: string;
@@ -6108,6 +6138,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["DistributionNote"];
+                };
+            };
+        };
+    };
+    notifiedInterviews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["NotifiedInterview"][];
                 };
             };
         };
