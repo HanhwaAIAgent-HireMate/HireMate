@@ -41,7 +41,6 @@ ITEM_LIMIT = 5
 RECHECK_BATCH = 30
 # 기억하는 재확인 판정 수. 넘으면 오래된 것부터 지운다
 JUDGED_LIMIT = 256
-EVIDENCE_LENGTH = 48
 CONTEXT_RADIUS = 160
 CONTACT = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|(?:\+?\d[\d\s()-]{7,}\d)")
 PARTIAL_NOTE = (
@@ -919,12 +918,6 @@ def _score_sources(query: SearchQuery) -> list[str]:
     ]
 
 
-def _shorten(text: str) -> str:
-    trimmed = " ".join(text.split())
-    return trimmed if len(trimmed) <= EVIDENCE_LENGTH else trimmed[: EVIDENCE_LENGTH - 1] + "…"
-
-
 def _display_evidence(sourced: SourcedSentence) -> str:
-    if sourced.anchor:
-        return " ".join(sourced.sentence.split())
-    return _shorten(sourced.sentence)
+    """화면에 보일 근거 문장. 중간에서 자르지 않고 문장 전체를 한 줄로 보인다."""
+    return " ".join(sourced.sentence.split())

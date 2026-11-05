@@ -12,7 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from hiremate_ai.agents.root.analysis import FocusDraft, ItemDraft
-from hiremate_ai.agents.root.answer import FOCUS_WITH_REQUEST, INTERVIEW_AGENT, QUESTIONS_REQUESTED, readable, shorten
+from hiremate_ai.agents.root.answer import FOCUS_WITH_REQUEST, INTERVIEW_AGENT, QUESTIONS_REQUESTED, one_line, readable
 from hiremate_ai.agents.root.ledger import Evidence, Ledger
 from hiremate_ai.agents.root.plan import QuestionsPlan
 from hiremate_ai.agents.root.stages import without_later_gaps
@@ -160,7 +160,7 @@ def _capped(context: ChatContext, ledger: Ledger, draft: ItemDraft) -> Checked |
         for ref in dict.fromkeys(ref.strip().upper() for ref in draft.refs)
         if (found := ledger.get(ref)) is not None and (owner is None or found.application_id in (None, owner))
     ]
-    text = shorten(without_later_gaps(context, readable(draft.text, context)))
+    text = one_line(without_later_gaps(context, readable(draft.text, context)))
     if not text:
         return None
     status: str | None

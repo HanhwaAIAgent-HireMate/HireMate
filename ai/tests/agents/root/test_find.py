@@ -415,6 +415,29 @@ async def test_recheck_drops_sentence_missing_from_documents(
     assert plan.items[0].text == SENTENCES["정유민"]
 
 
+async def test_found_evidence_is_shown_whole(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 근거 문장을 중간에서 자르고 '…'를 붙이면 담당자가 끝까지 읽을 수 없다
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+    sentence = (
+        "정산 배치 지연을 줄이기 위해 팀과 함께 처리 구조를 바꿨고, "
+        "장애 회고를 문서로 남겨 같은 문제가 반복되지 않게 했습니다."
+    )
+    found = CandidateMatch(
+        application_id=sample_applicants["정유민"].info.application_id,
+        sentences=[SourcedSentence(sentence=sentence, source="자기소개서")],
+        hits=1,
+    )
+    search = SpySearch([found])
+
+    plan = await plan_find(
+        FakeLlm(rechecked(["정유민"], {"정유민": [1]})), FINANCE, context, RootToolkit(search=search)
+    )
+
+    assert plan.items[0].text == sentence
+
+
 async def test_recheck_drops_unknown_sentence_number(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
