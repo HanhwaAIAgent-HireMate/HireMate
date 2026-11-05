@@ -23,9 +23,11 @@ import com.hiremate.recruit.RecruitService;
 import com.hiremate.recruit.RecruitmentInfo;
 import com.hiremate.recruit.StageGuide;
 import com.hiremate.recruit.StageInfo;
+import com.hiremate.recruit.StageType;
 import com.hiremate.screening.ScreeningService;
 import com.hiremate.screening.StageResults;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -33,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -231,6 +234,13 @@ public class NoticeService {
     private static void checkGuide(RecruitmentInfo recruitment, StageInfo stage, StageGuide guide) {
         LocalDate date = guide.schedule();
         if (date != null && !date.equals(stage.guide().schedule()) && date.isBefore(LocalDate.now(KOREA))) {
+            throw invalidGuide("GUIDE_DATE_PAST", "The schedule is in the past.");
+        }
+        // 오늘로 정한 시작 시각은 지금보다 뒤여야 한다. 바꾸지 않은 일정 · 시각은 그대로 둘 수 있다
+        boolean changed = !Objects.equals(date, stage.guide().schedule()) || !Objects.equals(guide.time(),
+                stage.guide().time());
+        if (changed && guide.time() != null && stage.type() != StageType.INTERVIEW
+                && LocalDate.now(KOREA).equals(date) && !guide.time().isAfter(LocalTime.now(KOREA))) {
             throw invalidGuide("GUIDE_DATE_PAST", "The schedule is in the past.");
         }
         if (date != null && recruitment.stages().stream().anyMatch(other -> other.guide().schedule() != null

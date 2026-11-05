@@ -14,6 +14,7 @@ import com.hiremate.recruit.StageType;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
@@ -364,6 +365,11 @@ class PostingTests extends IntegrationTest {
                 "time", "14:00", "method", "ONLINE", "place", "", "preparation", "", "note", "")), 200));
         assertThat(codingGuide.path("type").asString()).isEqualTo("ASSESSMENT");
         assertThat(codingGuide.path("guide").path("time").asString()).isEqualTo("14:00:00");
+        // 오늘로 정한 시작 시각이 이미 지났으면 저장하지 않는다
+        String today = LocalDate.now(ZoneId.of("Asia/Seoul")).toString();
+        assertThat(json(expect(hr.put("/api/stages/" + coding + "/guide", Map.of("schedule", today, "time", "00:00",
+                "method", "ONLINE", "place", "", "preparation", "", "note", "")), 400)).path("code").asString())
+                .isEqualTo("GUIDE_DATE_PAST");
         String interview = saved.path("stages").get(2).path("id").asString();
         assertThat(json(expect(hr.put("/api/stages/" + interview + "/guide", Map.of("schedule", day(9),
                 "time", "10:00", "place", "", "preparation", "", "note", "")), 200)).path("guide").path("time")

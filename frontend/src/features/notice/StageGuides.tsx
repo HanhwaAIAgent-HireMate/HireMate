@@ -23,6 +23,7 @@ import {
   METHOD_LABELS,
   missingGuideFields,
   NOTE_MAX,
+  nowTime,
   PLACE_MAX,
   PREPARATION_MAX,
   scheduleBounds,
@@ -98,7 +99,8 @@ function GuideCard({
   const canEdit = editable && !locked
   const today = todayIso()
   const dirty = JSON.stringify(draft) !== JSON.stringify(view.guide)
-  const problems = guideProblems(draft, view.guide, bounds, today)
+  const now = nowTime()
+  const problems = guideProblems(draft, view.guide, bounds, today, now)
   const invalid = Object.keys(problems).length > 0
   const empty = missingGuideFields(draft)
   const range = scheduleRange(bounds, today)
@@ -153,7 +155,8 @@ function GuideCard({
             type="datetime-local"
             aria-label={`${view.name} 일정`}
             value={draft.schedule ? `${draft.schedule}T${draft.time?.slice(0, 5) ?? '00:00'}` : ''}
-            min={keepPast || !range.min ? undefined : `${range.min}T00:00`}
+            // 오늘부터 고를 수 있으면 지금 시각 이후만 고른다
+            min={keepPast ? undefined : `${range.min}T${range.min === today ? now : '00:00'}`}
             max={range.max ? `${range.max}T23:59` : undefined}
             disabled={!canEdit}
             onChange={(event) => {
