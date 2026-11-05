@@ -61,6 +61,8 @@ public class NoticeService {
     static final String ONBOARDING_LATER = "입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.";
     static final String PREVIEW_APPLICANT = "홍길동";
     static final int PREVIEW_APPLICATION_NO = 1;
+    /** 블라인드 채용 안내 메일의 맺음말 앞에 붙이는 지원번호 안내. */
+    static final String APPLICATION_NO_LINE = "{지원자명}님의 지원번호는 {지원번호}번입니다.";
     /** 합격 안내를 보낼 수 있는 다음 면접 배정 상태. 다음 전형이 면접이 아니면 NOT_APPLICABLE이다. */
     private static final Set<String> SCHEDULED = Set.of("READY", "NOT_APPLICABLE");
 
@@ -172,7 +174,8 @@ public class NoticeService {
                     .toList();
             requireInterviewTimes(companyId, stageId, pending, interviewTimes);
         }
-        MailContent content = content(notice, recruitment, companyName, !interviewTimes.isEmpty());
+        MailContent content = content(notice, recruitment, companyName, !interviewTimes.isEmpty(),
+                applications.blind(companyId, recruitment.id()));
         MailBrand brand = mailStyles.brand(companyId);
         int sent = 0;
         int failed = 0;
@@ -215,7 +218,8 @@ public class NoticeService {
         Map<String, String> values = values(PREVIEW_APPLICANT, PREVIEW_APPLICATION_NO, companyName, recruitment,
                 stageId);
         return MailPreview.of(fill(notice.getSubject(), values),
-                content(notice, recruitment, companyName).fill(values), mailStyles.brand(companyId));
+                content(notice, recruitment, companyName, false, applications.blind(companyId, recruitment.id()))
+                        .fill(values), mailStyles.brand(companyId));
     }
 
     /** 공고 작성 화면의 전형 안내. 첫 전형은 안내하는 메일이 없어 뺀다. */
@@ -320,17 +324,19 @@ public class NoticeService {
                 () -> new ApiException(HttpStatus.NOT_FOUND, "NOTICE_NOT_FOUND", "Notice not found."));
     }
 
-    /** 메일 내용. 인사말과 본문, 붙일 안내, 맺음말, 필수 문구 순서다. 변수는 아직 채우지 않았다. */
-    private static MailContent content(Notice notice, RecruitmentInfo recruitment, String companyName) {
-        return content(notice, recruitment, companyName, false);
-    }
-
-    /** interviewTime이면 다음 전형 안내의 일정 줄을 지원자별 면접 일시 변수로 둔다. 보낼 때 지원자마다 채운다. */
+    /**
+     * 메일 내용. 인사말과 본문, 붙일 안내, 맺음말, 필수 문구 순서다. 변수는 아직 채우지 않았다. interviewTime이면 다음 전형
+     * 안내의 일정 줄을 지원자별 면접 일시 변수로 둔다. 블라인드 채용이면 맺음말 앞에 지원자 본인의 지원번호를 알린다. 담당자
+     * 화면에는 이름 대신 지원번호가 보여 지원자가 문의할 때 번호가 필요하다.
+     */
     private static MailContent content(Notice notice, RecruitmentInfo recruitment, String companyName,
-            boolean interviewTime) {
+            boolean interviewTime, boolean blind) {
         List<MailContent.Block> blocks = new ArrayList<>(List.of(new MailContent.Text(notice.getGreeting()),
                 new MailContent.Text(notice.getContent())));
         guideBlock(notice, recruitment, interviewTime).ifPresent(blocks::add);
+        if (blind) {
+            blocks.add(new MailContent.Text(APPLICATION_NO_LINE));
+        }
         return new MailContent(companyName, recruitment.title(), blocks, notice.getClosing(),
                 notice.getRequiredText());
     }

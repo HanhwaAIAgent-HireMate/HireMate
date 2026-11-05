@@ -507,6 +507,43 @@ class ScreeningTests extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("블라인드 채용의 안내 메일은 맺음말 앞에 지원자 본인의 지원번호를 알리고, 블라인드가 아니면 붙이지 않는다")
+    void blindNoticeTellsApplicationNumber() throws Exception {
+        TestApi hr = newHr();
+        TestFixtures.Posting blind = TestFixtures.publishBlind(hr, "");
+        Map<String, Object> form = TestFixtures.form("blind-notice@example.com", false);
+        form.put("name", "한서윤");
+        expect(anonymous().multipart(blind.applyPath(), form), 201);
+        UUID recruitmentId = UUID.fromString(blind.recruitmentId());
+        awaitAnalyzed(hr.companyId(), recruitmentId, 1);
+        UUID applicationId = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
+        applications.recordAnalysis(applicationId, marked(8, true));
+        String id = applicationId.toString();
+        String stageId = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200))
+                .path("stages").get(0).path("id").asString();
+        String stage = "/api/stages/" + stageId;
+        expect(hr.post(stage + "/tabs/" + TestFixtures.firstTab(hr, stageId) + "/selection/add",
+                Map.of("applicationIds", List.of(id))), 204);
+        expect(hr.post(stage + "/decisions", Map.of("applicationIds", List.of(id), "decision", "PASS")), 204);
+        expect(hr.post(stage + "/confirm", null), 200);
+        expect(hr.post(stage + "/notices/prepare", null), 200);
+
+        assertThat(json(expect(hr.get(stage + "/notices/PASS/preview"), 200)).path("html").asString())
+                .contains("홍길동님의 지원번호는 1번입니다.");
+        expect(hr.post(stage + "/notices/PASS/send", null), 200);
+        assertThat(mail.sent).anySatisfy(message -> assertThat(message).contains("한서윤님의 지원번호는 1번입니다."));
+
+        Stage open = startDocumentStage(1, "");
+        expect(open.hr().post(open.tabPath() + "/selection/add", Map.of("applicationIds", open.ids())), 204);
+        expect(open.hr().post(open.path() + "/decisions", Map.of("applicationIds", open.ids(), "decision", "PASS")),
+                204);
+        expect(open.hr().post(open.path() + "/confirm", null), 200);
+        expect(open.hr().post(open.path() + "/notices/prepare", null), 200);
+        assertThat(json(expect(open.hr().get(open.path() + "/notices/PASS/preview"), 200)).path("html").asString())
+                .doesNotContain("지원번호는");
+    }
+
+    @Test
     @DisplayName("안내는 확인한 초안을 변수를 채워 보내고, 마지막 전형을 종료하면 채용이 끝나고 리포트가 만들어진다")
     void noticesAndFinalReport() throws Exception {
         Stage stage = startDocumentStage(2);
