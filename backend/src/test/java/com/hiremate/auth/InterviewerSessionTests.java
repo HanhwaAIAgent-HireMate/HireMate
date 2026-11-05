@@ -454,6 +454,8 @@ class InterviewerSessionTests extends IntegrationTest {
         String unscheduled = ids.get(2);
         schedule(f, a, SLOT);
         schedule(f, b, SLOT);
+        // 합격 안내 전에 모두 배정되므로, HR이 한 명의 시간을 비운 상황을 만든다
+        schedule(f, unscheduled, null);
         // HR 전형 화면은 면접 일시 목록으로 지원자를 시간별로 나눈다 (일정이 없는 지원자는 없다)
         JsonNode schedules = json(expect(f.hr().get(f.legacy() + "/interview/schedules"), 200));
         assertThat(schedules.valueStream().map(row -> row.path("applicationId").asString()))
@@ -634,6 +636,7 @@ class InterviewerSessionTests extends IntegrationTest {
                         .map(com.hiremate.apply.ApplicantInfo::applicationId).toList(), "decision", "PASS")), 204);
         expect(hr.post(document + "/confirm", null), 200);
         expect(hr.post(document + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, document);
         expect(hr.post(document + "/notices/PASS/send", null), 200);
         String stage = json(expect(hr.post(document + "/finish", null), 200)).path("nextStageId").asString();
         Fixture f = new Fixture(hr, people, practical, unassigned, stage, applicationId);

@@ -73,6 +73,7 @@ class InterviewSchedulingTests extends IntegrationTest {
         await(room, "READY");
         assertThat(times(room, passed)).containsExactlyElementsOf(actual);
         expect(room.hr().post(room.path() + "/notices/prepare", null), 200);
+        scheduleNextInterview(room.hr(), room.path());
         expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
         expect(room.hr().post(room.path() + "/notices/FAIL/send", null), 200);
         expect(room.hr().post(room.path() + "/finish", null), 200);
@@ -83,20 +84,20 @@ class InterviewSchedulingTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("날짜가 없을 때 기존 메일 발송은 유지하며 날짜를 저장하면 재시도 없이 배정한다")
-    void missingDateDoesNotBlockMailAndCanBeRetried() throws Exception {
+    @DisplayName("날짜가 없으면 합격 메일을 보낼 수 없고, 날짜를 저장하면 재시도 없이 배정한 뒤 보낼 수 있다")
+    void missingDateBlocksPassMailUntilScheduled() throws Exception {
         Room room = room(1, false);
         confirm(room, room.ids());
         await(room, "DATE_REQUIRED");
         expect(newHr().get(room.status()), 404);
         expect(newInterviewer(room.hr(), "면접관").post(room.status() + "/retry", null), 403);
         expect(room.hr().post(room.path() + "/notices/prepare", null), 200);
-        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
-        int sent = mail.sent.size();
+        assertThat(json(expect(room.hr().post(room.path() + "/notices/PASS/send", null), 409)).path("code")
+                .asString()).isEqualTo("INTERVIEW_SCHEDULE_NOT_READY");
         guide(room, room.next(), friday());
         await(room, "READY");
-        assertThat(mail.sent).hasSize(sent);
         assertThat(times(room, room.ids())).containsExactly(friday().atTime(9, 0).atZone(KOREA).toInstant());
+        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
     }
 
     @Test
@@ -171,26 +172,26 @@ class InterviewSchedulingTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("재배정 실패 후 메일을 보냈으면 날짜를 고쳐도 이전 자동 일정을 보존한다")
-    void cancelsFailedReassignmentWhenGuideIsSavedAfterMail() throws Exception {
+    @DisplayName("재배정에 실패한 동안은 합격 메일을 보낼 수 없고, 날짜를 고쳐 다시 배정하면 보낼 수 있다")
+    void failedReassignmentBlocksPassMail() throws Exception {
         Room room = room(1, true);
         guide(room, room.next(), friday());
         guide(room, room.last(), friday().plusDays(3));
         confirm(room, room.ids());
         await(room, "READY");
-        List<Instant> assigned = times(room, room.ids());
         guide(room, room.next(), friday().plusDays(1));
         await(room, "FAILED");
         expect(room.hr().post(room.path() + "/notices/prepare", null), 200);
-        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
+        assertThat(json(expect(room.hr().post(room.path() + "/notices/PASS/send", null), 409)).path("code")
+                .asString()).isEqualTo("INTERVIEW_SCHEDULE_NOT_READY");
         guide(room, room.next(), friday().minusDays(1));
         await(room, "READY");
-        assertThat(times(room, room.ids())).containsExactlyElementsOf(assigned);
+        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
     }
 
     @Test
-    @DisplayName("합격 메일을 보낸 뒤에는 날짜를 바꿔도 이미 배정한 시간을 자동으로 옮기지 않는다")
-    void doesNotReassignAfterPassMail() throws Exception {
+    @DisplayName("합격 메일을 보낸 뒤에는 다음 면접 안내를 고칠 수 없어 이미 배정한 시간이 그대로다")
+    void locksGuideAfterPassMail() throws Exception {
         Room room = room(2, false);
         guide(room, room.next(), friday());
         confirm(room, room.ids());
@@ -198,8 +199,9 @@ class InterviewSchedulingTests extends IntegrationTest {
         List<Instant> assigned = times(room, room.ids());
         expect(room.hr().post(room.path() + "/notices/prepare", null), 200);
         expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
-        guide(room, room.next(), friday().plusWeeks(1));
-        await(room, "READY");
+        assertThat(json(expect(room.hr().put("/api/stages/" + room.next() + "/guide", Map.of("schedule",
+                friday().plusWeeks(1).toString(), "place", "", "preparation", "", "note", "")), 409)).path("code")
+                .asString()).isEqualTo("GUIDE_LOCKED");
         assertThat(times(room, room.ids())).containsExactlyElementsOf(assigned);
     }
 
@@ -264,8 +266,8 @@ class InterviewSchedulingTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("배정할 칸이 하나도 없으면 일정을 만들지 않되 메일 발송은 유지하며 날짜 조정 뒤 재시도한다")
-    void noSlotsLeavesSchedulesEmptyWithoutChangingMailFlow() throws Exception {
+    @DisplayName("배정할 칸이 하나도 없으면 일정을 만들지 않고 합격 메일도 보낼 수 없으며, 날짜 조정 뒤 재시도한다")
+    void noSlotsLeavesSchedulesEmptyAndBlocksPassMail() throws Exception {
         Room room = room(6, true);
         // 토요일부터 월요일 전까지라 평일 칸이 없다
         guide(room, room.next(), friday().plusDays(1));
@@ -278,13 +280,14 @@ class InterviewSchedulingTests extends IntegrationTest {
         assertThat(interviews.preparationView(room.hr().companyId(), room.next(), room.ids().getFirst()).schedule())
                 .isNull();
         expect(room.hr().post(room.path() + "/notices/prepare", null), 200);
-        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
-        int sent = mail.sent.size();
+        assertThat(json(expect(room.hr().post(room.path() + "/notices/PASS/send", null), 409)).path("code")
+                .asString()).isEqualTo("INTERVIEW_SCHEDULE_NOT_READY");
         guide(room, room.last(), friday().plusWeeks(2));
         expect(room.hr().post(room.status() + "/retry", null), 200);
         await(room, "READY");
         assertThat(times(room, room.ids())).hasSize(6).doesNotHaveDuplicates();
-        assertThat(mail.sent).hasSize(sent);
+        assertThat(mail.sent).hasSize(before);
+        expect(room.hr().post(room.path() + "/notices/PASS/send", null), 200);
     }
 
     private Room room(int count, boolean finalInterview) throws Exception {

@@ -56,6 +56,7 @@ class DummyAssessmentTests extends IntegrationTest {
                 List.of(ids.get("seoyun.lee@example.com").toString()), "decision", "FAIL")), 204);
         expect(hr.post(document + "/confirm", null), 200);
         expect(hr.post(document + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, document);
         expect(hr.post(document + "/notices/PASS/send", null), 200);
         expect(hr.post(document + "/notices/FAIL/send", null), 200);
         String stageId = json(expect(hr.post(document + "/finish", null), 200)).path("nextStageId").asString();

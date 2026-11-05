@@ -61,6 +61,7 @@ class StageReportChatTests extends IntegrationTest {
         expect(hr.post(document + "/decisions", Map.of("applicationIds", List.of(id), "decision", "PASS")), 204);
         expect(hr.post(document + "/confirm", null), 200);
         expect(hr.post(document + "/notices/prepare", null), 200);
+        scheduleNextInterview(hr, document);
         expect(hr.post(document + "/notices/PASS/send", null), 200);
         String saved = awaitStageReport(hr, document);
         String interview = "/api/stages/" + json(expect(hr.post(document + "/finish", null), 200))
