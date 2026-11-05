@@ -1316,22 +1316,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/stages/{stageId}/notified-interviews": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["notifiedInterviews"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/stages/{stageId}/notices": {
         parameters: {
             query?: never;
@@ -2207,8 +2191,6 @@ export interface components {
         StageGuideRequest: {
             /** Format: date */
             schedule: string | null;
-            /** @example 14:00 */
-            time: string | null;
             /** @enum {string|null} */
             method: "ONLINE" | "OFFLINE" | null;
             place: string;
@@ -2218,8 +2200,6 @@ export interface components {
         StageGuide: {
             /** Format: date */
             schedule: string | null;
-            /** @example 14:00:00 */
-            time: string | null;
             /** @enum {string|null} */
             method: "ONLINE" | "OFFLINE" | null;
             place: string;
@@ -2232,8 +2212,6 @@ export interface components {
             /** Format: int32 */
             seq: number;
             name: string;
-            /** @enum {string} */
-            type: "DOCUMENT" | "ASSESSMENT" | "INTERVIEW";
             guide: components["schemas"]["StageGuide"];
             missing: string[];
             /** Format: int32 */
@@ -3135,25 +3113,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            short: boolean;
-            pojo: boolean;
-            double: boolean;
-            binary: boolean;
-            int: boolean;
-            string: boolean;
-            long: boolean;
-            boolean: boolean;
-            /** @deprecated */
-            textual: boolean;
-            container: boolean;
-            floatingPointNumber: boolean;
             missingNode: boolean;
-            bigDecimal: boolean;
+            container: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            bigDecimal: boolean;
+            floatingPointNumber: boolean;
+            bigInteger: boolean;
             integralNumber: boolean;
             valueNode: boolean;
-            bigInteger: boolean;
+            double: boolean;
+            pojo: boolean;
+            int: boolean;
+            boolean: boolean;
+            short: boolean;
+            string: boolean;
+            binary: boolean;
+            long: boolean;
+            /** @deprecated */
+            textual: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3284,14 +3262,6 @@ export interface components {
                 [key: string]: string;
             };
         };
-        NotifiedInterview: {
-            /** Format: uuid */
-            applicationId: string;
-            /** Format: date-time */
-            interviewAt: string;
-            /** Format: date-time */
-            sentAt: string;
-        };
         MailPreview: {
             subject: string;
             html: string;
@@ -3345,6 +3315,13 @@ export interface components {
             memo: string;
             schoolMentions: string[];
             schoolCleared: boolean;
+            originalWarnings: components["schemas"]["OriginalWarning"][];
+        };
+        OriginalWarning: {
+            /** @enum {string} */
+            type: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            kinds: string[];
+            showsName: boolean;
         };
         Match: {
             title: string;
@@ -6137,28 +6114,6 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["DistributionNote"];
-                };
-            };
-        };
-    };
-    notifiedInterviews: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                stageId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["NotifiedInterview"][];
                 };
             };
         };
