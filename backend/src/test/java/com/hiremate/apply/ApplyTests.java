@@ -57,9 +57,9 @@ class ApplyTests extends IntegrationTest {
         String download = hr.getBytes("/api/recruitments/" + recruitmentId + "/applications/" + info.applicationId()
                 + "/documents/RESUME").headers().firstValue("Content-Disposition").orElseThrow();
         assertThat(download).doesNotContain("resume.pdf");
-        // 원본에 이름만 있으면 열기 전에 묻지 않고 이름이 보인다고만 안내한다
-        assertThat(applications.originalWarnings(hr.companyId(), info.applicationId()))
-                .containsExactly(new OriginalWarning(DocumentType.RESUME, List.of(), true));
+        // 원본에 이름이 있는 서류는 열면 이름이 보인다고 안내한다 (영문으로 쓴 이름도 센다)
+        assertThat(applications.originalsWithName(hr.companyId(), info.applicationId()))
+                .containsExactly(DocumentType.RESUME);
         // 저장한 본문은 가리기 전 글이라, 실제 이름으로 찾으면 찾지 못한다
         assertThat(applications.searchDocuments(hr.companyId(), recruitmentId, "Java")).hasSize(1);
         assertThat(applications.searchDocuments(hr.companyId(), recruitmentId, "Yuna Noh")).isEmpty();

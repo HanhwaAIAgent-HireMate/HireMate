@@ -3113,25 +3113,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            missingNode: boolean;
-            container: boolean;
+            bigInteger: boolean;
+            bigDecimal: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            bigDecimal: boolean;
             floatingPointNumber: boolean;
-            bigInteger: boolean;
             integralNumber: boolean;
-            valueNode: boolean;
-            double: boolean;
-            pojo: boolean;
-            int: boolean;
-            boolean: boolean;
-            short: boolean;
             string: boolean;
-            binary: boolean;
-            long: boolean;
             /** @deprecated */
             textual: boolean;
+            boolean: boolean;
+            int: boolean;
+            binary: boolean;
+            double: boolean;
+            pojo: boolean;
+            short: boolean;
+            long: boolean;
+            missingNode: boolean;
+            valueNode: boolean;
+            container: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3315,13 +3315,7 @@ export interface components {
             memo: string;
             schoolMentions: string[];
             schoolCleared: boolean;
-            originalWarnings: components["schemas"]["OriginalWarning"][];
-        };
-        OriginalWarning: {
-            /** @enum {string} */
-            type: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
-            kinds: string[];
-            showsName: boolean;
+            originalsWithName: ("RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE")[];
         };
         Match: {
             title: string;

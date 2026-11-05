@@ -56,8 +56,8 @@ export function DocumentViewer({
     detail.row.analysisStatus,
   )
   const document = detail.documents.find((item) => item.type === tab)
-  // 블라인드 채용에서 원본을 열면 보이는 가린 정보
-  const original = detail.originalWarnings.find((warning) => warning.type === tab)
+  // 블라인드 채용에서 원본을 열면 이름이 보이는 서류
+  const originalShowsName = detail.originalsWithName.some((type) => type === tab)
   const sections = (analysis.data?.summaries ?? []).filter((item) => item.document === tab)
   const showSummary = sections.length > 0 && !fullText
   const highlights = (analysis.data?.highlights ?? [])
@@ -119,8 +119,7 @@ export function DocumentViewer({
                   )}
                   <OriginalPdfLink
                     href={`/api/recruitments/${recruitmentId}/applications/${detail.row.applicationId}/documents/${tab}`}
-                    hidden={original?.kinds ?? []}
-                    showsName={original?.showsName}
+                    showsName={originalShowsName}
                   />
                 </div>
                 {showSummary ? (

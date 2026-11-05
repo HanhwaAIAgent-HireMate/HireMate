@@ -95,14 +95,6 @@ class BlindMaskTests {
     }
 
     @Test
-    @DisplayName("저장할 때 가린 출신 학교 · 학점이 있으면 원본에 그대로 있다고 알리고, 이름만 있으면 알리지 않는다")
-    void findsHiddenInfoOnOriginal() {
-        assertThat(BlindMask.hiddenOnOriginal("○○학교 컴퓨터공학과 졸업, 학점 ○○")).containsExactly("출신 학교", "학점");
-        assertThat(BlindMask.hiddenOnOriginal("GPA: ○○로 졸업했습니다.")).containsExactly("학점");
-        assertThat(BlindMask.hiddenOnOriginal("김가온 | 백엔드 개발자\nJava로 정산 API를 개발했습니다.")).isEmpty();
-    }
-
-    @Test
     @DisplayName("학교가 아닌 말과 다른 뜻의 약칭, 학점이 아닌 숫자는 그대로 둔다")
     void keepsOtherWords() {
         String text = "서울대입구역 근처 카페를 운영했고, 학교 폭력 예방 캠페인과 시민 연대 활동, 고대 문명 동아리를 했습니다. "
