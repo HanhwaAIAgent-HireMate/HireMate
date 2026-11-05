@@ -75,6 +75,8 @@ public class NoticeService {
     private static final DateTimeFormatter GUIDE_TIME = DateTimeFormatter.ofPattern("HH:mm");
     /** 다음 면접 안내 메일의 지원자별 면접 일시. 보낼 때 지원자마다 채우는 안의 변수다. */
     private static final String INTERVIEW_TIME = "{면접일시}";
+    /** 미리보기의 면접 일정 옆에 두는 메모. 실제 메일에는 지원자별 시각이 들어간다. */
+    static final String PREVIEW_TIME_NOTE = "(시각은 지원자마다 배정된 시간으로 들어가요)";
 
     private final NoticeRepository notices;
     private final NoticeDeliveryRepository deliveries;
@@ -215,11 +217,14 @@ public class NoticeService {
         Notice notice = notice(companyId, stageId, group);
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         String companyName = companies.profile(companyId).name();
-        Map<String, String> values = values(PREVIEW_APPLICANT, PREVIEW_APPLICATION_NO, companyName, recruitment,
-                stageId);
+        Map<String, String> values = new HashMap<>(values(PREVIEW_APPLICANT, PREVIEW_APPLICATION_NO, companyName,
+                recruitment, stageId));
+        Optional<String> interviewTime = previewInterviewTime(notice, recruitment);
+        interviewTime.ifPresent(time -> values.put(INTERVIEW_TIME, time));
         return MailPreview.of(fill(notice.getSubject(), values),
-                content(notice, recruitment, companyName, false, applications.blind(companyId, recruitment.id()))
-                        .fill(values), mailStyles.brand(companyId));
+                content(notice, recruitment, companyName, interviewTime.isPresent(),
+                        applications.blind(companyId, recruitment.id())).fill(values),
+                mailStyles.brand(companyId));
     }
 
     /** 공고 작성 화면의 전형 안내. 첫 전형은 안내하는 메일이 없어 뺀다. */
@@ -427,6 +432,14 @@ public class NoticeService {
                         .collect(Collectors.toMap(InterviewService.StageSchedule::applicationId,
                                 InterviewService.StageSchedule::scheduledAt)))
                 .orElse(Map.of());
+    }
+
+    /** 미리보기의 면접 일시. 시각은 지원자마다 달라, 날짜 옆에 보낼 때 지원자별 시각이 들어간다고 적는다. */
+    private static Optional<String> previewInterviewTime(Notice notice, RecruitmentInfo recruitment) {
+        return nextStage(notice, recruitment)
+                .filter(next -> notice.getGroupType() == NoticeGroup.PASS && next.type() == StageType.INTERVIEW)
+                .map(next -> (next.guide().schedule() == null ? "" : GUIDE_DATE.format(next.guide().schedule()) + " ")
+                        + PREVIEW_TIME_NOTE);
     }
 
     /** 일정 줄을 지원자별 면접 일시 변수로 바꾼 안내 칸. */
