@@ -149,7 +149,7 @@ class PostingTests extends IntegrationTest {
         JsonNode suggestion = answer.path("posting").path("suggestion");
         assertThat(suggestion.path("stages").size()).isEqualTo(4);
         assertThat(suggestion.path("stages").get(1).path("type").asString()).isEqualTo("ASSESSMENT");
-        assertThat(answer.path("posting").path("stages").size()).isEqualTo(1);
+        assertThat(answer.path("posting").path("stages").size()).isEqualTo(3);
 
         JsonNode applied = json(expect(hr.post(base + "/suggestion/apply", null), 200));
         assertThat(applied.path("stages").get(0).path("name").asString()).isEqualTo("서류 전형");

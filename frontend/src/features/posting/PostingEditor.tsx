@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { addStep, type ChatStep } from '@/features/chat/steps'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
+import { errorReply } from '@/features/posting/errorReply'
 import {
   useApplySuggestion,
   useDiscardSuggestion,
@@ -287,7 +288,7 @@ export function PostingEditor({
         },
       ])
     } catch (error) {
-      setMessages((current) => [...current, { role: 'ai', text: errorMessage(error) }])
+      setMessages((current) => [...current, errorReply(error)])
     }
   }
 

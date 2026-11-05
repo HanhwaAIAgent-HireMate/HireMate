@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PosterTemplateDelete } from '@/features/company/PosterTemplateDelete'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
+import { errorReply } from '@/features/posting/errorReply'
 import { usePosting, type Posting } from '@/features/posting/api'
 import {
   companyPosterLogoUrl,
@@ -203,8 +204,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
             { role: 'ai', text: result.reply, agent: 'Posting Agent' },
           ])
         },
-        onError: (error) =>
-          setMessages((current) => [...current, { role: 'ai', text: errorMessage(error) }]),
+        onError: (error) => setMessages((current) => [...current, errorReply(error)]),
       },
     )
   }, [ai, design, editable, posting.poster?.enabled, history, setHistory])
@@ -296,7 +296,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
       const selected = result.templates?.find((item) => item.id === result.selectedTemplateId)
       if (selected) await importTemplate(selected)
     } catch (error) {
-      setMessages((current) => [...current, { role: 'ai', text: errorMessage(error) }])
+      setMessages((current) => [...current, errorReply(error)])
     }
   }
   const pdf = async () => {
@@ -865,9 +865,10 @@ function PosterEditor({ posting }: { posting: Posting }) {
         >
           <div className="flex h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-5 text-xs text-muted-foreground">
             <span>{preview ? 'AI 수정안 미리보기' : '포스터 미리보기'}</span>
-            <span>
-              {preview ? '적용 전' : shown.enabled ? '공고 내용과 연결됨' : '포스터 사용 안 함'}
-            </span>
+            {/* 켜져 있는 평소 상태는 따로 적지 않는다. 적용 전 수정안과 포스터를 끈 때만 알린다 */}
+            {(preview || !shown.enabled) && (
+              <span>{preview ? '적용 전' : '포스터 사용 안 함'}</span>
+            )}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 lg:px-6" data-poster-canvas>
             <div ref={poster} className="mx-auto max-w-[780px]">

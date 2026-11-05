@@ -136,6 +136,14 @@ const MESSAGES: Record<string, string> = {
     '비교 · 전형 결과 리포트는 서류 전형에서만 만들어요. 전형 흐름은 채용 최종 리포트에서 볼 수 있어요.',
 }
 
+/** 다시 시도만으로 풀리지 않을 수 있어 관리자 확인 요청 버튼을 함께 보여 줄 오류 (AI 서버 · 서버 오류) */
+export function needsAdmin(error: unknown) {
+  return (
+    error instanceof ApiError &&
+    (error.code === 'AI_UNAVAILABLE' || error.code === 'INTERNAL_ERROR')
+  )
+}
+
 /** 화면에 보여 줄 오류 문구. 모르는 오류는 일반 문구로 바꾼다. */
 export function errorMessage(
   error: unknown,

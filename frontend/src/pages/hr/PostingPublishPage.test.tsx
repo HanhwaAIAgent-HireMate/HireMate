@@ -88,30 +88,42 @@ function publishPage() {
 }
 
 describe('접수 기간', () => {
-  it('지금보다 앞선 시간은 고를 수 없게 한다', () => {
+  it('지금보다 앞선 날짜는 달력에서 고를 수 없다', () => {
     publishPage()
-    expect(screen.getByLabelText('접수 시작')).toHaveAttribute('min', '2026-11-04T10:00')
-    expect(screen.getByLabelText('접수 마감')).toHaveAttribute('min', '2026-11-04T11:00')
+    fireEvent.click(screen.getByRole('button', { name: '접수 시작' }))
+    expect(screen.getByRole('button', { name: '11월 3일' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '11월 4일' })).toBeEnabled()
   })
 
-  it('마감이 지났으면 게시할 수 없고 이유를 알린다', () => {
+  it('달력에서 고른 날짜는 [확인]을 눌러야 들어간다', () => {
     publishPage()
-    fireEvent.change(screen.getByLabelText('접수 시작'), { target: { value: '2026-11-01T09:00' } })
-    fireEvent.change(screen.getByLabelText('접수 마감'), { target: { value: '2026-11-03T18:00' } })
-    expect(screen.getByRole('button', { name: '글 공고 게시' })).toBeDisabled()
-    expect(screen.getByText('접수 마감은 지금보다 뒤여야 해요.')).toBeInTheDocument()
+    const close = screen.getByRole('button', { name: '접수 마감' })
+    expect(close).toHaveTextContent('2026. 11. 18. 23:59')
+    fireEvent.click(close)
+    fireEvent.click(screen.getByRole('button', { name: '11월 20일' }))
+    expect(close).toHaveTextContent('2026. 11. 18. 23:59')
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    expect(close).toHaveTextContent('2026. 11. 20. 23:59')
+  })
+
+  it('페이지를 연 사이 마감이 지났으면 게시 확인 창을 열지 않는다', () => {
+    publishPage()
+    vi.setSystemTime(new Date(2026, 10, 19, 9, 0))
+    fireEvent.click(screen.getByRole('button', { name: '글 공고 게시' }))
+    expect(screen.queryByRole('button', { name: '게시' })).not.toBeInTheDocument()
   })
 
   it('이미 지난 시작 시간은 게시한 때로 보낸다', async () => {
     const { sent } = publishPage()
-    fireEvent.change(screen.getByLabelText('접수 시작'), { target: { value: '2026-11-01T09:00' } })
-    fireEvent.change(screen.getByLabelText('접수 마감'), { target: { value: '2026-11-20T18:00' } })
+    // 시작(11:00)을 정해 둔 채 11:30에 게시한다
+    const later = new Date(2026, 10, 4, 11, 30)
+    vi.setSystemTime(later)
     fireEvent.click(screen.getByRole('button', { name: '글 공고 게시' }))
     fireEvent.click(screen.getByRole('button', { name: '게시' }))
     await waitFor(() => expect(sent).toHaveLength(1))
     expect(sent[0]).toEqual({
-      openAt: NOW.toISOString(),
-      closeAt: new Date(2026, 10, 20, 18, 0).toISOString(),
+      openAt: later.toISOString(),
+      closeAt: new Date(2026, 10, 18, 23, 59).toISOString(),
     })
   })
 })

@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
+import { DateTimePicker } from '@/components/DateTimePicker'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -70,11 +71,11 @@ function PublishForm({ posting }: { posting: Posting }) {
   const [confirming, setConfirming] = useState(false)
   const receipt = useReceiptPreview(posting.recruitmentId)
   const url = `${window.location.origin}${careersPath(posting.postingId)}`
-  // 날짜 칸은 없는 날짜(2월 31일 등)를 넣으면 값이 비어 버린다. 버튼만 막지 않고 이유를 알려 준다
+  // 날짜는 달력에서만 고르므로 없는 날짜는 들어오지 않는다. 버튼만 막지 않고 이유를 알려 준다
   const periodProblem = !period.open
-    ? '접수 시작 일시를 입력해 주세요. 없는 날짜는 입력되지 않아요.'
+    ? '접수 시작 일시를 골라 주세요.'
     : !period.close
-      ? '접수 마감 일시를 입력해 주세요. 없는 날짜는 입력되지 않아요.'
+      ? '접수 마감 일시를 골라 주세요.'
       : new Date(period.close) <= new Date(period.open)
         ? '접수 마감은 접수 시작보다 뒤여야 해요.'
         : new Date(period.close) <= new Date(openedAt)
@@ -210,25 +211,17 @@ function PublishForm({ posting }: { posting: Posting }) {
           </Field>
           <Field label="접수 기간">
             <div className="space-y-2">
-              <input
-                type="datetime-local"
-                aria-label="접수 시작"
+              <DateTimePicker
+                label="접수 시작"
                 min={openedAt}
                 value={period.open}
-                onChange={(event) =>
-                  setPeriod((current) => ({ ...current, open: event.target.value }))
-                }
-                className="h-9 w-full rounded-lg border px-3 text-sm"
+                onChange={(open) => setPeriod((current) => ({ ...current, open }))}
               />
-              <input
-                type="datetime-local"
-                aria-label="접수 마감"
+              <DateTimePicker
+                label="접수 마감"
                 min={period.open > openedAt ? period.open : openedAt}
                 value={period.close}
-                onChange={(event) =>
-                  setPeriod((current) => ({ ...current, close: event.target.value }))
-                }
-                className="h-9 w-full rounded-lg border px-3 text-sm"
+                onChange={(close) => setPeriod((current) => ({ ...current, close }))}
               />
               <p className="text-xs text-muted-foreground">
                 채용 페이지의 접수 기간이자 자동 마감 기준이에요.
@@ -251,6 +244,8 @@ function PublishForm({ posting }: { posting: Posting }) {
                 preview={receipt.data}
                 title="접수 확인 메일 미리보기"
                 settingsLink="메일 문장 · 색 · 로고 바꾸기"
+                // 오른쪽 칸의 실제 폭에 메일 전체를 맞춰, 가로 · 세로 스크롤 없이 한 번에 본다
+                scale="fit"
               />
               <p className="text-xs text-muted-foreground">
                 지원서를 내면 바로 이 메일이 가요. 문장은 설정 › 안내 메일에서 모든 공고에 같이

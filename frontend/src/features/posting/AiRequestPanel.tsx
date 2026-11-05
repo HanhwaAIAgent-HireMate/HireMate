@@ -1,6 +1,7 @@
 import { ArrowUp, AtSign, Bot, History, Sparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
+import { AdminRequestButton } from '@/components/AdminRequestButton'
 import { LiveSteps, StepsSummary } from '@/features/chat/ChatSteps'
 import type { ChatStep } from '@/features/chat/steps'
 import type { NcsSource } from '@/features/posting/api'
@@ -23,6 +24,8 @@ export type AiMessage = {
   steps?: ChatStep[]
   seconds?: number
   ncsSources?: NcsSource[]
+  /** AI 서버 · 서버 오류라 [관리자에게 확인 요청]을 함께 보여 준다 */
+  admin?: boolean
 }
 
 /**
@@ -117,6 +120,7 @@ export function AiRequestPanel({
                 <p className="whitespace-pre-wrap">{message.text}</p>
                 {message.ncsSources && <NcsSources sources={message.ncsSources} />}
                 {message.agent && <AgentChip name={message.agent} stub={message.stub} />}
+                {message.admin && <AdminRequestButton />}
               </div>
             </div>
           ),
