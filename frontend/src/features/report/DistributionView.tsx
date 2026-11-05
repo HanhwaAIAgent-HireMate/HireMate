@@ -246,10 +246,7 @@ function Section({
   return (
     <section className="flex flex-col gap-3 rounded-lg border bg-background px-5 py-4">
       <div className="flex flex-col gap-1.5">
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-          <h3 className="text-sm font-bold">{title}</h3>
-          {legend}
-        </div>
+        <h3 className="text-sm font-bold">{title}</h3>
         <p className="text-xs text-muted-foreground">{caption}</p>
         {read && (
           <p className="flex gap-1.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-xs">
@@ -258,6 +255,8 @@ function Section({
           </p>
         )}
       </div>
+      {/* 범례는 리포트 본문 차트처럼 그림 바로 위 왼쪽에 둔다 */}
+      {legend}
       {children}
       {ai && (
         <p className="flex gap-1.5 rounded-md border border-ai/20 bg-ai-soft/50 px-2.5 py-1.5 text-xs">
@@ -269,7 +268,7 @@ function Section({
   )
 }
 
-/** 제목 줄 오른쪽 범례. 색 칸과 글자를 함께 적는다 */
+/** 그림 위 왼쪽 범례. 색 칸과 글자를 함께 적는다 */
 function Legend({ items }: { items: readonly { label: string; color: string }[] }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
