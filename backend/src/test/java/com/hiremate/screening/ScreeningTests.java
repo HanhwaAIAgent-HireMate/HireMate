@@ -485,11 +485,13 @@ class ScreeningTests extends IntegrationTest {
                 ※ 11월 1일까지 참석 여부를 알려 주세요.
                 ※ 건물 주차는 지원되지 않습니다.""".formatted(firstText));
         assertThat(notices.get(0).path("guideMissing").toString()).isEqualTo("[\"장소·접속 링크\"]");
+        assertThat(notices.get(0).path("interviewTimeHint").asBoolean()).isTrue();
+        assertThat(notices.get(1).path("interviewTimeHint").asBoolean()).isFalse();
         assertThat(notices.get(1).path("guide").asString()).isEmpty();
         assertThat(notices.get(1).path("guideMissing").size()).isZero();
         JsonNode preview = json(expect(hr.get(stage.path() + "/notices/PASS/preview"), 200));
         assertThat(preview.path("html").asString()).containsSubsequence("홍길동님", ">1차 면접 안내</td>", ">일정</td>",
-                ">" + firstText + " (시각은 지원자마다 배정된 시간으로 들어가요)</td>",
+                ">" + firstText + "<br><span", "보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요</span>",
                 "※ 건물 주차는 지원되지 않습니다.");
 
         LocalDate second = first.plusDays(1);
@@ -527,7 +529,9 @@ class ScreeningTests extends IntegrationTest {
                 Map.of("applicationIds", List.of(id))), 204);
         expect(hr.post(stage + "/decisions", Map.of("applicationIds", List.of(id), "decision", "PASS")), 204);
         expect(hr.post(stage + "/confirm", null), 200);
-        expect(hr.post(stage + "/notices/prepare", null), 200);
+        // 편집 화면에도 보낼 때 붙는 지원번호 안내를 보여 준다
+        assertThat(json(expect(hr.post(stage + "/notices/prepare", null), 200)).get(0).path("applicationNoLine")
+                .asString()).isEqualTo("{지원자명}님의 지원번호는 {지원번호}번입니다.");
 
         assertThat(json(expect(hr.get(stage + "/notices/PASS/preview"), 200)).path("html").asString())
                 .contains("홍길동님의 지원번호는 1번입니다.");
@@ -539,7 +543,8 @@ class ScreeningTests extends IntegrationTest {
         expect(open.hr().post(open.path() + "/decisions", Map.of("applicationIds", open.ids(), "decision", "PASS")),
                 204);
         expect(open.hr().post(open.path() + "/confirm", null), 200);
-        expect(open.hr().post(open.path() + "/notices/prepare", null), 200);
+        assertThat(json(expect(open.hr().post(open.path() + "/notices/prepare", null), 200)).get(0)
+                .path("applicationNoLine").isNull()).isTrue();
         assertThat(json(expect(open.hr().get(open.path() + "/notices/PASS/preview"), 200)).path("html").asString())
                 .doesNotContain("지원번호는");
     }

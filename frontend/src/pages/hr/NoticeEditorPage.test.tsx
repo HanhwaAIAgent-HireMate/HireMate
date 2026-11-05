@@ -30,6 +30,8 @@ function notice(content: string): Notice {
     guide: '',
     guideMissing: [],
     onboarding: { startDate: '', place: '', documents: '', preparation: '', note: '' },
+    applicationNoLine: null,
+    interviewTimeHint: false,
     closing: '감사합니다.',
     requiredText: '본 메일은 발신 전용입니다.',
     recipientCount: 3,
@@ -141,6 +143,24 @@ describe('안내 초안 화면', () => {
     fireEvent.click(sendButton)
     expect(await screen.findByText('메일을 보내고 있어요')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '보내는 중…' })).toBeDisabled()
+  })
+
+  it('블라인드 채용이면 붙는 지원번호 안내와, 면접 일정에 붙는 지원자별 시각을 편집 화면에서 알려 준다', async () => {
+    mockServer(
+      {
+        ...notice('서류 전형에 합격하셨습니다.'),
+        guide: '■ 1차 면접 안내\n- 일정: 2026년 11월 30일(월)',
+        interviewTimeHint: true,
+        applicationNoLine: '{지원자명}님의 지원번호는 {지원번호}번입니다.',
+      },
+      {},
+    )
+    renderEditor()
+
+    expect(
+      await screen.findByText('보낼 때 일정에 지원자마다 배정된 면접 시각이 함께 들어가요'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('{지원자명}님의 지원번호는 {지원번호}번입니다.')).toBeInTheDocument()
   })
 
   it('다음 면접 시간을 배정하지 않았으면 합격 안내를 보낼 수 없다고 알린다', async () => {

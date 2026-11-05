@@ -503,8 +503,22 @@ function Editor({
                         )}
                       </p>
                       <p className="leading-6 whitespace-pre-line">{notice.guide}</p>
+                      {notice.interviewTimeHint && (
+                        <p className="text-xs text-muted-foreground">
+                          보낼 때 일정에 지원자마다 배정된 면접 시각이 함께 들어가요
+                        </p>
+                      )}
                     </div>
                   )
+                )}
+                {notice.applicationNoLine && (
+                  <div className="space-y-1 rounded-lg bg-muted/50 px-3 py-2">
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Lock className="size-3.5" />
+                      블라인드 채용이라 보낼 때 붙는 지원번호 안내
+                    </p>
+                    <p className="leading-6">{notice.applicationNoLine}</p>
+                  </div>
                 )}
                 <VariableField
                   aria-label="맺음말"
