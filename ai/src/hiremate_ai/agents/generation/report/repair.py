@@ -52,6 +52,14 @@ from hiremate_ai.agents.generation.report.spec import (
 
 logger = logging.getLogger(__name__)
 
+# 문장 속 서류 평가 항목 코드(Q-04, P-01)와 뒤 조사. 화면에는 코드가 없어 항목 이름으로 바꾼다 (QA DE-22 · 23)
+_ITEM_CODE = re.compile(r"(?<![A-Za-z0-9.])([QP]-\d{1,2})(?!\d)(?:(으로|은|는|이|가|을|를|과|와|로)(?![가-힣]))?")
+# 바꾼 뒤에는 '항목'(받침 있음) 뒤에 붙으므로 조사를 받침 있는 꼴로 맞춘다
+_AFTER_ITEM = {"은": "은", "는": "은", "이": "이", "가": "이", "을": "을", "를": "을", "과": "과", "와": "과"}
+_AFTER_ITEM |= {"로": "으로", "으로": "으로"}
+MAX_ITEM_NAME = 16
+"""문장 속 항목 이름의 최대 글자 수. 낱말 단위로 자른다."""
+
 _PERSPECTIVE_PROBLEMS = ("관점 도넛", "관점 '", "항목 하나짜리")
 OVERVIEW_TAKEAWAY = "영역 점수와 관점별 충족 항목 수예요."
 """코드가 표를 넣으려고 새로 둔 섹션의 읽을 점."""
@@ -114,7 +122,10 @@ def repair(
     plain = _plain_codes(fixed)
     if plain != fixed:
         done.append("판정 코드를 화면 말로 바꿈")
-    return plain
+    named = _named_items(plain, item_names(bundle))
+    if named != plain:
+        done.append("문장 속 항목 코드를 항목 이름으로 바꿈")
+    return named
 
 
 _CODE_WORDS = {
@@ -203,6 +214,81 @@ def _plain_codes(spec: ReportSpec) -> ReportSpec:
             "summary": plain_text(spec.summary),
             "sections": sections,
             "splits": splits,
+        }
+    )
+
+
+def item_names(bundle: ReportBundle) -> dict[str, str]:
+    """서류 평가 항목 코드 → 문장에 쓸 짧은 항목 이름. 값 key(document.criterion.Q-04)의 이름표에서 만든다."""
+    names: dict[str, str] = {}
+    for fact in bundle.facts:
+        if fact.key.startswith("document.criterion."):
+            code = fact.key.rsplit(".", 1)[-1]
+            names.setdefault(code, _item_name(code, fact.label))
+    return names
+
+
+def _item_name(code: str, label: str) -> str:
+    head, _, rest = label.partition(" ")
+    name = rest if head == code and rest else label
+    words: list[str] = []
+    for word in name.split():
+        if words and len(" ".join([*words, word])) > MAX_ITEM_NAME:
+            break
+        words.append(word)
+    # 잘린 끝에 남은 연결 말은 뗀다 ('Java 또는' → 'Java', '코드 리뷰와' → '코드 리뷰')
+    while len(words) > 1 and words[-1] in ("·", "또는", "및", "등"):
+        words.pop()
+    if words and len(words[-1]) > 1 and words[-1].endswith(("와", "과")):
+        words[-1] = words[-1][:-1]
+    return " ".join(words).rstrip(" ·,")
+
+
+def name_items(text: str, names: dict[str, str]) -> str:
+    """문장 속 항목 코드를 '항목 이름' 항목으로 바꾼다. 모르는 코드는 그대로 둔다.
+
+    예: 'Q-04는 27명이 충족했어요' → "'Git 기반 코드 리뷰와' 항목은 27명이 충족했어요"
+    """
+
+    def swap(match: re.Match[str]) -> str:
+        name = names.get(match.group(1))
+        if name is None:
+            return match.group(0)
+        return f"'{name}' 항목{_AFTER_ITEM.get(match.group(2) or '', '')}"
+
+    return _ITEM_CODE.sub(swap, text)
+
+
+def _named_items(spec: ReportSpec, names: dict[str, str]) -> ReportSpec:
+    if not names:
+        return spec
+
+    def block_named(block: Block) -> Block:
+        update: dict[str, object] = {"title": name_items(block.title, names)}
+        if isinstance(caption := getattr(block, "caption", None), str):
+            update["caption"] = name_items(caption, names)
+        if isinstance(block, TextBlock):
+            update["text"] = name_items(block.text, names)
+        if isinstance(block, EvidenceBlock):
+            update["items"] = [item.model_copy(update={"text": name_items(item.text, names)}) for item in block.items]
+        return block.model_copy(update=update)
+
+    sections = [
+        section.model_copy(
+            update={
+                "title": name_items(section.title, names),
+                "takeaway": name_items(section.takeaway, names),
+                "blocks": [block_named(block) for block in section.blocks],
+            }
+        )
+        for section in spec.sections
+    ]
+    return spec.model_copy(
+        update={
+            "title": name_items(spec.title, names),
+            "summary": name_items(spec.summary, names),
+            "sections": sections,
+            "splits": [split.model_copy(update={"text": name_items(split.text, names)}) for split in spec.splits],
         }
     )
 

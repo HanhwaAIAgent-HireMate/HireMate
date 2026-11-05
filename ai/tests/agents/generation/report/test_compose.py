@@ -827,7 +827,8 @@ def test_repair_writes_verdict_codes_as_screen_words() -> None:
     )
 
     assert fixed.summary == "세 명 모두 합격이에요."
-    assert fixed.sections[1].takeaway == "A-0012는 Q-05가 부분 충족, A-0007은 미충족이에요."
+    # 항목 코드(Q-05)도 항목 이름으로 바꾼다 (name_items)
+    assert fixed.sections[1].takeaway == "A-0012는 '테스트 코드' 항목이 부분 충족, A-0007은 미충족이에요."
     assert fixed.sections[1].blocks[1].keys == ["document.criterion.Q-01", "document.criterion.Q-05"]  # type: ignore[union-attr]
     assert "판정 코드를 화면 말로 바꿈" in notes
     assert not any("판정 코드" in p for p in problems(fixed, bundle()))
