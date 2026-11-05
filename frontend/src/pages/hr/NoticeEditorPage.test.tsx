@@ -158,7 +158,7 @@ describe('안내 초안 화면', () => {
     renderEditor()
 
     expect(
-      await screen.findByText('보낼 때 일정에 지원자마다 배정된 면접 시각이 함께 들어가요'),
+      await screen.findByText('보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요'),
     ).toBeInTheDocument()
     expect(screen.getByText('{지원자명}님의 지원번호는 {지원번호}번입니다.')).toBeInTheDocument()
   })
