@@ -128,7 +128,15 @@ export function useSendNotice(stageId: string) {
           params: { path: { stageId, group } },
         }),
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: noticeKeys.all(stageId) }),
+    // 안내 메일을 보내면 다음 전형 안내가 잠기므로, 전형별 안내도 바로 새로 받는다
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: noticeKeys.all(stageId) }),
+        queryClient.invalidateQueries({
+          predicate: ({ queryKey }) =>
+            queryKey[0] === 'recruitment' && queryKey[2] === 'stage-guides',
+        }),
+      ]),
   })
 }
 

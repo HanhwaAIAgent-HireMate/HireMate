@@ -84,15 +84,15 @@ it('안내 메일을 받은 지원자가 있으면 고칠 수 없고 전화로 �
   expect(screen.queryByText(/비어 있음/)).not.toBeInTheDocument()
 })
 
-it('면접이 아닌 전형은 시작 시각을 받고, 면접은 지원자마다 배정한다고 알린다', async () => {
+it('면접이 아닌 전형은 날짜와 시작 시각을 한 칸으로 받는다', async () => {
   stubGuides(0, 'ASSESSMENT')
   renderGuide('/close')
-  expect(await screen.findByLabelText('1차 면접 시작 시각')).toBeInTheDocument()
+  expect(await screen.findByLabelText('1차 면접 일정')).toHaveAttribute('type', 'datetime-local')
 })
 
-it('면접 전형은 시각 칸 대신 지원자마다 배정한다고 알린다', async () => {
+it('면접 전형은 날짜만 받고 시간은 지원자마다 배정한다고 알린다', async () => {
   stubGuides()
   renderGuide('/close')
-  expect(await screen.findByText('시간은 지원자마다 배정돼요')).toBeInTheDocument()
-  expect(screen.queryByLabelText('1차 면접 시작 시각')).not.toBeInTheDocument()
+  expect(await screen.findByLabelText('1차 면접 일정')).toHaveAttribute('type', 'date')
+  expect(screen.getByText('면접 시간은 지원자마다 배정돼요')).toBeInTheDocument()
 })
