@@ -157,11 +157,6 @@ public class NoticeService {
         if (notice.getContent().isBlank()) {
             throw new ApiException(HttpStatus.CONFLICT, "NOTICE_EMPTY", "Write the notice content first.");
         }
-        // 다음 전형이 면접이면 면접 시간을 배정한 뒤에 합격 안내를 보낸다. 보내면 다음 전형 안내가 잠겨 날짜를 고칠 수 없다
-        if (group == NoticeGroup.PASS && !SCHEDULED.contains(scheduling.status(companyId, stageId).status())) {
-            throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_SCHEDULE_NOT_READY",
-                    "Schedule the next interview before sending the pass notice.");
-        }
         StageResults results = screening.results(companyId, stageId);
         List<UUID> recipients = group == NoticeGroup.PASS ? results.passed() : results.failed();
         Map<UUID, NoticeDelivery> previous = deliveries.findByNoticeId(notice.getId()).stream()
@@ -169,6 +164,13 @@ public class NoticeService {
         String companyName = companies.profile(companyId).name();
         // 다음 전형이 면접이면 안내의 일정 줄에 지원자마다 배정한 면접 일시를 넣는다
         Map<UUID, Instant> interviewTimes = interviewTimes(companyId, notice, recruitment);
+        if (group == NoticeGroup.PASS) {
+            // 이미 받은 지원자는 다시 보내지 않으므로, 이번에 보낼 지원자만 본다
+            List<UUID> pending = recipients.stream()
+                    .filter(id -> previous.get(id) == null || !previous.get(id).isSent())
+                    .toList();
+            requireInterviewTimes(companyId, stageId, pending, interviewTimes);
+        }
         MailContent content = content(notice, recruitment, companyName, !interviewTimes.isEmpty());
         MailBrand brand = mailStyles.brand(companyId);
         int sent = 0;
@@ -383,6 +385,27 @@ public class NoticeService {
                                 delivery.getSentAt()))
                         .toList())
                 .orElse(List.of());
+    }
+
+    /**
+     * 다음 전형이 면접이면 면접 시간을 배정한 뒤에 합격 안내를 보낸다. 배정을 마쳤어도 이번에 보낼 합격자 가운데 면접 일시가
+     * 비어 있는 지원자가 있으면 보내지 않는다 (시간이 빠진 메일이 나가면 안 된다). 보내면 다음 전형 안내가 잠긴다.
+     */
+    private void requireInterviewTimes(UUID companyId, UUID stageId, List<UUID> recipients,
+            Map<UUID, Instant> interviewTimes) {
+        InterviewScheduling.Status status = scheduling.status(companyId, stageId);
+        if (!SCHEDULED.contains(status.status())) {
+            throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_SCHEDULE_NOT_READY",
+                    "Schedule the next interview before sending the pass notice.");
+        }
+        if (status.nextStageId() == null) {
+            return;
+        }
+        long missing = recipients.stream().filter(id -> !interviewTimes.containsKey(id)).count();
+        if (missing > 0) {
+            throw new ApiException(HttpStatus.CONFLICT, "INTERVIEW_TIME_MISSING",
+                    missing + " applicants have no interview time.");
+        }
     }
 
     /** 다음 면접 전형에 지원자마다 배정한 면접 일시. 다음 전형이 면접이 아니거나 합격 안내가 아니면 비어 있다. */
