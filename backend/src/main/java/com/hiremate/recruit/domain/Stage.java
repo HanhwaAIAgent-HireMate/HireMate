@@ -13,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -57,8 +58,11 @@ public class Stage {
 
     private Instant doneAt;
 
-    /** 전형 안내. 일정 · 진행 방식은 정하지 않았으면 null이다. */
+    /** 전형 안내. 일정 · 시각 · 진행 방식은 정하지 않았으면 null이다. */
     private LocalDate guideSchedule;
+
+    /** 면접이 아닌 전형의 시작 시각. 면접은 지원자마다 시간을 배정해 늘 비워 둔다. */
+    private LocalTime guideTime;
 
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
@@ -89,11 +93,12 @@ public class Stage {
     }
 
     public StageGuide guide() {
-        return new StageGuide(guideSchedule, guideMethod, guidePlace, guidePreparation, guideNote);
+        return new StageGuide(guideSchedule, guideTime, guideMethod, guidePlace, guidePreparation, guideNote);
     }
 
     public void changeGuide(StageGuide guide) {
         this.guideSchedule = guide.schedule();
+        this.guideTime = type == StageType.INTERVIEW ? null : guide.time();
         this.guideMethod = guide.method();
         this.guidePlace = guide.place();
         this.guidePreparation = guide.preparation();
