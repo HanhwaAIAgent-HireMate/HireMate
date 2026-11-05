@@ -130,17 +130,32 @@ function GuideCard({
         </p>
       )}
       <Field label="일정" problem={problems.schedule}>
-        <Input
-          type="date"
-          aria-label={`${view.name} 일정`}
-          value={draft.schedule ?? ''}
-          // 이미 지난 일정은 그대로 둘 수 있게, 바꾸지 않았으면 지난 날도 범위에 넣는다
-          min={view.guide.schedule && view.guide.schedule < range.min ? undefined : range.min}
-          max={range.max}
-          disabled={!canEdit}
-          onChange={(event) => change({ schedule: event.target.value || null })}
-          className="w-44"
-        />
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            aria-label={`${view.name} 일정`}
+            value={draft.schedule ?? ''}
+            // 이미 지난 일정은 그대로 둘 수 있게, 바꾸지 않았으면 지난 날도 범위에 넣는다
+            min={view.guide.schedule && view.guide.schedule < range.min ? undefined : range.min}
+            max={range.max}
+            disabled={!canEdit}
+            onChange={(event) => change({ schedule: event.target.value || null })}
+            className="w-44"
+          />
+          {/* 면접이 아닌 전형은 시작 시각을 받는다. 면접은 지원자마다 시간을 자동으로 배정한다 */}
+          {view.type === 'INTERVIEW' ? (
+            <span className="text-[11px] text-muted-foreground">시간은 지원자마다 배정돼요</span>
+          ) : (
+            <Input
+              type="time"
+              aria-label={`${view.name} 시작 시각`}
+              value={draft.time?.slice(0, 5) ?? ''}
+              disabled={!canEdit}
+              onChange={(event) => change({ time: event.target.value || null })}
+              className="w-32"
+            />
+          )}
+        </div>
       </Field>
       <Field label="진행 방식">
         <Select
