@@ -25,6 +25,9 @@ import com.hiremate.ai.application.TalentFit;
 import com.hiremate.ai.application.TalentFitRequest;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicationAnalysis;
+import com.hiremate.apply.DocumentNormalizationRequest;
+import com.hiremate.apply.DocumentSource;
+import com.hiremate.apply.NormalizedDocument;
 import com.hiremate.company.CompanyProfile;
 import com.hiremate.interview.InterviewQuestionDraft;
 import com.hiremate.interview.InterviewView;
@@ -65,6 +68,9 @@ class ContractSampleTests {
     /** 샘플 파일 이름 → 타입. ai의 tests/test_contract.py SAMPLES와 같게 유지한다. */
     private static final Map<String, Class<?>> SAMPLES = Map.ofEntries(
             Map.entry("ApplicantDetail", ApplicantDetail.class),
+            Map.entry("DocumentSource", DocumentSource.class),
+            Map.entry("NormalizedDocument", NormalizedDocument.class),
+            Map.entry("DocumentNormalizationRequest", DocumentNormalizationRequest.class),
             Map.entry("ApplicationAnalysis", ApplicationAnalysis.class),
             Map.entry("CandidateAnalysis", CandidateAnalysis.class),
             Map.entry("CandidateProfileView", CandidateProfileView.class),
