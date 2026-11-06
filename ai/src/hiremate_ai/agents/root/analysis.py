@@ -76,6 +76,7 @@ ANALYSIS_SYSTEM = """[역할]
 
 [답 쓰기]
 - 항목마다 지원자 한 명과 그 지원자의 근거 번호를 refs에 적는다. 비교도 지원자마다 항목을 나눈다.
+  항목에는 그 지원자의 사실만 쓰고, 다른 지원자와 견주는 말은 message에 쓴다.
 - C번호와 E번호는 candidate와 refs에만, S번호는 find의 result에만, D번호는 review_interview의 previous에만 쓴다.
   message와 text에는 이름과 내용으로 쓴다.
 - 근거가 말하는 만큼만 쓴다. 팀 성과, 교육, 개인 프로젝트, 역할이 불분명한 경험을 본인 실무로 올리지 않는다.
@@ -85,7 +86,11 @@ ANALYSIS_SYSTEM = """[역할]
   앞에서 찾은 이유나 결과 설명을 묻는 질문은 previous_turns를 읽고 answer로 답한다.
 - questions에는 지원자별 확인할 점과 그 근거 번호를 낸다.
 - 대상이나 조건을 정할 수 없으면 clarify로 묻는다.
-- message는 한두 문장 요약이다. 분석 내용은 items에 쓴다.
+- message는 물은 것에 먼저 답하는 한두 문장이다. 분석 내용은 items에 쓴다.
+- 누가 더 나은지, 어느 쪽이 더 맞는지 물으면 message 첫 문장에 이름을 들어 어떤 기준에서 누가 앞서 보이는지와
+  그 이유를 쓴다. 담당자가 기준을 말하지 않았으면 질문의 뜻에 가까운 기준을 네가 골라 밝히고 견준다.
+  기준을 묻거나 판단을 미루지 않는다. 기준마다 앞서는 사람이 다르면 기준별로 누가 앞서는지 쓴다.
+  합격이나 불합격을 권하지 않는다.
 - message와 text는 '~요'로 끝나는 존댓말로 쓴다. 앞 대화에서 말투를 바꿔 달라고 했으면 그 말투를 쓴다."""
 
 
@@ -110,7 +115,7 @@ class FocusDraft(BaseModel):
 class AnswerOutput(Form):
     """자료에 근거한 사실, 분석, 비교 답. 지원자별 항목에 근거 번호를 단다."""
 
-    message: str = Field(description="한두 문장 요약")
+    message: str = Field(description="물은 것에 먼저 답하는 한두 문장. 비교 질문이면 누가 앞서 보이는지와 이유")
     items: list[ItemDraft] = Field(description="지원자별 항목. 비교도 지원자마다 나눈다")
 
 

@@ -111,6 +111,8 @@ def failures(plan: ChatPlan, expect: dict[str, Any], context: ChatContext) -> li
         found.append("no CHECK item")
     if "message_contains" in expect and expect["message_contains"] not in plan.message:
         found.append("message")
+    if "message_names" in expect and not any(name in plan.message for name in expect["message_names"]):
+        found.append("message_names")
     if "not_contains" in expect and expect["not_contains"] in text:
         found.append("not_contains")
     if expect.get("no_items") and plan.items:
