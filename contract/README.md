@@ -1,5 +1,7 @@
 # contract
 
+[지원 문서 JSON 정책](DOCUMENT_JSON_README.md)은 이력서, 자기소개서, 포트폴리오 정리와 검색에 사용할 확정 명세다. 아직 구현되지 않았다.
+
 포스터 디자인과 AI 수정안은 `PosterDesign.json`, `PosterProposal.json`으로 왕복 검사한다.
 디자인 제안은 저장/게시 명령이 아니며 담당자가 공고 API로 적용한다.
 
