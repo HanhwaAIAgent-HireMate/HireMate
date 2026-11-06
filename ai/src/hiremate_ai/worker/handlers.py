@@ -11,7 +11,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hiremate_ai.agents.analysis.application import analyze_application
+from hiremate_ai.agents.analysis.application import analyze_application, normalize_document
 from hiremate_ai.agents.analysis.application.present import to_analysis
 from hiremate_ai.agents.analysis.application.service import RubricScopeError
 from hiremate_ai.agents.analysis.application.store import ReviewStore
@@ -23,6 +23,7 @@ from hiremate_ai.agents.generation.report import compose_report, enrich
 from hiremate_ai.agents.generation.report.enrich import DbStageItems
 from hiremate_ai.api import assessment, interview, report
 from hiremate_ai.config import settings
+from hiremate_ai.contract import DocumentNormalizationRequest
 from hiremate_ai.db.profile_store import ProfileScopeError
 from hiremate_ai.llm.batch_state import current_batch_job
 from hiremate_ai.llm.client import LlmClient
@@ -93,6 +94,14 @@ def job_handlers(
         started.pop(key, None)
         return to_analysis(review).model_dump(mode="json")
 
+    async def application_normalize(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            request = DocumentNormalizationRequest.model_validate(payload)
+            document = await normalize_document(application_llm if application_llm is not None else llm, request)
+        except ValueError as error:
+            raise PermanentError("지원 문서 정리 결과가 검증을 통과하지 못했다") from error
+        return document.model_dump(mode="json")
+
     async def assessment_analyze(payload: dict[str, Any]) -> dict[str, Any]:
         request = assessment.AnalyzeRequest.model_validate(payload)
         async with sessions() as session:
@@ -143,6 +152,7 @@ def job_handlers(
 
     handlers: dict[str, Handler] = {
         "application/analyze": application_analyze,
+        "application/normalize": application_normalize,
         "interview/questions": interview_questions,
         "assessment/analyze": assessment_analyze,
         "interview-analyst/analyze": interview_analyze,

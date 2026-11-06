@@ -316,3 +316,44 @@ async def test_assessment_worker_indexes_updated_profile(monkeypatch: pytest.Mon
             UUID(ASSESSMENT_JSON["applicationId"]),
         )
     ]
+
+
+async def test_worker_normalizes_direct_request_with_application_model() -> None:
+    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
+    from hiremate_ai.contract import DocumentNormalizationRequest
+
+    request = DocumentNormalizationRequest.model_validate_json(
+        (CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text()
+    )
+    text = "\n".join(source.text for source in request.sources)
+    batch = FakeLlm(
+        DocumentLayout.model_validate(
+            {
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "sourceIds": [source.id for source in request.sources],
+                        "role": "body",
+                        "text": text,
+                    }
+                ]
+            }
+        )
+    )
+    instant = FakeLlm()
+    handle = job_handlers(instant, MemoryStore(), SESSIONS, application_llm=batch)["application/normalize"]
+    result = await handle(request.model_dump(mode="json"))
+    assert result["documentId"] == str(request.document_id)
+    assert result["revision"] == request.revision
+    assert result["blocks"][0]["text"] == text
+    assert not instant.calls
+
+
+async def test_worker_normalization_invalid_content_is_permanent() -> None:
+    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
+
+    llm = FakeLlm(DocumentLayout.model_validate({"blocks": []}))
+    handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/normalize"]
+    request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
+    with pytest.raises(PermanentError):
+        await handle(request)
