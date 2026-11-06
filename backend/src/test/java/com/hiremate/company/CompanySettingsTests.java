@@ -9,11 +9,43 @@ import com.hiremate.TestApi;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 
 class CompanySettingsTests extends IntegrationTest {
+
+    @Autowired
+    private CompanyService companies;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Test
+    @DisplayName("인재상 분석 결과를 저장해도 동시에 수정한 공고 안내 문구를 유지한다")
+    void cultureFactorsKeepConcurrentlyUpdatedPostingSettings() throws Exception {
+        TestApi hr = newHr();
+        Talent factor = new Talent("협업", "동료와 문제를 해결한다");
+        new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
+            companies.profile(hr.companyId());
+            CompletableFuture.runAsync(() -> companies.updatePostingSettings(hr.companyId(), "간결한 문장",
+                    List.of("채용 일정은 바뀔 수 있어요."))).orTimeout(10, TimeUnit.SECONDS).join();
+            assertThat(companies.recordCultureFactors(hr.companyId(), "", List.of(factor))).isTrue();
+        });
+
+        PostingSettings settings = companies.postingSettings(hr.companyId());
+        assertThat(settings.writingStyle()).isEqualTo("간결한 문장");
+        assertThat(settings.requiredNotices()).containsExactly("채용 일정은 바뀔 수 있어요.");
+        assertThat(companies.factors(hr.companyId())).containsExactly(factor);
+        JsonNode posting = json(expect(hr.post("/api/recruitments", null), 201));
+        assertThat(posting.path("notices").size()).isEqualTo(1);
+        assertThat(posting.path("notices").get(0).asString()).isEqualTo("채용 일정은 바뀔 수 있어요.");
+    }
 
     @Test
     @DisplayName("회사 소개를 저장하고 다시 불러온다. 주소는 빼고 보내면 빈 글이고, 앞뒤 빈칸은 지운다")
