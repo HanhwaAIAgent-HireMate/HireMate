@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from hiremate_ai.agents.analysis.application import analyze_application, normalize_document
+from hiremate_ai.agents.analysis.application.index import DocumentIndexScopeError, index_document
 from hiremate_ai.agents.analysis.application.present import to_analysis
 from hiremate_ai.agents.analysis.application.service import RubricScopeError
 from hiremate_ai.agents.analysis.application.store import ReviewStore
@@ -23,12 +24,12 @@ from hiremate_ai.agents.generation.report import compose_report, enrich
 from hiremate_ai.agents.generation.report.enrich import DbStageItems
 from hiremate_ai.api import assessment, interview, report
 from hiremate_ai.config import settings
-from hiremate_ai.contract import DocumentNormalizationRequest
+from hiremate_ai.contract import DocumentIndexRequest, DocumentNormalizationRequest
 from hiremate_ai.db.profile_store import ProfileScopeError
 from hiremate_ai.llm.batch_state import current_batch_job
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.tracing import traced
-from hiremate_ai.tools.profile_search import ProfileIndexer, index_profile_safely
+from hiremate_ai.tools.profile_search import ProfileEmbedder, ProfileIndexer, get_profile_embedder, index_profile_safely
 
 Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -44,6 +45,7 @@ def job_handlers(
     *,
     application_llm: LlmClient | None = None,
     profile_indexer: ProfileIndexer | None = None,
+    document_embedder: ProfileEmbedder | None = None,
 ) -> Mapping[str, Handler]:
     """워커가 처리하는 작업 유형. 자료가 들어오거나 전형이 시작될 때 미리 돌리는 분석 · 생성과 리포트를 둔다.
 
@@ -102,6 +104,23 @@ def job_handlers(
             raise PermanentError("지원 문서 정리 결과가 검증을 통과하지 못했다") from error
         return document.model_dump(mode="json")
 
+    async def application_index_document(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            request = DocumentIndexRequest.model_validate(payload)
+        except ValueError as error:
+            raise PermanentError("Invalid accepted document index request") from error
+        try:
+            async with sessions() as session, session.begin():
+                result = await index_document(
+                    session,
+                    document_embedder if document_embedder is not None else get_profile_embedder(),
+                    request,
+                    model=settings.ncs_model,
+                )
+        except DocumentIndexScopeError as error:
+            raise PermanentError(str(error)) from error
+        return result.model_dump(mode="json")
+
     async def assessment_analyze(payload: dict[str, Any]) -> dict[str, Any]:
         request = assessment.AnalyzeRequest.model_validate(payload)
         async with sessions() as session:
@@ -153,6 +172,7 @@ def job_handlers(
     handlers: dict[str, Handler] = {
         "application/analyze": application_analyze,
         "application/normalize": application_normalize,
+        "application/index-document": application_index_document,
         "interview/questions": interview_questions,
         "assessment/analyze": assessment_analyze,
         "interview-analyst/analyze": interview_analyze,

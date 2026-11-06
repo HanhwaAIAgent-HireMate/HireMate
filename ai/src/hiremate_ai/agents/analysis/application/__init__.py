@@ -5,7 +5,8 @@ Application 부분(extract)이 서류에서 사실과 근거를 뽑고, Assessme
 Root Agent는 review_application_documents로 저장 없이 제출 문서의 사실과 근거를 검토한다.
 """
 
+from hiremate_ai.agents.analysis.application.index import index_document
 from hiremate_ai.agents.analysis.application.normalize import normalize_document
 from hiremate_ai.agents.analysis.application.service import analyze_application, review_application_documents
 
-__all__ = ["analyze_application", "review_application_documents", "normalize_document"]
+__all__ = ["analyze_application", "review_application_documents", "normalize_document", "index_document"]
