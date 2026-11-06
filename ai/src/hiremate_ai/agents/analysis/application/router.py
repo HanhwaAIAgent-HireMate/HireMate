@@ -4,13 +4,13 @@
 - application/analyze: 지원 접수 때 분석해 저장하고 요약(ApplicationAnalysis)을 돌려준다. backend가 180초 기다린다.
 - candidate-analyst/labels · factors · talents: 표 보기의 열 이름, 회사 글의 인재상 요소,
   지원자별 인재상 판정 (table.py).
-- candidate-analyst/analyze: 카드를 열 때 부른다. 저장된 결과가 있으면 바로 돌려주고, 없으면 분석한다.
-  60초 안에 끝나지 않으면 지난 결과를 돌려주고, 그것도 없으면 503이다.
+- candidate-analyst/analyze: 카드를 열 때 부른다. 평가 기준이 같은 저장 결과가 있으면 날짜와 상관없이 바로 돌려주고,
+  없으면 분석한다. 시간 안에 끝나지 않으면 지난 결과를 돌려주고, 그것도 없으면 503이다.
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from hiremate_ai.agents.analysis.application.present import to_analysis, to_candidate_analysis
 from hiremate_ai.agents.analysis.application.service import RubricScopeError, analyze_application
@@ -81,7 +81,17 @@ async def analyze(request: AnalyzeRequest, llm: LlmDep, store: StoreDep, indexer
 
 
 @router.post("/agents/candidate-analyst/analyze")
-async def candidate(request: AnalyzeRequest, llm: LlmDep, store: StoreDep, indexer: IndexerDep) -> CandidateAnalysis:
+async def candidate(
+    request: AnalyzeRequest, llm: LlmDep, store: StoreDep, indexer: IndexerDep, tasks: BackgroundTasks
+) -> CandidateAnalysis:
+    # 분석 캐시는 날짜별이라 어제 분석을 찾지 못한다. 다시 분석하면 프로필 임베딩이 지워지므로 저장 결과를 읽는다
+    latest = await store.latest(
+        request.applicant.info.application_id,
+        company_id=request.rubric.company_id,
+        recruitment_id=request.rubric.recruitment_id,
+    )
+    if latest is not None and latest.criteria_version == request.rubric.criteria_version:
+        return to_candidate_analysis(latest, request.applicant.documents)
     try:
         review = await analyze_application(
             llm,
@@ -95,20 +105,12 @@ async def candidate(request: AnalyzeRequest, llm: LlmDep, store: StoreDep, index
     except RubricScopeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except TimeoutError as error:
-        latest = await store.latest(
-            request.applicant.info.application_id,
-            company_id=request.rubric.company_id,
-            recruitment_id=request.rubric.recruitment_id,
-        )
         if latest is None:
             raise HTTPException(status_code=503, detail="분석이 아직 끝나지 않았다") from error
-        review = latest
-    await index_profile_safely(
-        indexer,
-        request.rubric.company_id,
-        request.rubric.recruitment_id,
-        review.application_id,
-        budget_seconds=settings.ncs_embed_timeout_seconds,
+        return to_candidate_analysis(latest, request.applicant.documents)
+    # 임베딩은 CPU에서 오래 걸릴 수 있어 카드 응답을 붙잡지 않는다
+    tasks.add_task(
+        index_profile_safely, indexer, request.rubric.company_id, request.rubric.recruitment_id, review.application_id
     )
     return to_candidate_analysis(review, request.applicant.documents)
 

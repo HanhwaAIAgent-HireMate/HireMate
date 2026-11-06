@@ -1,12 +1,17 @@
+import asyncio
 from collections.abc import Iterator
+from datetime import date
 from uuid import UUID
 
 import pytest
 from application_context import YUMIN_SUMMARY, make_posting, make_rubric, scripted, yumin_script
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
+from hiremate_ai.agents.analysis.application import router
 from hiremate_ai.agents.analysis.application.router import get_profile_indexer, get_store
-from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
+from hiremate_ai.agents.analysis.application.service import analyze_application
+from hiremate_ai.agents.analysis.application.types import AnalyzeRequest, ApplicationReview, ScreeningRubric
 from hiremate_ai.contract import ApplicantDetail, PostingContent
 from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.llm.client import get_llm
@@ -111,10 +116,6 @@ def test_rubric_of_another_recruitment_is_rejected(
 def test_candidate_card_reuses_worker_review(
     store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
-    import asyncio
-
-    from hiremate_ai.agents.analysis.application.service import analyze_application
-
     llm = yumin_llm()
     applicant = sample_applicants["정유민"]
     rubric = make_rubric()
@@ -139,11 +140,98 @@ def test_candidate_card_reuses_worker_review(
     assert store.saved == 1
 
 
+def saved_yesterday(store: MemoryStore, applicant: ApplicantDetail, posting: PostingContent) -> None:
+    """워커가 어제 끝낸 분석. 날짜가 캐시 키에 들어가므로 오늘 같은 입력으로는 찾지 못한다."""
+    asyncio.run(
+        analyze_application(
+            yumin_llm(),
+            store,
+            applicant,
+            make_posting(posting),
+            make_rubric(),
+            budget_seconds=20,
+            today=date(2026, 1, 1),
+            review_extraction=True,
+        )
+    )
+
+
+def test_candidate_card_reads_saved_review_on_a_later_day(
+    store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    applicant = sample_applicants["정유민"]
+    saved_yesterday(store, applicant, sample_posting)
+    llm = FakeLlm()
+    app.dependency_overrides[get_llm] = lambda: llm
+
+    response = TestClient(app).post(
+        "/agents/candidate-analyst/analyze", json=body(applicant, sample_posting, make_rubric())
+    )
+
+    assert response.status_code == 200
+    assert llm.calls == []
+    assert store.saved == 1
+
+
+def test_candidate_card_reanalyzes_when_criteria_changed(
+    store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    applicant = sample_applicants["정유민"]
+    saved_yesterday(store, applicant, sample_posting)
+    app.dependency_overrides[get_llm] = yumin_llm
+    rubric = make_rubric().model_copy(update={"criteria_version": "다음 버전"})
+
+    response = TestClient(app).post("/agents/candidate-analyst/analyze", json=body(applicant, sample_posting, rubric))
+
+    assert response.status_code == 200
+    assert response.json()["criteriaVersion"] == "다음 버전"
+    assert store.saved == 2
+
+
+def test_candidate_card_does_not_index_saved_review(
+    store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    applicant = sample_applicants["정유민"]
+    saved_yesterday(store, applicant, sample_posting)
+    indexed: list[UUID] = []
+
+    async def index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
+        indexed.append(application_id)
+
+    app.dependency_overrides[get_llm] = lambda: FakeLlm()
+    app.dependency_overrides[get_profile_indexer] = lambda: index
+
+    response = TestClient(app).post(
+        "/agents/candidate-analyst/analyze", json=body(applicant, sample_posting, make_rubric())
+    )
+
+    assert response.status_code == 200
+    assert indexed == []
+
+
+async def test_candidate_card_returns_before_indexing_new_review(
+    store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    applicant = sample_applicants["정유민"]
+    request = AnalyzeRequest.model_validate(body(applicant, sample_posting, make_rubric()))
+    indexed: list[UUID] = []
+
+    async def index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
+        indexed.append(application_id)
+
+    tasks = BackgroundTasks()
+
+    card = await router.candidate(request, yumin_llm(), store, index, tasks)
+
+    assert card.criteria_version == make_rubric().criteria_version
+    assert indexed == []
+    await tasks()
+    assert indexed == [applicant.info.application_id]
+
+
 def test_application_route_indexes_saved_profile(
     store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
-    from hiremate_ai.agents.analysis.application import router
-
     assert hasattr(router, "get_profile_indexer")
     indexed: list[tuple[UUID, UUID, UUID]] = []
 
