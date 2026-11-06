@@ -82,9 +82,9 @@ export function StageEditor({
     open(null)
     onChange(stages.filter((_, i) => i !== index))
   }
-  const add = () => {
-    onChange([...stages, { name: '', type: 'INTERVIEW' }])
-    open(stages.length)
+  const add = (stage: StageForm) => {
+    open(null)
+    onChange([...stages, stage])
   }
 
   return (
@@ -235,19 +235,102 @@ export function StageEditor({
         <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
           최종 합격
         </span>
-        <Button
-          size="sm"
-          variant="outline"
-          className="ml-1 h-7"
-          onClick={add}
-          disabled={stages.length >= MAX_STAGES}
-        >
-          <Plus />
-          전형 추가
-        </Button>
+        <AddStage names={names} disabled={stages.length >= MAX_STAGES} onAdd={add} />
       </div>
       {problem && <p className="text-xs text-destructive">{problem}</p>}
     </div>
+  )
+}
+
+/**
+ * [전형 추가] 창. 이름과 종류를 고른 뒤 [확인]을 눌러야 최종 합격 앞에 전형이 들어간다.
+ * [취소]하거나 창을 닫으면 아무것도 더하지 않는다
+ */
+function AddStage({
+  names,
+  disabled,
+  onAdd,
+}: {
+  /** 지금 전형 이름들. 같은 이름은 넣을 수 없다 */
+  names: string[]
+  disabled: boolean
+  onAdd: (stage: StageForm) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [type, setType] = useState<StageType>('INTERVIEW')
+  const trimmed = name.trim()
+  const problem = !trimmed ? null : names.includes(trimmed) ? '이름이 같은 전형이 있어요.' : null
+  const toggle = (next: boolean) => {
+    if (next) {
+      setName('')
+      setType('INTERVIEW')
+    }
+    setOpen(next)
+  }
+  const confirm = () => {
+    if (!trimmed || problem) return
+    onAdd({ name: trimmed, type, icon: null })
+    setOpen(false)
+  }
+  return (
+    <Popover open={open} onOpenChange={toggle}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="outline" className="ml-1 h-7" disabled={disabled}>
+          <Plus />
+          전형 추가
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 space-y-3">
+        <label className="block space-y-1 text-xs text-muted-foreground">
+          이름
+          <Input
+            autoFocus
+            aria-label="새 전형 이름"
+            value={name}
+            maxLength={50}
+            placeholder="예: 2차 면접"
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                confirm()
+              }
+            }}
+            className="h-8 text-sm text-foreground"
+          />
+        </label>
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">종류</p>
+          <div role="radiogroup" aria-label="새 전형 종류" className="flex gap-1.5">
+            {TYPES.map((item) => (
+              <button
+                key={item}
+                type="button"
+                role="radio"
+                aria-checked={type === item}
+                onClick={() => setType(item)}
+                className={cn(
+                  'rounded-md border px-2.5 py-1 text-xs',
+                  type === item ? 'border-foreground font-semibold' : 'text-muted-foreground',
+                )}
+              >
+                {STAGE_TYPE_LABELS[item]}
+              </button>
+            ))}
+          </div>
+        </div>
+        {problem && <p className="text-xs text-destructive">{problem}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => setOpen(false)}>
+            취소
+          </Button>
+          <Button type="button" size="sm" disabled={!trimmed || Boolean(problem)} onClick={confirm}>
+            확인
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 

@@ -152,6 +152,12 @@ public class JobPosting {
         this.updatedAt = Instant.now();
     }
 
+    /** 새 공고의 근무 요일 · 시간과 급여를 채운다. 공고를 만들 때만 쓴다. */
+    public void fillWorkConditions(String workHours, String salary) {
+        this.workHours = workHours;
+        this.salary = salary;
+    }
+
     public PostingContent content() {
         return new PostingContent(title, jobCategory, employmentType, career, location, intro, List.copyOf(duties),
                 List.copyOf(qualifications), List.copyOf(preferred), List.copyOf(benefits), headcount, position,

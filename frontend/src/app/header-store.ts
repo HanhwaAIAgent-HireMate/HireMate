@@ -14,6 +14,15 @@ type HeaderState = {
   setCrumb: (crumb: HeaderCrumb | null) => void
 }
 
+/**
+ * 설정에 들어오기 전에 보던 화면. 설정의 [이전 화면]이 이곳으로 돌아간다.
+ * 설정 메뉴끼리 옮겨 다녀도 바뀌지 않는다. 새 채용 만들기(/hr/recruitments/new)는 다시 열면 채용을 또 만들어 빼 둔다
+ */
+export const useReturnStore = create<{ path: string; remember: (path: string) => void }>((set) => ({
+  path: '/hr',
+  remember: (path) => set({ path }),
+}))
+
 export const useHeaderStore = create<HeaderState>((set) => ({
   crumb: null,
   setCrumb: (crumb) => set({ crumb }),

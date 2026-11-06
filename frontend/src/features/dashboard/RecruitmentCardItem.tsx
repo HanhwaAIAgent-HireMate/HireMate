@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Trash2 } from 'lucide-react'
+import { Check, ChevronRight, ClipboardList, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
@@ -77,6 +77,12 @@ export function RecruitmentCardItem({
         to={currentPath(card, resumeStep)}
         className="flex items-center gap-4 rounded-xl border px-5 py-4 transition-colors hover:border-foreground/20 hover:bg-muted/30"
       >
+        <span
+          aria-hidden
+          className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+        >
+          <ClipboardList className="size-5" />
+        </span>
         <div className="min-w-0 flex-1 space-y-3">
           <div className="flex items-center gap-2">
             <h2 className="truncate font-bold">{card.title}</h2>

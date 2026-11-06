@@ -279,7 +279,8 @@ function PublishForm({ posting }: { posting: Posting }) {
             <ConfirmRow label="채용 요약" value={summary || '-'} />
             <ConfirmRow
               label="전형 절차"
-              value={posting.stages.map((stage) => stage.name).join(' → ')}
+              // 최종 합격은 저장된 전형이 아니라 화면이 끝에 붙이는 단계라 여기서도 붙인다
+              value={[...posting.stages.map((stage) => stage.name), '최종 합격'].join(' → ')}
             />
           </dl>
           <RequiredSummary required={posting.required} />

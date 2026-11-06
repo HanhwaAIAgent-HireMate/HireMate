@@ -36,4 +36,32 @@ describe('전형 절차 편집', () => {
     expect(screen.queryByRole('button', { name: '서류 전형 고치기' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '서류 전형 빼기' })).not.toBeInTheDocument()
   })
+
+  it('[전형 추가]는 이름을 쓰고 [확인]을 눌러야 들어가고, [취소]하면 그대로다', async () => {
+    render(<Editor />)
+    fireEvent.click(screen.getByRole('button', { name: '전형 추가' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: '새 전형 이름' }), {
+      target: { value: '2차 면접' },
+    })
+    expect(order()).toEqual(['코딩테스트 · 평가', '1차 면접 · 면접'])
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    expect(order()).toEqual(['코딩테스트 · 평가', '1차 면접 · 면접', '2차 면접 · 면접'])
+
+    fireEvent.click(screen.getByRole('button', { name: '전형 추가' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: '새 전형 이름' }), {
+      target: { value: '임원 면접' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '취소' }))
+    expect(order()).toHaveLength(3)
+  })
+
+  it('이미 있는 이름은 [확인]을 누를 수 없다', async () => {
+    render(<Editor />)
+    fireEvent.click(screen.getByRole('button', { name: '전형 추가' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: '새 전형 이름' }), {
+      target: { value: '1차 면접' },
+    })
+    expect(screen.getByText('이름이 같은 전형이 있어요.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '확인' })).toBeDisabled()
+  })
 })

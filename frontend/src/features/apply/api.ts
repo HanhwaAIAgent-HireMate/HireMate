@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 
 import { api, unwrap, type Schemas } from '@/lib/api/client'
 
@@ -70,15 +70,17 @@ export function useSchoolCheck(postingId: string) {
   })
 }
 
-export function useApplications(recruitmentId: string, size = 5) {
+/** 지원자 목록 한 쪽. page는 0부터 센다. 쪽을 넘기는 동안에는 앞 쪽을 그대로 보인다 */
+export function useApplications(recruitmentId: string, size = 5, page = 0) {
   return useQuery({
-    queryKey: ['applications', recruitmentId, size],
+    queryKey: ['applications', recruitmentId, size, page],
     queryFn: () =>
       unwrap(
         api.GET('/api/recruitments/{recruitmentId}/applications', {
-          params: { path: { recruitmentId }, query: { page: 0, size } },
+          params: { path: { recruitmentId }, query: { page, size } },
         }),
       ),
+    placeholderData: keepPreviousData,
     refetchInterval: 30_000,
   })
 }

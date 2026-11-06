@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useCompanyProfile, useSaveCompanyProfile } from '@/features/company/api'
 import { CompanyLogoField } from '@/features/company/CompanyLogoField'
-import { ReferenceFiles } from '@/features/company/ReferenceFiles'
 import { SettingsRow, SettingsSection } from '@/features/company/SettingsSection'
 import { errorMessage } from '@/lib/api/client'
 
@@ -151,25 +150,25 @@ export function CompanyProfileForm() {
               </button>
             </span>
           ))}
-          <input
-            value={benefitDraft}
-            onChange={(event) => setBenefitDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                addBenefit()
-              }
-            }}
-            onBlur={addBenefit}
-            placeholder="+ 복지 입력 후 Enter"
-            aria-label="복지 추가"
-            className="h-8 w-40 rounded-md px-2 text-sm outline-none placeholder:text-muted-foreground focus:bg-muted"
-          />
+          {/* 인재상 [+ 인재상 추가]와 같은 크기 · 글자 · 아이콘으로 보인다 */}
+          <label className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground focus-within:bg-muted hover:bg-muted">
+            <Plus className="size-3.5 shrink-0" />
+            <input
+              value={benefitDraft}
+              onChange={(event) => setBenefitDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                  event.preventDefault()
+                  addBenefit()
+                }
+              }}
+              onBlur={addBenefit}
+              placeholder="복지 입력 후 Enter"
+              aria-label="복지 추가"
+              className="w-32 bg-transparent font-medium text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </label>
         </div>
-      </SettingsRow>
-      <div className="border-t" />
-      <SettingsRow label="참고 자료">
-        <ReferenceFiles category="INTRO" />
       </SettingsRow>
     </SettingsSection>
   )

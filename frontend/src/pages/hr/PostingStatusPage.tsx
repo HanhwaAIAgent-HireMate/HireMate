@@ -1,4 +1,5 @@
 import { Copy, ExternalLink, Link2, Pencil } from 'lucide-react'
+import { useState } from 'react'
 import { useParams } from 'react-router'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
@@ -14,6 +15,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { Pager } from '@/components/Pager'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useHeaderCrumb } from '@/app/header-store'
@@ -46,10 +48,15 @@ export function PostingStatusPage() {
   return <StatusView posting={posting.data} />
 }
 
+/** 최근 지원자 한 쪽에 보이는 수 */
+const APPLICANT_PAGE_SIZE = 5
+
 function StatusView({ posting }: { posting: Posting }) {
   const close = useClosePosting(posting.recruitmentId)
-  const applications = useApplications(posting.recruitmentId, 20)
+  const [page, setPage] = useState(0)
+  const applications = useApplications(posting.recruitmentId, APPLICANT_PAGE_SIZE, page)
   const total = applications.data?.total
+  const pageCount = Math.ceil((total ?? 0) / APPLICANT_PAGE_SIZE)
   const url = `${window.location.origin}${careersPath(posting.postingId)}`
   const accepting = posting.status === 'PUBLISHED'
   // 시작한 전형은 눌러 그 전형 화면으로 간다. 끝난 전형은 화면만 볼 수 있다
@@ -184,6 +191,13 @@ function StatusView({ posting }: { posting: Posting }) {
               </li>
             ))}
           </ul>
+          <Pager
+            page={page}
+            pageCount={pageCount}
+            onChange={setPage}
+            label="최근 지원자 쪽"
+            className="border-t py-2"
+          />
         </div>
       </div>
     </div>

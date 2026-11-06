@@ -113,4 +113,21 @@ describe('AI 수정 요청 패널', () => {
     expect(screen.getByText('주요 업무 2')).toBeInTheDocument()
     expect(screen.getByText('배치 프로그램을 구현 한다')).toBeInTheDocument()
   })
+
+  it('줄을 골라 둔 채 예시 문구를 누르면 고르기를 풀고 예시 요청으로 보낸다', () => {
+    const onSend = vi.fn()
+    const onClear = vi.fn()
+    render(
+      <AiRequestPanel
+        {...base}
+        examples={['포트폴리오도 필수로 받아줘']}
+        focus={{ label: '자격 요건 2번', onClear }}
+        onSend={onSend}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '포트폴리오도 필수로 받아줘' }))
+
+    expect(onClear).toHaveBeenCalled()
+    expect(onSend).toHaveBeenCalledWith('포트폴리오도 필수로 받아줘', { example: true })
+  })
 })
