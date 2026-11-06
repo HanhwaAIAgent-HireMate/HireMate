@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from application_context import YUMIN_SUMMARY, make_posting, make_rubric, scripted, yumin_script
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.agents.analysis.assessment import AssessmentInput
@@ -357,3 +357,43 @@ async def test_worker_normalization_invalid_content_is_permanent() -> None:
     request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
     with pytest.raises(PermanentError):
         await handle(request)
+
+
+async def test_index_document_rejects_invalid_payload_before_accessing_services() -> None:
+    handle = job_handlers(FakeLlm(), MemoryStore(), SESSIONS)["application/index-document"]
+    with pytest.raises(PermanentError, match="accepted document"):
+        await handle({"documentId": str(uuid4())})
+
+
+async def test_document_index_worker_commits_before_acknowledging(database_url: str) -> None:
+    from hiremate_ai.contract import DocumentIndexRequest
+    from hiremate_ai.db.document_index import DocumentIndex
+
+    class Embedder:
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            return [[0.1] * 1024 for _ in texts]
+
+    request = DocumentIndexRequest.model_validate_json((CONTRACT_DIR / "DocumentIndexRequest.json").read_bytes())
+    document_id = uuid4()
+    request = DocumentIndexRequest(
+        request=request.request.model_copy(update={"document_id": document_id}),
+        document=request.document.model_copy(update={"document_id": document_id}),
+    )
+    engine = create_async_engine(database_url)
+    sessions = async_sessionmaker(engine)
+    handle = job_handlers(FakeLlm(), MemoryStore(), sessions, document_embedder=Embedder())[
+        "application/index-document"
+    ]
+    try:
+        result = await handle(request.model_dump(mode="json"))
+        assert result == {"documentId": str(document_id), "revision": 1, "status": "INDEXED"}
+        async with sessions() as session:
+            saved = await session.get(DocumentIndex, document_id)
+            assert saved is not None and saved.revision == 1
+        assert (await handle(request.model_dump(mode="json")))["status"] == "UNCHANGED"
+    finally:
+        async with sessions() as session, session.begin():
+            saved = await session.get(DocumentIndex, document_id)
+            if saved is not None:
+                await session.delete(saved)
+        await engine.dispose()
