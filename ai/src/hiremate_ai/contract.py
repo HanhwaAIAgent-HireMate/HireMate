@@ -7,10 +7,10 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -442,3 +442,135 @@ class JobResult(ContractModel):
     status: JobStatus
     result: dict[str, Any] | None
     error: str | None
+
+
+class DocumentSource(ContractModel):
+    """블라인드 처리한 파서 원문 조각."""
+
+    id: str = Field(min_length=1, pattern=r"\S")
+    page: int | None = Field(ge=1)
+    text: str
+
+
+NormalizedDocumentType = Literal[DocumentType.RESUME, DocumentType.COVER_LETTER, DocumentType.PORTFOLIO]
+ParagraphRole = Literal["body", "caption", "page_header", "page_footer", "form_instruction", "unassigned"]
+VISUAL_NOTICE = "관련 시각 자료가 있을 수 있습니다. 원본 PDF를 확인해 주세요."
+CODE_NOTICE = "코드 예시가 포함되어 있습니다. 원본 PDF를 확인해 주세요."
+
+
+class DocumentBlockBase(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, pattern=r"\S")
+    source_ids: list[Annotated[str, Field(min_length=1, pattern=r"\S")]]
+
+
+class DocumentSection(DocumentBlockBase):
+    type: Literal["section"] = "section"
+    title: str | None
+    blocks: list["DocumentBlock"]
+
+    @model_validator(mode="after")
+    def validate_title_sources(self) -> "DocumentSection":
+        if self.title is None and self.source_ids:
+            raise ValueError("Untitled sections cannot have title sources")
+        return self
+
+
+class DocumentParagraph(DocumentBlockBase):
+    type: Literal["paragraph"] = "paragraph"
+    role: ParagraphRole
+    text: str
+
+
+class DocumentListItem(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+    marker: str | None
+    text: str
+    children: list["DocumentListItem"]
+
+
+class DocumentList(DocumentBlockBase):
+    type: Literal["list"] = "list"
+    items: list[DocumentListItem]
+
+
+class DocumentTable(DocumentBlockBase):
+    type: Literal["table"] = "table"
+    caption: str | None
+    headers: list[str | None]
+    rows: list[list[str | None]]
+
+
+class DocumentReference(DocumentBlockBase):
+    type: Literal["reference"] = "reference"
+    kind: Literal["possible_visual", "code_example"]
+    text: str | None
+    notice: str
+
+    @model_validator(mode="after")
+    def validate_notice(self) -> "DocumentReference":
+        expected = VISUAL_NOTICE if self.kind == "possible_visual" else CODE_NOTICE
+        if self.notice != expected:
+            raise ValueError("Reference notice must be assigned by code")
+        return self
+
+
+DocumentBlock = Annotated[
+    DocumentSection | DocumentParagraph | DocumentList | DocumentTable | DocumentReference,
+    Field(discriminator="type"),
+]
+DocumentSection.model_rebuild()
+
+
+class NormalizedDocument(ContractModel):
+    """코드가 메타데이터와 블록 ID를 부여한 정제 문서."""
+
+    model_config = ConfigDict(extra="forbid")
+    schema_version: Literal[1] = 1
+    document_id: UUID
+    revision: int = Field(gt=0)
+    document_type: NormalizedDocumentType
+    blocks: list[DocumentBlock]
+
+    def all_blocks(self) -> list[DocumentBlock]:
+        def flatten(blocks: list[DocumentBlock]) -> list[DocumentBlock]:
+            return [
+                child
+                for block in blocks
+                for child in ([block] + (flatten(block.blocks) if isinstance(block, DocumentSection) else []))
+            ]
+
+        return flatten(self.blocks)
+
+    @model_validator(mode="after")
+    def validate_block_ids(self) -> "NormalizedDocument":
+        ids = [block.id for block in self.all_blocks()]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Duplicate block IDs")
+        return self
+
+    def validate_sources(self, sources: list[DocumentSource]) -> None:
+        ids = {source.id for source in sources}
+        if len(ids) != len(sources):
+            raise ValueError("Duplicate source IDs")
+        if any(source_id not in ids for block in self.all_blocks() for source_id in block.source_ids):
+            raise ValueError("Unknown source ID")
+
+
+class DocumentNormalizationRequest(ContractModel):
+    """기업과 문서 버전 범위가 고정된 정제 요청."""
+
+    model_config = ConfigDict(extra="forbid")
+    company_id: UUID
+    recruitment_id: UUID
+    application_id: UUID
+    document_id: UUID
+    revision: int = Field(gt=0)
+    document_type: NormalizedDocumentType
+    sources: list[DocumentSource]
+
+    @model_validator(mode="after")
+    def validate_source_ids(self) -> "DocumentNormalizationRequest":
+        if len({source.id for source in self.sources}) != len(self.sources):
+            raise ValueError("Duplicate source IDs")
+        return self
