@@ -25,20 +25,46 @@ jobs:
         working-directory: ai
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: 검사 대상 확인
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          required=false
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            required=true
+          else
+            git diff --name-only --no-renames -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed-files"
+            while IFS= read -r -d '' file; do
+              case "$file" in
+                ai/*|.github/workflows/ai-quality.yml|contract/*) required=true; break ;;
+              esac
+            done < "$RUNNER_TEMP/changed-files"
+          fi
+          echo "run=$required" >> "$GITHUB_OUTPUT"
       - uses: astral-sh/setup-uv@v10.3.0
+        if: steps.changes.outputs.run == 'true'
         with:
           working-directory: ai
           enable-cache: true
           cache-dependency-glob: uv.lock
       - name: Python 설치
+        if: steps.changes.outputs.run == 'true'
         run: uv python install
       - name: 의존성 설치
+        if: steps.changes.outputs.run == 'true'
         run: uv sync --locked
       - name: Ruff 린트
+        if: steps.changes.outputs.run == 'true'
         run: uv run --locked ruff check
       - name: Ruff 포맷
+        if: steps.changes.outputs.run == 'true'
         run: uv run --locked ruff format --check
       - name: mypy 타입 검사
+        if: steps.changes.outputs.run == 'true'
         run: uv run --locked mypy
       - name: pytest
+        if: steps.changes.outputs.run == 'true'
         run: uv run --locked pytest
