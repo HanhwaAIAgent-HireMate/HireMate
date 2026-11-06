@@ -574,3 +574,22 @@ class DocumentNormalizationRequest(ContractModel):
         if len({source.id for source in self.sources}) != len(self.sources):
             raise ValueError("Duplicate source IDs")
         return self
+
+
+class DocumentIndexRequest(ContractModel):
+    """backend가 검증하고 저장한 문서와 그 문서를 만든 권한 범위."""
+
+    model_config = ConfigDict(extra="forbid")
+    request: DocumentNormalizationRequest
+    document: NormalizedDocument
+
+    @model_validator(mode="after")
+    def validate_document(self) -> "DocumentIndexRequest":
+        if (
+            self.request.document_id != self.document.document_id
+            or self.request.revision != self.document.revision
+            or self.request.document_type != self.document.document_type
+        ):
+            raise ValueError("Normalized document identity does not match its request")
+        self.document.validate_sources(self.request.sources)
+        return self
