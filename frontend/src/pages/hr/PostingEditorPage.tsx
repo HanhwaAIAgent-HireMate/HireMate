@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import type { AiMessage } from '@/features/posting/AiRequestPanel'
-import { useCreateRecruitment, usePosting } from '@/features/posting/api'
+import { useCreateRecruitment, usePosting, usePostingAiRun } from '@/features/posting/api'
 import type { CareerLevel } from '@/features/posting/conditions'
 import type { LineFocus } from '@/features/posting/focus'
 import { PostingEditor } from '@/features/posting/PostingEditor'
@@ -48,6 +48,7 @@ function EditPosting({ recruitmentId }: { recruitmentId: string }) {
   const [messages, setMessages] = useState<AiMessage[]>([])
   const [focus, setFocus] = useState<LineFocus | null>(null)
   const [writtenFor, setWrittenFor] = useState<CareerLevel | null>(null)
+  const aiRun = usePostingAiRun(recruitmentId)
   if (posting.isError) return <EditorSkeleton title="공고 편집" message="공고를 찾지 못했어요." />
   if (!posting.data) return <EditorSkeleton title="공고 편집" />
   const selectFormat = async (format: PostingFormat, design: PosterDesign) => {
@@ -72,6 +73,7 @@ function EditPosting({ recruitmentId }: { recruitmentId: string }) {
         setFocus={setFocus}
         writtenFor={writtenFor}
         setWrittenFor={setWrittenFor}
+        aiRun={aiRun}
         onNext={() => setChoosingFormat(true)}
       />
       {choosingFormat && (

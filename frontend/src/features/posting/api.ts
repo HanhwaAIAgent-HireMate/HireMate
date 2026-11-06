@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRef, useState } from 'react'
 
-import type { ChatStep } from '@/features/chat/steps'
+import { addStep, type ChatStep } from '@/features/chat/steps'
 import { api, ApiError, unwrap, type Schemas } from '@/lib/api/client'
 import { readEvents } from '@/lib/api/sse'
 
@@ -168,6 +169,28 @@ export function usePostingAiRequest(recruitmentId: string, onStep: (step: ChatSt
       queryClient.setQueryData(postingKeys.posting(recruitmentId), answer.posting),
   })
 }
+
+/**
+ * [AI 수정 요청]과 기다리는 동안 받은 처리 단계. 편집 화면은 본문을 저장하면 새로 열리므로
+ * (요청 전에 저장한다), 진행 중인 요청과 단계는 새로 열리지 않는 화면이 들고 있어야 한다.
+ * received는 답에 처리 과정으로 남기려고 ref에도 둔다 (답을 받은 때의 단계를 읽는다).
+ */
+export function usePostingAiRun(recruitmentId: string) {
+  const [steps, setSteps] = useState<ChatStep[]>([])
+  const received = useRef<ChatStep[]>([])
+  const request = usePostingAiRequest(recruitmentId, (step) => {
+    received.current = addStep(received.current, step)
+    setSteps(received.current)
+  })
+  /** 요청마다 단계를 새로 쌓는다 */
+  const reset = () => {
+    received.current = []
+    setSteps([])
+  }
+  return { request, steps, received, reset }
+}
+
+export type PostingAiRun = ReturnType<typeof usePostingAiRun>
 
 /**
  * 공고 AI 요청의 응답 스트림(SSE)을 읽는다. status는 onStep으로 넘기고 done의 답을 돌려준다.

@@ -1,5 +1,5 @@
 import { ArrowRight, FileText, Lock, Settings, X } from 'lucide-react'
-import { useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 
@@ -13,16 +13,15 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { addStep, type ChatStep } from '@/features/chat/steps'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
 import { errorReply } from '@/features/posting/errorReply'
 import {
   useApplySuggestion,
   useDiscardSuggestion,
-  usePostingAiRequest,
   useSavePosting,
   useSaveStages,
   type Posting,
+  type PostingAiRun,
   type PostingContent,
 } from '@/features/posting/api'
 import { blindLineNumbers } from '@/features/posting/blind'
@@ -105,6 +104,7 @@ export function PostingEditor({
   setFocus,
   writtenFor,
   setWrittenFor,
+  aiRun,
   onNext,
 }: {
   posting: Posting
@@ -116,6 +116,8 @@ export function PostingEditor({
   /** 경력을 바꾸기 전, 지금 자격 요건 · 우대 사항이 쓰인 기준. 바꾸지 않았거나 안내를 닫으면 null이다 */
   writtenFor: CareerLevel | null
   setWrittenFor: Dispatch<SetStateAction<CareerLevel | null>>
+  /** 요청 전에 저장하면 이 화면이 새로 열려도 진행 중인 AI 요청과 처리 단계는 남도록 화면이 들고 있다 */
+  aiRun: PostingAiRun
   onNext: () => void
 }) {
   const id = posting.recruitmentId
@@ -142,14 +144,7 @@ export function PostingEditor({
   const [stagesError, setStagesError] = useState<string | null>(null)
   const save = useSavePosting(id)
   const saveStages = useSaveStages(id)
-  // 기다리는 동안 받은 Posting Agent의 처리 단계. 요청마다 새로 쌓는다
-  // 답에 처리 과정으로 남기려고 ref에도 둔다 (답을 받은 때의 단계를 읽는다)
-  const [steps, setSteps] = useState<ChatStep[]>([])
-  const received = useRef<ChatStep[]>([])
-  const ai = usePostingAiRequest(id, (step) => {
-    received.current = addStep(received.current, step)
-    setSteps(received.current)
-  })
+  const { request: ai, steps, received, reset: resetSteps } = aiRun
   const apply = useApplySuggestion(id)
   const discard = useDiscardSuggestion(id)
   const saving = save.isPending || saveStages.isPending
@@ -264,8 +259,7 @@ export function PostingEditor({
       { role: 'user', text: message, focus: target ? focusLabel(target) : undefined },
     ])
     if (!(await saveDraft(true))) return
-    received.current = []
-    setSteps([])
+    resetSteps()
     const startedAt = Date.now()
     try {
       const answer = await ai.mutateAsync({ message, focus: sent })
