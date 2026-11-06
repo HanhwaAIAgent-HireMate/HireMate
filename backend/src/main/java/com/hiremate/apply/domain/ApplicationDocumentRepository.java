@@ -1,6 +1,7 @@
 package com.hiremate.apply.domain;
 
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -14,6 +15,14 @@ public interface ApplicationDocumentRepository extends JpaRepository<Application
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from ApplicationDocument d where d.id = ?1")
     Optional<ApplicationDocument> findLockedById(UUID id);
+
+    @Query("select d from ApplicationDocument d where d.normalizationStatus = 'PENDING'"
+            + " and d.normalizationUpdatedAt < ?1 and d.parsedDocument is not null and d.type <> 'CERTIFICATE'")
+    List<ApplicationDocument> findPendingNormalization(Instant before);
+
+    @Query("select d from ApplicationDocument d where d.normalizedDocument is not null"
+            + " and d.normalizedRequest is not null")
+    List<ApplicationDocument> findNormalizedDocuments();
 
     List<ApplicationDocument> findByApplicationId(UUID applicationId);
 
