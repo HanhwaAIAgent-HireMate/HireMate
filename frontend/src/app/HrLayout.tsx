@@ -2,7 +2,7 @@ import { ChevronRight, ExternalLink, Settings } from 'lucide-react'
 import { useEffect } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router'
 
-import { useHeaderStore } from '@/app/header-store'
+import { useHeaderStore, useReturnStore } from '@/app/header-store'
 import { LogoMark } from '@/app/LogoMark'
 import { MemberMenu } from '@/app/MemberMenu'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,13 @@ export function HrLayout() {
   useEffect(() => {
     if (me.data?.role === 'HR') rememberPostingStep(me.data, location.pathname)
   }, [me.data, location.pathname])
+  const rememberReturn = useReturnStore((state) => state.remember)
+  useEffect(() => {
+    const path = location.pathname
+    if (!path.startsWith('/hr/settings') && path !== '/hr/recruitments/new') {
+      rememberReturn(path + location.search)
+    }
+  }, [location.pathname, location.search, rememberReturn])
 
   if (me.isPending) {
     return (

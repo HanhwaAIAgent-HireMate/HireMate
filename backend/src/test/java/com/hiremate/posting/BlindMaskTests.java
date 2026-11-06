@@ -71,6 +71,30 @@ class BlindMaskTests {
     }
 
     @Test
+    @DisplayName("지원자 이름 · 성을 뺀 이름 · 영문 이름을 가리고, 이메일 · 전화번호와 이름으로 시작하는 다른 낱말은 둔다")
+    void masksApplicantName() {
+        String text = "김가온 | 백엔드 개발자\nkim.gaon@example.com · 010-1234-5678\n"
+                + "가온이는 결제 API를 만들었고, 동료들은 가온님이라 불렀습니다. 가온커머스에서 일했습니다.";
+        assertThat(BlindMask.maskApplicant(text, "김가온"))
+                .isEqualTo("○○○ | 백엔드 개발자\nkim.gaon@example.com · 010-1234-5678\n"
+                        + "○○○이는 결제 API를 만들었고, 동료들은 ○○○님이라 불렀습니다. 가온커머스에서 일했습니다.");
+        assertThat(BlindMask.maskApplicant("Yuna Noh built the API. noh worked with Yunasoft.", "Yuna Noh"))
+                .isEqualTo("○○○ built the API. ○○○ worked with Yunasoft.");
+    }
+
+    @Test
+    @DisplayName("한글 이름의 흔한 영문 표기도 가리고, 짧은 이름은 성과 붙어 있을 때만 가린다")
+    void masksRomanizedName() {
+        assertThat(BlindMask.maskApplicant("Yuna Noh | Backend. Noh Yuna, Yu-na Roh and Yunasoft.", "노유나"))
+                .isEqualTo("○○○ | Backend. ○○○, ○○○ and Yunasoft.");
+        assertThat(BlindMask.maskApplicant("Gaon built it. Kim Ga-on joined Gaonpay.", "김가온"))
+                .isEqualTo("○○○ built it. ○○○ joined Gaonpay.");
+        // "In"처럼 짧은 이름은 영어 낱말과 겹쳐 성과 붙어 있을 때만 가린다
+        assertThat(BlindMask.maskApplicant("Worked in Seoul. Park In led the team.", "박인"))
+                .isEqualTo("Worked in Seoul. ○○○ led the team.");
+    }
+
+    @Test
     @DisplayName("학교가 아닌 말과 다른 뜻의 약칭, 학점이 아닌 숫자는 그대로 둔다")
     void keepsOtherWords() {
         String text = "서울대입구역 근처 카페를 운영했고, 학교 폭력 예방 캠페인과 시민 연대 활동, 고대 문명 동아리를 했습니다. "

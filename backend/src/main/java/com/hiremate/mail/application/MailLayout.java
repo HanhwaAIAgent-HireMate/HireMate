@@ -238,6 +238,13 @@ public final class MailLayout {
                 .collect(Collectors.joining());
     }
 
+    /** 칸 값 옆의 흐린 작은 메모. 자리가 모자라면 끊지 않고 통째로 아래 줄로 내린다. 미리보기에서만 쓴다. */
+    private static String hint(MailContent.Item item) {
+        return item.hint().isBlank() ? ""
+                : " <span style=\"display:inline-block;font-size:11px;color:" + MUTED + ";\">" + escape(item.hint())
+                        + "</span>";
+    }
+
     /**
      * 안내 상자. 옅은 바탕은 회색 테두리 상자, 테두리는 대표 색 테두리의 흰 상자, 표는 상자 없이 제목 왼쪽의
      * 대표 색 막대와 줄로 나눈 칸이다. 제목은 어느 모양이든 대표 색 글자다.
@@ -255,7 +262,8 @@ public final class MailLayout {
                     .append(border).append("\">").append(escape(items.get(index).label())).append("</td>")
                     .append("<td style=\"padding:").append(pad)
                     .append(";vertical-align:top;font-size:14px;line-height:1.6;color:").append(TEXT).append(';')
-                    .append(border).append("\">").append(lines(items.get(index).value())).append("</td></tr>");
+                    .append(border).append("\">").append(lines(items.get(index).value())).append(hint(items.get(index)))
+                    .append("</td></tr>");
         }
         if (!guide.notes().isEmpty()) {
             body.append("<tr><td colspan=\"2\" style=\"padding:").append(rows ? "12px 4px" : "12px 14px")

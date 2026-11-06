@@ -1,7 +1,7 @@
 import { cn } from 'cn'
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 
-import { chartFor, CHART_TYPES, peopleColors, type ChartContext } from './charts'
+import { chartFor, CHART_TYPES, peopleColors, type Chart, type ChartContext } from './charts'
 import {
   crossCounts,
   evidenceParts,
@@ -23,12 +23,13 @@ import type { Block, ReportBundle, ReportKind, ReportView } from './types'
 /** 부품이 6칸 격자에서 차지하는 칸. 줄이 남으면 그 줄 마지막 부품을 늘린다 */
 const SPAN: Record<string, number> = {
   distribution: 4,
-  donut: 2,
+  // 도넛 · 레이더는 그림 오른쪽에 범례를 세로로 두어 반 폭이 필요하다
+  donut: 3,
   cross: 2,
   share: 4,
   stacked: 3,
   bar: 3,
-  radar: 2,
+  radar: 3,
 }
 
 const SPAN_CLASS: Record<number, string> = {
@@ -37,6 +38,26 @@ const SPAN_CLASS: Record<number, string> = {
   4: 'md:col-span-4',
   5: 'md:col-span-5',
   6: 'md:col-span-6',
+}
+
+/** 근거 카드는 안에서 근거를 접으므로 '자세히 보기'에 넣지 않는다. 비교 대상 누구의 근거도 숨기지 않는다 */
+const ALWAYS_SHOWN = new Set(['evidence'])
+
+/**
+ * 처음 화면에 보이는 부품과 '자세히 보기'에 접는 부품. 격자 첫 줄(6칸)을 채우는 부품과 근거 카드만 보이고
+ * 나머지는 접는다. 순서는 설계서 순서를 지킨다
+ */
+function splitShown(blocks: Block[]) {
+  let used = 0
+  const shown: Block[] = []
+  const folded: Block[] = []
+  for (const block of blocks) {
+    if (used < 6 || ALWAYS_SHOWN.has(block.type)) {
+      shown.push(block)
+      used += SPAN[block.type] ?? 6
+    } else folded.push(block)
+  }
+  return { shown, folded }
 }
 
 function pack(blocks: Block[]) {
@@ -59,6 +80,8 @@ function pack(blocks: Block[]) {
 interface BodyContext extends ChartContext {
   text: (value: string) => string
   printing: boolean
+  /** 비교 대상끼리 판정이 갈린 항목 key. 근거 카드에서 처음부터 펼쳐 둔다 */
+  splits: Set<string>
 }
 
 /**
@@ -85,8 +108,9 @@ export function ReportBody({ report }: { report: ReportView }) {
       color: peopleColors(bundle.targets),
       text: (value) => withItemNames(withNames(value, names), items),
       printing,
+      splits: new Set((spec.splits ?? []).map((split) => split.key)),
     }),
-    [bundle, names, items, printing],
+    [bundle, names, items, printing, spec.splits],
   )
 
   return (
@@ -115,24 +139,95 @@ export function ReportBody({ report }: { report: ReportView }) {
             </span>
             <h3 className="text-base font-bold">{ctx.text(section.title)}</h3>
           </div>
-          <p className="text-sm leading-6 font-semibold text-foreground/90">
-            {/* 섹션 한 줄 요약은 Report Agent가 그 섹션의 표를 읽고 쓴 해석이다. 'AI 해석' 표시는 붙이지 않는다 */}
-            {ctx.text(section.takeaway)}
-          </p>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
-            {pack(section.blocks).map((span, i) => (
-              <div
-                key={i}
-                className={cn('min-w-0 rounded-xl border bg-card px-4 py-3.5', SPAN_CLASS[span])}
-              >
-                <BlockView block={section.blocks[i]} ctx={ctx} />
-              </div>
-            ))}
-          </div>
+          {section.takeaway && (
+            // 섹션 한 줄 요약은 Report Agent가 그 섹션의 표를 읽고 쓴 해석이다. 'AI 해석' 표시는 붙이지 않는다
+            // 섹션의 답이라 카드 제목보다 먼저 눈에 들어오게 왼쪽 줄과 옅은 배경을 준다
+            <p className="rounded-r-md border-l-[3px] border-ai bg-ai-soft/40 px-3 py-2 text-[14.5px] leading-6 font-semibold">
+              {ctx.text(section.takeaway)}
+            </p>
+          )}
+          <SectionBlocks blocks={section.blocks} ctx={ctx} />
         </section>
       ))}
-      <p className="text-center text-xs text-muted-foreground">{FOOTNOTE[bundle.kind]}</p>
+      <p className="text-xs text-muted-foreground">{FOOTNOTE[bundle.kind]}</p>
     </div>
+  )
+}
+
+/** 섹션의 부품 격자. 첫 줄만 보이고 나머지 부품은 '자세히 보기'에 접는다 */
+function SectionBlocks({ blocks, ctx }: { blocks: Block[]; ctx: BodyContext }) {
+  const { shown, folded } = splitShown(blocks)
+  const grid = (list: Block[]) => (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
+      {pack(list).map((span, i) => (
+        <div
+          key={i}
+          className={cn(
+            'flex min-w-0 flex-col rounded-xl border bg-card px-4 py-3.5',
+            SPAN_CLASS[span],
+          )}
+        >
+          <BlockView block={list[i]} ctx={ctx} />
+        </div>
+      ))}
+    </div>
+  )
+  return (
+    <>
+      {grid(shown)}
+      {folded.length > 0 && (
+        <Fold
+          printing={ctx.printing}
+          summary={`자세히 보기 · ${folded.length}개 더`}
+          className="text-[13px] font-semibold text-muted-foreground"
+        >
+          <div className="mt-2.5">{grid(folded)}</div>
+        </Fold>
+      )}
+    </>
+  )
+}
+
+/**
+ * 접고 펼치는 칸. 처음 화면은 결론만 보이고 근거 · 자세한 내용은 눌러서 본다.
+ * 인쇄(PDF)할 때는 누를 수 없으므로 모두 펼친다
+ */
+function Fold({
+  summary,
+  children,
+  printing,
+  open: initial = false,
+  className,
+}: {
+  summary: ReactNode
+  children: ReactNode
+  printing: boolean
+  open?: boolean
+  className?: string
+}) {
+  const [open, setOpen] = useState(initial)
+  return (
+    <details
+      open={printing || open}
+      onToggle={(event) => {
+        if (!printing) setOpen(event.currentTarget.open)
+      }}
+    >
+      <summary
+        className={cn(
+          'w-fit cursor-pointer list-none rounded-md py-0.5 select-none hover:text-foreground print:hidden [&::-webkit-details-marker]:hidden',
+          className,
+        )}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          {summary}
+          <span aria-hidden className="text-[10px]">
+            {open ? '▲' : '▼'}
+          </span>
+        </span>
+      </summary>
+      {children}
+    </details>
   )
 }
 
@@ -173,12 +268,58 @@ function Chip({ value }: { value: string }) {
   )
 }
 
-function Head({ title, caption }: { title: string; caption?: string }) {
+/** 둥근 차트 옆 범례. 색 칸 · 이름 · 값을 세 칸으로 맞춰 값이 한 줄로 정렬된다 */
+function ChartLegend({ items }: { items: NonNullable<Chart['legend']> }) {
+  return (
+    <ul className="grid grid-cols-[auto_auto_auto] items-center gap-x-2 gap-y-2 text-[12.5px]">
+      {items.map((item) => (
+        <li key={item.label} className="contents">
+          <i className="inline-block size-2.5 rounded-sm" style={{ background: item.color }} />
+          <span>{item.label}</span>
+          <b className="pl-2 text-right tabular-nums">{item.value}</b>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** 이보다 긴 그래프 설명은 한 줄만 보이고 '더보기'로 펼친다 */
+const SHORT_CAPTION = 60
+
+/** 부품 제목과 설명. 섹션의 읽을 점보다 한 단계 낮게 보이도록 작고 옅게 쓴다 */
+function Head({
+  title,
+  caption,
+  printing,
+}: {
+  title: string
+  caption?: string
+  printing: boolean
+}) {
   return (
     <div className="mb-2.5">
-      <div className="text-[13.5px] font-bold">{title}</div>
-      {caption && <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">{caption}</p>}
+      <div className="text-[13px] font-semibold text-foreground/80">{title}</div>
+      {caption && <Caption text={caption} printing={printing} />}
     </div>
+  )
+}
+
+function Caption({ text, printing }: { text: string; printing: boolean }) {
+  const [open, setOpen] = useState(false)
+  const long = text.length > SHORT_CAPTION
+  return (
+    <p className="mt-0.5 flex items-start gap-1.5 text-[12.5px] leading-5 text-muted-foreground">
+      <span className={cn(long && !open && !printing && 'line-clamp-1')}>{text}</span>
+      {long && !printing && (
+        <button
+          type="button"
+          className="shrink-0 font-semibold whitespace-nowrap hover:text-foreground"
+          onClick={() => setOpen(!open)}
+        >
+          {open ? '접기' : '더보기'}
+        </button>
+      )}
+    </p>
   )
 }
 
@@ -190,12 +331,28 @@ function BlockView({ block, ctx }: { block: Block; ctx: BodyContext }) {
     [block, ctx],
   )
   const title = ctx.text(block.title)
-  const head = <Head title={title} caption={caption && ctx.text(caption)} />
+  const head = <Head title={title} caption={caption && ctx.text(caption)} printing={ctx.printing} />
   if (chart) {
+    const picture = (
+      <EChart option={chart.option} height={chart.height} label={title} still={ctx.printing} />
+    )
     return (
       <>
         {head}
-        <EChart option={chart.option} height={chart.height} label={title} still={ctx.printing} />
+        {/* 옆 카드가 더 길어 카드가 늘어나면 그림을 위아래 가운데에 둔다 */}
+        <div className="flex flex-1 flex-col justify-center">
+          {chart.width ? (
+            // 둥근 차트는 그림과 범례를 한 덩어리로 카드 가운데에 둔다. 좁으면 범례가 그림 아래로 내려간다
+            <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
+              <div className="shrink-0" style={{ width: chart.width }}>
+                {picture}
+              </div>
+              <ChartLegend items={chart.legend ?? []} />
+            </div>
+          ) : (
+            picture
+          )}
+        </div>
       </>
     )
   }
@@ -527,12 +684,8 @@ function ViewTable({
     <>
       <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2">
         <div>
-          <div className="text-[13.5px] font-bold">{title}</div>
-          {caption && (
-            <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">
-              {ctx.text(caption)}
-            </p>
-          )}
+          <div className="text-[13px] font-semibold text-foreground/80">{title}</div>
+          {caption && <Caption text={ctx.text(caption)} printing={ctx.printing} />}
         </div>
         {rows.some((row) => row.different) && (
           <span className="text-xs text-muted-foreground">배경 강조 = 차이 있는 관점</span>
@@ -632,123 +785,186 @@ function EvidenceView({ block, ctx }: { block: EvidenceBlock; ctx: BodyContext }
   }
   return (
     <div className="flex flex-col gap-3">
-      {order.map((number) => (
-        <div
-          key={number}
-          className="flex flex-col gap-2 rounded-r-lg border-l-4 bg-muted/40 px-4 py-3 text-[13px] leading-6"
-          style={{ borderLeftColor: ctx.color(number) ?? '#C9CED6' }}
-        >
-          <Person number={number} ctx={ctx} />
-          <QuantifiedQuotes items={grouped.get(number) ?? []} bundle={bundle} />
-          <div className="flex flex-col divide-y divide-dashed">
-            {(grouped.get(number) ?? []).map((item, i) => (
-              <EvidenceEntry key={i} item={item} bundle={bundle} ctx={ctx} />
-            ))}
+      {order.map((number) => {
+        const items = (grouped.get(number) ?? []).map((item) => ({
+          item,
+          parts: partsOf(item, bundle),
+        }))
+        const parts = [
+          ...new Map(items.flatMap((entry) => entry.parts).map((p) => [p.id, p])).values(),
+        ]
+        const keywords = [...new Set(items.flatMap((entry) => entry.item.keywords ?? []))]
+        // 판정이 갈린 항목은 비교 리포트에서 가장 궁금한 곳이라 처음부터 펼쳐 둔다
+        const split = (part: EvidenceParts) => ctx.splits.has(criterionKey(number, part.id))
+        // 같은 근거를 여러 근거 항목이 인용해도 한 줄로만 보여 준다
+        const seen = new Set<string>()
+        return (
+          <div
+            key={number}
+            className="flex flex-col gap-2 rounded-r-lg border-l-4 bg-muted/40 px-4 py-3 text-[13px] leading-6"
+            style={{ borderLeftColor: ctx.color(number) ?? '#C9CED6' }}
+          >
+            <Person number={number} ctx={ctx} />
+            {keywords.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Tag>키워드</Tag>
+                {keywords.map((keyword) => (
+                  <span
+                    key={keyword}
+                    className="rounded-md border bg-card px-2 py-px font-semibold"
+                  >
+                    {ctx.text(keyword)}
+                  </span>
+                ))}
+              </div>
+            )}
+            <VerdictCounts parts={parts} />
+            <Fold
+              printing={ctx.printing}
+              open={parts.some(split)}
+              summary={parts.length > 0 ? `근거 보기 · ${parts.length}개` : '항목 보기'}
+              className="text-xs font-semibold text-ai"
+            >
+              <div className="mt-1.5 flex flex-col gap-2">
+                <QuantifiedQuotes items={grouped.get(number) ?? []} bundle={bundle} />
+                <div className="flex flex-col divide-y divide-dashed">
+                  {items.flatMap(({ item, parts: cited }, i) => {
+                    const name =
+                      (item.keywords ?? []).map(ctx.text).join(' · ') || ctx.text(item.text)
+                    if (cited.length === 0)
+                      return (
+                        <p key={i} className="py-2 text-xs text-muted-foreground">
+                          {name && `${name} · `}근거 문장 없음 · 다음 전형에서 확인
+                        </p>
+                      )
+                    return cited
+                      .filter((part) => !seen.has(part.id) && seen.add(part.id))
+                      .map((part) => (
+                        <PartRow
+                          key={part.id}
+                          part={part}
+                          name={name}
+                          open={split(part)}
+                          ctx={ctx}
+                        />
+                      ))
+                  })}
+                </div>
+              </div>
+            </Fold>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
 
-function EvidenceEntry({
-  item,
-  bundle,
-  ctx,
-}: {
-  item: EvidenceBlock['items'][number]
-  bundle: ReportBundle
-  ctx: BodyContext
-}) {
-  // 정량 원문이 받치는 판단을 먼저 둔다. 같은 강도 안에서는 모델이 고른 순서를 지킨다
-  const parts = item.evidence
+/** 근거 id(e-{지원자번호}-{항목 코드})의 서류 항목 판정 key */
+function criterionKey(applicant: string, id: string) {
+  return `document.criterion.${id.slice(`e-${applicant}-`.length)}`
+}
+
+/** 근거 항목이 인용한 근거. 정량 원문이 받치는 판단을 먼저 둔다. 같은 강도 안에서는 모델이 고른 순서를 지킨다 */
+function partsOf(item: EvidenceBlock['items'][number], bundle: ReportBundle) {
+  return item.evidence
     .flatMap((id) => {
       const found = bundle.evidence.find((evidence) => evidence.id === id)
       return found ? [evidenceParts(bundle, found)] : []
     })
     .sort((a, b) => Number(b.strength === 'QUANT') - Number(a.strength === 'QUANT'))
-  const quotes = [
-    ...new Map(parts.flatMap((p) => (p.quote ? [[p.quote, p] as const] : []))).values(),
-  ]
-  const keywords = item.keywords ?? []
+}
+
+/** 지원자 카드에서 접힌 근거의 판정 개수. 펼치지 않아도 충족 · 부분 · 미충족이 몇 개인지 보인다 */
+function VerdictCounts({ parts }: { parts: EvidenceParts[] }) {
+  const counts = new Map<string, number>()
+  for (const part of parts)
+    if (part.verdict && STATUS[part.verdict])
+      counts.set(part.verdict, (counts.get(part.verdict) ?? 0) + 1)
+  if (counts.size === 0) return null
   return (
-    <div className="flex flex-col gap-2 py-3 first:pt-1 last:pb-0">
-      {keywords.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Tag>키워드</Tag>
-          {keywords.map((keyword) => (
-            <span key={keyword} className="rounded-md border bg-card px-2 py-px font-semibold">
-              {ctx.text(keyword)}
-            </span>
-          ))}
-        </div>
-      ) : (
-        item.text && <div className="font-semibold">{ctx.text(item.text)}</div>
-      )}
-      {parts.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          {keywords.length > 0 && item.text && `${ctx.text(item.text)} · `}
-          근거 문장 없음 · 다음 전형에서 확인
-        </p>
-      ) : (
-        <>
-          <div className="flex flex-col gap-1.5">
-            <Tag>AI 분석</Tag>
-            {parts.map((part) => (
-              <Analysis key={part.id} part={part} />
-            ))}
-          </div>
-          {quotes.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <Tag>원문</Tag>
-              {quotes.map((part) => (
-                <p
-                  key={part.id}
-                  className={cn(
-                    'text-[12.5px] text-muted-foreground',
-                    part.strength === 'CLAIM' && 'opacity-80',
-                  )}
-                >
-                  {part.strength && <StrengthChip strength={part.strength} />}
-                  <span
-                    className={cn('text-foreground', part.strength === 'QUANT' && 'font-semibold')}
-                  >
-                    “{part.quote}”
-                  </span>{' '}
-                  · {part.source}
-                </p>
-              ))}
-            </div>
-          )}
-        </>
-      )}
+    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+      {Object.keys(STATUS)
+        .filter((verdict) => counts.has(verdict))
+        .map((verdict) => (
+          <span
+            key={verdict}
+            className="rounded px-1.5 py-px font-semibold"
+            style={{ background: STATUS[verdict].bg, color: STATUS[verdict].fg }}
+          >
+            {STATUS[verdict].icon} {STATUS[verdict].label} {counts.get(verdict)}
+          </span>
+        ))}
     </div>
   )
 }
 
-/** 분석 Agent의 판단 하나. 어느 항목의 판단인지(영역 · 항목 · 판정)를 위에 붙인다 */
-function Analysis({ part }: { part: EvidenceParts }) {
+/**
+ * 근거 한 줄. 어느 항목의 판단인지(영역 · 항목 · 판정)만 보이고, 누르면 AI 분석(분석 Agent의 판단)과
+ * 원문(지원자가 쓴 글자 그대로)을 펼친다. 항목 이름이 없는 예전 근거는 근거 항목의 키워드를 이름으로 쓴다
+ */
+function PartRow({
+  part,
+  name,
+  open,
+  ctx,
+}: {
+  part: EvidenceParts
+  name: string
+  open: boolean
+  ctx: BodyContext
+}) {
   const status = part.verdict ? STATUS[part.verdict] : undefined
   return (
-    <div className="flex flex-col gap-0.5">
-      {(part.label || status) && (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          {part.area && <span className="text-muted-foreground">{part.area}</span>}
-          {part.label && <b>{part.label}</b>}
-          {status && (
-            <span
-              className="rounded px-1.5 py-px font-semibold"
-              style={{ background: status.bg, color: status.fg }}
-            >
-              {status.icon} {status.label}
-            </span>
+    <div className="py-2 first:pt-1 last:pb-0">
+      <Fold
+        printing={ctx.printing}
+        open={open}
+        summary={
+          <span className="flex flex-wrap items-center gap-1.5">
+            {part.area && <span className="text-xs text-muted-foreground">{part.area}</span>}
+            <span className="font-semibold">{part.label ?? name}</span>
+            {status && (
+              <span
+                className="rounded px-1.5 py-px text-xs font-semibold"
+                style={{ background: status.bg, color: status.fg }}
+              >
+                {status.icon} {status.label}
+              </span>
+            )}
+          </span>
+        }
+      >
+        <div className="mt-1.5 flex flex-col gap-2 pl-3">
+          <div className="flex flex-col gap-1">
+            <Tag>AI 분석</Tag>
+            <p>
+              {part.analysis}{' '}
+              <span className="text-xs text-muted-foreground">
+                · {AGENTS[part.agent] ?? part.agent}
+              </span>
+            </p>
+          </div>
+          {part.quote && (
+            <div className="flex flex-col gap-1">
+              <Tag>원문</Tag>
+              <p
+                className={cn(
+                  'text-[12.5px] text-muted-foreground',
+                  part.strength === 'CLAIM' && 'opacity-80',
+                )}
+              >
+                {part.strength && <StrengthChip strength={part.strength} />}
+                <span
+                  className={cn('text-foreground', part.strength === 'QUANT' && 'font-semibold')}
+                >
+                  “{part.quote}”
+                </span>{' '}
+                · {part.source}
+              </p>
+            </div>
           )}
         </div>
-      )}
-      <p>
-        {part.analysis}{' '}
-        <span className="text-xs text-muted-foreground">· {AGENTS[part.agent] ?? part.agent}</span>
-      </p>
+      </Fold>
     </div>
   )
 }
@@ -776,21 +992,25 @@ function SplitList({
           AI가 서류 분석의 충족한 부분 · 못 채운 부분 · 역할을 읽고 정리했어요
         </span>
       </div>
-      <ul className="flex flex-col gap-1.5">
+      {/* 항목 이름과 근거 수만 먼저 보이고, 누가 무엇이 달랐는지는 눌러서 읽는다 */}
+      <ul className="flex flex-col gap-1">
         {splits.map((split) => (
-          <li
-            key={split.key}
-            className="flex flex-col gap-0.5 text-[13px] leading-6 md:flex-row md:gap-3"
-          >
-            <b className="shrink-0 md:w-56">{labels.get(split.key) ?? split.key}</b>
-            <span className="flex-1">
-              {ctx.text(split.text)}
-              {split.evidence.length > 0 && (
-                <span className="ml-1.5 text-[11px] text-muted-foreground">
-                  · 근거 {split.evidence.length}건
+          <li key={split.key} className="text-[13px] leading-6">
+            <Fold
+              printing={ctx.printing}
+              summary={
+                <span>
+                  <b>{labels.get(split.key) ?? split.key}</b>
+                  {split.evidence.length > 0 && (
+                    <span className="ml-1.5 text-[11px] text-muted-foreground">
+                      · 근거 {split.evidence.length}건
+                    </span>
+                  )}
                 </span>
-              )}
-            </span>
+              }
+            >
+              <p className="mt-0.5 pl-3">{ctx.text(split.text)}</p>
+            </Fold>
           </li>
         ))}
       </ul>

@@ -485,11 +485,14 @@ class ScreeningTests extends IntegrationTest {
                 ※ 11월 1일까지 참석 여부를 알려 주세요.
                 ※ 건물 주차는 지원되지 않습니다.""".formatted(firstText));
         assertThat(notices.get(0).path("guideMissing").toString()).isEqualTo("[\"장소·접속 링크\"]");
+        assertThat(notices.get(0).path("interviewTimeHint").asBoolean()).isTrue();
+        assertThat(notices.get(1).path("interviewTimeHint").asBoolean()).isFalse();
         assertThat(notices.get(1).path("guide").asString()).isEmpty();
         assertThat(notices.get(1).path("guideMissing").size()).isZero();
         JsonNode preview = json(expect(hr.get(stage.path() + "/notices/PASS/preview"), 200));
         assertThat(preview.path("html").asString()).containsSubsequence("홍길동님", ">1차 면접 안내</td>", ">일정</td>",
-                ">" + firstText + "</td>", "※ 건물 주차는 지원되지 않습니다.");
+                ">" + firstText + " <span", "보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요</span>",
+                "※ 건물 주차는 지원되지 않습니다.");
 
         LocalDate second = first.plusDays(1);
         String secondText = second.format(DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN));
@@ -504,6 +507,46 @@ class ScreeningTests extends IntegrationTest {
         assertThat(mail.html).anySatisfy(html -> assertThat(html)
                 .containsSubsequence("지원자1님", ">1차 면접 안내</td>", ">" + secondText + " "));
         assertThat(json(expect(hr.get(guides), 200)).get(0).path("notifiedCount").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("블라인드 채용의 안내 메일은 맺음말 앞에 지원자 본인의 지원번호를 알리고, 블라인드가 아니면 붙이지 않는다")
+    void blindNoticeTellsApplicationNumber() throws Exception {
+        TestApi hr = newHr();
+        TestFixtures.Posting blind = TestFixtures.publishBlind(hr, "");
+        Map<String, Object> form = TestFixtures.form("blind-notice@example.com", false);
+        form.put("name", "한서윤");
+        expect(anonymous().multipart(blind.applyPath(), form), 201);
+        UUID recruitmentId = UUID.fromString(blind.recruitmentId());
+        awaitAnalyzed(hr.companyId(), recruitmentId, 1);
+        UUID applicationId = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
+        applications.recordAnalysis(applicationId, marked(8, true));
+        String id = applicationId.toString();
+        String stageId = json(expect(hr.post("/api/recruitments/" + recruitmentId + "/posting/close", null), 200))
+                .path("stages").get(0).path("id").asString();
+        String stage = "/api/stages/" + stageId;
+        expect(hr.post(stage + "/tabs/" + TestFixtures.firstTab(hr, stageId) + "/selection/add",
+                Map.of("applicationIds", List.of(id))), 204);
+        expect(hr.post(stage + "/decisions", Map.of("applicationIds", List.of(id), "decision", "PASS")), 204);
+        expect(hr.post(stage + "/confirm", null), 200);
+        // 편집 화면에도 보낼 때 붙는 지원번호 안내를 보여 준다
+        assertThat(json(expect(hr.post(stage + "/notices/prepare", null), 200)).get(0).path("applicationNoLine")
+                .asString()).isEqualTo("{지원자명}님의 지원번호는 {지원번호}번입니다.");
+
+        assertThat(json(expect(hr.get(stage + "/notices/PASS/preview"), 200)).path("html").asString())
+                .contains("홍길동님의 지원번호는 1번입니다.");
+        expect(hr.post(stage + "/notices/PASS/send", null), 200);
+        assertThat(mail.sent).anySatisfy(message -> assertThat(message).contains("한서윤님의 지원번호는 1번입니다."));
+
+        Stage open = startDocumentStage(1, "");
+        expect(open.hr().post(open.tabPath() + "/selection/add", Map.of("applicationIds", open.ids())), 204);
+        expect(open.hr().post(open.path() + "/decisions", Map.of("applicationIds", open.ids(), "decision", "PASS")),
+                204);
+        expect(open.hr().post(open.path() + "/confirm", null), 200);
+        assertThat(json(expect(open.hr().post(open.path() + "/notices/prepare", null), 200)).get(0)
+                .path("applicationNoLine").isNull()).isTrue();
+        assertThat(json(expect(open.hr().get(open.path() + "/notices/PASS/preview"), 200)).path("html").asString())
+                .doesNotContain("지원번호는");
     }
 
     @Test
@@ -882,14 +925,16 @@ class ScreeningTests extends IntegrationTest {
 
         Map<String, List<String>> mentions = new HashMap<>();
         Map<String, String> ids = new HashMap<>();
-        for (var applicant : applications.applicants(hr.companyId(), recruitmentId)) {
+        // 블라인드 채용은 화면에 이메일을 주지 않아서, 테스트는 메일 발송용 연락처로 지원자를 찾는다
+        List<UUID> applicationIds = applications.applicants(hr.companyId(), recruitmentId).stream()
+                .map(applicant -> applicant.applicationId()).toList();
+        for (var applicant : applications.contacts(hr.companyId(), applicationIds)) {
             JsonNode card = json(expect(hr.get(stage + "/candidates/" + applicant.applicationId()), 200));
             mentions.put(applicant.email(), card.path("schoolMentions").valueStream().map(JsonNode::asString).toList());
             ids.put(applicant.email(), applicant.applicationId().toString());
         }
         assertThat(mentions).containsEntry("attended@example.com", List.of("Graduated from ○○학교 in 2020."))
                 .containsEntry("worked@example.com", List.of());
-
         String attended = ids.get("attended@example.com");
         JsonNode list = json(expect(hr.get(stage + "/candidates"), 200));
         assertThat(list.path("schoolSuspects")).extracting(JsonNode::asString).containsExactly(attended);

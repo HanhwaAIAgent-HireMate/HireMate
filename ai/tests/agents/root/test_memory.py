@@ -395,7 +395,7 @@ async def test_turn_records_subject_and_answer(context: ChatContext) -> None:
     assert turn["targets"] == [kim]
     assert turn["answer"] == "추가 확인할 점이에요."
     assert turn["items"] == [
-        {"application_id": kim, "label": "확인할 점", "text": "추가 확인이 필요해요.", "status": "CHECK"}
+        {"application_id": kim, "label": "김하늘 · 확인할 점", "text": "추가 확인이 필요해요.", "status": "CHECK"}
     ]
     assert turn["total"] == 8
 

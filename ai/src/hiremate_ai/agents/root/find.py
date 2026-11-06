@@ -41,7 +41,6 @@ ITEM_LIMIT = 5
 RECHECK_BATCH = 30
 # 기억하는 재확인 판정 수. 넘으면 오래된 것부터 지운다
 JUDGED_LIMIT = 256
-EVIDENCE_LENGTH = 48
 CONTEXT_RADIUS = 160
 CONTACT = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|(?:\+?\d[\d\s()-]{7,}\d)")
 PARTIAL_NOTE = (
@@ -84,7 +83,8 @@ RECHECK_SYSTEM = """너는 채용 담당자의 지원자 찾기 요청에서, �
 - 두 부분이 다 있으면 둘 다 만족해야 met=true다.
 - 금융 개발 경험과 금융권 재직은 다른 조건이다. 실제 금융 서비스 개발을 요청하면 회사 업종만으로 제외하지 않는다.
   금융권 재직을 명시한 경우에만 은행, 증권, 카드, 보험, 간편결제 또는 PG 업체의 재직 근거를 요구한다.
-  개인 또는 학교 프로젝트, 단순 데이터 분석과 실제 업무 경험은 구분하고 요청에서 정한 범위를 따른다.
+  도메인 경험이나 실무 경력을 찾을 때 개인, 학교, 모의 프로젝트와 단순 데이터 분석은 근거가 아니다.
+  요청이 프로젝트 경험까지 찾으라고 밝힌 경우에만 근거로 삼는다.
 - 후보는 블록의 번호(candidate_no)로, 근거는 블록 안 문장 번호(sentence_nos)로 답한다. 문장을 옮겨 쓰지 않는다.
 - 모든 후보를 한 번씩 빠짐없이 답한다. 충족하지 않는 후보도 met=false로 답한다.
   조건이 여러 개거나 인재상과 조건이 함께 있으면 condition_evidence에 각 조건 번호와 근거 문장 번호를 적는다.
@@ -98,7 +98,8 @@ CRITERIA_SYSTEM = """너는 채용 담당자가 공고 항목을 기준으로 �
 - 항목마다 따로 판정한다. 충족한 항목만 met에 적고, 항목 번호(criterion_no)와 근거 문장 번호(sentence_no)를 하나 단다.
 - 금융 개발 경험과 금융권 재직은 다른 조건이다. 실제 금융 서비스 개발을 요청하면 회사 업종만으로 제외하지 않는다.
   금융권 재직을 명시한 경우에만 은행, 증권, 카드, 보험, 간편결제 또는 PG 업체의 재직 근거를 요구한다.
-  개인 또는 학교 프로젝트, 단순 데이터 분석과 실제 업무 경험은 구분하고 요청에서 정한 범위를 따른다.
+  도메인 경험이나 실무 경력을 찾을 때 개인, 학교, 모의 프로젝트와 단순 데이터 분석은 근거가 아니다.
+  요청이 프로젝트 경험까지 찾으라고 밝힌 경우에만 근거로 삼는다.
 - 기간 조건("3년 이상")은 문장에 기간이 드러날 때만 충족으로 본다.
 - 모든 후보를 번호(candidate_no)로 한 번씩 답하고 문장을 옮겨 쓰지 않는다. 충족한 항목이 없으면 met을 비운다."""
 
@@ -179,6 +180,7 @@ class SearchQuery(BaseModel):
         default=None,
         description=(
             "분석에서 정리한 전체 경력 연수 하한으로 같은 연수도 포함한다. '경력 5년 이상'이면 5. "
+            "연수는 개월을 버린 정수라 5년 7개월도 5다. 그래서 '5년 넘는'도 5다. "
             "특정 직무나 도메인의 경력 내용은 concepts에 함께 적는다. 경력 연수 조건이 없으면 null"
         ),
     )
@@ -919,12 +921,6 @@ def _score_sources(query: SearchQuery) -> list[str]:
     ]
 
 
-def _shorten(text: str) -> str:
-    trimmed = " ".join(text.split())
-    return trimmed if len(trimmed) <= EVIDENCE_LENGTH else trimmed[: EVIDENCE_LENGTH - 1] + "…"
-
-
 def _display_evidence(sourced: SourcedSentence) -> str:
-    if sourced.anchor:
-        return " ".join(sourced.sentence.split())
-    return _shorten(sourced.sentence)
+    """화면에 보일 근거 문장. 중간에서 자르지 않고 문장 전체를 한 줄로 보인다."""
+    return " ".join(sourced.sentence.split())

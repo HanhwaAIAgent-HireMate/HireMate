@@ -245,7 +245,7 @@ def build_root_graph(
         with using_model_call_budget(run.budget):
             if isinstance(output, AnswerOutput):
                 message, checked = await review_items(llm, context, ledger, output.message, output.items)
-                reviewed = answer_plan(message, checked)
+                reviewed = answer_plan(context, message, checked)
             elif isinstance(output, QuestionsOutput) and isinstance(run.plan.form, QuestionsPlan):
                 # 확인할 점은 사실 주장이 아니라 물어볼 점이라 판정 모델 없이 근거 상태만 맞춘다.
                 # 남은 확인할 점이 없으면 요청 문장으로 질문을 만들게 한다

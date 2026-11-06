@@ -192,7 +192,9 @@ export function CandidateList({
           />
         </label>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto px-3 pt-1.5 pb-4">
+      {/* 스크롤 막대를 늘 보여 지원자 수가 바뀌어도 카드 폭이 흔들리지 않게 한다.
+          막대가 오른쪽 여백을 차지하므로 오른쪽 여백은 줄이고, 막대는 얇게 둔다 */}
+      <div className="min-h-0 flex-1 [scrollbar-width:thin] overflow-x-hidden overflow-y-scroll pt-1.5 pr-1.5 pb-4 pl-3">
         <div className="grid grid-cols-3 gap-2">
           {candidates.isPending &&
             Array.from({ length: 9 }, (_, index) => <Skeleton key={index} className="h-14" />)}

@@ -1,6 +1,7 @@
 import { ArrowUp, AtSign, Bot, History, Sparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
+import { AdminRequestButton } from '@/components/AdminRequestButton'
 import { LiveSteps, StepsSummary } from '@/features/chat/ChatSteps'
 import type { ChatStep } from '@/features/chat/steps'
 import type { NcsSource } from '@/features/posting/api'
@@ -23,6 +24,8 @@ export type AiMessage = {
   steps?: ChatStep[]
   seconds?: number
   ncsSources?: NcsSource[]
+  /** AI 서버 · 서버 오류라 [관리자에게 확인 요청]을 함께 보여 준다 */
+  admin?: boolean
 }
 
 /**
@@ -48,7 +51,8 @@ export function AiRequestPanel({
   disabled?: boolean
   focus?: { label: string; onClear: () => void }
   steps?: ChatStep[]
-  onSend: (message: string) => void
+  /** example은 예시 문구를 눌러 보낸 요청이다. 고른 줄 없이 보내야 한다 */
+  onSend: (message: string, options?: { example?: boolean }) => void
   onReset?: () => void
 }) {
   const [text, setText] = useState('')
@@ -63,6 +67,15 @@ export function AiRequestPanel({
     if (!trimmed || pending || disabled) return
     onSend(trimmed)
     setText('')
+  }
+  /**
+   * 예시 문구는 고른 줄과 상관없는 요청이다. 줄을 골라 둔 채 누르면 그 줄을 마음대로 고치므로,
+   * 고르기를 풀고 예시 요청 그대로 보낸다
+   */
+  const sendExample = (example: string) => {
+    if (pending || disabled) return
+    focus?.onClear()
+    onSend(example, { example: true })
   }
 
   return (
@@ -89,7 +102,7 @@ export function AiRequestPanel({
             {examples.map((example) => (
               <button
                 key={example}
-                onClick={() => send(example)}
+                onClick={() => sendExample(example)}
                 disabled={pending || disabled}
                 className="block w-full rounded-xl border px-3 py-2 text-left text-sm hover:bg-muted"
               >
@@ -117,6 +130,7 @@ export function AiRequestPanel({
                 <p className="whitespace-pre-wrap">{message.text}</p>
                 {message.ncsSources && <NcsSources sources={message.ncsSources} />}
                 {message.agent && <AgentChip name={message.agent} stub={message.stub} />}
+                {message.admin && <AdminRequestButton />}
               </div>
             </div>
           ),

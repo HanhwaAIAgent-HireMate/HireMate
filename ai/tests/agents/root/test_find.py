@@ -415,6 +415,29 @@ async def test_recheck_drops_sentence_missing_from_documents(
     assert plan.items[0].text == SENTENCES["정유민"]
 
 
+async def test_found_evidence_is_shown_whole(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 근거 문장을 중간에서 자르고 '…'를 붙이면 담당자가 끝까지 읽을 수 없다
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 경험 있는 사람 찾아줘")
+    sentence = (
+        "정산 배치 지연을 줄이기 위해 팀과 함께 처리 구조를 바꿨고, "
+        "장애 회고를 문서로 남겨 같은 문제가 반복되지 않게 했습니다."
+    )
+    found = CandidateMatch(
+        application_id=sample_applicants["정유민"].info.application_id,
+        sentences=[SourcedSentence(sentence=sentence, source="자기소개서")],
+        hits=1,
+    )
+    search = SpySearch([found])
+
+    plan = await plan_find(
+        FakeLlm(rechecked(["정유민"], {"정유민": [1]})), FINANCE, context, RootToolkit(search=search)
+    )
+
+    assert plan.items[0].text == sentence
+
+
 async def test_recheck_drops_unknown_sentence_number(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
@@ -1198,6 +1221,19 @@ async def test_recheck_distinguishes_finance_work_from_finance_employment(
     await plan_find(llm, FINANCE, context, RootToolkit(search=SpySearch([found])))
 
     assert "금융 개발 경험과 금융권 재직은 다른 조건" in llm.calls[0].system
+
+
+async def test_recheck_does_not_count_projects_as_domain_experience(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 모의 결제 프로젝트만 한 이도윤이 "금융 도메인 경험"에 들어가면 안 된다 (tests/samples/README.md)
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 도메인 경험 찾아줘")
+    found = match(sample_applicants, "정유민", SENTENCES["정유민"])
+    llm = FakeLlm(RecheckResult(results=[RecheckItem(candidate_no=1, met=True, sentence_nos=[1])]))
+
+    await plan_find(llm, FINANCE, context, RootToolkit(search=SpySearch([found])))
+
+    assert "개인, 학교, 모의 프로젝트와 단순 데이터 분석은 근거가 아니다" in llm.calls[0].system
 
 
 async def test_recheck_reuses_candidate_judgments_after_pool_order_changes(

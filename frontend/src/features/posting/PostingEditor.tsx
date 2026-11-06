@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { addStep, type ChatStep } from '@/features/chat/steps'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
+import { errorReply } from '@/features/posting/errorReply'
 import {
   useApplySuggestion,
   useDiscardSuggestion,
@@ -40,6 +41,7 @@ import { usePostingRecovery } from '@/features/posting/usePostingRecovery'
 import { stagesProblem, toStageForms, type StageForm } from '@/features/posting/stages'
 import {
   CAREER_KINDS,
+  EDUCATION_LEVELS,
   EMPLOYMENT_TYPES,
   MAX_CAREER_YEARS,
   careerLevel,
@@ -158,7 +160,7 @@ export function PostingEditor({
   // 게시한 공고는 모든 지원자가 같은 공고를 보도록 바꿀 수 없다. 전형별 안내(일정 · 장소)는 전형 결과 화면에서 정한다
   const editable = isDraft
   const shown = suggestion ? { ...draft, ...pick(suggestion.content, changed) } : draft
-  // 블라인드 채용. 켜면 학력 칸을 숨기고 비우며, 자격 요건 · 우대 사항의 학력 · 출신 학교 조건을 알린다
+  // 블라인드 채용. 켜면 학력 칸을 비우고 고를 수 없게 하며, 자격 요건 · 우대 사항의 학력 · 출신 학교 조건을 알린다
   const blind = draft.blind
   const locked = (field: string) => !editable || changed.has(field)
   // 고른 줄. 그 칸에 수정안이 생겨 잠기거나 줄이 비면 고르지 않은 것으로 본다
@@ -252,8 +254,9 @@ export function PostingEditor({
     }
   }
 
-  const sendRequest = async (message: string) => {
-    const target = picked
+  const sendRequest = async (message: string, example = false) => {
+    // 예시 문구는 고른 줄과 상관없이 공고 전체에 대한 요청으로 보낸다
+    const target = example ? null : picked
     // 저장하면 빈 줄이 빠지므로, 저장 전 화면의 줄 순서를 서버의 줄 순서로 바꿔 둔다
     const sent = target && toServerFocus(target, draft)
     setMessages((current) => [
@@ -287,7 +290,7 @@ export function PostingEditor({
         },
       ])
     } catch (error) {
-      setMessages((current) => [...current, { role: 'ai', text: errorMessage(error) }])
+      setMessages((current) => [...current, errorReply(error)])
     }
   }
 
@@ -331,6 +334,12 @@ export function PostingEditor({
   }
 
   const goPublish = async () => {
+    // 주요 업무 · 자격 요건을 하나도 쓰지 않았으면 다음 단계로 가지 않는다
+    const written = [...draft.duties, ...draft.qualifications].some((line) => line.trim())
+    if (!written) {
+      toast.error('공고 내용을 작성해 주세요.')
+      return
+    }
     if (await saveDraft(true)) onNext()
   }
 
@@ -368,7 +377,8 @@ export function PostingEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <PostingStepHeader title={isDraft ? '공고 작성' : '게시한 공고'}>
+      {/* 공고 디자인(Poster)처럼 단계 이름 옆에 영문 이름을 둔다 */}
+      <PostingStepHeader title={isDraft ? '공고 작성' : '게시한 공고'} caption="Posting">
         {editable && (
           <Button
             variant="outline"
@@ -458,13 +468,27 @@ export function PostingEditor({
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {TAGS.map((tag) =>
-                  tag.key === 'education' && blind ? null : tag.key === 'employmentType' ? (
-                    <EmploymentTypeSelect
+                  tag.key === 'employmentType' ? (
+                    <OptionSelect
                       key={tag.key}
+                      label="고용 형태"
+                      options={EMPLOYMENT_TYPES}
                       value={shown.employmentType}
                       disabled={locked(tag.key)}
                       changed={changed.has(tag.key)}
                       onChange={(employmentType) => update({ employmentType })}
+                    />
+                  ) : tag.key === 'education' ? (
+                    // 블라인드 채용이면 칸은 그대로 두고 비활성으로 보인다 (숨기면 레이아웃이 흔들린다)
+                    <OptionSelect
+                      key={tag.key}
+                      label="학력"
+                      placeholder={blind ? '학력 (블라인드 채용)' : '학력'}
+                      options={EDUCATION_LEVELS}
+                      value={blind ? '' : shown.education}
+                      disabled={blind || locked(tag.key)}
+                      changed={changed.has(tag.key)}
+                      onChange={(education) => update({ education })}
                     />
                   ) : tag.key === 'career' ? (
                     <CareerField
@@ -694,7 +718,7 @@ export function PostingEditor({
           disabled={!editable}
           focus={picked ? { label: focusLabel(picked), onClear: () => setFocus(null) } : undefined}
           steps={steps}
-          onSend={(message) => void sendRequest(message)}
+          onSend={(message, options) => void sendRequest(message, options?.example)}
           onReset={() => setMessages([])}
         />
       </div>
@@ -776,30 +800,37 @@ function SuggestionActions({ onApply, onDiscard }: { onApply: () => void; onDisc
  * 고용 형태는 정해 둔 넷 중에서 고른다. 예전에 글로 적은 값은 지우지 않고 목록 끝에 보여 주어,
  * HR이 넷 중 하나로 바꿀 때까지 그대로 둔다
  */
-function EmploymentTypeSelect({
+/** 목록에서 고르는 기본 정보 칸 (고용 형태 · 학력). 목록에 없는 예전 값은 목록 끝에 보여 준다 */
+function OptionSelect({
+  label,
+  placeholder = label,
+  options: choices,
   value,
   disabled,
   changed,
   onChange,
 }: {
+  label: string
+  placeholder?: string
+  options: readonly string[]
   value: string
   disabled: boolean
   changed: boolean
   onChange: (value: string) => void
 }) {
-  const options: string[] = [...EMPLOYMENT_TYPES]
+  const options: string[] = [...choices]
   if (value && !options.includes(value)) options.push(value)
   return (
-    <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
+    <Select value={value || ''} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger
         size="sm"
-        aria-label="고용 형태"
+        aria-label={label}
         className={cn(
           'h-7 gap-1 border-0 bg-muted px-2 text-xs focus-visible:ring-1',
           changed && 'bg-pass',
         )}
       >
-        <SelectValue placeholder="고용 형태" />
+        <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
         {options.map((option) => (

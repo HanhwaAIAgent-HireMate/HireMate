@@ -8,7 +8,8 @@ export type ChatMessage =
   /** asker: 질문한 담당자 이름. 탭 대화는 같은 기업 담당자가 함께 쓴다. 예전 기록은 null이다 */
   | { role: 'user'; text: string; mentions: Mention[]; asker: string | null }
   | { role: 'ai'; answer: ChatAnswer; steps: ChatStep[]; seconds: number | null }
-  | { role: 'error'; text: string }
+  /** admin: AI 서버 · 서버 오류라 [관리자에게 확인 요청]을 함께 보여 준다 */
+  | { role: 'error'; text: string; admin?: boolean }
 
 type ChatState = {
   threads: Record<string, ChatMessage[]>

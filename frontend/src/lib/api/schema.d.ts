@@ -2111,6 +2111,8 @@ export interface components {
             guide: string;
             guideMissing: string[];
             onboarding: components["schemas"]["OnboardingGuide"];
+            applicationNoLine: string | null;
+            interviewTimeHint: boolean;
             closing: string;
             requiredText: string;
             /** Format: int32 */
@@ -3135,25 +3137,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            short: boolean;
-            pojo: boolean;
-            double: boolean;
             binary: boolean;
-            int: boolean;
-            string: boolean;
+            pojo: boolean;
+            short: boolean;
             long: boolean;
-            boolean: boolean;
+            double: boolean;
+            int: boolean;
             /** @deprecated */
             textual: boolean;
-            container: boolean;
+            boolean: boolean;
+            string: boolean;
             floatingPointNumber: boolean;
-            missingNode: boolean;
+            bigInteger: boolean;
+            valueNode: boolean;
             bigDecimal: boolean;
+            container: boolean;
+            integralNumber: boolean;
+            missingNode: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
-            integralNumber: boolean;
-            valueNode: boolean;
-            bigInteger: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3345,6 +3347,7 @@ export interface components {
             memo: string;
             schoolMentions: string[];
             schoolCleared: boolean;
+            originalsWithName: ("RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE")[];
         };
         Match: {
             title: string;

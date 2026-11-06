@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.db.profile import ItemAgent, ItemCategory
@@ -68,7 +69,6 @@ async def test_semantic_search_reports_unindexed_profiles(db_session: AsyncSessi
 
 async def test_backfill_indexes_only_requested_recruitment(db_session: AsyncSession) -> None:
     from root_context import sessions_of
-    from sqlalchemy import select
 
     from hiremate_ai.db.profile import CandidateProfile
 
@@ -181,7 +181,6 @@ async def test_index_timeout_does_not_fail_application_analysis() -> None:
 
 async def test_backfill_keeps_completed_profiles_when_embedding_fails(db_session: AsyncSession) -> None:
     from root_context import sessions_of
-    from sqlalchemy import select
 
     from hiremate_ai.db.profile import CandidateProfile
     from hiremate_ai.ncs_search.reference import NcsUnavailable
@@ -219,6 +218,48 @@ async def test_backfill_keeps_completed_profiles_when_embedding_fails(db_session
     profiles = (await db_session.scalars(select(CandidateProfile))).all()
 
     assert sum(profile.items[0].embedding is not None for profile in profiles) == 1
+
+
+async def test_index_keeps_finished_batches_when_embedding_fails(db_session: AsyncSession) -> None:
+    from root_context import sessions_of
+
+    from hiremate_ai.db.profile import CandidateProfile
+    from hiremate_ai.ncs_search.reference import NcsUnavailable
+
+    company_id, recruitment_id, application_id = uuid4(), uuid4(), uuid4()
+    await save_profile(
+        db_session,
+        company_id=company_id,
+        recruitment_id=recruitment_id,
+        application_id=application_id,
+        agent=ItemAgent.APPLICATION,
+        items=[
+            NewItem(
+                category=ItemCategory.EXPERIENCE, content=f"승인 서버 {n}", evidence=f"승인 서버 {n}", source="이력서"
+            )
+            for n in range(5)
+        ],
+    )
+    await db_session.commit()
+
+    class FailsOnSecond(FakeEmbedder):
+        calls = 0
+
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            self.calls += 1
+            if self.calls == 2:
+                raise NcsUnavailable("offline")
+            return await super().embed(texts)
+
+    index = profile_search.profile_indexer(sessions_of(db_session), FailsOnSecond())
+
+    with pytest.raises(NcsUnavailable):
+        await index(company_id, recruitment_id, application_id)
+    db_session.expire_all()
+    profile = await db_session.scalar(select(CandidateProfile).where(CandidateProfile.application_id == application_id))
+
+    assert profile is not None
+    assert sum(item.embedding is not None for item in profile.items) == 4
 
 
 async def test_search_retries_missing_index_and_uses_it_next_time(db_session: AsyncSession) -> None:

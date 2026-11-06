@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowUp, AtSign, Check, FileChartColumn, Sparkles, X } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 
+import { AdminRequestButton } from '@/components/AdminRequestButton'
 import { AgentChip } from '@/features/posting/AiRequestPanel'
 import { AgentReportModal } from '@/features/report/AgentReportModal'
 import {
@@ -17,7 +18,7 @@ import { turnsToMessages, useChatStore, type ChatMessage } from '@/features/chat
 import { careerLabel, stageKeys, type StageOverview } from '@/features/screening/api'
 import { useStageUi } from '@/features/screening/store'
 import type { StageTab } from '@/features/screening/tabs'
-import { errorMessage } from '@/lib/api/client'
+import { errorMessage, needsAdmin } from '@/lib/api/client'
 import { useMe } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
@@ -141,7 +142,8 @@ export function ChatPanel({
         // 쌓은 단계는 답에 붙여 접어 둔다. 다시 불러오면 ai 서버가 남긴 같은 단계가 온다
         onSuccess: ({ answer, seconds }) =>
           append(tab, { role: 'ai', answer, steps: steps.current, seconds }),
-        onError: (error) => append(tab, { role: 'error', text: errorMessage(error) }),
+        onError: (error) =>
+          append(tab, { role: 'error', text: errorMessage(error), admin: needsAdmin(error) }),
         // 진행 중 화면은 최종 답이나 오류로 바뀐다
         onSettled: () => {
           asking.current = null
@@ -352,7 +354,12 @@ function renderMessage(message: ChatMessage, openReport: (reportId: string) => v
     )
   }
   if (message.role === 'error') {
-    return <p className="text-sm text-destructive">{message.text}</p>
+    return (
+      <div className="space-y-1.5">
+        <p className="text-sm text-destructive">{message.text}</p>
+        {message.admin && <AdminRequestButton />}
+      </div>
+    )
   }
   return (
     <Answer

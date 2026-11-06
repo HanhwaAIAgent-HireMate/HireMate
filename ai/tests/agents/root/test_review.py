@@ -222,8 +222,12 @@ async def test_candidate_item_needs_own_evidence_to_be_ok(
     assert checked[0].item.status == "CHECK"
 
 
-def test_nothing_left_is_none() -> None:
-    assert answer_plan("답", []) is None
+def test_nothing_left_is_none(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+
+    assert answer_plan(context, "답", []) is None
 
 
 async def test_answer_plan_carries_sources_and_agents(
@@ -237,10 +241,48 @@ async def test_answer_plan_carries_sources_and_agents(
         FakeLlm(judged(("I1", "SUPPORTED"), ("M", "SUPPORTED"))), context, ledger, "답", [draft(ref)]
     )
 
-    plan = answer_plan("답", checked)
+    plan = answer_plan(context, "답", checked)
 
     assert plan is not None and plan.sources == ["이력서"] and plan.agents == ["Application Agent"]
     assert plan.items[0].application_id == owner
+
+
+async def test_compared_message_stays_and_compared_item_needs_check(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    ledger = Ledger()
+    owner = context.candidates[0].application_id
+    ref = ledger.add(owner, "본인 · 결제 API 개발", quote="결제 API를 개발했다.", source="이력서", cap="OK")
+    llm = FakeLlm(judged(("I1", "COMPARED"), ("M", "COMPARED")))
+    answer = f"서류 기준으로는 {context.candidates[0].name} 님이 실무 경험에서 앞서 보여요."
+
+    message, checked = await review_items(llm, context, ledger, answer, [draft(ref)])
+
+    assert message == answer
+    assert [each.item.status for each in checked] == ["CHECK"]
+
+
+async def test_answer_items_name_their_candidate(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    ledger = Ledger()
+    first, second = context.candidates[0], context.candidates[1]
+    ref = ledger.add(first.application_id, "본인 · 결제 API 개발", source="이력서", cap="OK")
+    other = ledger.add(second.application_id, "본인 · 회고 진행", source="이력서", cap="OK")
+    total = ledger.add(None, "지원자 8명", source="전형 결과", cap="OK")
+    llm = FakeLlm(judged(("I1", "SUPPORTED"), ("I2", "SUPPORTED"), ("M", "SUPPORTED")))
+    named = ItemDraft.model_validate(
+        {"candidate": "C2", "label": f"{second.name} 강점", "text": "회고를 맡았어요", "status": "OK", "refs": [other]}
+    )
+    common = draft(total, candidate=None, text="모두 미결정이에요")
+
+    message, checked = await review_items(llm, context, ledger, "정리했어요.", [draft(ref), named, common])
+    plan = answer_plan(context, message, checked)
+
+    assert plan is not None
+    assert [item.label for item in plan.items] == [f"{first.name} · 협업", f"{second.name} 강점", "협업"]
 
 
 async def test_questions_plan_builds_focus_and_memo(
@@ -285,6 +327,24 @@ async def test_later_stage_gap_is_rewritten(
     _, checked = await review_items(llm, context, ledger, "정리했어요.", [draft(ref, text=text)])
 
     assert checked[0].item.text == "결제 API를 개발했어요."
+
+
+async def test_long_item_text_is_kept_whole(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 항목 문장을 중간에서 자르고 '…'를 붙이면 담당자가 끝까지 읽을 수 없다
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    ledger = Ledger()
+    ref = ledger.add(context.candidates[0].application_id, "본인 · 결제 API 개발", source="이력서", cap="OK")
+    text = (
+        "카드 결제 승인 API를 Java와 Spring Boot로 개발하고, 정산 배치에서 실패한 건을 다시 처리하는 흐름을 "
+        "직접 설계해 운영했어요. 장애가 나면 회고를 문서로 남겨 같은 문제가 반복되지 않게 했다고 적었어요."
+    )
+    llm = FakeLlm(judged(("I1", "SUPPORTED"), ("M", "SUPPORTED")))
+
+    _, checked = await review_items(llm, context, ledger, "정리했어요.", [draft(ref, text=f"{text}\n")])
+
+    assert checked[0].item.text == text
 
 
 async def test_questions_plan_carries_ncs(

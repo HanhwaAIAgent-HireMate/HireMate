@@ -2,6 +2,7 @@ import { Plus, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 
+import { Pager } from '@/components/Pager'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDashboard, type StatusFilter } from '@/features/dashboard/api'
@@ -22,11 +23,15 @@ const TABS: {
   { key: 'CLOSED', label: '종료', count: 'closed' },
 ]
 
+/** 한 쪽에 보이는 채용 수 */
+const PAGE_SIZE = 5
+
 // DSH-01 Hiring Dashboard. 진행 중인 채용과 전형 단계를 한눈에 본다
 export function DashboardPage() {
   const [status, setStatus] = useState<StatusFilter>('ALL')
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
+  const [page, setPage] = useState(0)
   const dashboard = useDashboard(status, debounced)
   const me = useMe()
 
@@ -35,13 +40,23 @@ export function DashboardPage() {
     return () => clearTimeout(timer)
   }, [query])
 
+  const items = dashboard.data?.items ?? []
+  const pageCount = Math.ceil(items.length / PAGE_SIZE)
+  // 탭 · 검색을 바꾸거나 지워서 쪽이 줄면 남은 마지막 쪽을 보인다
+  const shownPage = Math.min(page, Math.max(0, pageCount - 1))
+  const changeStatus = (next: StatusFilter) => {
+    setStatus(next)
+    setPage(0)
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between border-b px-6 py-4">
         <h1 className="text-xl font-bold">채용</h1>
         <Button asChild>
           <Link to="/hr/recruitments/new">
-            <Plus />새 채용
+            <Plus />
+            공고 작성
           </Link>
         </Button>
       </div>
@@ -53,7 +68,7 @@ export function DashboardPage() {
                 key={tab.key}
                 role="tab"
                 aria-selected={status === tab.key}
-                onClick={() => setStatus(tab.key)}
+                onClick={() => changeStatus(tab.key)}
                 className={cn(
                   '-mb-px border-b-2 pb-2.5',
                   status === tab.key
@@ -69,7 +84,10 @@ export function DashboardPage() {
             <Search className="size-4 text-muted-foreground" />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setPage(0)
+              }}
               placeholder="채용명 검색"
               aria-label="채용명 검색"
               className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
@@ -86,11 +104,11 @@ export function DashboardPage() {
               <p className="text-sm text-muted-foreground">
                 {debounced || status !== 'ALL'
                   ? '조건에 맞는 채용이 없어요.'
-                  : '아직 채용이 없어요. 새 채용으로 공고 작성부터 시작해요.'}
+                  : '아직 채용이 없어요. [공고 작성]으로 첫 채용을 시작해요.'}
               </p>
             </div>
           )}
-          {dashboard.data?.items.map((card) => (
+          {items.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE).map((card) => (
             <RecruitmentCardItem
               key={card.recruitmentId}
               card={card}
@@ -98,6 +116,7 @@ export function DashboardPage() {
             />
           ))}
         </div>
+        <Pager page={shownPage} pageCount={pageCount} onChange={setPage} label="채용 목록 쪽" />
       </div>
     </div>
   )

@@ -1,7 +1,7 @@
 package com.hiremate.notice;
 
 import com.hiremate.activity.ActivityService;
-import com.hiremate.apply.ApplicantInfo;
+import com.hiremate.apply.ApplicantContact;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.company.CompanyService;
 import com.hiremate.company.MailStyleService;
@@ -60,6 +60,9 @@ public class NoticeService {
     static final String ONBOARDING_LEAD = "입사 일정과 준비 사항은 아래 안내를 확인해 주시기 바랍니다.";
     static final String ONBOARDING_LATER = "입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.";
     static final String PREVIEW_APPLICANT = "홍길동";
+    static final int PREVIEW_APPLICATION_NO = 1;
+    /** 블라인드 채용 안내 메일의 맺음말 앞에 붙이는 지원번호 안내. */
+    static final String APPLICATION_NO_LINE = "{지원자명}님의 지원번호는 {지원번호}번입니다.";
     /** 합격 안내를 보낼 수 있는 다음 면접 배정 상태. 다음 전형이 면접이 아니면 NOT_APPLICABLE이다. */
     private static final Set<String> SCHEDULED = Set.of("READY", "NOT_APPLICABLE");
 
@@ -72,6 +75,8 @@ public class NoticeService {
     private static final DateTimeFormatter GUIDE_TIME = DateTimeFormatter.ofPattern("HH:mm");
     /** 다음 면접 안내 메일의 지원자별 면접 일시. 보낼 때 지원자마다 채우는 안의 변수다. */
     private static final String INTERVIEW_TIME = "{면접일시}";
+    /** 미리보기의 면접 일정 옆에 두는 메모. 실제 메일에는 메모 대신 지원자별 시각이 들어간다. */
+    static final String PREVIEW_TIME_NOTE = "보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요";
 
     private final NoticeRepository notices;
     private final NoticeDeliveryRepository deliveries;
@@ -171,18 +176,21 @@ public class NoticeService {
                     .toList();
             requireInterviewTimes(companyId, stageId, pending, interviewTimes);
         }
-        MailContent content = content(notice, recruitment, companyName, !interviewTimes.isEmpty());
+        MailContent content = content(notice, recruitment, companyName, !interviewTimes.isEmpty(),
+                applications.blind(companyId, recruitment.id()));
         MailBrand brand = mailStyles.brand(companyId);
         int sent = 0;
         int failed = 0;
-        for (ApplicantInfo applicant : applications.applicants(companyId, recipients)) {
+        // 블라인드 채용에서도 지원자 본인에게 보내는 메일이라 실제 이름과 이메일을 쓴다
+        for (ApplicantContact applicant : applications.contacts(companyId, recipients)) {
             NoticeDelivery delivery = previous.get(applicant.applicationId());
             if (delivery != null && delivery.isSent()) {
                 sent++;
                 continue;
             }
             Instant interviewAt = interviewTimes.get(applicant.applicationId());
-            Map<String, String> values = new HashMap<>(values(applicant.name(), companyName, recruitment, stageId));
+            Map<String, String> values = new HashMap<>(values(applicant.name(), applicant.applicationNo(), companyName,
+                    recruitment, stageId));
             values.put(INTERVIEW_TIME, interviewAt == null ? "" : formatInterview(interviewAt));
             MailResult result = mail.send(applicant.email(), fill(notice.getSubject(), values),
                     content.fill(values), brand);
@@ -209,9 +217,14 @@ public class NoticeService {
         Notice notice = notice(companyId, stageId, group);
         RecruitmentInfo recruitment = recruits.getByStage(companyId, stageId);
         String companyName = companies.profile(companyId).name();
-        Map<String, String> values = values(PREVIEW_APPLICANT, companyName, recruitment, stageId);
+        Map<String, String> values = new HashMap<>(values(PREVIEW_APPLICANT, PREVIEW_APPLICATION_NO, companyName,
+                recruitment, stageId));
+        Optional<String> interviewDate = previewInterviewDate(notice, recruitment);
+        interviewDate.ifPresent(date -> values.put(INTERVIEW_TIME, date));
+        MailContent content = content(notice, recruitment, companyName, interviewDate.isPresent(),
+                applications.blind(companyId, recruitment.id())).fill(values);
         return MailPreview.of(fill(notice.getSubject(), values),
-                content(notice, recruitment, companyName).fill(values), mailStyles.brand(companyId));
+                interviewDate.isPresent() ? withScheduleHint(content) : content, mailStyles.brand(companyId));
     }
 
     /** 공고 작성 화면의 전형 안내. 첫 전형은 안내하는 메일이 없어 뺀다. */
@@ -316,25 +329,28 @@ public class NoticeService {
                 () -> new ApiException(HttpStatus.NOT_FOUND, "NOTICE_NOT_FOUND", "Notice not found."));
     }
 
-    /** 메일 내용. 인사말과 본문, 붙일 안내, 맺음말, 필수 문구 순서다. 변수는 아직 채우지 않았다. */
-    private static MailContent content(Notice notice, RecruitmentInfo recruitment, String companyName) {
-        return content(notice, recruitment, companyName, false);
-    }
-
-    /** interviewTime이면 다음 전형 안내의 일정 줄을 지원자별 면접 일시 변수로 둔다. 보낼 때 지원자마다 채운다. */
+    /**
+     * 메일 내용. 인사말과 본문, 붙일 안내, 맺음말, 필수 문구 순서다. 변수는 아직 채우지 않았다. interviewTime이면 다음 전형
+     * 안내의 일정 줄을 지원자별 면접 일시 변수로 둔다. 블라인드 채용이면 맺음말 앞에 지원자 본인의 지원번호를 알린다. 담당자
+     * 화면에는 이름 대신 지원번호가 보여 지원자가 문의할 때 번호가 필요하다.
+     */
     private static MailContent content(Notice notice, RecruitmentInfo recruitment, String companyName,
-            boolean interviewTime) {
+            boolean interviewTime, boolean blind) {
         List<MailContent.Block> blocks = new ArrayList<>(List.of(new MailContent.Text(notice.getGreeting()),
                 new MailContent.Text(notice.getContent())));
         guideBlock(notice, recruitment, interviewTime).ifPresent(blocks::add);
+        if (blind) {
+            blocks.add(new MailContent.Text(APPLICATION_NO_LINE));
+        }
         return new MailContent(companyName, recruitment.title(), blocks, notice.getClosing(),
                 notice.getRequiredText());
     }
 
-    private static Map<String, String> values(String applicantName, String companyName, RecruitmentInfo recruitment,
-            UUID stageId) {
-        return Map.of("{지원자명}", applicantName, "{회사명}", companyName, "{공고명}", recruitment.title(),
-                "{전형명}", recruitment.stage(stageId).orElseThrow().name());
+    /** {지원번호}는 블라인드 채용에서 면접관이 지원자를 번호로 부르므로, 지원자가 자기 번호를 알 수 있게 쓴다. */
+    private static Map<String, String> values(String applicantName, int applicationNo, String companyName,
+            RecruitmentInfo recruitment, UUID stageId) {
+        return Map.of("{지원자명}", applicantName, "{지원번호}", String.valueOf(applicationNo), "{회사명}", companyName,
+                "{공고명}", recruitment.title(), "{전형명}", recruitment.stage(stageId).orElseThrow().name());
     }
 
     private static String fill(String text, Map<String, String> values) {
@@ -416,6 +432,35 @@ public class NoticeService {
                         .collect(Collectors.toMap(InterviewService.StageSchedule::applicationId,
                                 InterviewService.StageSchedule::scheduledAt)))
                 .orElse(Map.of());
+    }
+
+    /** 합격 안내이고 다음 전형이 면접인지. 그러면 안내의 일정 줄에 지원자마다 배정한 면접 시각이 붙는다. */
+    private static boolean interviewNext(Notice notice, RecruitmentInfo recruitment) {
+        return notice.getGroupType() == NoticeGroup.PASS && nextStage(notice, recruitment)
+                .filter(next -> next.type() == StageType.INTERVIEW).isPresent();
+    }
+
+    /** 미리보기의 면접 일시. 시각은 지원자마다 달라 날짜만 쓴다. */
+    private static Optional<String> previewInterviewDate(Notice notice, RecruitmentInfo recruitment) {
+        if (!interviewNext(notice, recruitment)) {
+            return Optional.empty();
+        }
+        return nextStage(notice, recruitment)
+                .map(next -> next.guide().schedule() == null ? "" : GUIDE_DATE.format(next.guide().schedule()));
+    }
+
+    /** 미리보기의 일정 칸 날짜 옆에 흐린 작은 글씨로 보낼 때 시각이 들어간다는 메모를 둔다. 보내는 메일에는 없다. */
+    private static MailContent withScheduleHint(MailContent content) {
+        List<MailContent.Block> blocks = content.blocks().stream()
+                .map(block -> block instanceof MailContent.Guide guide
+                        ? new MailContent.Guide(guide.lead(), guide.title(), guide.items().stream()
+                                .map(item -> item.label().equals("일정")
+                                        ? new MailContent.Item(item.label(), item.value(), PREVIEW_TIME_NOTE)
+                                        : item)
+                                .toList(), guide.notes())
+                        : block)
+                .toList();
+        return new MailContent(content.sender(), content.caption(), blocks, content.closing(), content.footer());
     }
 
     /** 일정 줄을 지원자별 면접 일시 변수로 바꾼 안내 칸. */
@@ -513,11 +558,14 @@ public class NoticeService {
         };
     }
 
-    private static NoticeView toView(Notice notice, RecruitmentInfo recruitment) {
+    private NoticeView toView(Notice notice, RecruitmentInfo recruitment) {
+        String guide = guideText(notice, recruitment);
         return new NoticeView(notice.getId(), notice.getStageId(), notice.getGroupType(), notice.getTemplateType(),
                 label(notice.getTemplateType()), notice.getSubject(), notice.getGreeting(), notice.getContent(),
-                guideText(notice, recruitment), guideMissing(notice, recruitment), notice.onboarding(),
-                notice.getClosing(), notice.getRequiredText(), notice.getRecipientCount(), notice.getStatus(),
-                notice.getSentCount(), notice.getFailedCount(), notice.getSentAt());
+                guide, guideMissing(notice, recruitment), notice.onboarding(),
+                applications.blind(recruitment.companyId(), recruitment.id()) ? APPLICATION_NO_LINE : null,
+                !guide.isEmpty() && interviewNext(notice, recruitment), notice.getClosing(), notice.getRequiredText(),
+                notice.getRecipientCount(), notice.getStatus(), notice.getSentCount(), notice.getFailedCount(),
+                notice.getSentAt());
     }
 }

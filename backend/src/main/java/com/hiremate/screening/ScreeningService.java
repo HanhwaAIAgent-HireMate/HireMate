@@ -323,7 +323,8 @@ public class ScreeningService {
                 applicant.info().email(),
                 applicant.phone(), applicant.info().submittedAt(), applicant.certificates(), applicant.documents(),
                 candidate.getMemo(), checksSchools(context)
-                        ? schoolMentions(applicant.documents()) : List.of(), candidate.isSchoolCleared());
+                        ? schoolMentions(applicant.documents()) : List.of(), candidate.isSchoolCleared(),
+                applications.originalsWithName(companyId, applicationId));
     }
 
     /** 서류 전형에서 블라인드 위반 의심을 해제한다. 지원자는 리스트의 원래 자리로 돌아간다. 결정이나 감점이 아니다. */

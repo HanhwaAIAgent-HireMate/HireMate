@@ -1,5 +1,5 @@
 import { LoaderCircle, Lock, Send } from 'lucide-react'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
@@ -39,6 +39,7 @@ import { MailFrame } from '@/features/notice/MailFrame'
 import { sentenceDiff } from '@/features/notice/sentenceDiff'
 import { NEXT_STAGE_GUIDE_ID } from '@/features/notice/StageGuides'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
+import { errorReply } from '@/features/posting/errorReply'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import { useStageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
@@ -75,6 +76,10 @@ const ONBOARDING_FIELDS: GuideField<keyof OnboardingGuide>[] = [
   },
 ]
 const ONBOARDING_ID = 'onboarding'
+/** 보낼 모습은 메일을 실제 폭으로 그린 뒤 줄여, 편집 화면 폭에 맞추고 스크롤을 줄인다 */
+const PREVIEW_SCALE = 0.8
+/** 다음 면접 안내의 일정 옆에 두는 메모. 자리가 모자라면 통째로 아래 줄로 내려간다. 미리보기의 메모와 같은 말이다 */
+const INTERVIEW_TIME_HINT = '보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요'
 /** 입사 안내를 비워 두면 backend가 본문 아래에 붙이는 문장 */
 const ONBOARDING_LATER = '입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.'
 
@@ -251,7 +256,7 @@ function Editor({
         { role: 'ai', text: answer.reply, agent: answer.agent, stub: answer.stub },
       ])
     } catch (error) {
-      setMessages((current) => [...current, { role: 'ai', text: errorMessage(error) }])
+      setMessages((current) => [...current, errorReply(error)])
     }
   }
 
@@ -409,11 +414,12 @@ function Editor({
             </TabsList>
           </Tabs>
           {view === 'preview' ? (
-            <div className="mx-auto max-w-[640px]">
+            <div className="mx-auto w-fit">
               <MailFrame
                 preview={preview.data}
                 title={`${notice.label} 미리보기`}
                 settingsLink="메일 색 · 로고 바꾸기"
+                scale={PREVIEW_SCALE}
               />
             </div>
           ) : (
@@ -501,9 +507,30 @@ function Editor({
                           </>
                         )}
                       </p>
-                      <p className="leading-6 whitespace-pre-line">{notice.guide}</p>
+                      <p className="leading-6 whitespace-pre-line">
+                        {notice.guide.split('\n').map((line, index) => (
+                          <Fragment key={index}>
+                            {index > 0 && '\n'}
+                            {line}
+                            {notice.interviewTimeHint && line.startsWith('- 일정:') && (
+                              <span className="ml-1.5 inline-block text-[11px] text-muted-foreground">
+                                {INTERVIEW_TIME_HINT}
+                              </span>
+                            )}
+                          </Fragment>
+                        ))}
+                      </p>
                     </div>
                   )
+                )}
+                {notice.applicationNoLine && (
+                  <div className="space-y-1 rounded-lg bg-muted/50 px-3 py-2">
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Lock className="size-3.5" />
+                      블라인드 채용이라 보낼 때 붙는 지원번호 안내
+                    </p>
+                    <p className="leading-6">{notice.applicationNoLine}</p>
+                  </div>
                 )}
                 <VariableField
                   aria-label="맺음말"
