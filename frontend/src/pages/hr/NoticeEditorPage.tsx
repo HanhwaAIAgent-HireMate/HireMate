@@ -78,7 +78,7 @@ const ONBOARDING_FIELDS: GuideField<keyof OnboardingGuide>[] = [
 const ONBOARDING_ID = 'onboarding'
 /** 보낼 모습은 메일을 실제 폭으로 그린 뒤 줄여, 편집 화면 폭에 맞추고 스크롤을 줄인다 */
 const PREVIEW_SCALE = 0.8
-/** 다음 면접 안내의 일정 아래에 두는 메모. 미리보기의 메모와 같은 말이다 */
+/** 다음 면접 안내의 일정 옆에 두는 메모. 자리가 모자라면 통째로 아래 줄로 내려간다. 미리보기의 메모와 같은 말이다 */
 const INTERVIEW_TIME_HINT = '보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요'
 /** 입사 안내를 비워 두면 backend가 본문 아래에 붙이는 문장 */
 const ONBOARDING_LATER = '입사 일정과 준비 사항은 담당자가 별도로 안내드릴 예정입니다.'
@@ -513,7 +513,7 @@ function Editor({
                             {index > 0 && '\n'}
                             {line}
                             {notice.interviewTimeHint && line.startsWith('- 일정:') && (
-                              <span className="block pl-3 text-[11px] leading-4 text-muted-foreground">
+                              <span className="ml-1.5 inline-block text-[11px] text-muted-foreground">
                                 {INTERVIEW_TIME_HINT}
                               </span>
                             )}
