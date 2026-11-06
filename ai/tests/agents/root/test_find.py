@@ -1223,6 +1223,19 @@ async def test_recheck_distinguishes_finance_work_from_finance_employment(
     assert "금융 개발 경험과 금융권 재직은 다른 조건" in llm.calls[0].system
 
 
+async def test_recheck_does_not_count_projects_as_domain_experience(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    # 모의 결제 프로젝트만 한 이도윤이 "금융 도메인 경험"에 들어가면 안 된다 (tests/samples/README.md)
+    context = make_context(sample_applicants, sample_company, sample_posting, message="금융 도메인 경험 찾아줘")
+    found = match(sample_applicants, "정유민", SENTENCES["정유민"])
+    llm = FakeLlm(RecheckResult(results=[RecheckItem(candidate_no=1, met=True, sentence_nos=[1])]))
+
+    await plan_find(llm, FINANCE, context, RootToolkit(search=SpySearch([found])))
+
+    assert "개인, 학교, 모의 프로젝트와 단순 데이터 분석은 근거가 아니다" in llm.calls[0].system
+
+
 async def test_recheck_reuses_candidate_judgments_after_pool_order_changes(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:

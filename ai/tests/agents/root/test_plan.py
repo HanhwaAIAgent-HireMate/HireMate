@@ -162,6 +162,20 @@ def test_career_years_alone_is_a_find_condition() -> None:
     assert has_condition(SearchQuery(max_career_years=0))
 
 
+def test_find_form_tells_add_and_narrow_where_to_search() -> None:
+    # 더하기를 앞 결과 안에서 찾으면 더할 사람이 없고, 좁히기에 앞 조건을 다시 적으면 앞 결과가 다시 걸러진다
+    assert "선택이나 앞 결과를 범위로 쓰지 않는다" in (FindPlan.model_fields["scope"].description or "")
+    assert "within_selected는 앞 조건 없이 새 조건만 적는다" in PLAN_SYSTEM
+    assert "add와 within_selected는 현재 요청의 새 조건만" in (FindPlan.model_fields["query"].description or "")
+
+
+def test_career_years_description_says_months_are_dropped() -> None:
+    # 5년 7개월도 5로 저장하므로 '5년 넘는'을 6으로 쓰면 그 사람이 빠진다
+    schema = SearchQuery.model_json_schema()["properties"]["min_career_years"]
+
+    assert "'5년 넘는'도 5다" in schema["description"]
+
+
 def test_prompt_length_and_invented_names() -> None:
     assert 1700 <= len(PLAN_SYSTEM) <= 2300
     assert not any(name in PLAN_SYSTEM for name in SAMPLE_NAMES)
