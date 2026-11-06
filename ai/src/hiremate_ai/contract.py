@@ -593,3 +593,12 @@ class DocumentIndexRequest(ContractModel):
             raise ValueError("Normalized document identity does not match its request")
         self.document.validate_sources(self.request.sources)
         return self
+
+
+class DocumentIndexResult(ContractModel):
+    """Accepted document index completion, including harmless stale delivery."""
+
+    model_config = ConfigDict(extra="forbid")
+    document_id: UUID
+    revision: int = Field(gt=0)
+    status: Literal["INDEXED", "UNCHANGED", "STALE"]

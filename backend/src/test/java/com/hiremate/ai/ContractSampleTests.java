@@ -26,6 +26,7 @@ import com.hiremate.ai.application.TalentFitRequest;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicationAnalysis;
 import com.hiremate.apply.DocumentIndexRequest;
+import com.hiremate.apply.DocumentIndexResult;
 import com.hiremate.apply.DocumentNormalizationRequest;
 import com.hiremate.apply.DocumentSource;
 import com.hiremate.apply.NormalizedDocument;
@@ -73,6 +74,7 @@ class ContractSampleTests {
             Map.entry("NormalizedDocument", NormalizedDocument.class),
             Map.entry("DocumentNormalizationRequest", DocumentNormalizationRequest.class),
             Map.entry("DocumentIndexRequest", DocumentIndexRequest.class),
+            Map.entry("DocumentIndexResult", DocumentIndexResult.class),
             Map.entry("ApplicationAnalysis", ApplicationAnalysis.class),
             Map.entry("CandidateAnalysis", CandidateAnalysis.class),
             Map.entry("CandidateProfileView", CandidateProfileView.class),
