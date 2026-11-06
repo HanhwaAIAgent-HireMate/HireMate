@@ -76,6 +76,34 @@ public class ApplicationDocument {
     @Column(columnDefinition = "jsonb")
     private DocumentNormalizationRequest normalizedRequest;
 
+    private UUID indexJobId;
+
+    private Integer indexRevision;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private DocumentNormalizationStatus indexStatus;
+
+    public void queueIndex(UUID jobId, int acceptedRevision) {
+        this.indexJobId = jobId;
+        this.indexRevision = acceptedRevision;
+        this.indexStatus = DocumentNormalizationStatus.PENDING;
+    }
+
+    public boolean awaitsIndex(UUID jobId) {
+        return indexStatus == DocumentNormalizationStatus.PENDING && jobId != null && jobId.equals(indexJobId)
+                && normalizedDocument != null && indexRevision != null
+                && indexRevision == normalizedDocument.revision();
+    }
+
+    public void completeIndex() {
+        this.indexStatus = DocumentNormalizationStatus.COMPLETED;
+    }
+
+    public void failIndex() {
+        this.indexStatus = DocumentNormalizationStatus.FAILED;
+    }
+
     public void queueNormalization(UUID jobId, DocumentNormalizationRequest request) {
         this.normalizationJobId = jobId;
         this.normalizationRequest = request;

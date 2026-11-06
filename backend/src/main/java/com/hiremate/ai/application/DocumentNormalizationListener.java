@@ -5,7 +5,6 @@ import com.hiremate.apply.DocumentNormalizationRequest;
 import com.hiremate.apply.DocumentNormalizationRequested;
 import com.hiremate.apply.DocumentNormalizationService;
 import com.hiremate.apply.DocumentNormalized;
-import com.hiremate.job.JobQueue;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -23,15 +22,13 @@ class DocumentNormalizationListener {
     private final DocumentNormalizationService documents;
     private final DocumentNormalizationAgent agent;
     private final AiSettings settings;
-    private final JobQueue jobs;
     private final Duration recoverAfter;
 
     DocumentNormalizationListener(DocumentNormalizationService documents, DocumentNormalizationAgent agent,
-            AiSettings settings, JobQueue jobs, @Value("${hiremate.jobs.recover-after}") Duration recoverAfter) {
+            AiSettings settings, @Value("${hiremate.jobs.recover-after}") Duration recoverAfter) {
         this.documents = documents;
         this.agent = agent;
         this.settings = settings;
-        this.jobs = jobs;
         this.recoverAfter = recoverAfter;
     }
 
@@ -47,8 +44,9 @@ class DocumentNormalizationListener {
 
     @ApplicationModuleListener
     void on(DocumentNormalized event) {
-        jobs.enqueue(DocumentNormalizationService.INDEX_JOB, event.index().document().documentId().toString(),
-                event.index());
+        if (!settings.isStub(AiAgent.APPLICATION)) {
+            documents.enqueueIndex(event.index());
+        }
     }
 
     @Scheduled(fixedDelayString = "${hiremate.jobs.retry-interval}")
@@ -57,6 +55,7 @@ class DocumentNormalizationListener {
             return;
         }
         try {
+            documents.indexRequests().forEach(documents::enqueueIndex);
             for (DocumentNormalizationRequest request : documents.pending(Instant.now().minus(recoverAfter))) {
                 agent.normalize(request);
             }
