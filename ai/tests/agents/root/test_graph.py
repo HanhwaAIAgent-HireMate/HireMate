@@ -21,7 +21,15 @@ from hiremate_ai.agents.root.graph import (
 )
 from hiremate_ai.agents.root.handlers import DECISION_REPLY
 from hiremate_ai.agents.root.review import ClaimJudgement, ClaimVerdict
-from hiremate_ai.agents.root.types import ChatContext, ChatItem, ChatPlan, ChatStatus, EditAction, Intent
+from hiremate_ai.agents.root.types import (
+    ChatContext,
+    ChatItem,
+    ChatPlan,
+    ChatStatus,
+    ChatTab,
+    EditAction,
+    Intent,
+)
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.chat import LAST_CALL, LlmOutputError
@@ -168,6 +176,26 @@ async def test_edit_path_runs_without_more_calls(
     plan = await run_plan(llm, context)
 
     assert (plan.intent, plan.edit, plan.targets) == (Intent.EDIT, EditAction.ADD, context.mentions)
+
+
+async def test_common_applicants_of_tabs_are_added_to_current_tab(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    ids = {name: sample_applicants[name].info.application_id for name in sample_applicants}
+    tabs = [
+        ChatTab(id=uuid4(), name="경력 5년", current=False, application_ids=[ids["김하늘"], ids["정유민"]]),
+        ChatTab(id=uuid4(), name="경력 4년", current=False, application_ids=[ids["정유민"], ids["김하늘"]]),
+        ChatTab(id=uuid4(), name="연동 설계", current=False, application_ids=[ids["정유민"], ids["서민재"]]),
+        ChatTab(id=uuid4(), name="새 탭", current=True, application_ids=[]),
+    ]
+    context = context_of(
+        sample_applicants, sample_company, sample_posting, message="3개 탭에서 공통된 지원자 찾아줘"
+    ).model_copy(update={"tabs": tabs})
+    llm = FakeLlm(form_call("edit", action="ADD", scope={"tabs": ["T1", "T2", "T3"]}))
+
+    plan = await run_plan(llm, context)
+
+    assert (plan.intent, plan.edit, plan.targets) == (Intent.EDIT, EditAction.ADD, [ids["정유민"]])
 
 
 async def test_find_path_records_result(

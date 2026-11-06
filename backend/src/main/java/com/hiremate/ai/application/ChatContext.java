@@ -24,6 +24,7 @@ import java.util.UUID;
  * @param assessments 평가 전형이면 지원자별 영역 점수 · 등급, 아니면 비어 있다. 총점은 candidates의 score다
  * @param asker 질문한 담당자. ai 서버가 대화방 턴에 남긴다
  * @param interviewer 면접관 모드의 Chat인가. 면접관이 배정된 지원자만 들어 있고, 선택 지원자를 바꿀 수 없다
+ * @param tabs 전형의 HR 공유 탭과 탭마다의 선택 지원자. 현재 탭도 들어 있다. 면접관 모드에서는 비어 있다
  */
 public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
         StageType stageType,
@@ -32,7 +33,18 @@ public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, Str
         Map<UUID, InterviewView> interviews, List<UUID> mentions, List<UUID> checked, CompanyProfile company,
         PostingContent posting, String message,
         Map<UUID, List<InterviewerMemo>> interviewerMemos, Map<UUID, Assessment> assessments,
-        @Schema(nullable = true) ChatAsker asker, boolean interviewer) {
+        @Schema(nullable = true) ChatAsker asker, boolean interviewer, List<Tab> tabs) {
+
+    public ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
+            StageType stageType, List<Stage> stages, List<CandidateRow> candidates,
+            Map<UUID, List<ApplicantDocument>> documents, Map<UUID, InterviewView> interviews, List<UUID> mentions,
+            List<UUID> checked, CompanyProfile company, PostingContent posting, String message,
+            Map<UUID, List<InterviewerMemo>> interviewerMemos, Map<UUID, Assessment> assessments, ChatAsker asker,
+            boolean interviewer) {
+        this(stageId, recruitmentId, threadId, stageName, selectable, stageType, stages, candidates, documents,
+                interviews, mentions, checked, company, posting, message, interviewerMemos, assessments, asker,
+                interviewer, List.of());
+    }
 
     public ChatContext(UUID stageId, UUID recruitmentId, String threadId, String stageName, boolean selectable,
             StageType stageType, List<Stage> stages, List<CandidateRow> candidates,
@@ -54,6 +66,15 @@ public record ChatContext(UUID stageId, UUID recruitmentId, String threadId, Str
 
     /** 평가 전형 결과 한 명분. 영역 이름을 키로 쓰고, 점수가 없는 영역은 null이다. */
     public record Assessment(Map<String, BigDecimal> areas, @Schema(nullable = true) String grade) {
+    }
+
+    /**
+     * 전형 화면의 탭 하나와 그 탭의 선택 지원자.
+     *
+     * @param current 이 Chat을 연 탭인가
+     * @param applicationIds 탭의 선택 지원자. 선택한 순서이고 결정한 지원자는 빠진다
+     */
+    public record Tab(UUID id, String name, boolean current, List<UUID> applicationIds) {
     }
 
     /** 채용의 전형 하나. */

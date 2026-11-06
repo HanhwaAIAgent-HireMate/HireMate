@@ -180,7 +180,9 @@ def build_root_graph(
     def edit(state: RootState, runtime: Runtime[ChatContext]) -> RootState:
         run = _run(state)
         form = _form(run, EditPlan)
-        handled = handle_edit(runtime.context, form, run.rows, all_scope="all" in form.scope.sources)
+        # 전형 전체나 다른 탭에서 모아 넣을 때는 이미 선택했거나 넣을 수 없는 사람을 조용히 뺀다
+        bulk = "all" in form.scope.sources or bool(form.scope.tabs)
+        handled = handle_edit(runtime.context, form, run.rows, all_scope=bulk)
         return _handled(handled, _progress(state, runtime))
 
     def questions(state: RootState, runtime: Runtime[ChatContext]) -> RootState:

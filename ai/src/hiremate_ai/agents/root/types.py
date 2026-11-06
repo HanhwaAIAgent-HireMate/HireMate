@@ -114,6 +114,15 @@ class ChatAsker(ContractModel):
     name: str
 
 
+class ChatTab(ContractModel):
+    """전형 화면의 탭 하나와 그 탭의 선택 지원자 (ai.application.ChatContext.Tab). current는 이 Chat을 연 탭이다."""
+
+    id: UUID
+    name: str
+    current: bool
+    application_ids: list[UUID]  # 선택한 순서. 결정한 지원자는 빠진다
+
+
 class ChatContext(ContractModel):
     """Root Agent가 받는 요청 범위: 현재 채용 · 전형 + 대상(@멘션 · 체크) + 질문 (ai.application.ChatContext)."""
 
@@ -137,6 +146,7 @@ class ChatContext(ContractModel):
     interviewer: bool = False  # 면접관 모드의 Chat. 배정된 지원자만 있고 선택 지원자를 바꿀 수 없다
     interviewer_memos: dict[UUID, list[InterviewerMemo]] = {}
     assessments: dict[UUID, AssessmentScores] = {}  # 현재 평가 전형의 영역 점수 · 등급. 평가 전형일 때만 채워진다
+    tabs: list[ChatTab] = []  # 전형의 HR 공유 탭. 현재 탭도 들어 있다. 면접관 모드 · Studio · 평가에는 없다
 
     @model_validator(mode="after")
     def _has_current_stage(self) -> Self:
