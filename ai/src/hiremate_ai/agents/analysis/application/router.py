@@ -12,6 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
+from hiremate_ai.agents.analysis.application.normalize import normalize_document
 from hiremate_ai.agents.analysis.application.present import to_analysis, to_candidate_analysis
 from hiremate_ai.agents.analysis.application.service import RubricScopeError, analyze_application
 from hiremate_ai.agents.analysis.application.store import DbReviewStore, ReviewStore
@@ -28,13 +29,16 @@ from hiremate_ai.contract import (
     CandidateAnalysis,
     CompanyFactors,
     CompanyFactorsRequest,
+    DocumentNormalizationRequest,
     FeatureLabels,
     FeatureLabelsRequest,
+    NormalizedDocument,
     TalentFit,
     TalentFitRequest,
 )
 from hiremate_ai.db.analysis_store import DbAnalysisArtifacts
 from hiremate_ai.db.session import session_factory
+from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import LlmDep
 from hiremate_ai.tools.profile_search import ProfileIndexer, get_profile_embedder, index_profile_safely, profile_indexer
 
@@ -156,3 +160,13 @@ async def talents(request: TalentFitRequest, llm: LlmDep, store: StoreDep, artif
     fit = await judge_talents(llm, review, request.talents)
     await artifacts.save_talents(fit, **scope, source_hash=source, recipe_hash=recipe)
     return fit
+
+
+@router.post("/agents/application/normalize")
+async def normalize(request: DocumentNormalizationRequest, llm: LlmDep) -> NormalizedDocument:
+    try:
+        return await normalize_document(llm, request)
+    except LlmOutputError as error:
+        raise HTTPException(status_code=503, detail="문서 정제를 완료하지 못했습니다. 다시 요청해 주세요.") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="문서 원문을 보존하는 정제 결과를 만들지 못했습니다.") from error
