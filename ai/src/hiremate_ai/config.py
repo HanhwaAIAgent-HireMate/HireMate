@@ -26,8 +26,9 @@ class Settings(BaseSettings):
     llm_agent_max_calls: int = 8
     # Report Agent의 상한. 백그라운드 작업이고 스킬 · 자료 · 근거를 읽은 뒤 검사에 걸리면 두 번까지 고쳐 쓴다
     llm_report_max_calls: int = 18
-    # 호출 한 번에 모델이 쓰는 최대 토큰. 모델이 끝없이 쓰다 시간을 다 쓰는 것을 막는다
-    llm_max_tokens: int = 2048
+    # 호출 한 번에 모델이 쓰는 최대 토큰. 모델이 끝없이 쓰다 시간을 다 쓰는 것을 막는다.
+    # 긴 자기소개서(1만 자 이상)의 문장 분석은 경험 목록이 길어 2048에서 답이 잘렸다
+    llm_max_tokens: int = 16384
     # 0이면 같은 질문에 같은 답을 낸다. Root의 지원자 찾기는 같은 질문에 같은 후보가 나와야 한다.
     # none이면 temperature를 보내지 않는다 (temperature를 받지 않는 모델용). 비우면 기본값 0이다
     llm_temperature: float | None = 0
@@ -46,8 +47,12 @@ class Settings(BaseSettings):
     langsmith_project: str = "hiremate"
     # Root Agent 대화방에 남기는 최근 턴 수
     root_memory_turns: int = 20
-    # Application Agent: 지원 접수 분석 한 번의 시간 한도. AI 워커가 대기열에서 꺼내 돌리므로 backend는 기다리지 않는다
-    application_timeout_seconds: float = 150
+    # Application Agent: 지원 접수 분석 한 번의 시간 한도(정책 200초). AI 워커가 대기열에서 꺼내 돌리므로
+    # backend는 기다리지 않는다. 재확인은 남은 시간 안에서만 하고 다시 시도해도 한도를 새로 세지 않는다
+    application_timeout_seconds: float = 200
+    # AI 워커의 모델 호출 한 번 시간 한도. 워커 작업은 화면이 기다리지 않는다. 1만 자가 넘는 자기소개서는 문장 분석
+    # 답이 길어 LLM_TIMEOUT_SECONDS(50초, 화면이 기다리는 호출 기준)를 넘기도 했다. 작업의 전체 한도 안에서만 쓴다
+    worker_llm_timeout_seconds: float = 500
     # 워커의 지원서 분석만 OpenRouter Batch로 실행한다. Chat과 다른 작업은 기존 LLM 설정을 쓴다.
     application_batch_enabled: bool = False
     application_batch_model: str = "deepseek/deepseek-v4.1-flash"
@@ -63,8 +68,9 @@ class Settings(BaseSettings):
     application_card_timeout_seconds: float = 50
     # 동시에 부르는 모델 호출 수 (문서별 추출, 우대사항별 판정)
     application_concurrency: int = 4
-    # 제출 문서 본문이 이 글자 수 이하면 판정에 원문 전체를 넣고, 넘으면 조건과 맞닿은 문장만 넣는다
-    application_full_text_chars: int = 8000
+    # 제출 문서 본문이 이 글자 수 이하면 판정에 원문 전체를 넣고, 넘으면 조건과 맞닿은 문장만 넣는다.
+    # 서류가 잘리지 않게 넉넉히 둔다 (긴 자기소개서 · 포트폴리오를 합쳐 2만 5천 자 안팎)
+    application_full_text_chars: int = 50000
     # 확인 필요 항목의 재확인 횟수 (1차: 주변 문맥 · 본인 역할, 2차: 다른 제출 문서)
     application_rechecks: int = 2
     # 분석 예산이 이만큼 남지 않으면 재확인을 더 하지 않는다 (저장 · 응답에 쓸 여유)

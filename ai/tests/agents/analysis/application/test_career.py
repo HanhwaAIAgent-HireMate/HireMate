@@ -15,7 +15,7 @@ def period(company: str, start: str, end: str | None, kind: str = "EMPLOYMENT") 
 def test_month_index_reads_common_formats() -> None:
     assert month_index("2022-03") == month_index("2022.03") == month_index("2022년 3월") == 2022 * 12 + 2
     assert month_index("현재") is None
-    assert months_between("2022-03", None, TODAY) == 55
+    assert months_between("2022-03", None, TODAY) == 56
 
 
 def test_current_job_counts_until_today() -> None:
@@ -44,3 +44,9 @@ def test_last_company_prefers_current_job() -> None:
 
     assert last_company(periods) == "페이온"
     assert last_company([period("가", "2019-01", "2020-01"), period("나", "2020-02", "2023-06")]) == "나"
+
+
+def test_start_and_end_months_both_count() -> None:
+    # 2024.05 ~ 2025.04는 시작 달과 끝 달을 모두 세어 12개월, 1년이다
+    assert months_between("2024-05", "2025-04", TODAY) == 12
+    assert career_years([period("가", "2024-05", "2025-04")], TODAY) == 1

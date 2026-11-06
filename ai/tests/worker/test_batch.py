@@ -148,7 +148,7 @@ async def test_disabling_new_batches_still_drains_the_existing_application_queue
     monkeypatch.setattr(settings, "worker_job_stream", "jobs")
     monkeypatch.setattr(settings, "worker_result_stream", "results")
     monkeypatch.setattr(settings, "worker_group", "workers")
-    monkeypatch.setattr(entrypoint, "get_llm", FakeLlm)
+    monkeypatch.setattr(entrypoint, "get_worker_llm", FakeLlm)
     monkeypatch.setattr(entrypoint, "session_factory", async_sessionmaker)
     monkeypatch.setattr(entrypoint, "connect", lambda url, options: Redis.from_url(redis_url, decode_responses=True))
 

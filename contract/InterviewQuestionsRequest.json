@@ -78,13 +78,21 @@
     "notable": [
       {
         "text": "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다.",
-        "source": "이력서"
+        "source": "이력서",
+        "title": "",
+        "detail": "",
+        "metric": "",
+        "warning": false
       }
     ],
     "checks": [
       {
         "text": "\"RDBMS 설계와 운영 경험\"의 근거가 제출 문서에 없어요. 면접에서 확인이 필요해요.",
-        "source": "공고 · 자격 요건"
+        "source": "공고 · 자격 요건",
+        "title": "",
+        "detail": "",
+        "metric": "",
+        "warning": false
       }
     ],
     "holds": [],
@@ -107,7 +115,10 @@
         "recheckCount": 0,
         "careerYears": 0,
         "certificateStatus": null,
-        "metric": ""
+        "metric": "",
+        "noRecord": false,
+        "brief": "",
+        "settingNote": ""
       },
       {
         "criterionId": "P-01",
@@ -133,7 +144,10 @@
         "recheckCount": 1,
         "careerYears": null,
         "certificateStatus": null,
-        "metric": ""
+        "metric": "",
+        "noRecord": false,
+        "brief": "",
+        "settingNote": ""
       },
       {
         "criterionId": "P-02",
@@ -150,7 +164,10 @@
         "recheckCount": 0,
         "careerYears": null,
         "certificateStatus": "SELF_REPORTED",
-        "metric": ""
+        "metric": "",
+        "noRecord": false,
+        "brief": "",
+        "settingNote": ""
       }
     ],
     "summaries": [

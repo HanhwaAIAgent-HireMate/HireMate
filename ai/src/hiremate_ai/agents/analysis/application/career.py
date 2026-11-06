@@ -30,11 +30,12 @@ def months_between(start: str, end: str | None, today: date) -> int | None:
     finish = month_index(end) if end else today.year * 12 + today.month - 1
     if begin is None or finish is None or finish < begin:
         return None
-    return finish - begin
+    # 시작 달과 끝 달을 모두 센다 (2024.05 ~ 2025.04는 12개월)
+    return finish - begin + 1
 
 
 def career_years(periods: Sequence[Period], today: date) -> int:
-    """재직 기간의 합(겹침은 한 번)을 연 단위로 내린 값. 재직 기간이 없으면 0(신입)이다."""
+    """재직 기간의 합(겹침은 한 번, 시작 달과 끝 달 포함)을 연 단위로 내린 값. 재직 기간이 없으면 0(신입)이다."""
     spans = []
     current = today.year * 12 + today.month - 1
     for period in periods:
@@ -43,7 +44,7 @@ def career_years(periods: Sequence[Period], today: date) -> int:
         begin = month_index(period.start)
         finish = month_index(period.end) if period.end else current
         if begin is not None and finish is not None and finish >= begin:
-            spans.append((begin, finish))
+            spans.append((begin, finish + 1))
     total, reach = 0, -1
     for begin, finish in sorted(spans):
         if finish <= reach:

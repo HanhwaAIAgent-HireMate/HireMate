@@ -10,11 +10,11 @@ from hiremate_ai.agents.analysis.application.context import readable
 from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, extract_documents, extraction_recipe, merge
 from hiremate_ai.agents.analysis.application.graph import REVIEW_VERSION, ReviewInput, run_review
 from hiremate_ai.agents.analysis.application.review import fact_claims, review_claims
+from hiremate_ai.agents.analysis.application.rubric_draft import RubricDraftStore, draft_fallback_rules, fallback_rules
 from hiremate_ai.agents.analysis.application.store import ReviewStore, input_hash
 from hiremate_ai.agents.analysis.application.types import (
     ApplicationReview,
     Criterion,
-    EvaluationRules,
     Fact,
     Note,
     ScreeningRubric,
@@ -103,20 +103,32 @@ async def analyze_application(
     if stored is not None:
         return stored
     criteria, notes = match_criteria(posting, rubric)
-    context = ReviewInput(
-        applicant=applicant,
-        posting=posting,
-        criteria=criteria,
-        criteria_version=rubric.criteria_version,
-        notes=notes,
-        input_hash=digest,
-        today=analysis_date,
-        deadline=asyncio.get_running_loop().time() + budget_seconds,
-        company_id=rubric.company_id,
-        artifacts=artifacts if artifacts is not None else store.artifacts,
-        review_extraction=review_extraction,
-    )
+    saved_artifacts = artifacts if artifacts is not None else store.artifacts
+    deadline = asyncio.get_running_loop().time() + budget_seconds
     async with asyncio.timeout(budget_seconds):
+        # 평가 기준이 없는 공고 문장은 같은 공고의 지원자가 함께 쓰는 판정 기준 초안으로 판정한다
+        criteria, notes = await draft_fallback_rules(
+            llm,
+            criteria,
+            posting,
+            company_id=rubric.company_id,
+            recruitment_id=rubric.recruitment_id,
+            store=saved_artifacts if isinstance(saved_artifacts, RubricDraftStore) else None,
+            notes=notes,
+        )
+        context = ReviewInput(
+            applicant=applicant,
+            posting=posting,
+            criteria=criteria,
+            criteria_version=rubric.criteria_version,
+            notes=notes,
+            input_hash=digest,
+            today=analysis_date,
+            deadline=deadline,
+            company_id=rubric.company_id,
+            artifacts=saved_artifacts,
+            review_extraction=review_extraction,
+        )
         review = await run_review(llm, context)
     await store.save(review, applicant, rubric)
     return review
@@ -145,7 +157,7 @@ def match_criteria(posting: PostingContent, rubric: ScreeningRubric) -> tuple[tu
             if found is None:
                 notes.append(
                     Note(
-                        text=f"'{text}'에 맞는 평가 기준이 없어 공고 문장 그대로 충족 · 미충족만 판정했어요.",
+                        text=f"'{text}'에 맞는 평가 기준이 없어 AI가 만든 판정 기준 초안으로 판정했어요.",
                         source=CRITERIA_SOURCE,
                     )
                 )
@@ -155,9 +167,7 @@ def match_criteria(posting: PostingContent, rubric: ScreeningRubric) -> tuple[tu
                     text=text,
                     important=False,
                     criterion_type=CriterionType.SINGLE,
-                    evaluation_rules=EvaluationRules(
-                        met=f"서류에서 '{text}'을 확인할 수 있다", unmet=f"서류에서 '{text}'이 확인되지 않는다"
-                    ),
+                    evaluation_rules=fallback_rules(text),
                 )
             criteria.append(found)
     return tuple(criteria), tuple(notes)

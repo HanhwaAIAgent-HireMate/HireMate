@@ -65,7 +65,7 @@ def test_merge_keeps_only_facts_and_periods_with_real_quotes() -> None:
 
     assert [fact.statement for fact in facts] == ["결제 API를 개발했다"]
     assert facts[0].actor == Actor.SELF
-    assert [(period.company, period.months) for period in periods] == [("한빛카드", 55)]
+    assert [(period.company, period.months) for period in periods] == [("한빛카드", 56)]
 
 
 SCHOOL_TEXT = (
