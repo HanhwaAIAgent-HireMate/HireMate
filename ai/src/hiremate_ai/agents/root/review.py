@@ -30,15 +30,18 @@ FOCUS_LABEL = "확인할 점"
 
 REVIEW_SYSTEM = """채용 담당자에게 보여 줄 답의 문장이 함께 적은 근거로 뒷받침되는지 판정한다.
 - SUPPORTED: 근거가 문장의 주장을 그대로 받쳐 준다.
+- COMPARED: '누가 앞서 보인다, 더 낫다'처럼 지원자를 서로 견준 판단이 든 문장이고, 그 판단이 기준으로 삼은 내용이
+  근거에 있다. 견준 판단은 담당자가 물어서 내린 의견이라 근거에 같은 말이 없어도 과장이 아니다.
+  판단 자체는 따지지 않고, 문장이 이유로 든 사실만 근거와 맞춘다. 지원자를 견주지 않은 문장은 COMPARED가 아니다.
 - OVERSTATED: 근거와 같은 내용이지만 문장이 더 세게 말한다. 팀 성과를 본인 성과로, 참여를 주도로,
   계획을 실적으로, 확인 필요를 확정으로 쓴 경우다.
-- UNRELATED: 근거가 문장의 내용과 관계없다.
+- UNRELATED: 근거가 문장의 내용과 관계없다. 견준 판단의 이유로 근거에 없는 사실을 든 경우도 여기다.
 문장마다 id와 판정 하나를 낸다."""
 
 
 class ClaimVerdict(BaseModel):
     id: str
-    verdict: Literal["SUPPORTED", "OVERSTATED", "UNRELATED"]
+    verdict: Literal["SUPPORTED", "COMPARED", "OVERSTATED", "UNRELATED"]
 
 
 class ClaimJudgement(BaseModel):
@@ -85,8 +88,9 @@ async def review_items(
         verdict = verdicts.get(keys[index], "OVERSTATED") if index in keys else "SUPPORTED"
         if verdict == "UNRELATED":
             continue
-        kept.append(_lowered(each) if verdict == "OVERSTATED" else each)
-    if verdicts.get("M") != "SUPPORTED":
+        # 견준 판단은 근거에서 나왔어도 확인된 사실이 아니라 항목에서는 확인 필요로 둔다
+        kept.append(_lowered(each) if verdict in ("OVERSTATED", "COMPARED") else each)
+    if verdicts.get("M") not in ("SUPPORTED", "COMPARED"):
         message = MESSAGE_FALLBACK
     return message, kept
 
@@ -96,11 +100,20 @@ def cap_items(context: ChatContext, ledger: Ledger, drafts: Sequence[ItemDraft])
     return [each for draft in drafts if (each := _capped(context, ledger, draft)) is not None]
 
 
-def answer_plan(message: str, checked: Sequence[Checked]) -> ChatPlan | None:
+def answer_plan(context: ChatContext, message: str, checked: Sequence[Checked]) -> ChatPlan | None:
     """남은 항목이 없으면 None이다. 출처와 근거를 낸 분석 Agent는 처음 나온 순서다."""
     if not checked:
         return None
-    return ChatPlan.answer(Intent.ANSWER, message, [each.item for each in checked], _sources(checked), _agents(checked))
+    items = [_named(context, each.item) for each in checked]
+    return ChatPlan.answer(Intent.ANSWER, message, items, _sources(checked), _agents(checked))
+
+
+def _named(context: ChatContext, item: ChatItem) -> ChatItem:
+    """화면은 항목 이름과 문장만 보여 주므로 지원자 항목의 이름에 누구인지 적는다. 찾기 항목의 이름과 같은 방식이다."""
+    row = next((row for row in context.candidates if row.application_id == item.application_id), None)
+    if row is None or item.label.startswith(row.name):
+        return item
+    return item.model_copy(update={"label": f"{row.name} · {item.label}"})
 
 
 def questions_plan(
