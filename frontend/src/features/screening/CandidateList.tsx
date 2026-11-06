@@ -186,7 +186,7 @@ export function CandidateList({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="이름, 경력, 키워드"
+            placeholder="이름 검색란"
             aria-label="지원자 검색"
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
           />
@@ -195,11 +195,12 @@ export function CandidateList({
       {/* 스크롤 막대를 늘 보여 지원자 수가 바뀌어도 카드 폭이 흔들리지 않게 한다.
           막대가 오른쪽 여백을 차지하므로 오른쪽 여백은 줄이고, 막대는 얇게 둔다 */}
       <div className="min-h-0 flex-1 [scrollbar-width:thin] overflow-x-hidden overflow-y-scroll pt-1.5 pr-1.5 pb-4 pl-3">
-        <div className="grid grid-cols-3 gap-2">
+        {/* 카드가 아이콘과 이름 네 글자가 다 보이는 폭(114px)보다 좁아지면 한 줄의 카드 수를 줄인다 (기본 폭은 3장) */}
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(114px,1fr))] gap-2">
           {candidates.isPending &&
             Array.from({ length: 9 }, (_, index) => <Skeleton key={index} className="h-14" />)}
           {!candidates.isPending && rows.length === 0 && (
-            <p className="col-span-3 px-2 py-8 text-center text-sm text-muted-foreground">
+            <p className="col-span-full px-2 py-8 text-center text-sm text-muted-foreground">
               {debounced || filtered ? '조건에 맞는 지원자가 없어요.' : '아직 지원자가 없어요.'}
             </p>
           )}
@@ -221,14 +222,14 @@ export function CandidateList({
             : rows.map((row, index) => (
                 <Fragment key={row.applicationId}>
                   {index === firstBelow && (
-                    <p className="col-span-3 mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <p className="col-span-full mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
                       <span className="h-px flex-1 bg-border" />
                       필수 조건 미충족 {below}명
                       <span className="h-px flex-1 bg-border" />
                     </p>
                   )}
                   {index === firstSuspect && (
-                    <p className="col-span-3 mt-2 flex items-center gap-2 text-[11px] font-semibold text-amber-800">
+                    <p className="col-span-full mt-2 flex items-center gap-2 text-[11px] font-semibold text-amber-800">
                       <span className="h-px flex-1 bg-amber-300" />
                       블라인드 위반 의심 {suspects.size}명 · 카드에서 확인하고 해제할 수 있어요
                       <span className="h-px flex-1 bg-amber-300" />
@@ -406,7 +407,7 @@ function SlotHeader({
       role="heading"
       aria-level={3}
       className={cn(
-        'col-span-3 mt-3 flex items-center gap-1.5 px-1 text-xs font-semibold first:mt-0',
+        'col-span-full mt-3 flex items-center gap-1.5 px-1 text-xs font-semibold first:mt-0',
         !slot.scheduledAt && 'text-muted-foreground',
       )}
     >

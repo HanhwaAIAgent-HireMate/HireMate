@@ -127,7 +127,8 @@ export function StagePage() {
         <ResizablePanel
           id="stage-candidates"
           className="flex flex-col"
-          defaultSize={300}
+          // 한 줄에 카드 3장이 아이콘과 이름 네 글자까지 보이는 폭
+          defaultSize={390}
           minSize={240}
           groupResizeBehavior="preserve-pixel-size"
         >

@@ -126,6 +126,10 @@ class ScreeningTests extends IntegrationTest {
         assertThat(filtered(stage, "talent=T-1")).isEmpty();
         assertThat(filtered(stage, "talent=T-9")).isEmpty();
         assertThat(filtered(stage, "decision=PENDING&criterion=Q-04")).containsExactly("지원자2");
+        // 검색은 이름만 찾는다. 경력 글자나 서류 본문 낱말로는 찾지 않는다 (경력 · 키워드는 AI Chat이 찾는다)
+        assertThat(filtered(stage, "query=지원자2")).containsExactly("지원자2");
+        assertThat(filtered(stage, "query=경력")).isEmpty();
+        assertThat(filtered(stage, "query=Java")).isEmpty();
         assertThat(json(expect(stage.hr().get(stage.path() + "/candidates?criterion=Q-04"), 200))
                 .path("total").asLong()).isEqualTo(2);
     }
