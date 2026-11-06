@@ -1,4 +1,4 @@
-import { ArrowUp, Minus, Plus } from 'lucide-react'
+import { ArrowUp, Minus, Plus, UserRound } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { Checkbox } from '@/components/ui/checkbox'
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
  * 선택 지원자 한 줄 (COM-02 표시 규칙). AI 선택은 보라 테두리, HR 결정은 배경색, 서류 기준은 굵기와 회색이다.
  * 서류 전형에서는 선 위(필수 조건 충족) 지원자가 굵게 보이고, 점수는 보여 주지 않는다.
  * 행을 누르면 지원자 카드가 열리므로 넣기 · 빼기는 오른쪽 버튼으로 한다.
+ * 이름 앞에는 전체 지원자 카드와 같은 지원자 아이콘을 둔다.
  */
 export function CandidateItem({
   row,
@@ -60,11 +61,17 @@ export function CandidateItem({
       <div className="min-w-0 flex-1">
         <div
           className={cn(
-            'truncate text-sm',
+            'flex min-w-0 items-center gap-1 text-sm',
             gray ? 'text-muted-foreground' : documentStage ? 'font-bold' : 'font-semibold',
           )}
         >
-          {row.name}
+          <span
+            aria-hidden
+            className="flex size-[18px] shrink-0 items-center justify-center rounded-full border border-foreground text-foreground"
+          >
+            <UserRound className="size-3" />
+          </span>
+          <span className="truncate">{row.name}</span>
         </div>
         <div className={cn('truncate text-xs text-muted-foreground', gray && 'opacity-80')}>
           {careerLabel(row)}

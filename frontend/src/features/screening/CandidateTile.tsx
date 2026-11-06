@@ -1,10 +1,12 @@
+import { UserRound } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { careerYearsLabel, type CandidateRow } from '@/features/screening/api'
 import { cn } from '@/lib/utils'
 
 /**
- * 전체 지원자 카드 한 장 (한 줄에 3장). 이름과 그 아래 경력(경력 n년 · 신입)만 보여 준다.
+ * 전체 지원자 카드 한 장 (기본 폭에서 한 줄에 3장). 이름과 그 아래 경력(경력 n년 · 신입)만 보여 준다.
+ * 이름 앞에 지원자 아이콘을 둔다. 이름은 네 글자까지 잘리지 않게 글자를 조금 줄이고, 오른쪽 위 버튼 자리만 비운다.
  * 합격은 초록, 불합격은 빨강 배경이고, AI가 고른 지원자는 보라 테두리다.
  * 서류 전형에서 필수 조건을 못 채운 지원자(선 아래)는 회색이다. 카드를 누르면 지원자 카드가 열리고,
  * 넣기 · 빼기 · ↑는 오른쪽 위 버튼으로 한다. 평가 전형은 경력 옆에 평가 점수(외부 평가 결과)를 붙인다.
@@ -58,11 +60,17 @@ export function CandidateTile({
           onOpen()
         }}
         className={cn(
-          'truncate pr-7 text-left text-sm outline-none',
+          'flex min-w-0 items-center gap-1 pr-5 text-left text-[13px] outline-none',
           gray ? 'text-muted-foreground' : 'font-bold',
         )}
       >
-        {row.name}
+        <span
+          aria-hidden
+          className="flex size-[18px] shrink-0 items-center justify-center rounded-full border border-foreground text-foreground"
+        >
+          <UserRound className="size-3" />
+        </span>
+        <span className="truncate">{row.name}</span>
       </button>
       <span className={cn('truncate text-xs text-muted-foreground', gray && 'opacity-80')}>
         {careerYearsLabel(row)}
@@ -73,7 +81,8 @@ export function CandidateTile({
         )}
       </span>
       {note}
-      {action && <div className="absolute top-1.5 right-1.5">{action}</div>}
+      {/* 버튼을 조금 작게 해 이름 자리를 넓힌다 */}
+      {action && <div className="absolute top-1 right-1 [&_button]:size-6">{action}</div>}
     </div>
   )
 }

@@ -143,11 +143,9 @@ public class ScreeningService {
         Set<UUID> suspects = schoolSuspects(context, all);
         List<CandidateRow> rows = rows(context, all, selected, filter, suspects);
         if (query != null && !query.isBlank()) {
+            // 화면 검색은 이름만 찾는다. 경력 · 키워드로 찾기는 AI Chat이 맡는다
             String keyword = query.trim().toLowerCase(Locale.ROOT);
-            Set<UUID> textMatches = new HashSet<>(
-                    applications.searchDocuments(companyId, context.recruitmentId(), query.trim()));
-            rows = rows.stream().filter(row -> matches(row, keyword) || textMatches.contains(row.applicationId()))
-                    .toList();
+            rows = rows.stream().filter(row -> matches(row, keyword)).toList();
         }
         int from = Math.min(Math.max(page, 0) * Math.clamp(size, 1, 200), rows.size());
         int to = Math.min(from + Math.clamp(size, 1, 200), rows.size());
@@ -584,11 +582,9 @@ public class ScreeningService {
                 || recommended.contains(candidate.getApplicationId());
     }
 
+    /** 화면에 보이는 이름으로 찾는다. 블라인드 채용이면 가린 이름(예: 12번 지원자)이라 실제 이름으로는 찾지 못한다. */
     private static boolean matches(CandidateRow row, String keyword) {
-        String career = row.careerYears() == null ? ""
-                : row.careerYears() == 0 ? "신입" : "경력 " + row.careerYears() + "년";
-        return row.name().toLowerCase(Locale.ROOT).contains(keyword) || career.contains(keyword)
-                || row.lastCompany() != null && row.lastCompany().toLowerCase(Locale.ROOT).contains(keyword);
+        return row.name().toLowerCase(Locale.ROOT).contains(keyword);
     }
 
     /** selection은 고른 탭에서 보이는 선택 행이다. 없으면 선택 지원자가 아니다. */
