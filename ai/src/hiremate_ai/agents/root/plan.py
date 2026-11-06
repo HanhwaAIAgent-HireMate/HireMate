@@ -66,12 +66,13 @@ PLAN_SYSTEM = """[역할]
   앞 결과를 가리키는 '그중'은 result, 생략된 주어가 직전 대상이면 subject, 전형 전체는 all이다.
 - 이름은 names에 적는다. '두 번째 사람'처럼 순서로 가리키면 그 C번호를 picks에 적는다.
 - 범위를 말하지 않은 새 찾기 조건은 전형 전체다. 화면에 선택이나 이전 결과가 있다는 것만으로 좁히지 않는다.
+- within_selected는 앞 조건 없이 새 조건만 적는다.
 - 주어가 생략되면 멘션을, 멘션이 없으면 직전 대상을 가리키는지 본다. 그래도 정할 수 없으면 clarify다.
 
 [예시]
 이름은 설명을 위해 지어낸 것이다.
 - 이전 결과가 [C4 구하람, C8 표세나]일 때 '그중 Go 써 본 사람만'
-  → find, query.mode=within_selected, scope.sources=[result].
+  → find, query.mode=within_selected, concepts=[Go], scope.sources=[result].
 - '데이터 파이프라인 해 본 사람 찾아줘' → find, scope는 비운다(전형 전체).
 - 멘션 C5, 체크 C2일 때 '이 사람 리더십 경험은?' → answer, scope.sources=[mentions].
 - '@봉지후 서류에서 애매한 부분으로 질문 새로 뽑아줘'
@@ -106,8 +107,18 @@ class Form(BaseModel):
 class FindPlan(Form):
     """조건으로 지원자를 찾아 선택 지원자를 교체, 추가, 좁히거나, 선택된 사람 가운데 조건에 맞는 사람을 뺀다."""
 
-    query: SearchQuery = Field(description="찾기 조건. 현재 요청과 앞 대화에서 정해진 조건을 모두 넣는다")
-    scope: Scope = Field(description="요청이 말한 검색 범위. 범위를 말하지 않았으면 비운다(전형 전체)")
+    query: SearchQuery = Field(
+        description=(
+            "찾기 조건. add와 within_selected는 현재 요청의 새 조건만, "
+            "그 밖에는 현재 요청과 앞 대화에서 정해진 조건을 모두 넣는다"
+        )
+    )
+    scope: Scope = Field(
+        description=(
+            "요청이 말한 검색 범위. 범위를 말하지 않았으면 비운다(전형 전체). "
+            "선택에 더하는 add는 이미 고른 사람 밖에서 찾으므로 선택이나 앞 결과를 범위로 쓰지 않는다"
+        )
+    )
     remove: bool = Field(
         default=False,
         description=(
