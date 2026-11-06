@@ -75,7 +75,7 @@ public class NoticeService {
     private static final DateTimeFormatter GUIDE_TIME = DateTimeFormatter.ofPattern("HH:mm");
     /** 다음 면접 안내 메일의 지원자별 면접 일시. 보낼 때 지원자마다 채우는 안의 변수다. */
     private static final String INTERVIEW_TIME = "{면접일시}";
-    /** 미리보기의 면접 일정 아래에 두는 메모. 실제 메일에는 메모 대신 지원자별 시각이 들어간다. */
+    /** 미리보기의 면접 일정 옆에 두는 메모. 실제 메일에는 메모 대신 지원자별 시각이 들어간다. */
     static final String PREVIEW_TIME_NOTE = "보낼 때 지원자마다 배정된 면접 시각이 함께 들어가요";
 
     private final NoticeRepository notices;
@@ -449,7 +449,7 @@ public class NoticeService {
                 .map(next -> next.guide().schedule() == null ? "" : GUIDE_DATE.format(next.guide().schedule()));
     }
 
-    /** 미리보기의 일정 칸 날짜 아래에 흐린 작은 글씨로 보낼 때 시각이 들어간다는 메모를 둔다. 보내는 메일에는 없다. */
+    /** 미리보기의 일정 칸 날짜 옆에 흐린 작은 글씨로 보낼 때 시각이 들어간다는 메모를 둔다. 보내는 메일에는 없다. */
     private static MailContent withScheduleHint(MailContent content) {
         List<MailContent.Block> blocks = content.blocks().stream()
                 .map(block -> block instanceof MailContent.Guide guide
