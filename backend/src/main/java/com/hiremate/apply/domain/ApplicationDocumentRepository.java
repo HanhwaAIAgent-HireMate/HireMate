@@ -1,12 +1,19 @@
 package com.hiremate.apply.domain;
 
+import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 public interface ApplicationDocumentRepository extends JpaRepository<ApplicationDocument, UUID> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select d from ApplicationDocument d where d.id = ?1")
+    Optional<ApplicationDocument> findLockedById(UUID id);
 
     List<ApplicationDocument> findByApplicationId(UUID applicationId);
 
