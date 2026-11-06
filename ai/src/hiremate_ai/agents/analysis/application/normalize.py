@@ -78,9 +78,10 @@ def _code_only(text: str) -> bool:
         program
         and (fenced or "\n" in code.strip())
         and any(not isinstance(node, ast.Expr) for node in program.body)
-        and not any(isinstance(node, ast.AnnAssign) and node.value is None for node in program.body)
+        and not any(isinstance(node, ast.AnnAssign) and node.value is None for node in ast.walk(program))
         and not any(
-            isinstance(node, ast.Expr) and isinstance(node.value, (ast.Name, ast.Constant)) for node in program.body
+            isinstance(node, ast.Expr) and not isinstance(node.value, (ast.Call, ast.Await, ast.Yield, ast.YieldFrom))
+            for node in ast.walk(program)
         )
     ):
         return True

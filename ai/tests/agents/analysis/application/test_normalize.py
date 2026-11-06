@@ -396,3 +396,14 @@ async def test_python_annotation_syntax_cannot_hide_labeled_prose() -> None:
     )
     with pytest.raises(ValueError):
         await normalize_document(FakeLlm(layout), request(text))
+
+
+@pytest.mark.parametrize("prose", ["- 자동화", "- Leadership", "2024-2025", "+ Leadership", "자동화 경험"])
+@pytest.mark.parametrize("nested", [False, True])
+async def test_python_expression_cannot_hide_resume_bullets_or_dates(prose: str, nested: bool) -> None:
+    text = f"def run():\n    x = 1\n    {prose}" if nested else f"x = 1\n{prose}"
+    layout = DocumentLayout.model_validate(
+        {"blocks": [{"type": "reference", "sourceIds": ["s1"], "kind": "code_example", "text": None, "codeText": text}]}
+    )
+    with pytest.raises(ValueError):
+        await normalize_document(FakeLlm(layout), request(text))
