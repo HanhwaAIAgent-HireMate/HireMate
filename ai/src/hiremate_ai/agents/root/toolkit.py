@@ -37,6 +37,7 @@ from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SearchResults, SourcedSentence
+from hiremate_ai.tools.document_search import document_embedding_search
 from hiremate_ai.tools.profile_lookup import (
     Sessions,
     ordered_items,
@@ -730,6 +731,7 @@ def profile_toolkit(
     searches = [profile_search(sessions, terms=concept_terms), keyword_search]
     if embedder is not None:
         searches.append(profile_embedding_search(sessions, embedder, model=settings.ncs_model))
+        searches.append(document_embedding_search(sessions, embedder, model=settings.ncs_model))
     search = merged_search(*searches)
     return RootToolkit(
         search=search,

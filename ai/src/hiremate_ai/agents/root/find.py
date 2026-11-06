@@ -9,6 +9,7 @@ import json
 import re
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Sequence
+from dataclasses import replace
 from hashlib import sha256
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -35,6 +36,7 @@ from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 from hiremate_ai.llm.recipe import analysis_recipe
 from hiremate_ai.tools.candidates import CandidateMatch, SearchResults, SourcedSentence
+from hiremate_ai.tools.document_search import DocumentSentence
 
 ITEM_LIMIT = 5
 # 재확인 모델 호출 한 번에 넣는 후보 수. 후보가 더 많으면 묶음을 나눠 모두 확인한다
@@ -730,9 +732,14 @@ def _with_context(context: ChatContext, match: CandidateMatch) -> CandidateMatch
             or personal_fact(text, blind=context.posting.blind)
         )
 
-    sentences = [sourced for sourced in match.sentences if safe(sourced.sentence)]
+    sentences: list[SourcedSentence] = []
+    for sourced in match.sentences:
+        if safe(sourced.sentence):
+            sentences.append(sourced)
+        elif isinstance(sourced, DocumentSentence) and sourced.anchor and safe(sourced.anchor):
+            sentences.append(replace(sourced, sentence=sourced.anchor, anchor=None))
     for sourced in list(sentences):
-        if sourced.source not in _DOCUMENT_LABELS:
+        if isinstance(sourced, DocumentSentence) or sourced.source not in _DOCUMENT_LABELS:
             continue
         locations = [
             (document.text, position)
@@ -798,6 +805,8 @@ def _in_source(context: ChatContext, application_id: UUID, sourced: SourcedSente
 
     다른 출처(평가 결과 등)는 검색 도구가 보증한다.
     """
+    if isinstance(sourced, DocumentSentence):
+        return sourced.belongs_to(scope_of(context), application_id)
     if sourced.source not in _DOCUMENT_LABELS:
         return True
     return evidence_source(sourced.sentence, context.documents.get(application_id, [])) is not None
