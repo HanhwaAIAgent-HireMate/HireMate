@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { AiRequestPanel } from './AiRequestPanel'
 
-const base = { messages: [], examples: [], onSend: () => {} }
+const base = { messages: [], examples: [], pending: false, onSend: () => {} }
 
 describe('AI 수정 요청 패널', () => {
   beforeAll(() => {
