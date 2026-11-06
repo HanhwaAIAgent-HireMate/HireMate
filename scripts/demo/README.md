@@ -2,6 +2,7 @@
 
 더미 공고(자격요건 5 · 우대사항 5)와 가상 지원자 30명(`applicants.json`)으로 Application Agent의 서류 평가를
 스토리보드 v8의 서류 전형 화면(STG-01 · STG-06)에서 확인한다. 지원자는 모두 가상 인물이다.
+채점 정답이 있는 서류 평가 데이터셋과 일관성 측정은 [fixtures/README.md](fixtures/README.md)에 있다.
 
 | 무엇 | 어디 |
 |---|---|
