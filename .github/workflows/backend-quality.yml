@@ -26,7 +26,27 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: 검사 대상 확인
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          required=false
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            required=true
+          else
+            git diff --name-only --no-renames -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed-files"
+            while IFS= read -r -d '' file; do
+              case "$file" in
+                backend/*|.github/workflows/backend-quality.yml|contract/*) required=true; break ;;
+              esac
+            done < "$RUNNER_TEMP/changed-files"
+          fi
+          echo "run=$required" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@v6
+        if: steps.changes.outputs.run == 'true'
         with:
           distribution: corretto
           java-version: '25'
@@ -35,4 +55,5 @@ jobs:
             backend/*.gradle
             backend/gradle/wrapper/gradle-wrapper.properties
       - name: Checkstyle 및 테스트
+        if: steps.changes.outputs.run == 'true'
         run: ./gradlew --no-daemon check

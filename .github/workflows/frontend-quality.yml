@@ -25,12 +25,34 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: 검사 대상 확인
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          required=false
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            required=true
+          else
+            git diff --name-only --no-renames -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed-files"
+            while IFS= read -r -d '' file; do
+              case "$file" in
+                frontend/*|.github/workflows/frontend-quality.yml|.editorconfig) required=true; break ;;
+              esac
+            done < "$RUNNER_TEMP/changed-files"
+          fi
+          echo "run=$required" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v7
+        if: steps.changes.outputs.run == 'true'
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: 의존성 설치
+        if: steps.changes.outputs.run == 'true'
         run: npm ci
       - name: ESLint, Prettier, 테스트 및 빌드
+        if: steps.changes.outputs.run == 'true'
         run: npm run check
