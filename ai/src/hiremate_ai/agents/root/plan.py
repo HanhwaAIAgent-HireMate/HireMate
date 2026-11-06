@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from hiremate_ai.agents.root.conversation import CONVERSATION_INVALID, review_conversation
 from hiremate_ai.agents.root.find import SearchQuery
 from hiremate_ai.agents.root.report import ANSWER_HINT, REPORT_HINT, asks_report, wants_report
-from hiremate_ai.agents.root.scope import Scope
+from hiremate_ai.agents.root.scope import Scope, resolve_tab, tab_ref
 from hiremate_ai.agents.root.stages import DECISION_LABELS, STAGE_LABELS, STATUS_LABELS
 from hiremate_ai.agents.root.toolkit import candidate_ref
 from hiremate_ai.agents.root.turns import Turn
@@ -24,6 +24,7 @@ from hiremate_ai.llm.prompt import data_block
 
 PLAN_TURNS = 4
 PICKS_INVALID = "picks에는 화면 요약에 나온 C번호만 쓰세요."
+TABS_INVALID = "tabs에는 화면 요약의 [탭]에 나온 T번호만 쓰세요."
 EMPTY_FIND = "찾기 조건이 비었어요. 현재 요청과 앞 대화의 조건을 query에 넣으세요."
 NO_SCOPE = "대상 범위를 scope에 적으세요."
 NO_MESSAGE = "message에 담당자에게 보여 줄 답을 쓰세요."
@@ -152,7 +153,10 @@ class QuestionsPlan(Form):
 
 
 class EditPlan(Form):
-    """정해진 지원자를 선택 지원자에 넣거나 빼고, 선택을 비운다."""
+    """정해진 지원자를 선택 지원자에 넣거나 빼고, 선택을 비운다.
+
+    다른 탭들에 공통으로 선택된 지원자를 찾거나 모으라는 요청도 action=ADD와 scope.tabs다.
+    """
 
     action: EditAction = Field(description="ADD, REMOVE, CLEAR")
     scope: Scope = Field(description="넣거나 뺄 지원자. 비우기는 비운다")
@@ -266,6 +270,8 @@ def screen_text(
         f"[이전 결과] {_ordered(context, result)}",
         f"[직전 대상] {_people(context, [UUID(value) for value in subject])}",
     ]
+    if context.tabs:
+        lines.append(f"[탭] {_tabs(context)}")
     history = _history(context, turns[-PLAN_TURNS:])
     if history:
         lines.append(data_block("history", history))
@@ -282,6 +288,8 @@ def check_plan(
         referable = _referable(context, result, subject)
         if any(pick.strip().upper() not in referable for pick in scope.picks):
             return PICKS_INVALID
+    if scope is not None and any(resolve_tab(context, ref) is None for ref in scope.tabs):
+        return TABS_INVALID
     # 멘션이 없는데 멘션을 가리키면 직전 대상을 가리킨 것일 수 있다. 직전 대상이 있을 때만 한 번 다시 고르게 한다
     if scope is not None and "mentions" in scope.sources and not context.mentions and subject:
         return NO_MENTIONS_HINT
@@ -342,6 +350,16 @@ def _people(context: ChatContext, ids: Sequence[UUID]) -> str:
     known = {row.application_id: row for row in context.candidates}
     shown = [f"{candidate_ref(context, value)} {known[value].name}" for value in ids if value in known]
     return ", ".join(shown) or "없음"
+
+
+def _tabs(context: ChatContext) -> str:
+    known = {row.application_id for row in context.candidates}
+    shown = []
+    for index, tab in enumerate(context.tabs):
+        count = sum(application_id in known for application_id in tab.application_ids)
+        current = "현재 탭, " if tab.current else ""
+        shown.append(f"{tab_ref(index)} {tab.name} ({current}선택 {count}명)")
+    return ", ".join(shown)
 
 
 def _ordered(context: ChatContext, result: Sequence[str] | None) -> str:

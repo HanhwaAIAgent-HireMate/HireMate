@@ -1,18 +1,22 @@
 from typing import Any
+from uuid import uuid4
 
 from root_context import extra_row, make_context
 
 from hiremate_ai.agents.root.scope import (
+    EMPTY_TAB,
     NO_CHECKED,
+    NO_COMMON,
     NO_MENTIONS,
     NO_RESULT,
     NO_SELECTED,
     NO_SUBJECT,
     NOT_FOUND,
+    UNKNOWN_TAB,
     Scope,
     expand_scope,
 )
-from hiremate_ai.agents.root.types import CandidateRow, ChatContext
+from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatTab
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
 
 type Applicants = dict[str, ApplicantDetail]
@@ -111,3 +115,63 @@ def test_previous_result_none_or_empty_asks(
 
     assert expand_scope(Scope(sources=["result"]), context, None, []) == NO_RESULT
     assert expand_scope(Scope(sources=["result"]), context, [], []) == NO_RESULT
+
+
+def with_tabs(context: ChatContext, applicants: Applicants, *tabs: tuple[str, list[str]]) -> ChatContext:
+    """마지막 탭이 현재 탭이다."""
+    made = [
+        ChatTab(
+            id=uuid4(),
+            name=name,
+            current=index == len(tabs) - 1,
+            application_ids=[applicants[person].info.application_id for person in people],
+        )
+        for index, (name, people) in enumerate(tabs)
+    ]
+    return context.model_copy(update={"tabs": made})
+
+
+def test_tabs_expand_to_people_selected_in_every_tab(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = with_tabs(
+        context_of(sample_applicants, sample_company, sample_posting),
+        sample_applicants,
+        ("경력 5년 이상", ["한예린", "정유민", "김하늘", "박서준"]),
+        ("경력 4년 이상", ["김하늘", "정유민", "한예린"]),
+        ("시스템 연동", ["정유민", "서민재", "한예린"]),
+        ("새 탭", []),
+    )
+
+    rows = expand_scope(Scope(tabs=["T1", "t2", "3"]), context, None, [])
+
+    assert names(rows) == ["한예린", "정유민"]
+
+
+def test_single_tab_is_its_selection(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = with_tabs(
+        context_of(sample_applicants, sample_company, sample_posting),
+        sample_applicants,
+        ("Kafka", ["박서준", "최지우"]),
+        ("새 탭", []),
+    )
+
+    assert names(expand_scope(Scope(tabs=["T1"]), context, None, [])) == ["박서준", "최지우"]
+
+
+def test_tabs_ask_back_when_unknown_empty_or_disjoint(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = with_tabs(
+        context_of(sample_applicants, sample_company, sample_posting),
+        sample_applicants,
+        ("Kafka", ["박서준"]),
+        ("Go", ["최지우"]),
+        ("새 탭", []),
+    )
+
+    assert expand_scope(Scope(tabs=["T9"]), context, None, []) == UNKNOWN_TAB
+    assert expand_scope(Scope(tabs=["T1", "T3"]), context, None, []) == EMPTY_TAB.format(name="새 탭")
+    assert expand_scope(Scope(tabs=["T1", "T2"]), context, None, []) == NO_COMMON.format(names="Kafka, Go")

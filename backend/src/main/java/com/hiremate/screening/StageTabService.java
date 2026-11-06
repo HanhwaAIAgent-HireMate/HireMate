@@ -10,6 +10,7 @@ import com.hiremate.screening.domain.StageTab;
 import com.hiremate.screening.domain.StageTabRepository;
 import com.hiremate.screening.domain.TabSelection;
 import com.hiremate.screening.domain.TabSelectionRepository;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -75,6 +76,20 @@ public class StageTabService {
                 .filter(selection -> pending.contains(selection.getApplicationId()))
                 .collect(Collectors.groupingBy(TabSelection::getTabId, Collectors.counting()));
         return found.stream().map(tab -> view(tab, counts.getOrDefault(tab.getId(), 0L))).toList();
+    }
+
+    /** 전형의 HR 공유 탭과 탭마다의 선택 지원자. 만든 순서다. 결정한 지원자는 빼고, 탭 안은 선택한 순서다. */
+    @Transactional(readOnly = true)
+    public List<StageTabSelection> selections(UUID companyId, UUID stageId) {
+        List<StageTab> found = scope(companyId, stageId, null);
+        Set<UUID> pending = pending(companyId, stageId);
+        Map<UUID, List<UUID>> picked = selections.findByTabIdIn(found.stream().map(StageTab::getId).toList()).stream()
+                .filter(selection -> pending.contains(selection.getApplicationId()))
+                .sorted(Comparator.comparing(TabSelection::getSelectedAt))
+                .collect(Collectors.groupingBy(TabSelection::getTabId,
+                        Collectors.mapping(TabSelection::getApplicationId, Collectors.toList())));
+        return found.stream().map(tab -> new StageTabSelection(tab.getId(), tab.getName(),
+                List.copyOf(picked.getOrDefault(tab.getId(), List.of())))).toList();
     }
 
     /** 빈 탭을 만든다. 이름은 "새 탭"이고, 번호는 남은 탭의 가장 큰 번호 다음이다. */

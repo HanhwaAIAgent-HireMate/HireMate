@@ -149,9 +149,19 @@ public class ChatService {
                 candidates, documents, interviewViews,
                 mentions, checked, companies.profile(companyId),
                 postings.draftContext(companyId, recruitment.id()).content(), message, interviewerMemos,
-                assessmentScores, asker, interviewerId != null);
+                assessmentScores, asker, interviewerId != null, chatTabs(companyId, stageId, tabId, interviewerId));
         return new ChatInput(companyId, stageId, tabId, asker == null ? null : asker.memberId(), stage.status(),
                 candidates, context, interviewerRoles);
+    }
+
+    /** 다른 탭의 선택 지원자를 가리킬 수 있게 HR 공유 탭을 넘긴다. 면접관 모드는 자기 탭만 쓰므로 넘기지 않는다. */
+    private List<ChatContext.Tab> chatTabs(UUID companyId, UUID stageId, UUID tabId, UUID interviewerId) {
+        if (interviewerId != null) {
+            return List.of();
+        }
+        return tabs.selections(companyId, stageId).stream()
+                .map(tab -> new ChatContext.Tab(tab.id(), tab.name(), tab.id().equals(tabId), tab.applicationIds()))
+                .toList();
     }
 
     private List<CandidateRow> allCandidates(UUID companyId, UUID stageId, UUID tabId) {

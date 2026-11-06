@@ -130,7 +130,10 @@ async def _remove_matching(
 
 
 def handle_edit(context: ChatContext, form: EditPlan, rows: Sequence[CandidateRow], all_scope: bool) -> Handled:
-    """전형 전체를 넣으라는 요청은 넣을 수 있는 미선택자만 남긴다. 넣을 수 없는 사람을 하나하나 나열하지 않는다."""
+    """전형 전체나 다른 탭의 지원자를 넣으라는 요청은 넣을 수 있는 미선택자만 남긴다.
+
+    넣을 수 없는 사람을 하나하나 나열하지 않는다.
+    """
     targets = list(rows)
     if form.action is EditAction.ADD and all_scope:
         targets = [row for row in targets if not row.selected and selectable(context, row)]

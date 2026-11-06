@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from root_context import make_context
 
@@ -13,13 +14,15 @@ from hiremate_ai.agents.root.plan import (
     NO_SCOPE,
     PICKS_INVALID,
     PLAN_SYSTEM,
+    TABS_INVALID,
     AnswerPlan,
+    EditPlan,
     FindPlan,
     has_condition,
     make_plan,
     screen_text,
 )
-from hiremate_ai.agents.root.types import ChatContext
+from hiremate_ai.agents.root.types import ChatContext, ChatTab
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
 
@@ -70,6 +73,45 @@ def test_screen_tells_empty_result_from_no_record(
 
     assert "[이전 결과] 없음" in screen_text(context, [], None, [])
     assert "[이전 결과] 0명" in screen_text(context, [], [], [])
+
+
+def tabbed(context: ChatContext, applicants: Applicants) -> ChatContext:
+    ids = {name: applicants[name].info.application_id for name in applicants}
+    tabs = [
+        ChatTab(id=uuid4(), name="경력 5년 이상", current=False, application_ids=[ids["정유민"], ids["김하늘"]]),
+        ChatTab(id=uuid4(), name="시스템 연동", current=False, application_ids=[ids["정유민"]]),
+        ChatTab(id=uuid4(), name="새 탭", current=True, application_ids=[]),
+    ]
+    return context.model_copy(update={"tabs": tabs})
+
+
+def test_screen_lists_tabs_with_current_and_counts(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = tabbed(context_of(sample_applicants, sample_company, sample_posting), sample_applicants)
+
+    text = screen_text(context, [], None, [])
+
+    assert "[탭] T1 경력 5년 이상 (선택 2명), T2 시스템 연동 (선택 1명), T3 새 탭 (현재 탭, 선택 0명)" in text
+    assert "[탭]" not in screen_text(context_of(sample_applicants, sample_company, sample_posting), [], None, [])
+
+
+async def test_unknown_tab_is_rewritten_once(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = tabbed(
+        context_of(sample_applicants, sample_company, sample_posting, message="2개 탭 공통 지원자 찾아줘"),
+        sample_applicants,
+    )
+    llm = FakeLlm(
+        ToolCall("edit", {"action": "ADD", "scope": {"tabs": ["T7"]}}),
+        ToolCall("edit", {"action": "ADD", "scope": {"tabs": ["T1", "T2"]}}),
+    )
+
+    plan = await make_plan(llm, context, [], None, [])
+
+    assert isinstance(plan.form, EditPlan) and plan.form.scope.tabs == ["T1", "T2"]
+    assert TABS_INVALID in llm.calls[1].user
 
 
 async def test_unknown_pick_is_rewritten_once(
