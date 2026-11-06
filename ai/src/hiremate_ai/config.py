@@ -47,9 +47,9 @@ class Settings(BaseSettings):
     langsmith_project: str = "hiremate"
     # Root Agent 대화방에 남기는 최근 턴 수
     root_memory_turns: int = 20
-    # Application Agent: 지원 접수 분석 한 번의 시간 한도(정책 200초). AI 워커가 대기열에서 꺼내 돌리므로
+    # Application Agent: 지원 접수 분석 한 번의 시간 한도(정책 1000초). AI 워커가 대기열에서 꺼내 돌리므로
     # backend는 기다리지 않는다. 재확인은 남은 시간 안에서만 하고 다시 시도해도 한도를 새로 세지 않는다
-    application_timeout_seconds: float = 200
+    application_timeout_seconds: float = 1000
     # AI 워커의 모델 호출 한 번 시간 한도. 워커 작업은 화면이 기다리지 않는다. 1만 자가 넘는 자기소개서는 문장 분석
     # 답이 길어 LLM_TIMEOUT_SECONDS(50초, 화면이 기다리는 호출 기준)를 넘기도 했다. 작업의 전체 한도 안에서만 쓴다
     worker_llm_timeout_seconds: float = 500
