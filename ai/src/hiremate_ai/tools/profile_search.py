@@ -92,7 +92,6 @@ def profile_indexer(
             await index_profile_embeddings(
                 session, embedder, company_id, recruitment_id, application_id, model=model or settings.ncs_model
             )
-            await session.commit()
 
     return index
 
@@ -202,7 +201,6 @@ async def backfill_profile_embeddings(
     for application_id in candidates:
         async with sessions() as session:
             await index_profile_embeddings(session, embedder, company_id, recruitment_id, application_id, model=model)
-            await session.commit()
     return len(candidates)
 
 
@@ -215,6 +213,7 @@ async def index_profile_embeddings(
     *,
     model: str = PROFILE_EMBEDDING_MODEL,
 ) -> None:
+    """임베딩이 없는 항목을 채운다. 묶음마다 커밋해 중간에 끊겨도 다음 호출이 남은 항목부터 잇는다."""
     profile = await session.scalar(
         select(CandidateProfile).where(
             CandidateProfile.company_id == company_id,
@@ -237,7 +236,7 @@ async def index_profile_embeddings(
         for item, vector in zip(batch, vectors, strict=True):
             item.embedding = vector
             item.embedding_model = model
-    await session.flush()
+        await session.commit()
 
 
 async def search_profile_embeddings(
