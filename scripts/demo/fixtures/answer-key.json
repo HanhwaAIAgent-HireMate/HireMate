@@ -1,0 +1,602 @@
+[
+  {
+    "id": "HM-001",
+    "industry": "은행",
+    "work": "대출 심사",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 대출 심사. 요청 명세를 작성하고 REST API를 구현했습니다. 운영 중에는 오류 로그를 확인하고 중복 조회를 제거했습니다.",
+    "criterion": "API 개발·운영",
+    "grade": "상",
+    "numeric_indicator": "중복 조회 제거 후 동일 부하에서 p95 응답 시간이 620ms에서 290ms로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-001/portfolio.md",
+      "quote": "요청 명세를 작성하고 REST API를 구현했습니다. 운영 중에는 오류 로그를 확인하고 중복 조회를 제거했습니다."
+    },
+    "answer_lengths": [
+      135,
+      100
+    ]
+  },
+  {
+    "id": "HM-002",
+    "industry": "카드사",
+    "work": "카드 승인",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 카드 승인. 조회 SQL을 직접 수정하고 실행계획을 비교해 복합 인덱스를 구성했습니다.",
+    "criterion": "SQL 작성·DB 개선",
+    "grade": "상",
+    "numeric_indicator": "제가 바꾼 쿼리와 인덱스를 적용한 뒤 같은 데이터에서 평균 조회 시간이 1804ms에서 601ms로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-002/portfolio.md",
+      "quote": "조회 SQL을 직접 수정하고 실행계획을 비교해 복합 인덱스를 구성했습니다."
+    },
+    "answer_lengths": [
+      124,
+      94
+    ]
+  },
+  {
+    "id": "HM-003",
+    "industry": "보험사",
+    "work": "보험금 청구",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 보험금 청구. 송수신 명세와 오류 응답 형식을 작성하고 호출 코드와 재시도 로직을 구현했습니다.",
+    "criterion": "외부 연동 설계·구현",
+    "grade": "상",
+    "numeric_indicator": "제가 구현한 재시도 로직을 적용하자 같은 오류 유형의 월간 미처리 건수가 44건에서 10건으로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-003/portfolio.md",
+      "quote": "송수신 명세와 오류 응답 형식을 작성하고 호출 코드와 재시도 로직을 구현했습니다."
+    },
+    "answer_lengths": [
+      126,
+      88
+    ]
+  },
+  {
+    "id": "HM-004",
+    "industry": "증권사",
+    "work": "증권 주문",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 증권 주문. 운영 로그로 장애 원인을 좁히고 우회 조치와 복구 검증을 직접 수행했습니다.",
+    "criterion": "장애 분석·복구",
+    "grade": "상",
+    "numeric_indicator": "제가 마련한 우회 절차를 적용한 모의 장애에서 복구 시간이 38분에서 15분으로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-004/portfolio.md",
+      "quote": "운영 로그로 장애 원인을 좁히고 우회 조치와 복구 검증을 직접 수행했습니다."
+    },
+    "answer_lengths": [
+      114,
+      83
+    ]
+  },
+  {
+    "id": "HM-005",
+    "industry": "은행",
+    "work": "계좌 이체",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 계좌 이체. 빌드 검사와 배포 단계를 파이프라인에 직접 구성하고 실패 시 중단하도록 설정했습니다.",
+    "criterion": "빌드·배포 자동화",
+    "grade": "상",
+    "numeric_indicator": "제가 구성한 파이프라인을 도입하자 같은 서비스의 배포 준비 시간이 36분에서 12분으로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-005/portfolio.md",
+      "quote": "빌드 검사와 배포 단계를 파이프라인에 직접 구성하고 실패 시 중단하도록 설정했습니다."
+    },
+    "answer_lengths": [
+      123,
+      99
+    ]
+  },
+  {
+    "id": "HM-006",
+    "industry": "저축은행",
+    "work": "대출 상환",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 대출 상환. 요청 명세를 작성하고 REST API를 구현했습니다. 운영 중에는 오류 로그를 확인하고 중복 조회를 제거했습니다.",
+    "criterion": "API 개발·운영",
+    "grade": "중",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-006/portfolio.md",
+      "quote": "요청 명세를 작성하고 REST API를 구현했습니다. 운영 중에는 오류 로그를 확인하고 중복 조회를 제거했습니다."
+    },
+    "answer_lengths": [
+      83,
+      100
+    ]
+  },
+  {
+    "id": "HM-007",
+    "industry": "보험사",
+    "work": "보험료 수납",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 보험료 수납. 조회 SQL을 직접 수정하고 실행계획을 비교해 복합 인덱스를 구성했습니다.",
+    "criterion": "SQL 작성·DB 개선",
+    "grade": "중",
+    "numeric_indicator": "프로젝트에는 8명이 참여했습니다.",
+    "valid_metric": false,
+    "metric_reason": "본인 행동과 연결된 결과 수치 아님",
+    "evidence": {
+      "path": "applicants/HM-007/portfolio.md",
+      "quote": "조회 SQL을 직접 수정하고 실행계획을 비교해 복합 인덱스를 구성했습니다."
+    },
+    "answer_lengths": [
+      81,
+      94
+    ]
+  },
+  {
+    "id": "HM-008",
+    "industry": "커머스",
+    "work": "판매자 정산",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 판매자 정산. 송수신 명세와 오류 응답 형식을 작성하고 호출 코드와 재시도 로직을 구현했습니다.",
+    "criterion": "외부 연동 설계·구현",
+    "grade": "상",
+    "numeric_indicator": "제가 구현한 재시도 로직을 적용하자 같은 오류 유형의 월간 미처리 건수가 40건에서 9건으로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-008/portfolio.md",
+      "quote": "송수신 명세와 오류 응답 형식을 작성하고 호출 코드와 재시도 로직을 구현했습니다."
+    },
+    "answer_lengths": [
+      125,
+      88
+    ]
+  },
+  {
+    "id": "HM-009",
+    "industry": "배달 플랫폼",
+    "work": "가맹점 결제",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 가맹점 결제. 운영 로그로 장애 원인을 좁히고 우회 조치와 복구 검증을 직접 수행했습니다.",
+    "criterion": "장애 분석·복구",
+    "grade": "상",
+    "numeric_indicator": "제가 마련한 우회 절차를 적용한 모의 장애에서 복구 시간이 46분에서 17분으로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-009/portfolio.md",
+      "quote": "운영 로그로 장애 원인을 좁히고 우회 조치와 복구 검증을 직접 수행했습니다."
+    },
+    "answer_lengths": [
+      115,
+      83
+    ]
+  },
+  {
+    "id": "HM-010",
+    "industry": "게임사",
+    "work": "아이템 환불",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 아이템 환불. 빌드 검사와 배포 단계를 파이프라인에 직접 구성하고 실패 시 중단하도록 설정했습니다.",
+    "criterion": "빌드·배포 자동화",
+    "grade": "상",
+    "numeric_indicator": "제가 구성한 파이프라인을 도입하자 같은 서비스의 배포 준비 시간이 32분에서 11분으로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-010/portfolio.md",
+      "quote": "빌드 검사와 배포 단계를 파이프라인에 직접 구성하고 실패 시 중단하도록 설정했습니다."
+    },
+    "answer_lengths": [
+      124,
+      99
+    ]
+  },
+  {
+    "id": "HM-011",
+    "industry": "여행사",
+    "work": "예약 결제",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 예약 결제. 요청 명세를 작성하고 REST API를 구현했습니다. 운영 중에는 오류 로그를 확인하고 중복 조회를 제거했습니다.",
+    "criterion": "API 개발·운영",
+    "grade": "상",
+    "numeric_indicator": "중복 조회 제거 후 동일 부하에서 p95 응답 시간이 624ms에서 291ms로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-011/portfolio.md",
+      "quote": "요청 명세를 작성하고 REST API를 구현했습니다. 운영 중에는 오류 로그를 확인하고 중복 조회를 제거했습니다."
+    },
+    "answer_lengths": [
+      135,
+      100
+    ]
+  },
+  {
+    "id": "HM-012",
+    "industry": "구독 플랫폼",
+    "work": "정기 수납",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 정기 수납. 조회 SQL을 직접 수정하고 실행계획을 비교해 복합 인덱스를 구성했습니다.",
+    "criterion": "SQL 작성·DB 개선",
+    "grade": "상",
+    "numeric_indicator": "제가 바꾼 쿼리와 인덱스를 적용한 뒤 같은 데이터에서 평균 조회 시간이 1808ms에서 602ms로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-012/portfolio.md",
+      "quote": "조회 SQL을 직접 수정하고 실행계획을 비교해 복합 인덱스를 구성했습니다."
+    },
+    "answer_lengths": [
+      124,
+      94
+    ]
+  },
+  {
+    "id": "HM-013",
+    "industry": "물류사",
+    "work": "운송료 지급 대사",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 운송료 지급 대사. 송수신 명세와 오류 응답 형식을 작성하고 호출 코드와 재시도 로직을 구현했습니다.",
+    "criterion": "외부 연동 설계·구현",
+    "grade": "중",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-013/portfolio.md",
+      "quote": "송수신 명세와 오류 응답 형식을 작성하고 호출 코드와 재시도 로직을 구현했습니다."
+    },
+    "answer_lengths": [
+      69,
+      88
+    ]
+  },
+  {
+    "id": "HM-014",
+    "industry": "교육 플랫폼",
+    "work": "수강료 환불",
+    "finance": "포함",
+    "finance_evidence": "이력서 담당 서비스: 수강료 환불. 운영 로그에서 원인을 찾아 공유했습니다. 복구 조치는 다른 담당자가 맡았습니다.",
+    "criterion": "장애 분석·복구",
+    "grade": "중",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-014/portfolio.md",
+      "quote": "운영 로그에서 원인을 찾아 공유했습니다. 복구 조치는 다른 담당자가 맡았습니다."
+    },
+    "answer_lengths": [
+      65,
+      83
+    ]
+  },
+  {
+    "id": "HM-015",
+    "industry": "은행",
+    "work": "사내 근태",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 사내 근태. 빌드 검사와 배포 단계를 파이프라인에 직접 구성하고 실패 시 중단하도록 설정했습니다.",
+    "criterion": "빌드·배포 자동화",
+    "grade": "상",
+    "numeric_indicator": "제가 구성한 파이프라인을 도입하자 같은 서비스의 배포 준비 시간이 40분에서 13분으로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-015/portfolio.md",
+      "quote": "빌드 검사와 배포 단계를 파이프라인에 직접 구성하고 실패 시 중단하도록 설정했습니다."
+    },
+    "answer_lengths": [
+      123,
+      99
+    ]
+  },
+  {
+    "id": "HM-016",
+    "industry": "보험사",
+    "work": "비품 관리",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 비품 관리. 요청 명세를 작성하고 REST API를 구현했습니다. 운영 중에는 오류 로그를 확인하고 중복 조회를 제거했습니다.",
+    "criterion": "API 개발·운영",
+    "grade": "상",
+    "numeric_indicator": "중복 조회 제거 후 동일 부하에서 p95 응답 시간이 620ms에서 290ms로 줄었습니다.",
+    "valid_metric": true,
+    "metric_reason": "본인 변경과 연결된 결과 수치",
+    "evidence": {
+      "path": "applicants/HM-016/portfolio.md",
+      "quote": "요청 명세를 작성하고 REST API를 구현했습니다. 운영 중에는 오류 로그를 확인하고 중복 조회를 제거했습니다."
+    },
+    "answer_lengths": [
+      135,
+      100
+    ]
+  },
+  {
+    "id": "HM-017",
+    "industry": "증권사",
+    "work": "좌석 예약",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 좌석 예약. 조회 SQL을 직접 수정하고 실행계획을 비교해 복합 인덱스를 구성했습니다.",
+    "criterion": "SQL 작성·DB 개선",
+    "grade": "중",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-017/portfolio.md",
+      "quote": "조회 SQL을 직접 수정하고 실행계획을 비교해 복합 인덱스를 구성했습니다."
+    },
+    "answer_lengths": [
+      61,
+      94
+    ]
+  },
+  {
+    "id": "HM-018",
+    "industry": "카드사",
+    "work": "사내 교육",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 사내 교육. 송수신 명세와 오류 응답 형식을 작성하고 호출 코드와 재시도 로직을 구현했습니다.",
+    "criterion": "외부 연동 설계·구현",
+    "grade": "중",
+    "numeric_indicator": "업무는 6개월 동안 진행됐습니다.",
+    "valid_metric": false,
+    "metric_reason": "본인 행동과 연결된 결과 수치 아님",
+    "evidence": {
+      "path": "applicants/HM-018/portfolio.md",
+      "quote": "송수신 명세와 오류 응답 형식을 작성하고 호출 코드와 재시도 로직을 구현했습니다."
+    },
+    "answer_lengths": [
+      84,
+      88
+    ]
+  },
+  {
+    "id": "HM-019",
+    "industry": "저축은행",
+    "work": "식당 예약",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 식당 예약. 운영 로그로 장애 원인을 좁히고 우회 조치와 복구 검증을 직접 수행했습니다.",
+    "criterion": "장애 분석·복구",
+    "grade": "중",
+    "numeric_indicator": "팀 전체 처리량이 30% 늘었지만 제 변경의 영향은 따로 측정하지 않았습니다.",
+    "valid_metric": false,
+    "metric_reason": "본인 행동과 연결된 결과 수치 아님",
+    "evidence": {
+      "path": "applicants/HM-019/portfolio.md",
+      "quote": "운영 로그로 장애 원인을 좁히고 우회 조치와 복구 검증을 직접 수행했습니다."
+    },
+    "answer_lengths": [
+      106,
+      83
+    ]
+  },
+  {
+    "id": "HM-020",
+    "industry": "물류사",
+    "work": "배송 추적",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 배송 추적. 빌드 검사와 배포 단계를 파이프라인에 직접 구성하고 실패 시 중단하도록 설정했습니다.",
+    "criterion": "빌드·배포 자동화",
+    "grade": "중",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-020/portfolio.md",
+      "quote": "빌드 검사와 배포 단계를 파이프라인에 직접 구성하고 실패 시 중단하도록 설정했습니다."
+    },
+    "answer_lengths": [
+      67,
+      99
+    ]
+  },
+  {
+    "id": "HM-021",
+    "industry": "제조사",
+    "work": "설비 관리",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 설비 관리. REST API를 개발 환경에 구현했습니다. 운영 전환 이후는 다른 팀이 담당했습니다.",
+    "criterion": "API 개발·운영",
+    "grade": "중",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-021/portfolio.md",
+      "quote": "REST API를 개발 환경에 구현했습니다. 운영 전환 이후는 다른 팀이 담당했습니다."
+    },
+    "answer_lengths": [
+      68,
+      100
+    ]
+  },
+  {
+    "id": "HM-022",
+    "industry": "게임사",
+    "work": "매칭",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 매칭. 조회 SQL은 직접 작성했지만 인덱스 개선은 DBA가 담당했습니다.",
+    "criterion": "SQL 작성·DB 개선",
+    "grade": "중",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-022/portfolio.md",
+      "quote": "조회 SQL은 직접 작성했지만 인덱스 개선은 DBA가 담당했습니다."
+    },
+    "answer_lengths": [
+      54,
+      94
+    ]
+  },
+  {
+    "id": "HM-023",
+    "industry": "병원",
+    "work": "진료 예약",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 진료 예약. 송수신 명세를 작성했습니다. 실제 호출 코드 구현은 다른 팀이 맡았습니다.",
+    "criterion": "외부 연동 설계·구현",
+    "grade": "중",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-023/portfolio.md",
+      "quote": "송수신 명세를 작성했습니다. 실제 호출 코드 구현은 다른 팀이 맡았습니다."
+    },
+    "answer_lengths": [
+      61,
+      88
+    ]
+  },
+  {
+    "id": "HM-024",
+    "industry": "교육사",
+    "work": "과제 제출",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 과제 제출. 운영 로그로 장애 원인을 좁히고 우회 조치와 복구 검증을 직접 수행했습니다.",
+    "criterion": "장애 분석·복구",
+    "grade": "중",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-024/portfolio.md",
+      "quote": "운영 로그로 장애 원인을 좁히고 우회 조치와 복구 검증을 직접 수행했습니다."
+    },
+    "answer_lengths": [
+      62,
+      83
+    ]
+  },
+  {
+    "id": "HM-025",
+    "industry": "커머스",
+    "work": "상품 전시",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 상품 전시. 기존 파이프라인만 실행했습니다. 빌드·배포 설정을 구성하지 않았습니다.",
+    "criterion": "빌드·배포 자동화",
+    "grade": "하",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-025/portfolio.md",
+      "quote": "기존 파이프라인만 실행했습니다. 빌드·배포 설정을 구성하지 않았습니다."
+    },
+    "answer_lengths": [
+      80,
+      99
+    ]
+  },
+  {
+    "id": "HM-026",
+    "industry": "물류사",
+    "work": "재고 조회",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 재고 조회. 요청 명세만 검토했습니다. API 구현과 운영에는 참여하지 않았습니다.",
+    "criterion": "API 개발·운영",
+    "grade": "하",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-026/portfolio.md",
+      "quote": "요청 명세만 검토했습니다. API 구현과 운영에는 참여하지 않았습니다."
+    },
+    "answer_lengths": [
+      79,
+      100
+    ]
+  },
+  {
+    "id": "HM-027",
+    "industry": "제조사",
+    "work": "설비 검수",
+    "finance": "제외",
+    "finance_evidence": "이력서 담당 서비스: 설비 검수. 조회 조건을 전달했습니다. SQL 작성이나 인덱스 개선에는 참여하지 않았습니다.",
+    "criterion": "SQL 작성·DB 개선",
+    "grade": "하",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-027/portfolio.md",
+      "quote": "조회 조건을 전달했습니다. SQL 작성이나 인덱스 개선에는 참여하지 않았습니다."
+    },
+    "answer_lengths": [
+      88,
+      94
+    ]
+  },
+  {
+    "id": "HM-028",
+    "industry": "커머스",
+    "work": "정산",
+    "finance": "확인 필요",
+    "finance_evidence": "이력서 담당 서비스: 정산. 프로젝트에는 참여했지만 개인 담당 범위는 정리하지 않았습니다.",
+    "criterion": "외부 연동 설계·구현",
+    "grade": "확인 필요",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-028/portfolio.md",
+      "quote": "프로젝트에는 참여했지만 개인 담당 범위는 정리하지 않았습니다."
+    },
+    "answer_lengths": [
+      51,
+      88
+    ]
+  },
+  {
+    "id": "HM-029",
+    "industry": "플랫폼",
+    "work": "결제 승인",
+    "finance": "확인 필요",
+    "finance_evidence": "이력서 담당 서비스: 결제 승인. 프로젝트에는 참여했지만 개인 담당 범위는 정리하지 않았습니다.",
+    "criterion": "장애 분석·복구",
+    "grade": "확인 필요",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-029/portfolio.md",
+      "quote": "프로젝트에는 참여했지만 개인 담당 범위는 정리하지 않았습니다."
+    },
+    "answer_lengths": [
+      54,
+      83
+    ]
+  },
+  {
+    "id": "HM-030",
+    "industry": "게임사",
+    "work": "환불",
+    "finance": "확인 필요",
+    "finance_evidence": "이력서 담당 서비스: 환불. 프로젝트에는 참여했지만 개인 담당 범위는 정리하지 않았습니다.",
+    "criterion": "빌드·배포 자동화",
+    "grade": "확인 필요",
+    "numeric_indicator": null,
+    "valid_metric": false,
+    "metric_reason": null,
+    "evidence": {
+      "path": "applicants/HM-030/portfolio.md",
+      "quote": "프로젝트에는 참여했지만 개인 담당 범위는 정리하지 않았습니다."
+    },
+    "answer_lengths": [
+      51,
+      99
+    ]
+  }
+]

@@ -9,6 +9,8 @@
 backend(8080)와 ai(8001)가 떠 있어야 한다. 지원서는 실제 지원 화면과 같은 공개 지원 API로 제출하므로
 접수할 때마다 Application Agent가 분석한다. 마지막에 접수를 마감하고 서류 전형 화면 주소를 알려 준다.
 우대사항 글은 backend 설정의 더미 평가 기준(hiremate.dummy.screening-rubric)과 같아야 짝이 맞는다.
+--fixtures면 서류 평가 데이터셋(fixtures/의 지원자 30명)과 그 공고(자격요건 2 · 우대사항 3)를 쓴다. 평가 기준이
+backend fixtures 프로필(application-fixtures.yml)에 있으므로 backend를 SPRING_PROFILES_ACTIVE=fixtures로 띄운다.
 지원자는 모두 가상 인물이다. 비밀번호는 코드에 쓰지 않고 인자나 HIREMATE_DEMO_PASSWORD로 받는다.
 """
 
@@ -51,6 +53,20 @@ POSTING = {
         "클래스 · 데이터 모델 등 정적 모델을 설계한 경험",
     ],
     "benefits": ["유연 근무", "자기계발비 지원"],
+}
+# 서류 평가 데이터셋(fixtures/)의 공고. 자격요건 · 우대사항 글은 application-fixtures.yml의 평가 기준과 같다
+FIXTURES_POSTING = {
+    **POSTING,
+    "title": "백엔드 엔지니어 (금융 서비스 API · 30명 데이터셋)",
+    "career": "경력 무관",
+    "intro": "결제 · 대출 · 보험 같은 서비스의 API와 외부 연동을 만들고 운영하는 백엔드 엔지니어를 찾습니다.",
+    "duties": ["REST API 개발과 운영", "외부 시스템 연동 설계와 구현", "장애 대응과 빌드 · 배포 자동화"],
+    "qualifications": ["REST API를 개발하고 운영한 경험", "SQL을 작성하고 DB 성능을 개선한 경험"],
+    "preferred": [
+        "외부 시스템 연동을 설계하고 구현한 경험",
+        "장애 원인을 분석하고 복구한 경험",
+        "빌드 · 배포 자동화(CI/CD)를 구성한 경험",
+    ],
 }
 
 STAGE_PLAN = "전형은 서류, 직무역량 평가, 1차 면접, 최종 면접 순으로 해줘"
@@ -118,16 +134,16 @@ def login(api: Api, email: str, password: str) -> None:
     api.reset_csrf()
 
 
-def publish(api: Api) -> tuple[str, str]:
+def publish(api: Api, posting: dict[str, object]) -> tuple[str, str]:
     draft = api.post("/api/recruitments").json()
     recruitment_id, posting_id = draft["recruitmentId"], draft["postingId"]
     base = f"/api/recruitments/{recruitment_id}/posting"
-    api.put(base, POSTING)
+    api.put(base, posting)
     # 서류 전형을 확정해도 채용이 끝나지 않고 다음 전형으로 넘어가게 전형을 넷으로 둔다 (Posting Agent 수정안).
     # 수정안이 공고 문장을 바꾸면 평가 기준과 짝이 어긋나므로 적용한 뒤 공고 본문을 다시 넣는다
     api.post(f"{base}/ai-requests", {"message": STAGE_PLAN})
     api.post(f"{base}/suggestion/apply")
-    api.put(base, POSTING)
+    api.put(base, posting)
     now = datetime.now(UTC)
     api.post(
         f"{base}/publish",
@@ -192,6 +208,7 @@ def main() -> None:
     parser.add_argument("--password", default=os.environ.get("HIREMATE_DEMO_PASSWORD"))
     parser.add_argument("--font", type=Path, help="한글 TTF 글꼴. 비우면 맑은 고딕 · 나눔고딕을 찾는다")
     parser.add_argument("--wait-minutes", type=float, default=40)
+    parser.add_argument("--fixtures", action="store_true", help="서류 평가 데이터셋(fixtures/)을 넣는다")
     args = parser.parse_args()
     if not args.password:
         sys.exit("--password 또는 HIREMATE_DEMO_PASSWORD로 HR 비밀번호(12자 이상)를 준다")
@@ -199,10 +216,11 @@ def main() -> None:
     if font is None:
         sys.exit("한글 글꼴을 찾지 못했다. --font로 TTF 파일을 준다")
 
-    applicants = json.loads((HERE / "applicants.json").read_text(encoding="utf-8"))
+    folder = HERE / "fixtures" if args.fixtures else HERE
+    applicants = json.loads((folder / "applicants.json").read_text(encoding="utf-8"))
     api = Api(args.base_url)
     login(api, args.email, args.password)
-    recruitment_id, posting_id = publish(api)
+    recruitment_id, posting_id = publish(api, FIXTURES_POSTING if args.fixtures else POSTING)
     print(f"공고를 게시했다: {recruitment_id}")
     for index, applicant in enumerate(applicants, start=1):
         apply(args.base_url, posting_id, applicant, font)
