@@ -82,6 +82,13 @@ public class ApplyController {
         normalization.retry(member.companyId(), recruitmentId, applicationId, documentId);
     }
 
+    /** 기존 지원 문서를 원본 PDF로 다시 읽는다. 반복 호출은 완료한 버전을 유지한다. */
+    @PostMapping("/api/recruitments/{recruitmentId}/documents/normalization")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void backfillDocuments(AuthenticatedMember member, @PathVariable UUID recruitmentId) {
+        normalization.backfill(member.companyId(), recruitmentId);
+    }
+
     @GetMapping("/api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}")
     public ResponseEntity<byte[]> document(AuthenticatedMember member, @PathVariable UUID recruitmentId,
             @PathVariable UUID applicationId, @PathVariable DocumentType type) {

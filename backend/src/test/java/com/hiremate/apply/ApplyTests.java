@@ -46,6 +46,84 @@ class ApplyTests extends IntegrationTest {
     @Autowired
     private org.springframework.transaction.PlatformTransactionManager transactionManager;
 
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate indexRedis;
+
+    @Test
+    void indexQueueRecoversRedisLossAndAcknowledgesOnlyTheAcceptedVersion() throws Exception {
+        DocumentNormalizationRequest request = normalizationFixture();
+        normalization.enqueue(request);
+        normalization.complete(request.documentId(),
+                storedDocuments.findById(request.documentId()).orElseThrow().getNormalizationJobId(),
+                normalizedResult(request));
+        DocumentIndexRequest accepted = new DocumentIndexRequest(request, normalizedResult(request));
+        normalization.enqueueIndex(accepted);
+        UUID first = storedDocuments.findById(request.documentId()).orElseThrow().getIndexJobId();
+        normalization.enqueueIndex(accepted);
+        assertThat(storedDocuments.findById(request.documentId()).orElseThrow().getIndexJobId()).isEqualTo(first);
+        try (var connection = indexRedis.getConnectionFactory().getConnection()) {
+            connection.serverCommands().flushDb();
+        }
+        normalization.enqueueIndex(accepted);
+        UUID recovered = storedDocuments.findById(request.documentId()).orElseThrow().getIndexJobId();
+        assertThat(recovered).isNotEqualTo(first);
+        normalization.completeIndex(request.documentId(), first,
+                new DocumentIndexResult(request.documentId(), 1, "INDEXED"));
+        assertThat(storedDocuments.findById(request.documentId()).orElseThrow().getIndexStatus())
+                .isEqualTo(DocumentNormalizationStatus.PENDING);
+        normalization.failIndex(request.documentId(), recovered);
+        normalization.enqueueIndex(accepted);
+        UUID retry = storedDocuments.findById(request.documentId()).orElseThrow().getIndexJobId();
+        jobResults.publish(new com.hiremate.job.JobResult(retry, DocumentNormalizationService.INDEX_JOB,
+                request.documentId().toString(), com.hiremate.job.JobStatus.DONE,
+                mapper.valueToTree(new DocumentIndexResult(request.documentId(), 1, "UNCHANGED")), null));
+        Instant deadline = Instant.now().plusSeconds(10);
+        while (storedDocuments.findById(request.documentId()).orElseThrow().getIndexStatus()
+                != DocumentNormalizationStatus.COMPLETED && Instant.now().isBefore(deadline)) {
+            Thread.sleep(50);
+        }
+        normalization.enqueueIndex(accepted);
+        assertThat(storedDocuments.findById(request.documentId()).orElseThrow().getIndexStatus())
+                .isEqualTo(DocumentNormalizationStatus.COMPLETED);
+        assertThat(storedDocuments.findById(request.documentId()).orElseThrow().getIndexJobId()).isEqualTo(retry);
+        normalization.retry(request.companyId(), request.recruitmentId(), request.applicationId(),
+                request.documentId());
+        assertThat(storedDocuments.findById(request.documentId()).orElseThrow().getNormalizedDocument())
+                .isEqualTo(accepted.document());
+    }
+
+    @Test
+    void stalePreloadedIndexCallbackCannotCompleteNewerAcceptedRevision() throws Exception {
+        DocumentNormalizationRequest first = normalizationFixture();
+        normalization.enqueue(first);
+        normalization.complete(first.documentId(),
+                storedDocuments.findById(first.documentId()).orElseThrow().getNormalizationJobId(),
+                normalizedResult(first));
+        normalization.enqueueIndex(new DocumentIndexRequest(first, normalizedResult(first)));
+        UUID oldJob = storedDocuments.findById(first.documentId()).orElseThrow().getIndexJobId();
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            storedDocuments.findById(first.documentId()).orElseThrow();
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                normalization.retry(first.companyId(), first.recruitmentId(), first.applicationId(),
+                        first.documentId());
+                DocumentNormalizationRequest next = normalization.requests(first.companyId(), first.recruitmentId(),
+                        first.applicationId()).stream().filter(r -> r.documentId().equals(first.documentId()))
+                        .findFirst().orElseThrow();
+                normalization.enqueue(next);
+                normalization.complete(next.documentId(),
+                        storedDocuments.findById(next.documentId()).orElseThrow().getNormalizationJobId(),
+                        normalizedResult(next));
+                normalization.enqueueIndex(new DocumentIndexRequest(next, normalizedResult(next)));
+            }).join();
+            normalization.completeIndex(first.documentId(), oldJob,
+                    new DocumentIndexResult(first.documentId(), 1, "INDEXED"));
+        });
+        var document = storedDocuments.findById(first.documentId()).orElseThrow();
+        assertThat(document.getIndexRevision()).isEqualTo(2);
+        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.PENDING);
+        assertThat(document.getNormalizedDocument().revision()).isEqualTo(2);
+    }
+
     @Test
     void retryRetainsSuccessCommittedAfterTheCallerPreloadedTheDocument() throws Exception {
         DocumentNormalizationRequest request = normalizationFixture();

@@ -47,7 +47,19 @@ class DocumentNormalizationTests {
         when(applications.findByIdAndCompanyId(application.getId(), application.getCompanyId()))
                 .thenReturn(Optional.of(application));
         when(applicationService.blind(application.getCompanyId(), application.getRecruitmentId())).thenReturn(true);
+        when(applicationService.parseOriginal(application.getCompanyId(), document.getFileId(), true))
+                .thenReturn(document.getParsedDocument());
         when(jobs.enqueue(anyString(), anyString(), any())).thenAnswer(ignored -> UUID.randomUUID());
+    }
+
+    @Test
+    void backfillResumesPendingVersionsWithoutAdvancingRevision() {
+        when(applications.findByRecruitmentIdAndCompanyId(application.getRecruitmentId(), application.getCompanyId()))
+                .thenReturn(List.of(application));
+        service.backfill(application.getCompanyId(), application.getRecruitmentId());
+        assertThat(document.getRevision()).isEqualTo(1);
+        assertThat(events).containsExactly(new DocumentNormalizationRequested(application.getId(),
+                application.getRecruitmentId(), application.getCompanyId()));
     }
 
     @Test
@@ -155,6 +167,56 @@ class DocumentNormalizationTests {
         when(jobs.isOpen(DocumentNormalizationService.NORMALIZE_JOB, document.getId().toString())).thenReturn(true);
         service.enqueue(request());
         assertThat(document.getNormalizationJobId()).isEqualTo(currentJob);
+    }
+
+    @Test
+    void indexRecoveryKeepsAcceptedJsonAndCorrelatesEveryAttempt() {
+        service.enqueue(request());
+        service.complete(document.getId(), document.getNormalizationJobId(), result(request(), "s1"));
+        DocumentIndexRequest accepted = new DocumentIndexRequest(document.getNormalizedRequest(),
+                document.getNormalizedDocument());
+        service.enqueueIndex(accepted);
+        UUID lost = document.getIndexJobId();
+        service.enqueueIndex(accepted);
+        UUID recovered = document.getIndexJobId();
+        assertThat(recovered).isNotEqualTo(lost);
+        service.completeIndex(document.getId(), lost, new DocumentIndexResult(document.getId(), 1, "INDEXED"));
+        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.PENDING);
+        service.failIndex(document.getId(), recovered);
+        assertThat(document.getNormalizedDocument()).isEqualTo(accepted.document());
+        service.enqueueIndex(accepted);
+        UUID retry = document.getIndexJobId();
+        service.completeIndex(document.getId(), retry, new DocumentIndexResult(document.getId(), 1, "UNCHANGED"));
+        service.enqueueIndex(accepted);
+        assertThat(document.getIndexJobId()).isEqualTo(retry);
+        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.COMPLETED);
+    }
+
+    @Test
+    void indexQueueFailureAndInvalidAcknowledgementsKeepAcceptedJson() {
+        service.enqueue(request());
+        service.complete(document.getId(), document.getNormalizationJobId(), result(request(), "s1"));
+        DocumentIndexRequest accepted = new DocumentIndexRequest(document.getNormalizedRequest(),
+                document.getNormalizedDocument());
+        when(jobs.enqueue(anyString(), anyString(), any())).thenThrow(new IllegalStateException("Redis down"));
+        service.enqueueIndex(accepted);
+        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
+        assertThat(document.getNormalizedDocument()).isEqualTo(accepted.document());
+        org.mockito.Mockito.doAnswer(ignored -> UUID.randomUUID()).when(jobs)
+                .enqueue(anyString(), anyString(), any());
+        service.enqueueIndex(accepted);
+        service.completeIndex(document.getId(), document.getIndexJobId(),
+                new DocumentIndexResult(UUID.randomUUID(), 1, "INDEXED"));
+        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
+        service.enqueueIndex(accepted);
+        service.completeIndex(document.getId(), document.getIndexJobId(),
+                new DocumentIndexResult(document.getId(), 2, "INDEXED"));
+        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
+        service.enqueueIndex(accepted);
+        service.completeIndex(document.getId(), document.getIndexJobId(),
+                new DocumentIndexResult(document.getId(), 1, "STALE"));
+        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
+        assertThat(document.getNormalizedDocument()).isEqualTo(accepted.document());
     }
 
     private DocumentNormalizationRequest request() {

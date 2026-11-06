@@ -125,10 +125,48 @@ public class DocumentNormalizationService {
         ApplicationDocument document = lockedDocument(documentId)
                 .filter(candidate -> candidate.getApplicationId().equals(applicationId))
                 .filter(candidate -> candidate.getType() != DocumentType.CERTIFICATE)
-                .filter(candidate -> candidate.getParsedDocument() != null)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "DOCUMENT_NOT_FOUND", "Document not found."));
+        reparse(document, companyId, recruitmentId);
+    }
+
+    /** 기업의 채용 범위 안에서 기존 문서를 처리한다. 진행 중이거나 성공한 버전은 그대로 둔다. */
+    @Transactional
+    public void backfill(UUID companyId, UUID recruitmentId) {
+        applicationService.blind(companyId, recruitmentId);
+        for (JobApplication application : applications.findByRecruitmentIdAndCompanyId(recruitmentId, companyId)) {
+            for (ApplicationDocument candidate : documents.findByApplicationId(application.getId())) {
+                ApplicationDocument document = lockedDocument(candidate.getId()).orElseThrow();
+                if (document.getType() == DocumentType.CERTIFICATE) {
+                    continue;
+                }
+                if (document.getParsedDocument() != null
+                        && document.getNormalizationStatus() != DocumentNormalizationStatus.FAILED) {
+                    if (document.getNormalizationStatus() == DocumentNormalizationStatus.PENDING) {
+                        events.publishEvent(new DocumentNormalizationRequested(application.getId(),
+                                recruitmentId, companyId));
+                    }
+                    continue;
+                }
+                reparse(document, companyId, recruitmentId);
+            }
+        }
+    }
+
+    private void reparse(ApplicationDocument document, UUID companyId, UUID recruitmentId) {
         document.requestNormalization();
-        events.publishEvent(new DocumentNormalizationRequested(applicationId, recruitmentId, companyId));
+        try {
+            ParsedDocument parsed = applicationService.parseOriginal(companyId, document.getFileId(),
+                    applicationService.blind(companyId, recruitmentId));
+            document.recordParsedDocument(parsed);
+            if (parsed.sources().isEmpty()) {
+                document.failNormalization();
+                return;
+            }
+        } catch (RuntimeException exception) {
+            document.failNormalization();
+            return;
+        }
+        events.publishEvent(new DocumentNormalizationRequested(document.getApplicationId(), recruitmentId, companyId));
     }
 
     @Transactional(readOnly = true)
@@ -146,6 +184,47 @@ public class DocumentNormalizationService {
         return documents.findNormalizedDocuments().stream()
                 .map(document -> new DocumentIndexRequest(document.getNormalizedRequest(),
                         document.getNormalizedDocument())).toList();
+    }
+
+    /** 저장된 성공 JSON만 큐에 넣고 작업과 버전을 함께 기록한다. */
+    @Transactional
+    public void enqueueIndex(DocumentIndexRequest proposed) {
+        ApplicationDocument document = lockedDocument(proposed.document().documentId()).orElseThrow();
+        if (!proposed.document().equals(document.getNormalizedDocument())
+                || !proposed.request().equals(document.getNormalizedRequest())) {
+            return;
+        }
+        int revision = proposed.document().revision();
+        if (Integer.valueOf(revision).equals(document.getIndexRevision())
+                && (document.getIndexStatus() == DocumentNormalizationStatus.COMPLETED
+                || document.getIndexStatus() == DocumentNormalizationStatus.PENDING
+                && jobs.isOpen(INDEX_JOB, document.getId().toString()))) {
+            return;
+        }
+        try {
+            document.queueIndex(jobs.enqueue(INDEX_JOB, document.getId().toString(), proposed), revision);
+        } catch (RuntimeException exception) {
+            document.failIndex();
+        }
+    }
+
+    @Transactional
+    public void completeIndex(UUID documentId, UUID jobId, DocumentIndexResult result) {
+        lockedDocument(documentId).filter(document -> document.awaitsIndex(jobId)).ifPresent(document -> {
+            if (result != null && documentId.equals(result.documentId())
+                    && result.revision() == document.getIndexRevision()
+                    && !"STALE".equals(result.status())) {
+                document.completeIndex();
+            } else {
+                document.failIndex();
+            }
+        });
+    }
+
+    @Transactional
+    public void failIndex(UUID documentId, UUID jobId) {
+        lockedDocument(documentId).filter(document -> document.awaitsIndex(jobId))
+                .ifPresent(ApplicationDocument::failIndex);
     }
 
     private Optional<ApplicationDocument> lockedDocument(UUID documentId) {
