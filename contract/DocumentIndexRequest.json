@@ -1,0 +1,135 @@
+{
+  "request": {
+    "companyId": "00000000-0000-0000-0000-000000000001",
+    "recruitmentId": "00000000-0000-0000-0000-000000000001",
+    "applicationId": "00000000-0000-0000-0000-000000000001",
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "PORTFOLIO",
+    "sources": [
+      {
+        "id": "s1",
+        "page": 1,
+        "text": "프로젝트"
+      },
+      {
+        "id": "s2",
+        "page": 1,
+        "text": "개발했습니다"
+      },
+      {
+        "id": "s3",
+        "page": 1,
+        "text": "항목"
+      },
+      {
+        "id": "s4",
+        "page": null,
+        "text": "성과"
+      },
+      {
+        "id": "s5",
+        "page": null,
+        "text": "그림 설명"
+      },
+      {
+        "id": "s6",
+        "page": null,
+        "text": "코드 설명"
+      }
+    ]
+  },
+  "document": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "PORTFOLIO",
+    "blocks": [
+      {
+        "id": "b1",
+        "type": "section",
+        "sourceIds": [
+          "s1"
+        ],
+        "title": "프로젝트",
+        "blocks": [
+          {
+            "id": "b2",
+            "type": "paragraph",
+            "sourceIds": [
+              "s2"
+            ],
+            "role": "body",
+            "text": "개발했습니다"
+          },
+          {
+            "id": "b3",
+            "type": "list",
+            "sourceIds": [
+              "s3"
+            ],
+            "items": [
+              {
+                "marker": "1.",
+                "text": "항목",
+                "children": [
+                  {
+                    "marker": null,
+                    "text": "하위 항목",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "b4",
+            "type": "table",
+            "sourceIds": [
+              "s4"
+            ],
+            "caption": null,
+            "headers": [
+              "항목",
+              null
+            ],
+            "rows": [
+              [
+                "성과",
+                null
+              ]
+            ]
+          },
+          {
+            "id": "b5",
+            "type": "reference",
+            "sourceIds": [
+              "s5"
+            ],
+            "kind": "possible_visual",
+            "text": "그림 설명",
+            "notice": "관련 시각 자료가 있을 수 있습니다. 원본 PDF를 확인해 주세요."
+          },
+          {
+            "id": "b6",
+            "type": "section",
+            "sourceIds": [],
+            "title": null,
+            "blocks": [
+              {
+                "id": "b7",
+                "type": "reference",
+                "sourceIds": [
+                  "s6"
+                ],
+                "kind": "code_example",
+                "text": "코드 설명",
+                "notice": "코드 예시가 포함되어 있습니다. 원본 PDF를 확인해 주세요."
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

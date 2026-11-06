@@ -2,7 +2,7 @@
 
 [지원 문서 JSON 정책](DOCUMENT_JSON_README.md)은 이력서, 자기소개서, 포트폴리오 정리와 검색에 사용할 확정 명세다. 아직 구현되지 않았다.
 
-`DocumentSource`, `DocumentNormalizationRequest`, `NormalizedDocument`는 지원 문서 정제 계약이다.
+`DocumentSource`, `DocumentNormalizationRequest`, `NormalizedDocument`, `DocumentIndexRequest`는 지원 문서 정제 계약이다.
 정제 문서는 블록 ID 중복을 검사하며, 저장 전 `validateSources` 또는 `validate_sources`로
 요청 원문 조각의 출처 ID를 검증한다. 문서 ID와 버전은 요청값을 사용하고 블록 ID는 코드가 부여한다.
 목록 항목의 `children`은 하위 항목이 없으면 빈 배열이다. 표 셀은 읽히지 않은 값에 `null`을 사용한다.
