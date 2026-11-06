@@ -2,10 +2,6 @@ name: backend-quality
 
 on:
   pull_request:
-    paths:
-      - backend/**
-      - contract/**
-      - .github/workflows/backend-quality.yml
   # PR에서 통과한 코드는 main에서 다시 검사하지 않는다. 의존성이 바뀐 채 머지되면 한 번 돌려 PR이 받아 쓸 캐시를 만든다.
   push:
     branches: [main]
