@@ -318,9 +318,12 @@ public class ApplicationService {
     private void saveDocument(JobApplication application, DocumentType type, ApplicationForm.Upload upload,
             boolean blind) {
         StoredFileInfo stored = files.storePdf(application.getCompanyId(), upload.fileName(), upload.content());
-        String text = PdfText.extract(upload.content());
-        documents.save(new ApplicationDocument(application.getId(), type, stored.fileId(), stored.originalName(),
-                stored.size(), blind ? BlindMask.mask(text) : text));
+        PdfText.Result extracted = PdfText.parse(upload.content());
+        String text = extracted.text();
+        ApplicationDocument document = new ApplicationDocument(application.getId(), type, stored.fileId(),
+                stored.originalName(), stored.size(), blind ? BlindMask.mask(text) : text);
+        document.recordParsedDocument(ParsedDocument.from(extracted, blind));
+        documents.save(document);
     }
 
     private JobApplication application(UUID companyId, UUID applicationId) {

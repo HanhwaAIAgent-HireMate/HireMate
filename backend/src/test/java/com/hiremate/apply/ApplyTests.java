@@ -31,6 +31,40 @@ class ApplyTests extends IntegrationTest {
     @Autowired
     private TestMailConfiguration.RecordingMailClient mail;
 
+    @Autowired
+    private DocumentNormalizationService normalization;
+
+    @Autowired
+    private com.hiremate.apply.domain.ApplicationDocumentRepository storedDocuments;
+
+    @Test
+    void storesParsedPagesAndReturnsOnlyScopedBlindNormalizationSources() throws Exception {
+        TestApi hr = newHr();
+        Posting posting = publishBlind(hr, "");
+        Map<String, Object> submitted = form("normalize@example.com", false);
+        submitted.put("name", "Yuna Noh");
+        submitted.put("resume", new TestApi.FilePart("resume.pdf", "application/pdf",
+                pdf("Hanbit University GPA: 3.9. Applicant Yuna Noh. Java Spring")));
+        expect(anonymous().multipart(posting.applyPath(), submitted), 201);
+        UUID recruitmentId = UUID.fromString(posting.recruitmentId());
+        UUID applicationId = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
+        var requests = normalization.requests(hr.companyId(), recruitmentId, applicationId);
+        assertThat(requests).hasSize(2);
+        var resume = requests.stream().filter(request -> request.documentType() == DocumentType.RESUME)
+                .findFirst().orElseThrow();
+        assertThat(resume.revision()).isEqualTo(1);
+        assertThat(resume.sources().getFirst().text()).contains("○○○", "○○학교", "GPA: ○○", "Java Spring")
+                .doesNotContain("Yuna", "Noh", "Hanbit", "3.9");
+        var stored = storedDocuments.findById(resume.documentId()).orElseThrow();
+        assertThat(stored.getParsedDocument().pages()).hasSize(1);
+        assertThat(stored.getText()).contains("Yuna Noh").doesNotContain("Hanbit", "3.9");
+        assertThat(stored.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.PENDING);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> normalization.requests(
+                UUID.randomUUID(), recruitmentId, applicationId)).isInstanceOf(com.hiremate.global.ApiException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> normalization.requests(
+                hr.companyId(), UUID.randomUUID(), applicationId)).isInstanceOf(com.hiremate.global.ApiException.class);
+    }
+
     @Test
     @DisplayName("블라인드 채용은 마지막 전형 결과를 확정하기 전까지 이름을 가리고(영문 이력서의 이름도), 이메일 · 연락처는 그대로 준다")
     void hidesIdentityForBlindPostingUntilFinalResult() throws Exception {
