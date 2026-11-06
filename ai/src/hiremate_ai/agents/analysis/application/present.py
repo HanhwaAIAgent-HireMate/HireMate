@@ -62,7 +62,10 @@ def to_candidate_analysis(review: ApplicationReview, documents: Sequence[Applica
         for result in review.qualifications
     ]
     facts = notable_facts(review.facts)
-    notable = [Finding(text=fact.statement, source=fact.quotes[0].document.label) for fact in facts]
+    notable = [
+        Finding(text=note.text, source=note.source, title=note.title, detail=note.detail, metric=note.metric)
+        for note in review.notable
+    ] or [Finding(text=fact.statement, source=fact.quotes[0].document.label) for fact in facts]
     quotes: list[Quote] = [
         quote for result in review.criteria if result.verdict != Verdict.NOT_MET for quote in result.quotes
     ]
@@ -73,7 +76,10 @@ def to_candidate_analysis(review: ApplicationReview, documents: Sequence[Applica
     return CandidateAnalysis(
         conditions=conditions,
         notable=notable[:NOTABLE_LIMIT],
-        checks=[Finding(text=note.text, source=note.source) for note in review.checks],
+        checks=[
+            Finding(text=note.text, source=note.source, title=note.title, warning=note.warning)
+            for note in review.checks
+        ],
         holds=[Finding(text=note.text, source=note.source) for note in review.holds],
         criteria_version=review.criteria_version or None,
         criteria=criterion_lines(review),
@@ -116,6 +122,9 @@ def criterion_lines(review: ApplicationReview) -> list[CriterionLine]:
                 career_years=None if result.career_months is None else result.career_months // 12,
                 certificate_status=result.certificate_status,
                 metric=result.metric,
+                no_record=result.no_record,
+                brief=result.brief,
+                setting_note=result.setting_note,
             )
         )
     return lines

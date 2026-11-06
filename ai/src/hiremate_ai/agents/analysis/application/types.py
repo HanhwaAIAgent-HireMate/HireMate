@@ -144,6 +144,9 @@ class CriterionResult(_Record):
     career_months: int | None = None  # 경력 기간 조건이면 코드가 계산한, 요건과 관련된 경력 개월 수
     certificate_status: CertificateStatus | None = None  # 자격증 조건이면 확인 상태
     metric: str = ""  # 경험형 항목 근거의 정량 지표(원문 그대로). 화면은 경험 + 지표면 상으로 보여 준다
+    no_record: bool = False  # 미충족 가운데 서류에 관련 기록이 아예 없는 것(언급 없음)
+    brief: str = ""  # 카드에 보일 판정 요약 한 줄. 만들지 못했으면 비어 있다
+    setting_note: str = ""  # 판정 기준이 정하지 않아 판정이 갈리는 점 (지원자 확인할 점이 아니라 평가 설정 검토)
 
 
 class DocumentSection(_Record):
@@ -157,10 +160,14 @@ class DocumentSection(_Record):
 
 
 class Note(_Record):
-    """카드에 보여 줄 한 줄과 출처."""
+    """카드에 보여 줄 한 줄과 출처. 눈여겨볼 점 묶음이면 제목 · 한 일 · 지표를 따로 담는다."""
 
     text: str
     source: str
+    title: str = ""
+    detail: str = ""
+    metric: str = ""
+    warning: bool = False  # 담당자가 주의해서 볼 서류 신호 (확인할 점에 붉게 표시)
 
 
 class ApplicationReview(_Record):
@@ -177,6 +184,7 @@ class ApplicationReview(_Record):
     career_years: int | None = None
     last_company: str | None = None
     criteria: list[CriterionResult] = []
+    notable: list[Note] = []  # 같은 일끼리 묶은 눈여겨볼 점 (제목 — 한 문장). 비어 있으면 경험 문장을 그대로 쓴다
     holds: list[Note] = []  # 확인 필요로 남은 항목 (서류를 읽지 못했으면 그 사실)
     checks: list[Note] = []
 

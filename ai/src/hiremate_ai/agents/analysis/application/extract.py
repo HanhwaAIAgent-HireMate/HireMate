@@ -28,12 +28,19 @@ EXTRACT_SYSTEM = f"""너는 채용 서류 한 건에서 지원자에 관한 사�
 
 - 사실마다 근거 문장(evidence)을 원문 글자 그대로 옮긴다. 원문에 없는 문장을 만들지 않는다.
 - statement는 원문보다 부풀리지 않고 한 문장으로 쓴다. '참여'를 '주도'로, 팀 성과를 개인 성과로 바꾸지 않는다.
+- 수치 성과는 원문이 붙인 측정 조건 · 출처 · 기여 한계(예: '회사 적용 당시 수치', '같은 기간 다른 개편 효과 포함',
+  '로컬 테스트', '팀 공동 작업')를 statement에 그대로 남긴다. 표의 수치는 열 머리와 표 아래 주석까지 보고,
+  어느 프로젝트 · 환경의 수치인지 바꾸지 않는다.
+- 문제 → 행동 → 결과가 한 문단에 이어지면 결과까지 statement에 담는다 (예: '구조를 바꿨고 그 뒤 문제가 사라졌다').
+- 계획 · 예정 · 학습 중인 일은 그렇다고 statement에 쓴다. 한 일처럼 쓰지 않는다.
 - statement는 '~했다.', '~한다.', '~이다.'처럼 평어로 끝낸다. '~했습니다', '~했어요', 명사로 끝내기는 쓰지 않는다.
 - actor: 본인이 직접 한 일이면 SELF, 팀 · 조직의 성과면 TEAM, 알 수 없으면 UNCLEAR.
 - kind: EXPERIENCE(업무 경험), PROJECT(프로젝트), SKILL(기술 · 도구), CERTIFICATE(자격증), ACHIEVEMENT(수치 성과),
   ACTIVITY(교육 · 활동), EDUCATION(학력).
 - periods에는 서류에 적힌 근무 · 활동 기간을 모두 뽑는다. start · end는 YYYY-MM이고 재직 중이면 end를 비운다.
-  kind는 EMPLOYMENT(정규 · 계약 재직), INTERN, FREELANCE, PROJECT(교육 · 개인 프로젝트), EDUCATION 가운데 하나다.
+  start · end는 근거 문장에 적힌 날짜만 쓴다. 적혀 있지 않은 날짜를 기간 · 나이 등으로 계산하거나 짐작하지 않는다.
+  kind는 EMPLOYMENT(정규 · 계약 재직), INTERN, FREELANCE, PROJECT(교육 · 개인 프로젝트), EDUCATION,
+  OTHER(병역 · 봉사 · 어학연수 · 동아리처럼 재직이 아닌 활동) 가운데 하나다.
 - 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 뽑지 않는다.
 
 {UNTRUSTED_RULE}"""
@@ -41,7 +48,9 @@ EXTRACT_SYSTEM = f"""너는 채용 서류 한 건에서 지원자에 관한 사�
 
 # 모델이 목록 밖의 종류를 쓰면 형식 오류로 분석 전체가 실패했다. 종류는 글로 받고 코드가 목록에 맞춘다
 FACT_KINDS = ("EXPERIENCE", "PROJECT", "SKILL", "CERTIFICATE", "ACHIEVEMENT", "ACTIVITY", "EDUCATION")
-PERIOD_KINDS = ("EMPLOYMENT", "INTERN", "FREELANCE", "PROJECT", "EDUCATION")
+PERIOD_KINDS = ("EMPLOYMENT", "INTERN", "FREELANCE", "PROJECT", "EDUCATION", "OTHER")
+# 근무로 보는 기간. 날짜가 모두 원문에 적혀 있어야 받는다
+WORK_PERIOD_KINDS = ("EMPLOYMENT", "INTERN", "FREELANCE")
 
 
 class ExtractedFact(BaseModel):
@@ -352,7 +361,9 @@ def merge(
             # 학력 기간은 다닌 햇수로 학력 수준을 짐작할 수 있어 통째로 뺀다
             if blind and (kind == "EDUCATION" or _mentions_education(f"{period.company} {period.role}", found)):
                 continue
-            if found and months is not None:
+            # 시작 · 끝 날짜가 근거 문장에 적혀 있어야 받는다. 모델이 서술에서 날짜를 계산해 넣으면
+            # 같은 서류라도 실행마다 경력이 달라졌다
+            if found and months is not None and _dates_written(period, found):
                 periods.append(
                     Period(
                         company=period.company.strip(),
@@ -366,6 +377,28 @@ def merge(
                     )
                 )
     return facts, periods
+
+
+def _dates_written(period: ExtractedPeriod, quotes: Sequence[Quote]) -> bool:
+    """날짜가 근거 문장에 적혀 있는가. 2024.05 · 2024-05 · 2024년 5월을 같게 본다.
+
+    경력으로 세는 근무 기간(재직 · 인턴 · 프리랜서)은 시작 날짜와 (재직 중이 아니면) 끝 날짜가 모두 적혀 있어야 한다.
+    학력 · 프로젝트 같은 그 밖의 기간은 경력으로 세지 않으므로 날짜 하나만 적혀 있어도 받는다 (예: 졸업 연월만 적힘).
+    """
+    text = " ".join(quote.sentence for quote in quotes)
+    written = {
+        (int(year), int(month))
+        for year, month in re.findall(r"((?:19|20)\d{2})\s*(?:[.\-/]|년)\s*(\d{1,2})", text)
+        if 1 <= int(month) <= 12
+    }
+    matched = [_year_month(value) in written for value in (period.start, period.end) if value]
+    work = period.kind.strip().upper() in WORK_PERIOD_KINDS
+    return all(matched) if work else any(matched)
+
+
+def _year_month(value: str) -> tuple[int, int] | None:
+    found = re.match(r"((?:19|20)\d{2})\D+(\d{1,2})", value)
+    return (int(found.group(1)), int(found.group(2))) if found else None
 
 
 def _mentions_education(text: str, quotes: Sequence[Quote]) -> bool:

@@ -19,6 +19,7 @@ from hiremate_ai.llm.recipe import fingerprint
 
 if TYPE_CHECKING:
     from hiremate_ai.agents.analysis.application.extract import ExtractedFacts
+    from hiremate_ai.agents.analysis.application.rubric_draft import RubricDraft
     from hiremate_ai.agents.analysis.interview.types import InterviewAnalysis, InterviewAnalysisInput
     from hiremate_ai.contract import ApplicantDocument, TalentFit
 
@@ -156,6 +157,23 @@ class DbAnalysisArtifacts:
         recipe_hash: str,
     ) -> None:
         await self._save(fit, company_id, recruitment_id, application_id, None, "talent_fit", source_hash, recipe_hash)
+
+    async def find_rubric_draft(
+        self, *, company_id: UUID, recruitment_id: UUID, source_hash: str, recipe_hash: str
+    ) -> RubricDraft | None:
+        """공고(채용)의 판정 기준 초안. 지원자가 아니라 채용 단위라 지원자 칸에 채용 id를 둔다."""
+        from hiremate_ai.agents.analysis.application.rubric_draft import RubricDraft
+
+        return await self._find(
+            RubricDraft, company_id, recruitment_id, recruitment_id, None, "rubric_draft", source_hash, recipe_hash
+        )
+
+    async def save_rubric_draft(
+        self, draft: RubricDraft, *, company_id: UUID, recruitment_id: UUID, source_hash: str, recipe_hash: str
+    ) -> None:
+        await self._save(
+            draft, company_id, recruitment_id, recruitment_id, None, "rubric_draft", source_hash, recipe_hash
+        )
 
     async def _find[T: BaseModel](
         self,

@@ -28,6 +28,7 @@ from hiremate_ai.contract import (
     ApplicantDetail,
     CertificateStatus,
     CriterionCategory,
+    DocumentType,
     PostingContent,
     Verdict,
 )
@@ -102,7 +103,7 @@ async def test_criteria_are_judged_without_scores(
     analysis = to_analysis(review)
     assert analysis.shortfalls == ["Git 근거 없음"]
     assert analysis.criterion_marks == verdicts
-    assert result(review, "Q-01").career_months == 55  # 2022.03 ~ 2026.10
+    assert result(review, "Q-01").career_months == 56  # 2022.03 ~ 2026.10 (시작 · 끝 달 포함)
     card = to_candidate_analysis(review, sample_applicants["정유민"].documents)
     lines = {line.criterion_id: line for line in card.criteria}
     assert lines["Q-01"].career_years == 4
@@ -169,21 +170,103 @@ async def test_output_checks_reject_partial_and_missing_answers(
 async def test_career_counts_only_periods_of_the_required_job(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
+    # 기간은 날짜가 근거 문장에 적혀 있어야 받으므로, 두 기간의 날짜가 적힌 줄을 이력서에 더한다
+    current, earlier = "한빛카드 결제플랫폼팀 2024.08 ~ 현재", "새솔은행 디지털팀 2019.01 ~ 2022.02"
+    yumin = sample_applicants["정유민"]
+    applicant = yumin.model_copy(
+        update={
+            "documents": [
+                document.model_copy(update={"text": f"{document.text}\n{current}\n{earlier}"})
+                if document.type == DocumentType.RESUME
+                else document
+                for document in yumin.documents
+            ]
+        }
+    )
     two_jobs = ExtractedFacts(
         periods=[
-            ExtractedPeriod(company="한빛카드", kind="EMPLOYMENT", start="2024-08", evidence=[PERIOD]),
-            ExtractedPeriod(company="한빛카드", kind="EMPLOYMENT", start="2019-01", end="2022-02", evidence=[PERIOD]),
+            ExtractedPeriod(company="한빛카드", kind="EMPLOYMENT", start="2024-08", evidence=[current]),
+            ExtractedPeriod(company="새솔은행", kind="EMPLOYMENT", start="2019-01", end="2022-02", evidence=[earlier]),
         ]
     )
     script = Script(
         extract={"결제플랫폼팀": two_jobs}, verdicts={**YUMIN, "Q-01": verdict("Q-01", "MET", API, periods=[1])}
     )
 
-    review = await review_of(scripted(script), sample_applicants["정유민"], sample_posting)
+    review = await review_of(scripted(script), applicant, sample_posting)
 
-    # 전체 재직은 5년이 넘지만 요건의 직무에 해당하는 기간은 2024.08 ~ 2026.10 (2년 2개월)뿐이다
+    # 전체 재직은 5년이 넘지만 요건의 직무에 해당하는 기간은 2024.08 ~ 2026.10 (시작 · 끝 달 포함 2년 3개월)뿐이다
     item = result(review, "Q-01")
-    assert (item.verdict, item.shortfall, item.career_months) == (Verdict.NOT_MET, "경력 2년", 26)
+    assert (item.verdict, item.shortfall, item.career_months) == (Verdict.NOT_MET, "경력 2년", 27)
+
+
+async def test_career_years_count_only_periods_of_the_hiring_job(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    # 경력 연수는 공고 직무와 같은 일을 한 재직 기간만 센다. 다른 직무 경력은 빼고 무엇을 뺐는지 알린다
+    current, earlier = "한빛카드 결제플랫폼팀 2024.08 ~ 현재", "새솔은행 영업점 2019.01 ~ 2022.02"
+    yumin = sample_applicants["정유민"]
+    applicant = yumin.model_copy(
+        update={
+            "documents": [
+                document.model_copy(update={"text": f"{document.text}\n{current}\n{earlier}"})
+                if document.type == DocumentType.RESUME
+                else document
+                for document in yumin.documents
+            ]
+        }
+    )
+    two_jobs = ExtractedFacts(
+        periods=[
+            ExtractedPeriod(company="한빛카드", kind="EMPLOYMENT", start="2024-08", evidence=[current]),
+            ExtractedPeriod(company="새솔은행", kind="EMPLOYMENT", start="2019-01", end="2022-02", evidence=[earlier]),
+        ]
+    )
+    script = Script(extract={"결제플랫폼팀": two_jobs}, verdicts=YUMIN, jobs={"새솔은행": "NO"})
+
+    review = await review_of(scripted(script), applicant, sample_posting)
+
+    assert review.career_years == 2  # 2024.08 ~ 2026.10 (2년 3개월). 새솔은행 3년 2개월은 세지 않는다
+    [note] = [note for note in review.checks if note.title == "경력 계산"]
+    assert "새솔은행 38개월" in note.text
+
+
+async def test_career_requirement_counts_the_same_job_periods_as_career_years(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    # 경력 기간 항목도 화면의 경력 연수와 같은 직무 관련 기간으로 센다. 판정의 경력표에 다른 직무 경력은 없다
+    current, earlier = "한빛카드 결제플랫폼팀 2024.08 ~ 현재", "새솔은행 영업점 2019.01 ~ 2022.02"
+    yumin = sample_applicants["정유민"]
+    applicant = yumin.model_copy(
+        update={
+            "documents": [
+                document.model_copy(update={"text": f"{document.text}\n{current}\n{earlier}"})
+                if document.type == DocumentType.RESUME
+                else document
+                for document in yumin.documents
+            ]
+        }
+    )
+    two_jobs = ExtractedFacts(
+        periods=[
+            ExtractedPeriod(company="한빛카드", kind="EMPLOYMENT", start="2024-08", evidence=[current]),
+            ExtractedPeriod(company="새솔은행", kind="EMPLOYMENT", start="2019-01", end="2022-02", evidence=[earlier]),
+        ]
+    )
+    script = Script(
+        extract={"결제플랫폼팀": two_jobs},
+        verdicts={**YUMIN, "Q-01": verdict("Q-01", "MET", API, periods=[1, 2])},
+        jobs={"새솔은행": "NO"},
+    )
+    llm = scripted(script)
+
+    review = await review_of(llm, applicant, sample_posting)
+
+    item = result(review, "Q-01")
+    assert (item.verdict, item.career_months) == (Verdict.NOT_MET, 27)
+    assert review.career_years == 2
+    judged = [call.user for call in llm.calls if call.output is CriteriaJudgement and "경력표" in call.user]
+    assert judged and all("새솔은행" not in user.split("경력표")[1].split("</data>")[0] for user in judged)
 
 
 async def test_unclear_career_is_not_called_a_newcomer(

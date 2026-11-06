@@ -18,7 +18,7 @@ from hiremate_ai.config import settings
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.batch import BatchDispatcher, BatchLlm
 from hiremate_ai.llm.call_log import DbCallLog
-from hiremate_ai.llm.client import get_llm
+from hiremate_ai.llm.client import get_worker_llm
 from hiremate_ai.tools.profile_search import get_profile_embedder, profile_indexer
 from hiremate_ai.worker.batch import ApplicationBatchJobs
 from hiremate_ai.worker.batch_store import RedisBatchStore
@@ -87,7 +87,7 @@ async def main() -> None:
                 log.info(
                     "지원서 분석 배치: %s / %s", settings.application_batch_model, settings.application_batch_provider
                 )
-            instant_llm = get_llm()
+            instant_llm = get_worker_llm()
             reviews = DbReviewStore(sessions)
             indexer = profile_indexer(sessions, get_profile_embedder())
             handlers = job_handlers(instant_llm, reviews, sessions, profile_indexer=indexer)

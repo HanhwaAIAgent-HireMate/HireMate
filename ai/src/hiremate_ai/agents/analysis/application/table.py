@@ -4,8 +4,8 @@
 인재상은 접수 분석에 없으므로, 저장된 분석의 경험(Fact)과 자기소개서 요약만 읽고 판정한다. 코드가 하는 것:
 - 키워드: 개수가 다르거나 너무 긴 답은 쓰지 않고 문장을 잘라 만든다. 같은 문장 묶음은 프로세스 안에서 한 번만 묻는다.
 - 인재상 요소: 회사 소개 · 조직 문화 글에 실제로 있는 문장을 근거로 든 요소만 남긴다. 같은 글은 한 번만 묻는다.
-- 판정: 고른 근거가 목록에 없거나 검토를 통과하지 못한 경험이면 확인 필요로 돌린다. '상'은 본인이 직접 한 경험에
-  정량 지표(숫자로 된 성과 · 규모)가 함께 있을 때만 준다. 지표는 근거 문장에 실제로 있어야 한다.
+- 판정: 모델이 인재상의 행동 확인 · 일부 확인 기준으로 수준을 정하고 근거 번호를 고른다. 고른 근거가 목록에 없거나
+  검토를 통과하지 못한 경험이면 확인 필요, 근거가 팀 경험뿐이면 확인 필요, 본인 경험 없이 행동 확인이면 일부 확인이다.
   결과는 저장된 분석 · 인재상이 같으면 다시 쓴다 (analysis_artifacts, kind=talent_fit).
 """
 
@@ -19,6 +19,7 @@ from hiremate_ai.agents.analysis.application.present import AGENT_NAME
 from hiremate_ai.agents.analysis.application.types import Actor, ApplicationReview
 from hiremate_ai.contract import CompanyFactors, Talent, TalentFit, TalentFitItem, TalentLevel
 from hiremate_ai.llm.client import LlmClient
+from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 from hiremate_ai.llm.recipe import analysis_recipe, fingerprint
 
 MAX_LABEL = 16
@@ -41,16 +42,33 @@ LABELS_SYSTEM = f"""채용 표의 열 이름을 만든다. 문장마다 그 문�
 'Spring Boot로 REST API를 개발 · 운영한 경험' → 'Spring Boot API', '대용량 트래픽 처리 경험' → '대용량 트래픽 처리',
 '고객 신뢰를 최우선으로' → '고객 신뢰'"""
 
-TALENT_SYSTEM = """지원자 서류에서 뽑은 경험 목록만 보고 회사 인재상마다 맞는 정도를 판정한다.
-정량 지표(숫자로 된 성과 · 규모)가 있는 경험을 경험만 있는 것보다 훨씬 높게 친다.
-- HIGH(상): 본인이 직접 한 경험이 인재상을 보여 주고, 그 경험에 정량 지표가 있다. 근거는 F 번호여야 하고
-  metric에 지표 부분을 근거 문장의 글자 그대로 옮긴다 (예: '응답 시간을 40% 줄였다', '신규 입사자 5명 온보딩').
-- MID(중): 관련 경험은 있지만 정량 지표가 없거나, 팀 성과이거나 본인 역할이 분명하지 않다.
-- LOW(하): 서류에서 관련 경험이 확인되지 않는다 (다짐 · 자기 평가만 있거나 관련 근거가 없다).
-- 기간 · 연도 · 버전 숫자(3년, 2021년, Java 17)는 정량 지표가 아니다.
-- source는 근거 번호 하나(F3, S1). LOW에서 근거가 없으면 비운다. 목록에 없는 번호를 지어내지 않는다.
+TALENT_SYSTEM = f"""지원자 서류에서 뽑은 경험 목록만 보고 회사 인재상마다 그 행동이 서류에서 확인되는지 판정한다.
+인재상 설명에 '행동 확인:' · '일부 확인:' 기준이 있으면 그 기준을 그대로 따른다. 없으면 설명이 말하는 행동을
+기준으로, 그 행동을 끝까지 했으면 행동 확인, 앞부분만 했으면 일부 확인으로 본다.
+- HIGH(행동 확인): 본인이 직접 한 경험이 행동 확인 기준을 모두 채운다. 근거는 F 번호여야 한다.
+- MID(일부 확인): 본인이 직접 한 경험이 일부 확인 기준에 해당한다. 기준의 앞부분은 했지만 뒷부분은 서류에 없다.
+- LOW(미확인): 기준에 해당하는 행동이 서류에 없다. 다짐 · 자기 평가만 있거나 팀 성과만 있어도 LOW다.
+  본인이 했는지 분명하지 않은 경험은 많아야 MID다.
+- 경험마다 원문 문장이 붙어 있다. 진술에 빠진 결과 · 영향이 원문에 적혀 있으면 그것까지 본다 (예: 원문에 '그 뒤로
+  문제가 사라졌다'가 있으면 결과를 확인한 것이다).
+- 인재상마다 경험 목록 전체를 검토한다. 기준에 맞는 경험이 여럿이면 기준을 가장 많이 채우는 경험으로 판정한다.
+  처음 찾은 약한 경험만 보고 끝내지 않는다.
+- 기준에 없는 행동을 더 요구하지 않는다 (예: 기준이 '안내나 피해를 줄이는 조치'면 둘 중 하나로 충분하다).
+  원문에 없는 행동을 지어내지도 않는다.
+- 업무를 했다는 사실만으로 인재상을 보여 준다고 보지 않는다. 기준이 말하는 행동(예: 합의, 영향 파악, 접근 바꾸기)이
+  경험에 직접 드러나야 한다. 한 경험을 여러 인재상의 근거로 쓰려면 각 기준의 행동이 그 경험에 모두 드러나야 한다.
+- 합의 · 공동 결정처럼 여럿이 함께 낸 결과도, 본인이 정리 · 공유 · 제안 같은 행동으로 참여했으면 본인 행동으로 본다.
+  기준에 '주도' · '혼자'가 없으면 혼자 이끌었는지 따지지 않는다.
+- sources는 근거 번호들이다 (예: F3, F5, S1). 기준의 행동이 여러 경험에 나뉘어 있으면(예: 차이 정리 → 공유 →
+  공동 결정) 모두 고른다. 본인 행동이 드러난 경험을 하나는 넣는다. LOW에서 근거가 없으면 비운다.
+  목록에 없는 번호를 지어내지 않는다.
+- reason을 먼저 쓰고 level을 정한다. level은 reason과 맞아야 한다. reason이 기준 행동을 모두 확인했다고 말하면 HIGH,
+  앞부분만 확인했다고 말하면 MID, 기준 행동이 없다고 말하면 LOW다.
 - evidence는 지원자가 무엇을 했는지 24자 이내로 쓴다. 예: '타 팀 API 명세 조율', '장애 원인 분석 · 재발 방지'.
-- reason은 판정 이유 한 문장이다. 성별 · 나이 · 출신 같은 개인 특성으로 판단하지 않는다."""
+- reason은 판정 이유 한 문장이다. F · S 같은 근거 번호를 쓰지 않는다. 성별 · 나이 · 출신 같은 개인 특성으로
+  판단하지 않는다. 서류에 드러난 행동을 판정할 뿐 사람의 성격 전체를 단정하지 않는다.
+
+{UNTRUSTED_RULE}"""
 
 MAX_FACTORS = 6
 FACTORS_SYSTEM = f"""회사 소개 · 조직 문화 글에서 회사가 사람을 뽑을 때 중요하게 여기는 요소
@@ -80,12 +98,13 @@ class _Factors(BaseModel):
 
 
 class _Judgment(BaseModel):
+    """reason을 level보다 먼저 두어 모델이 이유를 쓴 뒤 수준을 정하게 한다 (이유와 수준이 어긋나지 않게)."""
+
     number: int = Field(description="인재상 번호 (1부터)")
-    level: TalentLevel
-    source: str = ""
+    sources: list[str] = Field(default=[], description="근거 번호들 (F3, S1)")
     evidence: str = ""
-    metric: str = Field(default="", description="HIGH의 정량 지표. 근거 문장의 글자 그대로")
     reason: str
+    level: TalentLevel
 
 
 class _Judgments(BaseModel):
@@ -196,44 +215,41 @@ def check_talents(review: ApplicationReview, talents: list[Talent], judgments: l
         if judgment is None:
             items.append(_unknown(talent, "관련 근거를 찾지 못했어요."))
             continue
-        source = _source(review, judgment.source.strip().upper())
-        if judgment.level in (TalentLevel.LOW, TalentLevel.UNKNOWN) and source is None:
+        found = [source for number in judgment.sources if (source := _source(review, number.strip().upper()))]
+        if judgment.level in (TalentLevel.LOW, TalentLevel.UNKNOWN) and not found:
             # 경험이 확인되지 않으면 하다
             reason = judgment.reason.strip() or "서류에서 관련 경험이 확인되지 않아요."
             items.append(
                 TalentFitItem(title=talent.title, level=TalentLevel.LOW, evidence="", reason=reason, quote=None)
             )
             continue
-        if source is None:
+        if not found:
             items.append(_unknown(talent, "판정의 근거를 서류에서 확인하지 못했어요."))
             continue
-        statement, quote, actor = source
+        actors = {actor for _, _, actor in found}
+        # 화면 근거는 본인 경험을 먼저 보인다
+        statement, quote, _ = next((source for source in found if source[2] is Actor.SELF), found[0])
         level = TalentLevel.LOW if judgment.level is TalentLevel.UNKNOWN else judgment.level
-        metric = _metric(judgment.metric, [statement, quote or ""])
-        # 본인이 직접 한 경험(F)에 정량 지표가 함께 있어야 상이다
-        if level is TalentLevel.HIGH and (actor is not Actor.SELF or not metric):
-            level = TalentLevel.MID
+        reason = judgment.reason.strip()
+        # 모델이 인정했는데 고른 근거가 팀 경험뿐이면 확인 필요다. 본인 행동이 없다는 판정(미확인)이 아니라, 고른 근거로
+        # 본인 행동을 확인하지 못한 것이다. 본인 경험이 없으면 행동 확인이 아니라 일부 확인까지다.
+        # 코드가 수준을 바꾸면 이유도 바꿔 판정과 설명이 어긋나지 않게 한다
+        if level is not TalentLevel.LOW and actors == {Actor.TEAM}:
+            items.append(_unknown(talent, "고른 근거가 팀 단위로만 적혀 있어 본인 행동을 확인하지 못했어요."))
+            continue
+        elif level is TalentLevel.HIGH and Actor.SELF not in actors:
+            level, reason = TalentLevel.MID, f"{reason} 본인이 했는지 분명하지 않아 일부 확인으로 봤어요."
         evidence = " ".join(judgment.evidence.split()) or statement
         items.append(
             TalentFitItem(
                 title=talent.title,
                 level=level,
                 evidence=_clip(evidence, MAX_EVIDENCE),
-                reason=judgment.reason.strip(),
+                reason=reason,
                 quote=quote,
-                metric=metric if level is TalentLevel.HIGH else "",
             )
         )
     return items
-
-
-def _metric(text: str, sources: list[str]) -> str:
-    """모델이 옮긴 정량 지표. 숫자가 없거나 근거 문장에 없으면 버린다."""
-    metric = " ".join(text.split())
-    if not re.search(r"\d", metric):
-        return ""
-    compact = re.sub(r"\s+", "", metric)
-    return metric if any(compact in re.sub(r"\s+", "", source) for source in sources) else ""
 
 
 def talent_recipe(llm: LlmClient) -> str | None:
@@ -241,7 +257,12 @@ def talent_recipe(llm: LlmClient) -> str | None:
     if recipe is None:
         return None
     return fingerprint(
-        {"version": "talent-fit-1", "llm": recipe, "system": TALENT_SYSTEM, "schema": _Judgments.model_json_schema()}
+        {
+            "version": "talent-fit-7",
+            "llm": recipe,
+            "system": TALENT_SYSTEM,
+            "schema": _Judgments.model_json_schema(),
+        }
     )
 
 
@@ -256,17 +277,20 @@ def _prompt(review: ApplicationReview, talents: list[Talent]) -> str:
         f"{number}. {talent.title}" + (f" - {talent.description}" if talent.description.strip() else "")
         for number, talent in enumerate(talents, start=1)
     ]
-    lines.append("\n[경험] (본인: 직접 함 · 팀: 팀 성과 · 불분명)")
-    lines += [
+    # 진술은 한 문장으로 줄어 결과 · 영향이 빠지기도 해서 원문 문장을 함께 준다.
+    # 원문은 지원자 자료라 data 블록으로 감싼다
+    experiences = [
         f"F{number}. [{_ACTOR[fact.actor]}] {fact.statement}"
+        + (f" (원문: {' / '.join(quote.sentence for quote in fact.quotes)})" if fact.quotes else "")
         for number, fact in enumerate(review.facts, start=1)
         if fact.supported
     ]
+    lines.append("\n[경험] (본인: 직접 함 · 팀: 팀 성과 · 불분명)\n" + data_block("facts", "\n".join(experiences)))
     if review.sections:
-        lines.append("\n[자기소개서 요약]")
-        lines += [
+        summaries = [
             f"S{number}. {section.title}: {section.summary}" for number, section in enumerate(review.sections, start=1)
         ]
+        lines.append("\n[자기소개서 요약]\n" + data_block("sections", "\n".join(summaries)))
     return "\n".join(lines)
 
 

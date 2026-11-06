@@ -19,9 +19,11 @@ from hiremate_ai.agents.analysis.application.extract import (
     ExtractionCorrections,
     LetterSummary,
 )
+from hiremate_ai.agents.analysis.application.job_career import JobCareer, JobFit
 from hiremate_ai.agents.analysis.application.judge import CriteriaJudgement, CriterionVerdict
 from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
 from hiremate_ai.agents.analysis.application.types import Criterion, EvaluationRules, ScreeningRubric
+from hiremate_ai.agents.analysis.application.warnings import _Warnings
 from hiremate_ai.contract import CriterionCategory, CriterionType, PostingContent
 from hiremate_ai.llm.fake import FakeLlm, LlmCall
 
@@ -128,6 +130,7 @@ class Script:
     extract: 문서 본문 일부 → 추출 결과. verdicts: 항목 id → 첫 판정 (없으면 NOT_MET).
     rechecks: (항목 id, 재확인 차수) → 재확인 판정 (없으면 첫 판정을 다시 쓴다).
     reviews: 주장 id → 검토 결과 (없으면 SUPPORTED). omit: 답에서 빠뜨릴 항목 id. summary: 자기소개서 요약.
+    warnings: 서류 주의 신호 (없으면 신호 없음). jobs: 회사 → 직무 관련 판단 (없으면 YES).
     """
 
     extract: dict[str, ExtractedFacts] = field(default_factory=dict)
@@ -136,6 +139,8 @@ class Script:
     reviews: dict[str, ReviewVerdict] = field(default_factory=dict)
     omit: set[str] = field(default_factory=set)
     summary: LetterSummary = field(default_factory=LetterSummary)
+    warnings: _Warnings = field(default_factory=lambda: _Warnings(items=[]))
+    jobs: dict[str, str] = field(default_factory=dict)
 
     def __call__(self, call: LlmCall) -> BaseModel:
         if call.output is ExtractedFacts:
@@ -144,6 +149,16 @@ class Script:
             return ExtractionCorrections()
         if call.output is LetterSummary:
             return self.summary
+        if call.output is _Warnings:
+            return self.warnings
+        if call.output is JobCareer:
+            listed = re.findall(r"^(\d+)\. (.+?) \|", call.user, re.MULTILINE)
+            return JobCareer(
+                periods=[
+                    JobFit(number=int(number), reason="맡은 일", related=self.jobs.get(company, "YES"))
+                    for number, company in listed
+                ]
+            )
         if call.output is CriteriaJudgement:
             ids = re.findall(r"^\[([QP]-\d+)\]", call.user, re.MULTILINE)
             found = re.search(r"([12])차 재확인", call.user)

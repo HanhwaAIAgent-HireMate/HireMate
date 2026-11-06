@@ -66,8 +66,18 @@ def get_llm() -> LlmClient:
     return build_llm(DbCallLog(session_factory()))
 
 
-def build_llm(call_log: CallLog) -> LlmClient:
-    """설정의 모델로 LlmClient를 만든다. 호출 로그를 DB가 아닌 곳에 남길 때(실제 모델 평가) 직접 부른다."""
+def get_worker_llm() -> LlmClient:
+    """AI 워커용. 워커 작업은 화면이 기다리지 않아서 호출 한 번 시간 한도를 WORKER_LLM_TIMEOUT_SECONDS로 길게 둔다.
+    작업마다의 전체 시간 한도(예: 지원서 분석 application_timeout_seconds)는 작업 쪽에서 따로 지킨다.
+    """
+    return build_llm(DbCallLog(session_factory()), timeout=settings.worker_llm_timeout_seconds)
+
+
+def build_llm(call_log: CallLog, *, timeout: float | None = None) -> LlmClient:
+    """설정의 모델로 LlmClient를 만든다. 호출 로그를 DB가 아닌 곳에 남길 때(실제 모델 평가) 직접 부른다.
+
+    timeout은 호출 한 번의 시간 한도다. 비우면 LLM_TIMEOUT_SECONDS(화면이 기다리는 동기 호출 기준)를 쓴다.
+    """
     if not settings.llm_model:
         raise LlmNotConfiguredError("LLM_MODEL이 비어 있다. ai/.env에 모델 연결 설정을 넣는다 (ai/.env.example 참고).")
     if not settings.llm_api_key.get_secret_value():
@@ -76,7 +86,7 @@ def build_llm(call_log: CallLog) -> LlmClient:
         model=settings.llm_model,
         base_url=settings.llm_base_url,
         api_key=settings.llm_api_key,
-        timeout=settings.llm_timeout_seconds,
+        timeout=timeout if timeout is not None else settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
         max_tokens=settings.llm_max_tokens,
         temperature=settings.llm_temperature,

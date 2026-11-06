@@ -20,11 +20,16 @@ from langgraph.runtime import Runtime
 from hiremate_ai.agents.analysis.application.career import career_years, last_company
 from hiremate_ai.agents.analysis.application.context import readable
 from hiremate_ai.agents.analysis.application.extract import extract_documents, extraction_recipe, merge, summarize
+from hiremate_ai.agents.analysis.application.highlight import TEAM_ROLE_CHECK, highlight
+from hiremate_ai.agents.analysis.application.job_career import JobFit, job_notes, job_periods, job_related
 from hiremate_ai.agents.analysis.application.judge import (
     Evidence,
+    apply_found_results,
     apply_verification,
+    asks_career_years,
     judge_criteria,
     recheck_criterion,
+    result_search_claims,
     verification_claims,
 )
 from hiremate_ai.agents.analysis.application.review import apply_to_facts, fact_claims, review_claims
@@ -39,12 +44,13 @@ from hiremate_ai.agents.analysis.application.types import (
     Note,
     Period,
 )
+from hiremate_ai.agents.analysis.application.warnings import code_warnings, detect_warnings
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CriterionCategory, PostingContent, Verdict
 from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.llm.client import LlmClient
 
-REVIEW_VERSION = "2026-11-02.1"
+REVIEW_VERSION = "2026-11-06.9"
 # 카드의 '눈여겨볼 점' 후보로 검토하는 사실 수
 NOTABLE_CANDIDATES = 6
 NOTABLE_KINDS = ("ACHIEVEMENT", "PROJECT", "EXPERIENCE")
@@ -78,6 +84,9 @@ class ReviewState(TypedDict, total=False):
     periods: list[Period]
     sections: list[DocumentSection]
     results: list[CriterionResult]
+    notable: list[Note]
+    warnings: list[Note]
+    job_fit: dict[int, JobFit] | None
     review: ApplicationReview
 
 
@@ -124,21 +133,49 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
         return {"facts": facts, "periods": periods, "sections": sections}
 
     async def judge(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
-        evidence = _evidence(state, runtime.context)
-        results = await judge_criteria(llm, runtime.context.criteria, evidence, settings.application_full_text_chars)
-        return {"results": results}
+        context = runtime.context
+        documents = context.applicant.documents
+        periods = state.get("periods") or []
+        if any(asks_career_years(criterion) for criterion in context.criteria):
+            # 경력 기간 항목은 화면의 경력 연수와 같은 직무 관련 기간으로 센다. 그래서 직무 관련 경력을 먼저 고르고
+            # 판정의 경력표에는 그 기간만 준다
+            job_fit = await job_related(llm, periods, context.posting, documents)
+            evidence = _evidence({**state, "job_fit": job_fit}, context)
+            results, warnings = await asyncio.gather(
+                judge_criteria(llm, context.criteria, evidence, settings.application_full_text_chars),
+                detect_warnings(llm, documents),
+            )
+        else:
+            # 평가 항목 판정, 서류 주의 신호 찾기, 직무 관련 경력 고르기는 서로 기다리지 않아 함께 돌린다
+            results, warnings, job_fit = await asyncio.gather(
+                judge_criteria(llm, context.criteria, _evidence(state, context), settings.application_full_text_chars),
+                detect_warnings(llm, documents),
+                job_related(llm, periods, context.posting, documents),
+            )
+        return {"results": results, "warnings": warnings, "job_fit": job_fit}
 
     async def verify(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
         """카드에 보일 사실과, 인용이 있는 충족 · 부분 충족 판정을 한 번에 검증한다."""
         facts = state.get("facts") or []
         results = state.get("results") or []
         notable = _notable_candidates(facts)
-        reviews = await review_claims(llm, [*fact_claims(notable), *verification_claims(results)])
+        documents = runtime.context.applicant.documents
+        # 지표가 빈 충족 항목은 같은 검증에서 성과 수치(전후 값)도 찾는다 (줄글 · 두 문장에 나뉜 경우 포함)
+        claims = verification_claims(results, documents, runtime.context.criteria)
+        reviews = await review_claims(llm, [*fact_claims(notable), *claims])
         # notable은 facts의 같은 객체를 고른 것이라 객체 id로 짝을 짓는다 (리스트 필드가 있어 해시할 수 없다)
         reviewed = {id(fact): new for fact, new in zip(notable, apply_to_facts(notable, reviews), strict=True)}
+        checked = [reviewed.get(id(fact), fact) for fact in facts]
+        checked_results = apply_verification(results, reviews, documents)
+        # 성과 수치를 못 찾은 충족 항목은 시간이 있으면 한 번 더 찾는다 (판정은 다시 보지 않는다)
+        retry = result_search_claims(checked_results, documents)
+        if retry and _has_time(runtime.context):
+            checked_results = apply_found_results(checked_results, await review_claims(llm, retry), documents)
         return {
-            "facts": [reviewed.get(id(fact), fact) for fact in facts],
-            "results": apply_verification(results, reviews),
+            "facts": checked,
+            "results": checked_results,
+            # 검토를 통과한 본인 경험을 같은 일끼리 묶은 눈여겨볼 점
+            "notable": await highlight(llm, checked, readable(documents)),
         }
 
     async def recheck(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
@@ -201,10 +238,12 @@ async def run_review(llm: LlmClient, context: ReviewInput) -> ApplicationReview:
 
 
 def _evidence(state: ReviewState, context: ReviewInput) -> Evidence:
+    """판정 자료. 직무 관련 경력을 골랐으면 경력표에는 그 기간만 둔다 (경력 기간 항목과 경력 연수의 기준을 맞춘다)."""
+    periods = state.get("periods") or []
     return Evidence(
         documents=readable(context.applicant.documents),
         facts=state.get("facts") or [],
-        periods=state.get("periods") or [],
+        periods=job_periods(periods, state.get("job_fit")) if "job_fit" in state else periods,
         certificates=context.applicant.certificates,
         today=context.today,
     )
@@ -244,7 +283,23 @@ def _finalize(state: ReviewState, context: ReviewInput) -> ApplicationReview:
         for result in results
         if result.verdict == Verdict.UNKNOWN
     ]
-    checks = list(context.notes)
+    # 주의 신호를 앞에 둔다: 코드로 찾은 것(잦은 이직 · 기준 없는 수치)과 모델이 찾은 것
+    checks = [*code_warnings(periods, context.applicant.documents), *(state.get("warnings") or [])]
+    # 경력 연수는 직무 관련 재직 기간만 센다. 뺀 기간은 담당자가 볼 수 있게 알린다
+    job_fit = state.get("job_fit")
+    checks += job_notes(periods, job_fit)
+    # 눈여겨볼 점이 공동 작업이면 본인이 맡은 부분을 확인할 점으로도 알린다
+    notable = state.get("notable") or []
+    checks += [
+        Note(
+            text=f"'{note.title}'은 공동 작업으로 적혀 있어 본인이 맡은 부분을 확인해야 해요.",
+            source=note.source,
+            title="본인 역할",
+        )
+        for note in notable
+        if TEAM_ROLE_CHECK in note.detail
+    ]
+    checks += list(context.notes)
     checks += [
         Note(
             text=f"{result.criterion_id} '{result.text}': {result.reason}",
@@ -262,9 +317,10 @@ def _finalize(state: ReviewState, context: ReviewInput) -> ApplicationReview:
         facts=state.get("facts") or [],
         periods=periods,
         sections=state.get("sections") or [],
-        career_years=career_years(periods, context.today) if periods else None,
+        career_years=career_years(job_periods(periods, job_fit), context.today) if periods else None,
         last_company=last_company(periods),
         criteria=results,
+        notable=notable,
         holds=holds,
         checks=checks,
     )

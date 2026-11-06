@@ -260,10 +260,19 @@ class Condition(ContractModel):
 
 
 class Finding(ContractModel):
-    """눈여겨볼 점이나 확인이 필요한 점과 그 출처 (CandidateAnalysis.Finding)."""
+    """눈여겨볼 점이나 확인이 필요한 점과 그 출처 (CandidateAnalysis.Finding).
+
+    같은 일끼리 묶은 눈여겨볼 점은 title(제목) · detail(한 일) · metric(정량 지표)을 따로 담는다.
+    text는 셋을 이은 한 줄이다.
+    """
 
     text: str
     source: str
+    title: str = ""
+    detail: str = ""
+    metric: str = ""
+    # 담당자가 주의해서 볼 서류 신호 (잦은 이직, 기준 없는 수치, 서류 속 평가 지시문 등). 확인할 점에 붉게 표시한다
+    warning: bool = False
 
 
 class Evidence(ContractModel):
@@ -295,6 +304,12 @@ class CriterionLine(ContractModel):
     certificate_status: CertificateStatus | None
     # 근거의 정량 지표(숫자로 된 성과 · 규모, 원문 그대로). 경험형 항목은 경험과 지표가 함께 있어야 상이다
     metric: str = ""
+    # 미충족 가운데 서류에 관련 기록이 아예 없는 것. 표기는 하와 같고, 카드에 '서류에 해당 내용 없음'으로 보인다
+    no_record: bool = False
+    brief: str = ""  # 카드에 보일 판정 요약 한 줄. 예전 분석이나 코드가 바꾼 판정은 비어 있다
+    # 판정 기준이 정하지 않아 판정이 갈리는 점 (예: '대용량'의 규모 기준 없음).
+    # 지원자에게 물을 점이 아니라 평가 설정 검토다
+    setting_note: str = ""
 
 
 class SummarySection(ContractModel):
@@ -355,11 +370,11 @@ class CompanyFactors(ContractModel):
 
 
 class TalentLevel(StrEnum):
-    """인재상 하나에 맞는 정도. 정량 지표가 있는 경험을 가장 높게 친다. 서류에서 경험이 확인되지 않으면 LOW다."""
+    """인재상 하나의 행동이 서류에서 확인되는 정도. 인재상 설명의 행동 확인 · 일부 확인 기준으로 판정한다."""
 
-    HIGH = "HIGH"  # 상: 본인이 직접 한 경험과 정량 지표(숫자로 된 성과 · 규모)가 함께 있다
-    MID = "MID"  # 중: 관련 경험은 있지만 정량 지표가 없거나, 팀 성과이거나 본인 역할이 분명하지 않다
-    LOW = "LOW"  # 하: 서류에서 관련 경험이 확인되지 않는다 (다짐 · 자기 평가만 있거나 근거가 없다)
+    HIGH = "HIGH"  # 행동 확인: 본인이 직접 한 경험이 행동 확인 기준을 모두 채운다
+    MID = "MID"  # 일부 확인: 본인이 직접 한 경험이 일부 확인 기준에 해당한다
+    LOW = "LOW"  # 미확인: 기준의 행동이 서류에 없다 (다짐 · 팀 성과만 있거나 본인 역할이 분명하지 않다)
     UNKNOWN = "UNKNOWN"  # 확인 필요: 분석이 없거나 근거 번호가 맞지 않아 판정하지 못했다
 
 

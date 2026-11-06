@@ -3434,6 +3434,9 @@ export interface components {
             /** @enum {string|null} */
             certificateStatus: "SELF_REPORTED" | "EVIDENCE_SUBMITTED" | "ISSUER_VERIFIED" | null;
             metric: string;
+            noRecord: boolean;
+            brief: string;
+            settingNote: string;
         };
         Evidence: {
             /** @enum {string} */
@@ -3443,6 +3446,10 @@ export interface components {
         Finding: {
             text: string;
             source: string;
+            title: string;
+            detail: string;
+            metric: string;
+            warning: boolean;
         };
         SummarySection: {
             /** @enum {string} */
