@@ -1,5 +1,6 @@
 package com.hiremate.apply.domain;
 
+import com.hiremate.apply.DocumentNormalizationRequest;
 import com.hiremate.apply.DocumentNormalizationStatus;
 import com.hiremate.apply.NormalizedDocument;
 import com.hiremate.apply.ParsedDocument;
@@ -10,6 +11,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -60,6 +62,50 @@ public class ApplicationDocument {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private DocumentNormalizationStatus normalizationStatus = DocumentNormalizationStatus.PENDING;
+
+    private UUID normalizationJobId;
+
+    @Column(nullable = false)
+    private Instant normalizationUpdatedAt = Instant.now();
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private DocumentNormalizationRequest normalizationRequest;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private DocumentNormalizationRequest normalizedRequest;
+
+    public void queueNormalization(UUID jobId, DocumentNormalizationRequest request) {
+        this.normalizationJobId = jobId;
+        this.normalizationRequest = request;
+        this.normalizationUpdatedAt = Instant.now();
+    }
+
+    public boolean awaitsNormalization(UUID jobId) {
+        return normalizationStatus == DocumentNormalizationStatus.PENDING
+                && jobId != null && jobId.equals(normalizationJobId);
+    }
+
+    public void completeNormalization(NormalizedDocument document) {
+        this.normalizedDocument = document;
+        this.normalizedRequest = normalizationRequest;
+        this.normalizationStatus = DocumentNormalizationStatus.COMPLETED;
+        this.normalizationUpdatedAt = Instant.now();
+    }
+
+    public void failNormalization() {
+        this.normalizationStatus = DocumentNormalizationStatus.FAILED;
+        this.normalizationUpdatedAt = Instant.now();
+    }
+
+    public void requestNormalization() {
+        this.revision++;
+        this.normalizationStatus = DocumentNormalizationStatus.PENDING;
+        this.normalizationJobId = null;
+        this.normalizationRequest = null;
+        this.normalizationUpdatedAt = Instant.now();
+    }
 
     public void recordParsedDocument(ParsedDocument parsed) {
         this.parsedDocument = parsed;

@@ -37,6 +37,138 @@ class ApplyTests extends IntegrationTest {
     @Autowired
     private com.hiremate.apply.domain.ApplicationDocumentRepository storedDocuments;
 
+    @Autowired
+    private com.hiremate.job.application.JobResultPublisher jobResults;
+
+    @Autowired
+    private tools.jackson.databind.json.JsonMapper mapper;
+
+    @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    @Test
+    void retryRetainsSuccessCommittedAfterTheCallerPreloadedTheDocument() throws Exception {
+        DocumentNormalizationRequest request = normalizationFixture();
+        normalization.enqueue(request);
+        UUID jobId = storedDocuments.findById(request.documentId()).orElseThrow().getNormalizationJobId();
+        NormalizedDocument result = normalizedResult(request);
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            storedDocuments.findById(request.documentId()).orElseThrow();
+            java.util.concurrent.CompletableFuture.runAsync(() ->
+                    normalization.complete(request.documentId(), jobId, result)).join();
+            normalization.retry(request.companyId(), request.recruitmentId(), request.applicationId(),
+                    request.documentId());
+        });
+        var document = storedDocuments.findById(request.documentId()).orElseThrow();
+        assertThat(document.getRevision()).isEqualTo(2);
+        assertThat(document.getNormalizedDocument()).isEqualTo(result);
+        assertThat(document.getNormalizedRequest()).isEqualTo(request);
+    }
+
+    @Test
+    void concurrentRetriesAdvanceIndependentlyEvenWhenBothCallersPreloadedTheDocument() throws Exception {
+        DocumentNormalizationRequest request = normalizationFixture();
+        var ready = new java.util.concurrent.CountDownLatch(2);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        Runnable retry = () -> new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(tx -> {
+                    normalization.requests(request.companyId(), request.recruitmentId(), request.applicationId());
+                    ready.countDown();
+                    await(start);
+                    normalization.retry(request.companyId(), request.recruitmentId(), request.applicationId(),
+                            request.documentId());
+                });
+        var first = java.util.concurrent.CompletableFuture.runAsync(retry);
+        var second = java.util.concurrent.CompletableFuture.runAsync(retry);
+        boolean bothReady = ready.await(10, java.util.concurrent.TimeUnit.SECONDS);
+        start.countDown();
+        assertThat(bothReady).isTrue();
+        java.util.concurrent.CompletableFuture.allOf(first, second).get(20, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(storedDocuments.findById(request.documentId()).orElseThrow().getRevision()).isEqualTo(3);
+    }
+
+    @Test
+    void enqueueRejectsStaleRequestEvenWhenItsCallerAlreadyLoadedTheDocument() throws Exception {
+        DocumentNormalizationRequest request = normalizationFixture();
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            normalization.requests(request.companyId(), request.recruitmentId(), request.applicationId());
+            java.util.concurrent.CompletableFuture.runAsync(() -> normalization.retry(request.companyId(),
+                    request.recruitmentId(), request.applicationId(), request.documentId())).join();
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> normalization.enqueue(request))
+                    .isInstanceOf(IllegalArgumentException.class);
+            tx.setRollbackOnly();
+        });
+        assertThat(storedDocuments.findById(request.documentId()).orElseThrow().getRevision()).isEqualTo(2);
+    }
+
+    private DocumentNormalizationRequest normalizationFixture() throws Exception {
+        TestApi hr = newHr();
+        Posting posting = publishBlind(hr, "");
+        expect(anonymous().multipart(posting.applyPath(), form(UUID.randomUUID() + "@example.com", false)), 201);
+        UUID recruitmentId = UUID.fromString(posting.recruitmentId());
+        UUID applicationId = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
+        return normalization.requests(hr.companyId(), recruitmentId, applicationId).getFirst();
+    }
+
+    private static NormalizedDocument normalizedResult(DocumentNormalizationRequest request) {
+        return new NormalizedDocument(1, request.documentId(), request.revision(), request.documentType(),
+                List.of(new NormalizedDocument.Paragraph("b1", List.of(request.sources().getFirst().id()),
+                        "body", request.sources().getFirst().text())));
+    }
+
+    private static void await(java.util.concurrent.CountDownLatch latch) {
+        try {
+            if (!latch.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting for the other transaction");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(exception);
+        }
+    }
+
+    @Test
+    void persistsCorrelatedNormalizationAndRestrictsRetryToTheOwningHr() throws Exception {
+        TestApi hr = newHr();
+        Posting posting = publishBlind(hr, "");
+        expect(anonymous().multipart(posting.applyPath(), form("normalize-lifecycle@example.com", false)), 201);
+        UUID recruitmentId = UUID.fromString(posting.recruitmentId());
+        UUID applicationId = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
+        DocumentNormalizationRequest request = normalization.requests(hr.companyId(), recruitmentId, applicationId)
+                .getFirst();
+        normalization.enqueue(request);
+        var queued = storedDocuments.findById(request.documentId()).orElseThrow();
+        UUID jobId = queued.getNormalizationJobId();
+        assertThat(jobId).isNotNull();
+        assertThat(queued.getNormalizationRequest()).isEqualTo(request);
+        NormalizedDocument result = new NormalizedDocument(1, request.documentId(), request.revision(),
+                request.documentType(), List.of(new NormalizedDocument.Paragraph("b1",
+                        List.of(request.sources().getFirst().id()), "body", request.sources().getFirst().text())));
+        jobResults.publish(new com.hiremate.job.JobResult(jobId, DocumentNormalizationService.NORMALIZE_JOB,
+                request.documentId().toString(), com.hiremate.job.JobStatus.DONE, mapper.valueToTree(result), null));
+        Instant deadline = Instant.now().plusSeconds(10);
+        while (storedDocuments.findById(request.documentId()).orElseThrow().getNormalizedDocument() == null
+                && Instant.now().isBefore(deadline)) {
+            Thread.sleep(50);
+        }
+        assertThat(storedDocuments.findById(request.documentId()).orElseThrow().getNormalizedDocument())
+                .isEqualTo(result);
+        assertThat(normalization.indexRequests()).contains(new DocumentIndexRequest(request, result));
+        String path = "/api/recruitments/" + recruitmentId + "/applications/" + applicationId + "/documents/"
+                + request.documentId() + "/normalization";
+        expect(newHr().post(path, null), 404);
+        expect(newInterviewer(hr, "면접관").post(path, null), 403);
+        expect(hr.post(path, null), 202);
+        var retry = storedDocuments.findById(request.documentId()).orElseThrow();
+        assertThat(retry.getRevision()).isEqualTo(2);
+        assertThat(retry.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.PENDING);
+        assertThat(retry.getNormalizationJobId()).isNull();
+        assertThat(retry.getNormalizedDocument()).isEqualTo(result);
+        normalization.fail(request.documentId(), jobId);
+        assertThat(storedDocuments.findById(request.documentId()).orElseThrow().getNormalizationStatus())
+                .isEqualTo(DocumentNormalizationStatus.PENDING);
+    }
+
     @Test
     void storesParsedPagesAndReturnsOnlyScopedBlindNormalizationSources() throws Exception {
         TestApi hr = newHr();
