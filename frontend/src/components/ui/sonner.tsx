@@ -24,9 +24,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }}
       style={
         {
-          '--normal-bg': 'var(--popover)',
-          '--normal-text': 'var(--popover-foreground)',
-          '--normal-border': 'var(--border)',
+          // 모든 토스트(성공 · 오류 · 안내)를 같은 검정 스타일로 보인다. 화면 테마와 상관없이 같다
+          '--normal-bg': '#18181b',
+          '--normal-text': '#fafafa',
+          '--normal-border': '#27272a',
           '--border-radius': 'var(--radius)',
         } as React.CSSProperties
       }

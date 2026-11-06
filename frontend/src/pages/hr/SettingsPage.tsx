@@ -1,6 +1,8 @@
-import { Check } from 'lucide-react'
-import { NavLink, useParams } from 'react-router'
+import { ArrowLeft, Check } from 'lucide-react'
+import { Link, NavLink, useParams } from 'react-router'
 
+import { useReturnStore } from '@/app/header-store'
+import { Button } from '@/components/ui/button'
 import { useCompanyProfile, usePostingSettings } from '@/features/company/api'
 import { CompanyProfileForm } from '@/features/company/CompanyProfileForm'
 import { CanvaConnection } from '@/features/company/CanvaConnection'
@@ -23,6 +25,8 @@ export function SettingsPage() {
   const { section = 'company' } = useParams()
   const profile = useCompanyProfile()
   const posting = usePostingSettings()
+  // 설정에 들어오기 전에 보던 화면. 설정 메뉴끼리 옮겨 다녀도 그대로다
+  const back = useReturnStore((state) => state.path)
   const done: Record<string, boolean> = {
     company: Boolean(profile.data?.intro.trim()),
     posting: Boolean(posting.data?.writingStyle.trim() || posting.data?.requiredNotices.length),
@@ -31,6 +35,12 @@ export function SettingsPage() {
   return (
     <div className="flex h-full">
       <aside className="w-[190px] shrink-0 border-r px-3 py-6">
+        <Button asChild variant="ghost" size="sm" className="mb-3 text-muted-foreground">
+          <Link to={back}>
+            <ArrowLeft />
+            이전 화면
+          </Link>
+        </Button>
         <h1 className="mb-4 px-2 text-lg font-bold">설정</h1>
         <nav className="space-y-1">
           {SECTIONS.map((item) => (
@@ -46,11 +56,7 @@ export function SettingsPage() {
               )}
             >
               {item.label}
-              {item.key === 'mail' ? (
-                <span className="text-xs text-muted-foreground">5종</span>
-              ) : (
-                done[item.key] && <Check className="size-3.5 text-muted-foreground" />
-              )}
+              {done[item.key] && <Check className="size-3.5 text-muted-foreground" />}
             </NavLink>
           ))}
         </nav>

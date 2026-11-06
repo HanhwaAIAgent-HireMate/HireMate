@@ -217,7 +217,9 @@ class PostingTests extends IntegrationTest {
         UUID id = UUID.fromString(draft.path("recruitmentId").asString());
         String base = "/api/recruitments/" + id + "/posting";
         assertThat(draft.path("content").path("headcount").isNull()).isTrue();
-        assertThat(draft.path("content").path("salary").asString()).isEmpty();
+        // 회사 소개에 없는 근무 조건은 예시 값으로 채워 둔다
+        assertThat(draft.path("content").path("salary").asString()).isEqualTo("회사 내규에 따름");
+        assertThat(draft.path("content").path("workHours").asString()).isEqualTo("주 5일(월~금) 10:00~19:00");
 
         Map<String, Object> content = new HashMap<>(Map.of("title", "결제 백엔드 개발자", "jobCategory", "",
                 "employmentType", "", "career", "", "location", "", "intro", "", "duties", List.of(),

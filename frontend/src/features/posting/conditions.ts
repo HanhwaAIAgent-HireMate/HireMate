@@ -3,6 +3,17 @@ import type { PostingContent } from '@/features/posting/api'
 /** 고용 형태는 이 넷 중에서만 고른다. backend PostingContentRequest, ai reviser와 같다 */
 export const EMPLOYMENT_TYPES = ['정규직', '계약직', '인턴', '파견직'] as const
 
+/**
+ * 학력 고르기 목록. backend는 글(50자)로 받으므로, 예전에 글로 적은 학력이나 AI가 적은 학력은 목록 끝에 그대로 보인다
+ */
+export const EDUCATION_LEVELS = [
+  '학력 무관',
+  '고등학교 졸업 이상',
+  '전문학사 이상',
+  '학사 이상',
+  '석사 이상',
+] as const
+
 /** 경력 종류. 경력은 "경력 N년 이상"으로 연차를 붙일 수 있다. backend PostingContentRequest, ai reviser와 같다 */
 export const CAREER_KINDS = ['신입', '경력', '경력 무관'] as const
 export type CareerKind = (typeof CAREER_KINDS)[number]
