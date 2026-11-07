@@ -349,12 +349,29 @@ async def test_worker_normalizes_direct_request_with_application_model() -> None
     assert not instant.calls
 
 
-async def test_worker_normalization_invalid_content_is_permanent() -> None:
+async def test_worker_normalization_invalid_content_keeps_the_source_text() -> None:
     from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
 
     llm = FakeLlm(DocumentLayout.model_validate({"blocks": []}))
     handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/normalize"]
     request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
+    result = await handle(request)
+    assert "\n".join(block["text"] for block in result["blocks"]) == "\n".join(
+        source["text"] for source in request["sources"]
+    )
+    assert [source_id for block in result["blocks"] for source_id in block["sourceIds"]] == [
+        source["id"] for source in request["sources"]
+    ]
+
+
+async def test_worker_normalization_without_any_content_is_permanent() -> None:
+    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
+
+    llm = FakeLlm(DocumentLayout.model_validate({"blocks": []}))
+    handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/normalize"]
+    request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
+    for source in request["sources"]:
+        source["text"] = "   "
     with pytest.raises(PermanentError):
         await handle(request)
 

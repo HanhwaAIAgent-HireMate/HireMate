@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -11,7 +12,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hiremate_ai.agents.analysis.application import analyze_application, normalize_document
+from hiremate_ai.agents.analysis.application import analyze_application, normalize_document, verbatim_document
 from hiremate_ai.agents.analysis.application.index import DocumentIndexScopeError, index_document
 from hiremate_ai.agents.analysis.application.present import to_analysis
 from hiremate_ai.agents.analysis.application.service import RubricScopeError
@@ -32,6 +33,9 @@ from hiremate_ai.llm.tracing import traced
 from hiremate_ai.tools.profile_search import ProfileEmbedder, ProfileIndexer, get_profile_embedder, index_profile_safely
 
 Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+
+
+logger = logging.getLogger(__name__)
 
 
 class PermanentError(Exception):
@@ -99,7 +103,12 @@ def job_handlers(
     async def application_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         try:
             request = DocumentNormalizationRequest.model_validate(payload)
-            document = await normalize_document(application_llm if application_llm is not None else llm, request)
+            try:
+                document = await normalize_document(application_llm if application_llm is not None else llm, request)
+            except ValueError as error:
+                # 모델이 원문을 고쳐 쓴 결과는 버리고 파서 원문을 그대로 저장해 색인까지 잇는다
+                logger.warning("문서 %s 정리 결과 거부, 원문으로 저장: %s", request.document_id, error)
+                document = verbatim_document(request)
         except ValueError as error:
             raise PermanentError("지원 문서 정리 결과가 검증을 통과하지 못했다") from error
         return document.model_dump(mode="json")

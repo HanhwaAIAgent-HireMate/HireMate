@@ -23,6 +23,8 @@ from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 # The request's model budget remains active across every bounded call.
 MAX_SOURCE_CHARS = 6000
+VERBATIM_PARAGRAPH_CHARS = 300
+"""원문 그대로 저장할 때 문단 하나에 묶는 글자 수. 인용할 때 출처가 너무 넓어지지 않게 한다."""
 
 
 class LayoutBlock(BaseModel):
@@ -173,16 +175,16 @@ def _list_text(items: list[DocumentListItem]) -> str:
     return "\n".join((item.marker or "") + item.text + "\n" + _list_text(item.children) for item in items)
 
 
-def _segments(proposal: LayoutBlock) -> list[tuple[str, list[str]]]:
+def _segments(proposal: LayoutBlock) -> list[tuple[str, LayoutBlock]]:
     if proposal.type == "section":
-        own = [(proposal.title, proposal.source_ids)] if proposal.title is not None else []
+        own = [(proposal.title, proposal)] if proposal.title is not None else []
         if proposal.title is None and proposal.source_ids:
             raise ValueError("Untitled section has title provenance")
         return own + [segment for child in proposal.blocks or [] for segment in _segments(child)]
     if proposal.type == "reference" and proposal.kind == "code_example":
         if proposal.text is not None or proposal.code_text is None or not _code_only(proposal.code_text):
             raise ValueError("Code reference requires verified verbatim codeText")
-        return [(proposal.code_text, proposal.source_ids)]
+        return [(proposal.code_text, proposal)]
     if proposal.code_text is not None:
         raise ValueError("codeText is only allowed on code references")
     if proposal.type == "list":
@@ -197,24 +199,30 @@ def _segments(proposal: LayoutBlock) -> list[tuple[str, list[str]]]:
         )
     else:
         text = proposal.text or ""
-    return [(text, proposal.source_ids)]
+    return [(text, proposal)]
 
 
 def _validate_layout(layout: DocumentLayout, sources: list[DocumentSource]) -> None:
+    """Reject any changed character or unknown source, then set provenance from position.
+
+    Text matches the sources exactly, so each block's sources follow from where it
+    sits. A model that names a neighboring real source does not change the content.
+    """
+    known = {source.id for source in sources}
     original = "".join(_compact(source.text) for source in sources)
     provenance = [source.id for source in sources for _ in _compact(source.text)]
     cursor = 0
     rendered: list[str] = []
     for proposal in layout.blocks:
-        for text, ids in _segments(proposal):
+        for text, block in _segments(proposal):
             rendered.append(text)
             content = _compact(text)
             if not content:
                 raise ValueError("Content blocks require source-backed content")
             end = cursor + len(content)
-            actual_ids = list(dict.fromkeys(provenance[cursor:end]))
-            if content != original[cursor:end] or ids != actual_ids:
+            if content != original[cursor:end] or not known.issuperset(block.source_ids):
                 raise ValueError("Content or per-source provenance changed")
+            block.source_ids = list(dict.fromkeys(provenance[cursor:end]))
             cursor = end
     numeric = r"\d+(?:[.,]\d+)*"
     if re.findall(numeric, "\n".join(source.text for source in sources)) != re.findall(numeric, "\n".join(rendered)):
@@ -316,6 +324,47 @@ async def normalize_document(llm: LlmClient, request: DocumentNormalizationReque
         revision=request.revision,
         document_type=request.document_type,
         blocks=blocks,
+    )
+    result.validate_sources(request.sources)
+    return result
+
+
+def _verbatim_blocks(sources: list[DocumentSource]) -> list[LayoutBlock]:
+    groups: list[list[DocumentSource]] = []
+    for source in sources:
+        if not _compact(source.text):
+            continue
+        last = groups[-1] if groups else None
+        size = sum(len(item.text) for item in last) if last else 0
+        if last and last[0].page == source.page and size + len(source.text) <= VERBATIM_PARAGRAPH_CHARS:
+            last.append(source)
+        else:
+            groups.append([source])
+    return [
+        LayoutBlock(
+            type="paragraph",
+            source_ids=[source.id for source in group],
+            role="body",
+            text="\n".join(source.text for source in group),
+        )
+        for group in groups
+    ]
+
+
+def verbatim_document(request: DocumentNormalizationRequest) -> NormalizedDocument:
+    """Keep the parser text as body paragraphs when no model layout passed validation.
+
+    No model output is used, so nothing can be invented or dropped. Structure is
+    lost, and the same checks as a model layout still apply before it is returned.
+    """
+    layout = DocumentLayout(blocks=_verbatim_blocks(request.sources))
+    _validate_layout(layout, request.sources)
+    counter = [0]
+    result = NormalizedDocument(
+        document_id=request.document_id,
+        revision=request.revision,
+        document_type=request.document_type,
+        blocks=[_materialize(block, counter) for block in layout.blocks],
     )
     result.validate_sources(request.sources)
     return result
