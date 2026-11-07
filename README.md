@@ -364,8 +364,10 @@ Backend를 실행하고 `cd frontend && npm run api:generate`를 사용하며, �
 `POSTER_LLM_MODEL`을 비우면 기본 `LLM_MODEL`(로컬 Gemma 등)이 참고 이미지 분석·설계·수정을 모두 맡는다.
 단일 GPU에서 `POSTER_LOCAL_RELEASE_OLLAMA=true`로 두면 Gemma 설계 이후 Ollama 가중치만 내리고
 Z-Image를 실행한다. Ollama 서버는 유지되며 다음 대화에서 Gemma가 다시 적재된다.
-`POSTER_LOCAL_MODEL_PATH`에 다운로드한 모델 폴더, `POSTER_LOCAL_PYTHON`에 GPU 전용 Python 실행 파일을
-지정한다. 별도 이미지 서버나 포트를 열지 않고 AI 서버가 자식 프로세스를 순차 실행하며,
+AI 배너 이미지를 생성하려면 로컬 이미지 모델과 GPU 실행 환경이 필요하다. `POSTER_LOCAL_MODEL_PATH`에
+다운로드한 모델 폴더, `POSTER_LOCAL_PYTHON`에 GPU 전용 Python 실행 파일을 지정한다. 둘 중 하나라도
+비어 있으면 AI 서버 로그에 배너 생성 생략을 남기고, 설정된 언어 모델로 배너 이미지 없이 포스터를 생성한다.
+별도 이미지 서버나 포트를 열지 않고 AI 서버가 자식 프로세스를 순차 실행하며,
 동일한 요청은 `POSTER_LOCAL_IMAGE_CACHE`의 JPEG를 재사용한다. 실패 시 유료 이미지 API로 전환하지 않는다.
 
 로컬 GPU 환경은 업무 서버의 CPU 패키지와 분리한다. CUDA 12.8용 PyTorch 2.7.1, Diffusers 0.36.0,
