@@ -2,8 +2,8 @@ from uuid import uuid4
 
 import pytest
 
-from hiremate_ai.agents.analysis.application.normalize import DocumentLayout, normalize_document
-from hiremate_ai.contract import DocumentNormalizationRequest, DocumentSource, DocumentType
+from hiremate_ai.agents.analysis.application.normalize import DocumentLayout, normalize_document, verbatim_document
+from hiremate_ai.contract import DocumentNormalizationRequest, DocumentParagraph, DocumentSource, DocumentType
 from hiremate_ai.llm.fake import FakeLlm
 
 
@@ -407,3 +407,43 @@ async def test_python_expression_cannot_hide_resume_bullets_or_dates(prose: str,
     )
     with pytest.raises(ValueError):
         await normalize_document(FakeLlm(layout), request(text))
+
+
+async def test_matching_text_gets_source_ids_from_its_position() -> None:
+    req = request("첫 줄 2024")
+    req.sources.append(DocumentSource(id="s2", page=1, text="둘째 줄"))
+    req.sources.append(DocumentSource(id="s3", page=1, text="셋째 줄"))
+    layout = {"blocks": [paragraph("첫 줄 2024\n둘째 줄", "s2"), paragraph("셋째 줄", "s1")]}
+    result = await normalize_document(FakeLlm(DocumentLayout.model_validate(layout)), req)
+    assert [block.source_ids for block in result.blocks] == [["s1", "s2"], ["s3"]]
+
+
+def test_verbatim_document_keeps_every_source_line_in_order() -> None:
+    req = request("이력서 2024.03")
+    req.sources.extend(
+        [
+            DocumentSource(id="s2", page=1, text="결제 API 25% 개선"),
+            DocumentSource(id="s3", page=1, text="   "),
+            DocumentSource(id="s4", page=2, text="둘째 쪽"),
+        ]
+    )
+    result = verbatim_document(req)
+    assert result.document_id == req.document_id
+    assert result.revision == req.revision
+    paragraphs = [block for block in result.blocks if isinstance(block, DocumentParagraph)]
+    assert [(block.source_ids, block.text, block.role) for block in paragraphs] == [
+        (["s1", "s2"], "이력서 2024.03\n결제 API 25% 개선", "body"),
+        (["s4"], "둘째 쪽", "body"),
+    ]
+    assert [block.id for block in result.blocks] == ["b000001", "b000002"]
+
+
+def test_verbatim_document_starts_a_paragraph_before_it_grows_too_long() -> None:
+    req = request("가" * 200)
+    req.sources.append(DocumentSource(id="s2", page=1, text="나" * 200))
+    assert [block.source_ids for block in verbatim_document(req).blocks] == [["s1"], ["s2"]]
+
+
+def test_verbatim_document_fails_without_any_content() -> None:
+    with pytest.raises(ValueError):
+        verbatim_document(request("   "))
