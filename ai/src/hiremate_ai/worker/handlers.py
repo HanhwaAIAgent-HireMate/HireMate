@@ -28,6 +28,7 @@ from hiremate_ai.config import settings
 from hiremate_ai.contract import DocumentIndexRequest, DocumentNormalizationRequest
 from hiremate_ai.db.profile_store import ProfileScopeError
 from hiremate_ai.llm.batch_state import current_batch_job
+from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.tracing import traced
 from hiremate_ai.tools.profile_search import ProfileEmbedder, ProfileIndexer, get_profile_embedder, index_profile_safely
@@ -103,12 +104,38 @@ def job_handlers(
     async def application_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         try:
             request = DocumentNormalizationRequest.model_validate(payload)
+            started_at = time.monotonic()
+            outcome = "structured"
             try:
                 document = await normalize_document(application_llm if application_llm is not None else llm, request)
-            except ValueError as error:
+            except ValueError:
                 # 모델이 원문을 고쳐 쓴 결과는 버리고 파서 원문을 그대로 저장해 색인까지 잇는다
-                logger.warning("문서 %s 정리 결과 거부, 원문으로 저장: %s", request.document_id, error)
+                logger.warning("문서 %s 정리 결과 거부, 원문으로 저장", request.document_id)
+                outcome = "verbatim_fallback"
                 document = verbatim_document(request)
+            except Exception as error:
+                if isinstance(error, LlmOutputError) and error.reason == LlmFailureReason.FORMAT:
+                    logger.warning("문서 %s 정리 형식 오류, 원문으로 저장", request.document_id)
+                    outcome = "verbatim_fallback"
+                    document = verbatim_document(request)
+                else:
+                    logger.warning(
+                        "document_normalize outcome=error document_id=%s revision=%s "
+                        "category=%s error_type=%s elapsed_ms=%s",
+                        request.document_id,
+                        request.revision,
+                        error.reason.value if isinstance(error, LlmOutputError) else "MODEL_OR_INTERNAL",
+                        type(error).__name__,
+                        round((time.monotonic() - started_at) * 1000),
+                    )
+                    raise
+            logger.info(
+                "document_normalize outcome=%s document_id=%s revision=%s elapsed_ms=%s",
+                outcome,
+                request.document_id,
+                request.revision,
+                round((time.monotonic() - started_at) * 1000),
+            )
         except ValueError as error:
             raise PermanentError("지원 문서 정리 결과가 검증을 통과하지 못했다") from error
         return document.model_dump(mode="json")

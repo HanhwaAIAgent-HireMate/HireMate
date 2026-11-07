@@ -1,8 +1,12 @@
+import json
 from dataclasses import replace
+from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 from root_context import make_context, sessions_of
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.agents.analysis.application.index import index_document
@@ -15,6 +19,7 @@ from hiremate_ai.contract import (
     DocumentIndexRequest,
     DocumentNormalizationRequest,
     DocumentParagraph,
+    DocumentSection,
     DocumentSource,
     DocumentType,
     NormalizedDocument,
@@ -35,6 +40,14 @@ ORIGINAL = "승인 서버의 동시 요청을 처리했습니다."
 class Embedder:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         return [[1.0] + [0.0] * 1023 for _ in texts]
+
+
+@pytest.fixture
+def pdf_quality_fixtures() -> tuple[dict[str, Any], dict[str, Any]]:
+    root = Path(__file__).resolve().parents[1]
+    sources = json.loads((root / "samples" / "document_quality_sources.json").read_text())
+    documents = json.loads((root / "eval" / "document_quality_luna_documents.json").read_text())
+    return sources, documents
 
 
 def payload(
@@ -172,6 +185,124 @@ async def test_normalize_index_search_three_document_types(
 
     assert found[0].sentences[0].source == document_type.label
     assert found[0].sentences[0].sentence == request.sources[0].text
+
+
+@pytest.mark.parametrize(
+    ("case", "document_type", "query", "source_id"),
+    [
+        ("resume", DocumentType.RESUME, "Python", "s3"),
+        ("cover_letter", DocumentType.COVER_LETTER, "I verified", "s5"),
+        ("portfolio", DocumentType.PORTFOLIO, "Latency", "s6"),
+    ],
+)
+async def test_pdf_fixture_results_reach_scoped_search_with_original_provenance(
+    db_session: AsyncSession,
+    pdf_quality_fixtures: tuple[dict[str, Any], dict[str, Any]],
+    case: str,
+    document_type: NormalizedDocumentType,
+    query: str,
+    source_id: str,
+) -> None:
+    all_sources, all_documents = pdf_quality_fixtures
+    source_data, output_data = all_sources[case], all_documents[case]
+    sources = [DocumentSource.model_validate(item) for item in source_data]
+    candidate = uuid4()
+    scope = ToolScope(uuid4(), uuid4(), uuid4(), frozenset({candidate}))
+    request = payload(scope, candidate, document_type=document_type).request.model_copy(update={"sources": sources})
+    document = NormalizedDocument.model_validate(output_data).model_copy(update={"document_id": request.document_id})
+
+    class FixtureEmbedder:
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            return [[1.0, 0.0] + [0.0] * 1022 if query in text else [0.0, 1.0] + [0.0] * 1022 for text in texts]
+
+    await index_document(
+        db_session, FixtureEmbedder(), DocumentIndexRequest(request=request, document=document), model=MODEL
+    )
+    found = await module.search_document_embeddings(
+        db_session, FixtureEmbedder(), scope, [query], [candidate], model=MODEL
+    )
+
+    assert len(found) == 1
+    sentence = next(
+        item
+        for item in found[0].sentences
+        if isinstance(item, module.DocumentSentence) and item.provenance.source_id == source_id
+    )
+    assert isinstance(sentence, module.DocumentSentence)
+    assert query in sentence.sentence
+    assert sentence.provenance.page == 1
+    assert sentence.provenance.block_ids
+    assert sentence.provenance.revision == request.revision
+    foreign_scope = replace(scope, company_id=uuid4())
+    assert not await module.search_document_embeddings(
+        db_session, FixtureEmbedder(), foreign_scope, [query], [candidate], model=MODEL
+    )
+
+
+async def test_normalized_table_reaches_search_with_context_and_original_source(db_session: AsyncSession) -> None:
+    candidate = uuid4()
+    scope = ToolScope(uuid4(), uuid4(), uuid4(), frozenset({candidate}))
+    sources = [
+        DocumentSource(id=f"s{i}", page=1 if i < 4 else 2, text=text)
+        for i, text in enumerate(["경력", "항목", "수치", "처리량", "25%", "지원서 2"], start=1)
+    ]
+    request = payload(scope, candidate, document_type=DocumentType.PORTFOLIO).request.model_copy(
+        update={"sources": sources}
+    )
+    proposal = DocumentLayout.model_validate(
+        {
+            "blocks": [
+                {
+                    "type": "section",
+                    "sourceIds": ["s1"],
+                    "title": "경력",
+                    "blocks": [
+                        {
+                            "type": "table",
+                            "sourceIds": ["s2", "s3", "s4", "s5"],
+                            "caption": None,
+                            "headers": ["항목", "수치"],
+                            "rows": [["처리량", "25%"]],
+                        }
+                    ],
+                },
+                {"type": "paragraph", "sourceIds": ["s6"], "role": "page_footer", "text": "지원서 2"},
+            ]
+        }
+    )
+
+    class TableEmbedder:
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            return [[1.0, 0.0] + [0.0] * 1022 if "처리량" in text else [0.0, 1.0] + [0.0] * 1022 for text in texts]
+
+    document = await normalize_document(FakeLlm(proposal), request)
+    await index_document(
+        db_session, TableEmbedder(), DocumentIndexRequest(request=request, document=document), model=MODEL
+    )
+    found = await module.search_document_embeddings(
+        db_session, TableEmbedder(), scope, ["처리량"], [candidate], model=MODEL
+    )
+
+    assert len(found) == 1
+    sentence = next(
+        item
+        for item in found[0].sentences
+        if isinstance(item, module.DocumentSentence) and item.provenance.source_id == "s4"
+    )
+    assert isinstance(sentence, module.DocumentSentence)
+    assert sentence.sentence == "처리량"
+    assert sentence.provenance.page == 2
+    section = document.blocks[0]
+    assert isinstance(section, DocumentSection)
+    assert sentence.provenance.block_ids == (section.blocks[0].id,)
+    chunk = await db_session.get(DocumentIndexChunk, (request.document_id, 3))
+    assert chunk is not None and "경력" in chunk.text and "항목" in chunk.text and "처리량" in chunk.text
+    chunks = (
+        await db_session.scalars(
+            select(DocumentIndexChunk).where(DocumentIndexChunk.document_id == request.document_id)
+        )
+    ).all()
+    assert all("지원서 2" not in item.text for item in chunks)
 
 
 async def test_root_merge_and_recheck_keep_stored_original_without_chat_document(

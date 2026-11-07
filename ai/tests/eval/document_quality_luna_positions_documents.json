@@ -1,0 +1,211 @@
+{
+  "resume": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "RESUME",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1",
+          "s2",
+          "s3",
+          "s4",
+          "s5"
+        ],
+        "type": "paragraph",
+        "role": "body",
+        "text": "SAMPLE RESUME\nSkills Work History\nPython Orion Lab\nSQL Built a data pipeline 25% faster.\nSAMPLE RESUME | 1"
+      }
+    ]
+  },
+  "cover_letter": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "COVER_LETTER",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1"
+        ],
+        "type": "section",
+        "title": "C O V E R  L E T T E R",
+        "blocks": [
+          {
+            "id": "b000002",
+            "sourceIds": [
+              "s2"
+            ],
+            "type": "section",
+            "title": "Motivation",
+            "blocks": [
+              {
+                "id": "b000003",
+                "sourceIds": [
+                  "s3",
+                  "s4"
+                ],
+                "type": "paragraph",
+                "role": "body",
+                "text": "I worked with users to improve a booking process by 25%."
+              },
+              {
+                "id": "b000004",
+                "sourceIds": [
+                  "s5"
+                ],
+                "type": "paragraph",
+                "role": "body",
+                "text": "I verified each change with data."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b000005",
+        "sourceIds": [
+          "s6"
+        ],
+        "type": "paragraph",
+        "role": "page_footer",
+        "text": "SAMPLE LETTER | 1"
+      }
+    ]
+  },
+  "portfolio": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "PORTFOLIO",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1",
+          "s2",
+          "s3",
+          "s4",
+          "s5",
+          "s6",
+          "s7",
+          "s8",
+          "s9"
+        ],
+        "type": "paragraph",
+        "role": "body",
+        "text": "SAMPLE PORTFOLIO\nProject Results\n- Reduced wait time\n- Improved reliability\nMetric Before After\nLatency 4.1s 2.3s\nFailures 11 2\nPerformance chart\nSAMPLE PORTFOLIO | 1"
+      },
+      {
+        "id": "b000002",
+        "sourceIds": [
+          "s10",
+          "s11",
+          "s12",
+          "s13",
+          "s14",
+          "s15"
+        ],
+        "type": "paragraph",
+        "role": "body",
+        "text": "SAMPLE PORTFOLIO\nImplementation\nThe following code shows the calculation.\ndef latency_ms(value):\nreturn value * 1000\nSAMPLE PORTFOLIO | 2"
+      }
+    ]
+  },
+  "korean": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "COVER_LETTER",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1"
+        ],
+        "type": "section",
+        "title": "자  기  소  개  서",
+        "blocks": [
+          {
+            "id": "b000002",
+            "sourceIds": [
+              "s2"
+            ],
+            "type": "section",
+            "title": "지원동기",
+            "blocks": [
+              {
+                "id": "b000003",
+                "sourceIds": [
+                  "s3",
+                  "s4"
+                ],
+                "type": "paragraph",
+                "role": "body",
+                "text": "예약 변경 정책을 데이터로 확인했습니다."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b000004",
+        "sourceIds": [
+          "s5"
+        ],
+        "type": "paragraph",
+        "role": "page_footer",
+        "text": "지원서 1"
+      }
+    ]
+  },
+  "korean_parser_text": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "COVER_LETTER",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1"
+        ],
+        "type": "section",
+        "title": "자  기  소  개  서",
+        "blocks": [
+          {
+            "id": "b000002",
+            "sourceIds": [
+              "s2"
+            ],
+            "type": "paragraph",
+            "role": "body",
+            "text": "지원동기"
+          },
+          {
+            "id": "b000003",
+            "sourceIds": [
+              "s3",
+              "s4"
+            ],
+            "type": "paragraph",
+            "role": "body",
+            "text": "예약 변경 정책을 데이터로 확인했습니다."
+          },
+          {
+            "id": "b000004",
+            "sourceIds": [
+              "s5"
+            ],
+            "type": "paragraph",
+            "role": "body",
+            "text": "지원서 1"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "approach": "rewrite",
+  "model": "gpt-6-luna",
+  "structured_output": "function_calling",
+  "temperature": 0.0,
+  "reasoning_effort": "none",
+  "langsmith_tracing": false,
+  "call_timeout_seconds": 60,
+  "document_timeout_seconds": 150,
+  "results": {
+    "portfolio": {
+      "outcome": "structured",
+      "error_kind": null,
+      "validation_category": null,
+      "validation_errors": [],
+      "elapsed_seconds": 3.93,
+      "model_call_records": 1,
+      "call_statuses": [
+        "OK"
+      ],
+      "input_tokens": 1287,
+      "output_tokens": 346,
+      "metrics": {
+        "document_type_matches": true,
+        "source_content_matches": null,
+        "source_numeric_matches": null,
+        "single_space_matches": null,
+        "source_word_matches": null,
+        "source_provenance_matches": null,
+        "all_source_ids_known": true,
+        "required_checks_pass": null,
+        "pdf_reading_order_matches": null,
+        "structure_passed": 7,
+        "structure_total": 10,
+        "structure_checks": [
+          {
+            "type": "section",
+            "value": "Project Results",
+            "parent": null,
+            "pass": false
+          },
+          {
+            "type": "list",
+            "value": "Reduced wait time|Improved reliability",
+            "parent": "Project Results",
+            "pass": true
+          },
+          {
+            "type": "table",
+            "value": "Metric|Before|After;Latency|4.1s|2.3s;Failures|11|2",
+            "parent": "Project Results",
+            "pass": true
+          },
+          {
+            "type": "reference",
+            "value": "Performance chart",
+            "parent": "Project Results",
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "SAMPLE PORTFOLIO | 1",
+            "parent": null,
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "SAMPLE PORTFOLIO",
+            "parent": null,
+            "pass": false
+          },
+          {
+            "type": "section",
+            "value": "Implementation",
+            "parent": null,
+            "pass": false
+          },
+          {
+            "type": "paragraph",
+            "value": "The following code shows the calculation.",
+            "parent": "Implementation",
+            "pass": true
+          },
+          {
+            "type": "reference",
+            "value": "",
+            "parent": "Implementation",
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "SAMPLE PORTFOLIO | 2",
+            "parent": null,
+            "pass": true
+          }
+        ]
+      }
+    }
+  }
+}

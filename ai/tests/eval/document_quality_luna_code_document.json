@@ -1,0 +1,145 @@
+{
+  "portfolio": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "PORTFOLIO",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1"
+        ],
+        "type": "section",
+        "title": "SAMPLE PORTFOLIO",
+        "blocks": [
+          {
+            "id": "b000002",
+            "sourceIds": [
+              "s2"
+            ],
+            "type": "section",
+            "title": "Project Results",
+            "blocks": [
+              {
+                "id": "b000003",
+                "sourceIds": [
+                  "s3",
+                  "s4"
+                ],
+                "type": "list",
+                "items": [
+                  {
+                    "marker": "-",
+                    "text": "Reduced wait time",
+                    "children": []
+                  },
+                  {
+                    "marker": "-",
+                    "text": "Improved reliability",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "id": "b000004",
+                "sourceIds": [
+                  "s5",
+                  "s6",
+                  "s7"
+                ],
+                "type": "table",
+                "caption": null,
+                "headers": [
+                  "Metric",
+                  "Before",
+                  "After"
+                ],
+                "rows": [
+                  [
+                    "Latency",
+                    "4.1s",
+                    "2.3s"
+                  ],
+                  [
+                    "Failures",
+                    "11",
+                    "2"
+                  ]
+                ]
+              },
+              {
+                "id": "b000005",
+                "sourceIds": [
+                  "s8"
+                ],
+                "type": "reference",
+                "kind": "possible_visual",
+                "text": "Performance chart",
+                "notice": "관련 시각 자료가 있을 수 있습니다. 원본 PDF를 확인해 주세요."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b000006",
+        "sourceIds": [
+          "s9"
+        ],
+        "type": "paragraph",
+        "role": "page_footer",
+        "text": "SAMPLE PORTFOLIO | 1"
+      },
+      {
+        "id": "b000007",
+        "sourceIds": [
+          "s10"
+        ],
+        "type": "section",
+        "title": "SAMPLE PORTFOLIO",
+        "blocks": [
+          {
+            "id": "b000008",
+            "sourceIds": [
+              "s11"
+            ],
+            "type": "section",
+            "title": "Implementation",
+            "blocks": [
+              {
+                "id": "b000009",
+                "sourceIds": [
+                  "s12"
+                ],
+                "type": "paragraph",
+                "role": "body",
+                "text": "The following code shows the calculation."
+              },
+              {
+                "id": "b000010",
+                "sourceIds": [
+                  "s13",
+                  "s14"
+                ],
+                "type": "reference",
+                "kind": "code_example",
+                "text": null,
+                "notice": "코드 예시가 포함되어 있습니다. 원본 PDF를 확인해 주세요."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b000011",
+        "sourceIds": [
+          "s15"
+        ],
+        "type": "paragraph",
+        "role": "page_footer",
+        "text": "SAMPLE PORTFOLIO | 2"
+      }
+    ]
+  }
+}

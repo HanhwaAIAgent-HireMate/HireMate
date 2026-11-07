@@ -13,6 +13,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from pydantic import ValidationError
 from redis.asyncio import Redis
@@ -221,9 +222,13 @@ class Worker:
     async def _process(self, message_id: str, fields: dict[str, str]) -> None:
         try:
             await self._finish(message_id, await self._run(fields))
-        except Exception:
+        except Exception as error:
             # 결과를 넣지 못했다. 확인하지 않고 두면 소식이 끊긴 작업으로 다시 처리된다
-            log.exception("작업을 마치지 못했다: %s", message_id)
+            job = None if message_id in self._batch_messages else _job(fields)
+            if job is not None and job.type == "application/normalize":
+                log.error("document_normalize_delivery job_id=%s error_type=%s", job.job_id, type(error).__name__)
+            else:
+                log.exception("작업을 마치지 못했다: %s", message_id)
         finally:
             self._running.pop(message_id, None)
             self._batch_messages.discard(message_id)
@@ -237,6 +242,9 @@ class Worker:
         handler = self._handlers.get(job.type)
         if handler is None:
             return _result(job, JobStatus.FAILED, error=f"모르는 작업 유형: {job.type}")
+        if job.type == "application/normalize":
+            with contextlib.suppress(ValueError):
+                log.info("document_normalize_job job_id=%s document_id=%s", job.job_id, UUID(job.target))
         if self._batch is not None and self._batch.handles(job):
             return await self._batch.run(job, handler)
         attempt = 1
@@ -244,11 +252,23 @@ class Worker:
             try:
                 return _result(job, JobStatus.DONE, result=await handler(dict(job.payload)))
             except (PermanentError, ValidationError) as error:
+                if job.type == "application/normalize":
+                    return _result(job, JobStatus.FAILED, error=f"{type(error).__name__}: 문서 정리 요청 실패")
                 return _result(job, JobStatus.FAILED, error=str(error))
             except Exception as error:
-                log.warning("작업 %s (%s) %d번째 시도 실패", job.type, job.target, attempt, exc_info=True)
-                if attempt >= self._options.attempts:
-                    return _result(job, JobStatus.FAILED, error=f"{type(error).__name__}: {error}")
+                if job.type == "application/normalize":
+                    log.warning(
+                        "document_normalize_job job_id=%s attempt=%s error_type=%s",
+                        job.job_id,
+                        attempt,
+                        type(error).__name__,
+                    )
+                    if attempt >= self._options.attempts:
+                        return _result(job, JobStatus.FAILED, error=f"{type(error).__name__}: 문서 정리 작업 실패")
+                else:
+                    log.warning("작업 %s (%s) %d번째 시도 실패", job.type, job.target, attempt, exc_info=True)
+                    if attempt >= self._options.attempts:
+                        return _result(job, JobStatus.FAILED, error=f"{type(error).__name__}: {error}")
             attempt += 1
             await asyncio.sleep(self._options.retry_delay_seconds)
 

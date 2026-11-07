@@ -5,12 +5,16 @@ import static com.hiremate.TestFixtures.form;
 import static com.hiremate.TestFixtures.publishBlind;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.apply.domain.ApplicationDocument;
 import com.hiremate.apply.domain.ApplicationDocumentRepository;
 import com.hiremate.posting.DocumentType;
 import java.io.ByteArrayOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -40,6 +44,50 @@ class DocumentReprocessingTests extends IntegrationTest {
 
     @Autowired
     private com.hiremate.file.FileService files;
+
+    @Test
+    void sharedPdfFixturesAcceptAndPersistTheLunaResultsForAllThreeTypes() throws Exception {
+        TestApi hr = newHr();
+        var posting = publishBlind(hr, "");
+        Map<String, Object> submitted = form("quality-fixtures@example.com", true);
+        submitted.put("name", "Yuna Noh");
+        for (var entry : Map.of("resume", "resume", "coverLetter", "cover_letter", "portfolio", "portfolio")
+                .entrySet()) {
+            Path pdf = Path.of("..", "ai", "tests", "samples", "document_quality_" + entry.getValue() + ".pdf");
+            submitted.put(entry.getKey(), new TestApi.FilePart(entry.getValue() + ".pdf", "application/pdf",
+                    Files.readAllBytes(pdf)));
+        }
+        expect(anonymous().multipart(posting.applyPath(), submitted), 201);
+        UUID recruitmentId = UUID.fromString(posting.recruitmentId());
+        UUID applicationId = applications.applicants(hr.companyId(), recruitmentId).getFirst().applicationId();
+        ObjectMapper json = new ObjectMapper();
+        JsonNode expectedSources = json.readTree(Files.readString(
+                Path.of("..", "ai", "tests", "samples", "document_quality_sources.json")));
+        JsonNode documentsJson = json.readTree(Files.readString(
+                Path.of("..", "ai", "tests", "eval", "document_quality_luna_documents.json")));
+        var requests = normalization.requests(hr.companyId(), recruitmentId, applicationId);
+        assertThat(requests).hasSize(3);
+        for (DocumentNormalizationRequest request : requests) {
+            String key = switch (request.documentType()) {
+                case RESUME -> "resume";
+                case COVER_LETTER -> "cover_letter";
+                case PORTFOLIO -> "portfolio";
+                default -> throw new AssertionError("Unexpected document type");
+            };
+            JsonNode sources = json.valueToTree(request.sources());
+            assertThat(sources).as(key).isEqualTo(expectedSources.get(key));
+            NormalizedDocument fixture = json.treeToValue(documentsJson.get(key), NormalizedDocument.class);
+            NormalizedDocument result = new NormalizedDocument(fixture.schemaVersion(), request.documentId(),
+                    request.revision(), request.documentType(), fixture.blocks());
+            normalization.enqueue(request);
+            UUID jobId = documents.findById(request.documentId()).orElseThrow().getNormalizationJobId();
+            normalization.complete(request.documentId(), jobId, result);
+
+            assertThat(documents.findById(request.documentId()).orElseThrow().getNormalizedDocument())
+                    .as(key).isEqualTo(result);
+            assertThat(normalization.indexRequests()).contains(new DocumentIndexRequest(request, result));
+        }
+    }
 
     @Test
     void recruitmentBackfillReparsesAllThreeOriginalsAndResumesWithoutDuplicatingVersions() throws Exception {

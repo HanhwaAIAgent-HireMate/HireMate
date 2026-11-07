@@ -1,0 +1,165 @@
+{
+  "korean": [
+    {
+      "id": "s1",
+      "page": 1,
+      "text": "자  기  소  개  서"
+    },
+    {
+      "id": "s2",
+      "page": 1,
+      "text": "지원동기"
+    },
+    {
+      "id": "s3",
+      "page": 1,
+      "text": "예약 변경 정책을"
+    },
+    {
+      "id": "s4",
+      "page": 1,
+      "text": "데이터로 확인했습니다."
+    },
+    {
+      "id": "s5",
+      "page": 1,
+      "text": "지원서 1"
+    }
+  ],
+  "resume": [
+    {
+      "id": "s1",
+      "page": 1,
+      "text": "SAMPLE RESUME"
+    },
+    {
+      "id": "s2",
+      "page": 1,
+      "text": "Skills Work History"
+    },
+    {
+      "id": "s3",
+      "page": 1,
+      "text": "Python Orion Lab"
+    },
+    {
+      "id": "s4",
+      "page": 1,
+      "text": "SQL Built a data pipeline 25% faster."
+    },
+    {
+      "id": "s5",
+      "page": 1,
+      "text": "SAMPLE RESUME | 1"
+    }
+  ],
+  "cover_letter": [
+    {
+      "id": "s1",
+      "page": 1,
+      "text": "C O V E R  L E T T E R"
+    },
+    {
+      "id": "s2",
+      "page": 1,
+      "text": "Motivation"
+    },
+    {
+      "id": "s3",
+      "page": 1,
+      "text": "I worked with users to improve a"
+    },
+    {
+      "id": "s4",
+      "page": 1,
+      "text": "booking process by 25%."
+    },
+    {
+      "id": "s5",
+      "page": 1,
+      "text": "I verified each change with data."
+    },
+    {
+      "id": "s6",
+      "page": 1,
+      "text": "SAMPLE LETTER | 1"
+    }
+  ],
+  "portfolio": [
+    {
+      "id": "s1",
+      "page": 1,
+      "text": "SAMPLE PORTFOLIO"
+    },
+    {
+      "id": "s2",
+      "page": 1,
+      "text": "Project Results"
+    },
+    {
+      "id": "s3",
+      "page": 1,
+      "text": "- Reduced wait time"
+    },
+    {
+      "id": "s4",
+      "page": 1,
+      "text": "- Improved reliability"
+    },
+    {
+      "id": "s5",
+      "page": 1,
+      "text": "Metric Before After"
+    },
+    {
+      "id": "s6",
+      "page": 1,
+      "text": "Latency 4.1s 2.3s"
+    },
+    {
+      "id": "s7",
+      "page": 1,
+      "text": "Failures 11 2"
+    },
+    {
+      "id": "s8",
+      "page": 1,
+      "text": "Performance chart"
+    },
+    {
+      "id": "s9",
+      "page": 1,
+      "text": "SAMPLE PORTFOLIO | 1"
+    },
+    {
+      "id": "s10",
+      "page": 2,
+      "text": "SAMPLE PORTFOLIO"
+    },
+    {
+      "id": "s11",
+      "page": 2,
+      "text": "Implementation"
+    },
+    {
+      "id": "s12",
+      "page": 2,
+      "text": "The following code shows the calculation."
+    },
+    {
+      "id": "s13",
+      "page": 2,
+      "text": "def latency_ms(value):"
+    },
+    {
+      "id": "s14",
+      "page": 2,
+      "text": "return value * 1000"
+    },
+    {
+      "id": "s15",
+      "page": 2,
+      "text": "SAMPLE PORTFOLIO | 2"
+    }
+  ]
+}
