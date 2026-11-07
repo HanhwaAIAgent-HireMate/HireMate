@@ -11,9 +11,12 @@ from hiremate_ai.config import settings
 from hiremate_ai.llm.client import release_local_poster_model
 
 
-async def test_unconfigured_local_image_does_not_start_process(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_unconfigured_local_image_does_not_start_process(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     monkeypatch.setattr(settings, "poster_local_python", "")
     assert await generate_local_banner("photo") is None
+    assert "포스터 배너 생성 생략" in caplog.text
 
 
 async def test_only_local_ollama_weights_are_released(monkeypatch: pytest.MonkeyPatch) -> None:

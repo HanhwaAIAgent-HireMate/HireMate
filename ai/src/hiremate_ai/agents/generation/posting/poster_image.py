@@ -25,6 +25,7 @@ def _read_banner(path: Path) -> str | None:
 
 async def generate_local_banner(prompt: str) -> str | None:
     if not settings.poster_local_model_path or not settings.poster_local_python:
+        logger.warning("포스터 배너 생성 생략: POSTER_LOCAL_MODEL_PATH 또는 POSTER_LOCAL_PYTHON 미설정")
         return None
     payload = {
         "model": str(await asyncio.to_thread(Path(settings.poster_local_model_path).resolve)),
