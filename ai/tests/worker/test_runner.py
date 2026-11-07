@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import Any
@@ -68,6 +69,80 @@ def counting(handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]) -> 
 
 async def echo(payload: dict[str, Any]) -> dict[str, Any]:
     return {"echo": payload["value"]}
+
+
+async def test_normalization_job_log_correlates_ids_without_payload(
+    redis: Redis, caplog: pytest.LogCaptureFixture
+) -> None:
+    job = make_job("application/normalize", "비공개 문서 원문")
+    worker = Worker(redis, {"application/normalize": echo}, OPTIONS)
+
+    with caplog.at_level(logging.INFO):
+        result = await worker._run({"job": job.model_dump_json()})
+
+    assert result is not None and result.status == JobStatus.DONE
+    assert f"job_id={job.job_id}" in caplog.text
+    assert f"document_id={job.target}" in caplog.text
+    assert "비공개 문서 원문" not in caplog.text
+
+
+async def test_normalization_retries_do_not_expose_error_contents(
+    redis: Redis, caplog: pytest.LogCaptureFixture
+) -> None:
+    secret = "비공개 지원 문서와 자격 증명"
+    job = make_job("application/normalize", secret)
+
+    async def fail(_payload: dict[str, Any]) -> dict[str, Any]:
+        raise ConnectionError(secret)
+
+    worker = Worker(redis, {"application/normalize": fail}, OPTIONS)
+    with caplog.at_level(logging.WARNING):
+        result = await worker._run({"job": job.model_dump_json()})
+
+    assert result is not None and result.status == JobStatus.FAILED
+    assert "ConnectionError" in (result.error or "")
+    assert secret not in (result.error or "")
+    assert secret not in caplog.text
+
+
+@pytest.mark.parametrize("kind", ["validation", "permanent"])
+async def test_normalization_permanent_failure_does_not_return_error_contents(redis: Redis, kind: str) -> None:
+    from pydantic import BaseModel
+
+    secret = "비공개 지원 문서"
+    job = make_job("application/normalize", secret)
+
+    class NumberInput(BaseModel):
+        value: int
+
+    async def fail(_payload: dict[str, Any]) -> dict[str, Any]:
+        if kind == "validation":
+            NumberInput.model_validate({"value": secret})
+        raise PermanentError(secret)
+
+    worker = Worker(redis, {"application/normalize": fail}, OPTIONS)
+    result = await worker._run({"job": job.model_dump_json()})
+
+    assert result is not None and result.status == JobStatus.FAILED
+    assert secret not in (result.error or "")
+
+
+async def test_normalization_result_delivery_error_does_not_log_private_contents(
+    redis: Redis, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    secret = "비공개 결과와 자격 증명"
+    job = make_job("application/normalize", secret)
+    worker = Worker(redis, {"application/normalize": echo}, OPTIONS)
+
+    async def fail_delivery(_message_id: str, _result: JobResult | None) -> None:
+        raise RedisError(secret)
+
+    monkeypatch.setattr(worker, "_finish", fail_delivery)
+    with caplog.at_level(logging.WARNING):
+        await worker._process("1-0", {"job": job.model_dump_json()})
+
+    assert "RedisError" in caplog.text
+    assert secret not in caplog.text
 
 
 async def deliver_to(redis: Redis, consumer: str) -> None:

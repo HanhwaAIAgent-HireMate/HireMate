@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -352,7 +353,7 @@ async def test_worker_normalizes_direct_request_with_application_model() -> None
 async def test_worker_normalization_invalid_content_keeps_the_source_text() -> None:
     from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
 
-    llm = FakeLlm(DocumentLayout.model_validate({"blocks": []}))
+    llm = FakeLlm(DocumentLayout.model_validate({"blocks": []}), DocumentLayout.model_validate({"blocks": []}))
     handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/normalize"]
     request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
     result = await handle(request)
@@ -364,10 +365,135 @@ async def test_worker_normalization_invalid_content_keeps_the_source_text() -> N
     ]
 
 
+async def test_worker_normalization_shape_error_never_logs_document_content(caplog: pytest.LogCaptureFixture) -> None:
+    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
+
+    request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
+    secret = "비공개 지원자 문서 원문"
+    request["sources"] = [{"id": "s1", "page": 1, "text": secret}]
+    layout = {"blocks": [{"type": "paragraph", "sourceIds": ["s1"], "text": secret}]}
+    llm = FakeLlm(DocumentLayout.model_validate(layout), DocumentLayout.model_validate(layout))
+    handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/normalize"]
+
+    with caplog.at_level(logging.INFO):
+        result = await handle(request)
+
+    assert result["blocks"][0]["text"] == secret
+    assert "role" in caplog.text
+    assert "attempt=1" in caplog.text
+    assert "attempt=2" in caplog.text
+    assert "outcome=verbatim_fallback" in caplog.text
+    assert f"revision={request['revision']}" in caplog.text
+    assert secret not in caplog.text
+
+
+async def test_worker_normalization_logs_structured_result_without_source(caplog: pytest.LogCaptureFixture) -> None:
+    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
+
+    request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
+    secret = "비공개 지원자 문서 원문"
+    request["sources"] = [{"id": "s1", "page": 1, "text": secret}]
+    layout = {"blocks": [{"type": "paragraph", "sourceIds": ["s1"], "role": "body", "text": secret}]}
+    handle = job_handlers(FakeLlm(DocumentLayout.model_validate(layout)), MemoryStore(), SESSIONS)[
+        "application/normalize"
+    ]
+
+    with caplog.at_level(logging.INFO):
+        await handle(request)
+
+    assert "outcome=structured" in caplog.text
+    assert secret not in caplog.text
+
+
+async def test_worker_normalization_logs_model_failure_without_error_message(caplog: pytest.LogCaptureFixture) -> None:
+    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
+
+    secret = "비공개 오류 원문"
+
+    def fail(_call: object) -> DocumentLayout:
+        raise ConnectionError(secret)
+
+    request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
+    handle = job_handlers(FakeLlm(fail), MemoryStore(), SESSIONS)["application/normalize"]
+
+    with pytest.raises(ConnectionError):
+        await handle(request)
+
+    assert "outcome=error" in caplog.text
+    assert "error_type=ConnectionError" in caplog.text
+    assert secret not in caplog.text
+
+
+async def test_worker_normalization_records_retry_then_success(caplog: pytest.LogCaptureFixture) -> None:
+    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
+
+    request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
+    request["sources"] = [{"id": "s1", "page": 1, "text": "가상 원문"}]
+    invalid = DocumentLayout.model_validate(
+        {"blocks": [{"type": "paragraph", "sourceIds": ["s1"], "text": "가상 원문"}]}
+    )
+    valid = DocumentLayout.model_validate(
+        {"blocks": [{"type": "paragraph", "sourceIds": ["s1"], "role": "body", "text": "가상 원문"}]}
+    )
+    handle = job_handlers(FakeLlm(invalid, valid), MemoryStore(), SESSIONS)["application/normalize"]
+
+    with caplog.at_level(logging.INFO):
+        await handle(request)
+
+    assert "attempt=1" in caplog.text and "role" in caplog.text
+    assert "outcome=structured" in caplog.text
+    assert "가상 원문" not in caplog.text
+
+
+async def test_worker_normalization_repeated_format_errors_preserve_original(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
+    from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError
+
+    secret = "지원자 문서의 비공개 원문"
+    request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
+    request["sources"] = [{"id": "s1", "page": 1, "text": secret}]
+
+    def invalid(_call: object) -> DocumentLayout:
+        raise LlmOutputError(f"잘못된 모델 응답 {secret}", reason=LlmFailureReason.FORMAT)
+
+    llm = FakeLlm(invalid, invalid)
+    handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/normalize"]
+
+    with caplog.at_level(logging.INFO):
+        result = await handle(request)
+
+    assert result["blocks"][0]["text"] == secret
+    assert result["blocks"][0]["sourceIds"] == ["s1"]
+    assert len(llm.calls) == 2
+    assert "outcome=verbatim_fallback" in caplog.text
+    assert "category=FORMAT" in caplog.text
+    assert secret not in caplog.text
+
+
+async def test_worker_normalization_records_budget_exhaustion(caplog: pytest.LogCaptureFixture) -> None:
+    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
+    from hiremate_ai.llm.chat import LlmOutputError, model_call_budget
+
+    request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
+    request["sources"] = [{"id": "s1", "page": 1, "text": "가상 원문"}]
+    invalid = DocumentLayout.model_validate(
+        {"blocks": [{"type": "paragraph", "sourceIds": ["s1"], "text": "가상 원문"}]}
+    )
+    handle = job_handlers(FakeLlm(invalid), MemoryStore(), SESSIONS)["application/normalize"]
+
+    with model_call_budget(1), pytest.raises(LlmOutputError):
+        await handle(request)
+
+    assert "category=BUDGET" in caplog.text
+    assert "가상 원문" not in caplog.text
+
+
 async def test_worker_normalization_without_any_content_is_permanent() -> None:
     from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
 
-    llm = FakeLlm(DocumentLayout.model_validate({"blocks": []}))
+    llm = FakeLlm(DocumentLayout.model_validate({"blocks": []}), DocumentLayout.model_validate({"blocks": []}))
     handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/normalize"]
     request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
     for source in request["sources"]:
