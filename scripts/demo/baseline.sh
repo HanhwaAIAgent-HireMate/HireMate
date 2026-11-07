@@ -67,11 +67,18 @@ snapshot() {
 restore() {
     [[ -e $DIR/baseline.dump ]] || { echo "기준점이 없다: $DIR/baseline.dump" >&2; exit 1; }
     echo "기준점 $(readlink "$DIR/baseline.dump")로 되돌린다"
+    local sql=$DIR/restore.sql
+    # 복원이 실패해도 서비스는 다시 띄운다
+    trap 'rm -f "$sql"; "${COMPOSE[@]}" up -d --no-build backend ai worker' EXIT
+    # SQL로 먼저 풀어 본다. 기준점 파일이 깨졌으면 DB를 건드리기 전에 멈춘다
+    pg pg_restore --no-owner --no-privileges -f /baseline/restore.sql /baseline/baseline.dump </dev/null
     "${COMPOSE[@]}" stop backend worker ai
-    # 복원이 실패해도 서비스는 다시 띄운다. 한 트랜잭션이라 실패하면 DB는 그대로다
-    trap '"${COMPOSE[@]}" up -d --no-build backend ai worker' EXIT
-    pg pg_restore -d "$database" --clean --if-exists --no-owner --no-privileges --single-transaction \
-        --exit-on-error /baseline/baseline.dump
+    # 기준점 뒤에 생긴 표가 남으면 vector 확장을 지우지 못하고 alembic도 막힌다. 두 스키마를 통째로 지우고 다시 만든다.
+    # 한 트랜잭션이라 실패하면 DB는 그대로다
+    pg psql -d "$database" --single-transaction -v ON_ERROR_STOP=1 -q -o /dev/null \
+        -c 'DROP SCHEMA IF EXISTS ai CASCADE' -c 'DROP SCHEMA IF EXISTS public CASCADE' -c 'CREATE SCHEMA public' \
+        -f /baseline/restore.sql </dev/null
+    rm -f "$sql"
     "${COMPOSE[@]}" exec -T redis redis-cli FLUSHALL
     # 기준점 이후 배포로 스키마가 바뀌었으면 최신으로 올린다. backend(Flyway)는 시작할 때 올린다
     "${COMPOSE[@]}" run --rm --no-deps ai alembic upgrade head
