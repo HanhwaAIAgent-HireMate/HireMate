@@ -25,9 +25,13 @@ public class PosterTemplateSearch {
     }
 
     public Result combine(List<FreeTemplate> templates, List<CanvaDesign> designs) {
+        return combine(templates, designs, Set.of());
+    }
+
+    public Result combine(List<FreeTemplate> templates, List<CanvaDesign> designs, Set<String> excluded) {
         List<FreeTemplate> keptTemplates = new ArrayList<>();
         List<CanvaDesign> keptDesigns = new ArrayList<>();
-        Set<String> ids = new HashSet<>();
+        Set<String> ids = new HashSet<>(excluded);
         Set<String> urls = new HashSet<>();
         List<Fingerprint> images = new ArrayList<>();
         for (int i = 0; i < Math.max(templates.size(), designs.size()); i++) {
@@ -42,7 +46,7 @@ public class PosterTemplateSearch {
             }
             if (i < designs.size()) {
                 CanvaDesign item = designs.get(i);
-                if (unique(item.id(), item.thumbnailUrl(), ids, urls, images)) {
+                if (unique("canva:" + item.id(), item.thumbnailUrl(), ids, urls, images)) {
                     keptDesigns.add(item);
                 }
             }
@@ -79,7 +83,8 @@ public class PosterTemplateSearch {
             String host = uri.getHost();
             if (!"https".equals(uri.getScheme()) || uri.getUserInfo() != null || uri.getPort() != -1
                     || host == null || !(host.equals("templated-assets.s3.amazonaws.com")
-                    || host.equals("media.canva.com") || host.endsWith(".canva.com"))) {
+                    || host.equals("media.canva.com") || host.endsWith(".canva.com")
+                    || host.equals("storage.orshot.com"))) {
                 return null;
             }
             byte[] bytes = http.get().uri(uri).retrieve().bodyToMono(byte[].class).block(Duration.ofSeconds(6));

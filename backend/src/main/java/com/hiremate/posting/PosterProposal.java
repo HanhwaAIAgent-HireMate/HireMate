@@ -8,14 +8,24 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 
-/** AI가 제안한 최대 두 디자인. 저장과 게시는 담당자가 별도로 실행한다. */
+/** AI가 제안한 최대 세 디자인. 저장과 게시는 담당자가 별도로 실행한다. */
 public record PosterProposal(@NotBlank @Size(max = 500) String reply,
-        @NotNull @Size(max = 2) List<@Valid Recommendation> recommendations,
+        @NotNull @Size(max = 3) List<@Valid Recommendation> recommendations,
         @Size(max = 3) List<@Valid FreeTemplate> templates,
         @Schema(nullable = true) @Size(max = 80) String selectedTemplateId,
         @Schema(nullable = true) @Size(max = 100) String canvaQuery,
         @Size(max = 6) List<CanvaDesign> canvaDesigns,
-        @Schema(nullable = true) @Size(max = 100) String externalQuery) {
+        @Schema(nullable = true) @Size(max = 100) String externalQuery,
+        @Schema(nullable = true) CandidateMode candidateMode) {
+
+    public enum CandidateMode {
+        INITIAL, STATIC, MOTION
+    }
+
+    public PosterProposal(String reply, List<Recommendation> recommendations, List<FreeTemplate> templates,
+            String selectedTemplateId, String canvaQuery, List<CanvaDesign> canvaDesigns, String externalQuery) {
+        this(reply, recommendations, templates, selectedTemplateId, canvaQuery, canvaDesigns, externalQuery, null);
+    }
 
     public PosterProposal {
         templates = templates == null ? List.of() : List.copyOf(templates);

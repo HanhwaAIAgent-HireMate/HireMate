@@ -26,6 +26,14 @@ class TemplatedLibraryTests {
     }
 
     @Test
+    void excludesSameLayoutEvenWhenIdNameAndColorDiffer() {
+        JsonNode first = template(1, "recruitment original", "shape");
+        JsonNode clone = json.readTree(first.toString().replace("original", "clone")
+                .replace("000000000001", "000000000009").replace("#082858", "#ff8800"));
+        assertThat(TemplatedLibrary.candidates(List.of(first, clone), "recruitment")).hasSize(1);
+    }
+
+    @Test
     void reconstructsSafePreviewWithoutExecutingExternalHtmlOrUrls() {
         JsonNode row = json.readTree("""
                 {"width":1080,"height":2400,"background":"url(https://evil.example)","layers":[
@@ -41,7 +49,7 @@ class TemplatedLibraryTests {
     private JsonNode template(int number, String name, String type) {
         return json.readTree("""
                 {"id":"00000000-0000-0000-0000-%012d","name":"%s","width":600,"height":1200,
-                 "layers":[{"type":"%s","x":0,"y":0,"width":600,"height":300,"fill":"#082858"}]}
-                """.formatted(number, name, type));
+                 "layers":[{"type":"%s","x":0,"y":0,"width":600,"height":%d,"fill":"#082858"}]}
+                """.formatted(number, name, type, 300 + number * 20));
     }
 }

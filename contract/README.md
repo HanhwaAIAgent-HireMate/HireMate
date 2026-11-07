@@ -89,6 +89,8 @@ backend가 기업·지원자·전형과 최신 메모를 다시 검증한 뒤 �
 
 `PosterTurn`은 현재 공고 편집 세션의 사용자 요청, 당시 디자인과 AI 추천 순서다.
 포스터 요청은 최근 12개 턴만 `PosterContext.history`로 전달하며 서버 DB에 대화방을 만들지 않는다.
+`POST /agents/posting/design`의 선택 필드 `generateOnly`는 기본값이 `false`다. 외부 후보가 부족해
+`true`로 호출하면 같은 `context`와 `request`로 대화 도구 선택을 생략하고 새 포스터 디자인을 생성한다.
 업무 실행이나 회사 사실의 근거로 사용하지 않고, 이전 디자인의 정확한 선택과 복원에만 사용한다.
 
 `PostingContent.roles`는 한 공고의 직무별 모집 내용(name, career, duties, qualifications, preferred)이다.
