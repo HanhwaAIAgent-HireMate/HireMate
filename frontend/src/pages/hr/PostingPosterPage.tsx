@@ -1,5 +1,6 @@
-import { ArrowLeft, ArrowRight, FileDown, LoaderCircle, Sparkles, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, ArrowRight, FileDown, LoaderCircle, Trash2 } from 'lucide-react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
@@ -48,7 +49,13 @@ import { api, unwrap, errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 import { nativeRegions, importNativePoster } from '@/features/posting/poster-layout'
 
-type PosterChatTurn = Schemas['PosterTurn'] & Pick<AiMessage, 'steps' | 'seconds'>
+type PosterChatTurn = Schemas['PosterTurn'] & Pick<AiMessage, 'steps' | 'seconds' | 'admin'>
+
+type PosterChatJob = {
+  startedAt: number
+  steps: ChatStep[]
+  completion?: { turn: PosterChatTurn; proposal?: PosterProposal }
+}
 
 function sectionNames(element: HTMLElement | null) {
   return [...(element?.querySelectorAll('.poster-section-title h3') ?? [])].map(
@@ -111,7 +118,15 @@ function PosterEditor({ posting }: { posting: Posting }) {
     posting.poster ?? initialPoster(),
     editable,
   )
-  const { value: design, setValue: setDesign } = recovery
+  const { value: storedDesign, setValue: setDesign } = recovery
+  const logoFileId = brand.data?.logoFileId
+  const design = useMemo(
+    () =>
+      editable && logoFileId && !storedDesign.logoFileId
+        ? { ...storedDesign, logoFileId, showLogo: true }
+        : storedDesign,
+    [editable, logoFileId, storedDesign],
+  )
   const { value: postingTemplates, setValue: setPostingTemplates } = usePostingRecovery<
     Schemas['PosterTemplate'][]
   >(`${posting.recruitmentId}:poster-templates`, [], editable, false)
@@ -150,22 +165,44 @@ function PosterEditor({ posting }: { posting: Posting }) {
     restoredNotice.current = true
     toast.info('저장하지 않은 포스터 디자인을 복구했어요.')
   }, [recovery.restored, recovery.dirty])
-  const { value: history, setValue: setHistory } = usePostingRecovery<PosterChatTurn[]>(
+  const { value: storedHistory, setValue: setStoredHistory } = usePostingRecovery<PosterChatTurn[]>(
     `${posting.recruitmentId}:poster-chat`,
     [],
     editable,
     false,
   )
-  const [messages, setMessages] = useState<AiMessage[]>(() =>
-    history.map((turn) => ({
-      role: turn.role === 'USER' ? 'user' : 'ai',
-      text: turn.text,
-      steps: turn.steps,
-      seconds: turn.seconds,
-    })),
-  )
+  const queryClient = useQueryClient()
+  const historyKey = ['poster-chat-history', posting.postingId] as const
+  const { data: cachedHistory } = useQuery<PosterChatTurn[]>({
+    queryKey: historyKey,
+    queryFn: skipToken,
+    gcTime: 30 * 60 * 1000,
+  })
+  const history = cachedHistory ?? storedHistory
+  const setHistory = (
+    next: PosterChatTurn[] | ((previous: PosterChatTurn[]) => PosterChatTurn[]),
+  ) => {
+    const previous = queryClient.getQueryData<PosterChatTurn[]>(historyKey) ?? storedHistory
+    const turns = typeof next === 'function' ? next(previous) : next
+    queryClient.setQueryData(historyKey, turns)
+    setStoredHistory(turns)
+  }
+  const chatKey = ['poster-chat-job', posting.postingId] as const
+  const { data: chatJob } = useQuery<PosterChatJob | null>({
+    queryKey: chatKey,
+    queryFn: skipToken,
+    gcTime: 30 * 60 * 1000,
+  })
+  const chatPending = Boolean(chatJob)
+  const messages: AiMessage[] = history.map((turn) => ({
+    role: turn.role === 'USER' ? 'user' : 'ai',
+    text: turn.text,
+    steps: turn.steps,
+    seconds: turn.seconds,
+    admin: turn.admin,
+    agent: turn.role === 'ASSISTANT' && !turn.admin ? 'Posting Agent' : undefined,
+  }))
   const [proposal, setProposal] = useState<PosterProposal | null>(null)
-  const [requestSteps, setRequestSteps] = useState<ChatStep[]>([])
   const [preview, setPreview] = useState<PosterDesign | null>(null)
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -191,7 +228,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
         : current,
     )
   }, [refreshedOrshot.design.canvasJson, design.canvasJson, setDesign])
-  const busy = save.isPending || ai.isPending || importing || refreshedOrshot.isFetching
+  const busy = save.isPending || chatPending || importing || refreshedOrshot.isFetching
   const appliedSources = new Set(
     [design.canvasJson, ...(brand.data?.templates?.map((item) => item.canvasJson) ?? [])].flatMap(
       (canvas) => {
@@ -252,58 +289,10 @@ function PosterEditor({ posting }: { posting: Posting }) {
       active = false
     }
   }, [design.canvasJson, design.color, editable, posting, setDesign])
-  useEffect(() => {
-    if (recommended.current || !editable || posting.poster?.enabled || history.length) return
-    recommended.current = true
-    ai.mutate(
-      {
-        message:
-          '회사 소개와 문화, 공고 분량을 보고 어울리는 포스터 템플릿 2종과 분위기를 추천해줘. 브랜드 색상이 있으면 반영해줘.',
-        design,
-        history: history.map((turn) => ({
-          role: turn.role,
-          text: turn.text,
-          design: turn.design,
-          recommendations: turn.recommendations,
-          templates: turn.templates,
-        })),
-        sectionNames: sectionNames(poster.current),
-      },
-      {
-        onSuccess: (result) => {
-          setProposal(result)
-          setPreview(
-            result.recommendations.length === 1 &&
-              !result.templates?.length &&
-              !result.canvaDesigns?.length
-              ? result.recommendations[0].design
-              : null,
-          )
-          setHistory(
-            (previous) =>
-              [
-                ...previous,
-                {
-                  role: 'ASSISTANT',
-                  text: result.reply,
-                  design: null,
-                  recommendations: result.recommendations,
-                },
-              ].slice(-12) as Schemas['PosterTurn'][],
-          )
-          setMessages((current) => [
-            ...current,
-            { role: 'ai', text: result.reply, agent: 'Posting Agent' },
-          ])
-        },
-        onError: (error) => setMessages((current) => [...current, errorReply(error)]),
-      },
-    )
-  }, [ai, design, editable, posting.poster?.enabled, history, setHistory])
   const update = (patch: Partial<PosterDesign>) => {
     setPreview(null)
     setProposal(null)
-    setDesign((current) => ({ ...current, ...patch }))
+    setDesign({ ...design, ...patch })
   }
   const persist = async (next = design, notify = false) => {
     try {
@@ -323,16 +312,77 @@ function PosterEditor({ posting }: { posting: Posting }) {
     isDirty: () => JSON.stringify(design) !== savedDesignRef.current,
     save: () => persist(),
   })
-  const request = async (message: string) => {
+  const prepareCandidate = async (template: FreeTemplate): Promise<PosterDesign> => {
+    let canvasJson: string
+    if (template.id.startsWith('orshot:')) {
+      if (
+        template.sourceUrl !== 'https://orshot.com/templates/' ||
+        template.license !== 'Orshot 계정 디자인'
+      ) {
+        throw new Error('Orshot 출처를 확인하지 못했어요.')
+      }
+      const imported = await unwrap(
+        api.POST('/api/recruitments/{recruitmentId}/posting/poster/orshot-import', {
+          params: { path: { recruitmentId: posting.recruitmentId } },
+          body: { templateId: Number(template.id.slice('orshot:'.length)) },
+        }),
+      )
+      canvasJson = await importOrshotPoster(
+        { ...imported, name: template.name },
+        design.color,
+        true,
+        posting,
+      )
+    } else if (template.id.startsWith('templated:') && nativeRegions(template.svg).length > 1) {
+      const plan = await unwrap(
+        api.POST('/api/recruitments/{recruitmentId}/posting/poster/template-layout', {
+          params: { path: { recruitmentId: posting.recruitmentId } },
+          body: { regions: nativeRegions(template.svg) },
+        }),
+      )
+      canvasJson = await importNativePoster(template, plan, design.color)
+    } else {
+      canvasJson = await importPosterTemplate(template, posting, design.color)
+    }
+    const canvas = readPosterCanvas(canvasJson)
+    return {
+      ...design,
+      enabled: true,
+      canvasJson,
+      color: canvas.brandColor ?? design.color,
+      motion: template.id.startsWith('orshot:') ? 'NONE' : canvas.media ? 'WAVE' : 'NONE',
+    }
+  }
+
+  const request = async (message: string, automatic = false) => {
+    if (queryClient.getQueryData(chatKey)) return
     const current = preview ?? design
     const startedAt = Date.now()
     const steps: ChatStep[] = []
-    setRequestSteps([...steps])
+    queryClient.setQueryData<PosterChatJob>(chatKey, { startedAt, steps: [] })
+    const updateJob = (patch: Partial<PosterChatJob>) =>
+      queryClient.setQueryData<PosterChatJob>(chatKey, (job) =>
+        job?.startedAt === startedAt ? { ...job, ...patch } : job,
+      )
+    const publishSteps = () => updateJob({ steps: [...steps] })
     const processing = () => ({
       steps: [...steps],
       seconds: Math.floor((Date.now() - startedAt) / 1000),
     })
-    setMessages((current) => [...current, { role: 'user', text: message }])
+    if (!automatic) {
+      setHistory((previous) =>
+        [
+          ...previous,
+          {
+            role: 'USER' as const,
+            text: message,
+            design: current,
+            recommendations: [],
+            templates: [],
+          },
+        ].slice(-12),
+      )
+    }
     try {
       const result = await ai.mutateAsync({
         message,
@@ -347,14 +397,14 @@ function PosterEditor({ posting }: { posting: Posting }) {
         sectionNames: sectionNames(poster.current),
         onStep: (step) => {
           steps.push(step)
-          setRequestSteps([...steps])
+          publishSteps()
         },
       })
+      if (queryClient.getQueryData<PosterChatJob>(chatKey)?.startedAt !== startedAt) return
       const candidates = result.templates ?? []
       if (candidates.length) {
-        setImporting(true)
         steps.push({ text: '후보에 공고 내용을 채워 미리보기를 준비하고 있어요', depth: 0 })
-        setRequestSteps([...steps])
+        publishSteps()
         const prepared = await Promise.allSettled(candidates.map(prepareCandidate))
         const failed: FreeTemplate[] = []
         prepared.forEach((item, index) => {
@@ -402,41 +452,67 @@ function PosterEditor({ posting }: { posting: Posting }) {
         canvas.source.name = name
         return { ...item, design: { ...item.design, canvasJson: JSON.stringify(canvas) } }
       })
-      setHistory(
-        (previous) =>
-          [
-            ...previous,
-            { role: 'USER', text: message, design: current, recommendations: [] },
-            {
-              role: 'ASSISTANT',
-              text: result.reply,
-              design: null,
-              recommendations: result.recommendations,
-              templates: result.templates ?? [],
-              ...processing(),
-            },
-          ].slice(-12) as PosterChatTurn[],
-      )
-      setProposal(result)
-      setPreview(
-        result.recommendations.length === 1 &&
-          !result.templates?.length &&
-          !result.canvaDesigns?.length
-          ? result.recommendations[0].design
-          : null,
-      )
-      if (result.recommendations.length) setSmallPane('poster')
-      setMessages((current) => [
-        ...current,
-        { role: 'ai', text: result.reply, agent: 'Posting Agent', ...processing() },
-      ])
+      updateJob({
+        steps,
+        completion: {
+          proposal: result,
+          turn: {
+            role: 'ASSISTANT',
+            text: result.reply,
+            design: null,
+            recommendations: result.recommendations,
+            templates: result.templates ?? [],
+            ...processing(),
+          },
+        },
+      })
     } catch (error) {
-      setMessages((current) => [...current, { ...errorReply(error), ...processing() }])
-    } finally {
-      setImporting(false)
-      setRequestSteps([])
+      const reply = errorReply(error)
+      updateJob({
+        steps,
+        completion: {
+          turn: {
+            role: 'ASSISTANT',
+            text: reply.text,
+            design: null,
+            recommendations: [],
+            templates: [],
+            admin: reply.admin,
+            ...processing(),
+          },
+        },
+      })
     }
   }
+  const completeChat = useEffectEvent(() => {
+    const completion = queryClient.getQueryData<PosterChatJob>(chatKey)?.completion
+    if (!completion) return
+    queryClient.setQueryData(chatKey, null)
+    setHistory((previous) => [...previous, completion.turn].slice(-12))
+    const result = completion.proposal
+    if (!result) return
+    setProposal(result)
+    setPreview(
+      result.recommendations.length === 1 &&
+        !result.templates?.length &&
+        !result.canvaDesigns?.length
+        ? result.recommendations[0].design
+        : null,
+    )
+    if (result.recommendations.length) setSmallPane('poster')
+  })
+  useEffect(() => {
+    if (chatJob?.completion) queueMicrotask(() => completeChat())
+  }, [chatJob])
+  const recommend = useEffectEvent(() => {
+    void request('회사 소개와 문화, 공고 분량에 맞는 포스터 템플릿 2종을 추천해줘.', true)
+  })
+  useEffect(() => {
+    if (recommended.current || !editable || posting.poster?.enabled || history.length || chatJob)
+      return
+    recommended.current = true
+    recommend()
+  }, [editable, posting.poster?.enabled, history.length, chatJob])
   const pdf = async () => {
     const element = poster.current?.firstElementChild
     if (!(element instanceof HTMLElement)) return
@@ -448,48 +524,6 @@ function PosterEditor({ posting }: { posting: Posting }) {
       toast.error(errorMessage(error))
     } finally {
       setExporting(false)
-    }
-  }
-
-  const prepareCandidate = async (template: FreeTemplate): Promise<PosterDesign> => {
-    let canvasJson: string
-    if (template.id.startsWith('orshot:')) {
-      if (
-        template.sourceUrl !== 'https://orshot.com/templates/' ||
-        template.license !== 'Orshot 계정 디자인'
-      ) {
-        throw new Error('Orshot 출처를 확인하지 못했어요.')
-      }
-      const imported = await unwrap(
-        api.POST('/api/recruitments/{recruitmentId}/posting/poster/orshot-import', {
-          params: { path: { recruitmentId: posting.recruitmentId } },
-          body: { templateId: Number(template.id.slice('orshot:'.length)) },
-        }),
-      )
-      canvasJson = await importOrshotPoster(
-        { ...imported, name: template.name },
-        design.color,
-        true,
-        posting,
-      )
-    } else if (template.id.startsWith('templated:') && nativeRegions(template.svg).length > 1) {
-      const plan = await unwrap(
-        api.POST('/api/recruitments/{recruitmentId}/posting/poster/template-layout', {
-          params: { path: { recruitmentId: posting.recruitmentId } },
-          body: { regions: nativeRegions(template.svg) },
-        }),
-      )
-      canvasJson = await importNativePoster(template, plan, design.color)
-    } else {
-      canvasJson = await importPosterTemplate(template, posting, design.color)
-    }
-    const canvas = readPosterCanvas(canvasJson)
-    return {
-      ...design,
-      enabled: true,
-      canvasJson,
-      color: canvas.brandColor ?? design.color,
-      motion: template.id.startsWith('orshot:') ? 'NONE' : canvas.media ? 'WAVE' : 'NONE',
     }
   }
 
@@ -697,16 +731,17 @@ function PosterEditor({ posting }: { posting: Posting }) {
       examples={[
         '회사 특징을 살린 서로 다른 포스터 템플릿 3개 만들어줘',
         '금융권에 어울리는 외부 무료 템플릿 찾아줘',
+        '움직이는 포스터 템플릿 추천해줘',
         '우리는 더 고급스러운 느낌이 있어야 해',
         '장식 없이 깔끔하게 정리해줘',
         '회사 소개에 어울리는 디자인을 추천해줘',
         '실무면접 아이콘을 사람 아이콘으로 바꿔줘',
       ]}
       hint="분위기와 장식은 이곳에서 요청해 주세요. AI 수정안은 적용해야 반영돼요."
-      pending={ai.isPending || importing}
+      pending={chatPending || importing}
       steps={
-        ai.isPending || requestSteps.length
-          ? requestSteps
+        chatPending
+          ? chatJob?.steps
           : importing
             ? [{ text: '공고 내용을 채운 미리보기를 준비하고 있어요', depth: 0 }]
             : undefined
@@ -716,7 +751,6 @@ function PosterEditor({ posting }: { posting: Posting }) {
       onReset={() => {
         if (busy) return
         recommended.current = true
-        setMessages([])
         setHistory([])
       }}
     />
@@ -836,19 +870,6 @@ function PosterEditor({ posting }: { posting: Posting }) {
         >
           <div className="flex h-12 shrink-0 items-center justify-between border-b px-4">
             <h2 className="text-sm font-semibold">디자인 옵션</h2>
-            {editable && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() =>
-                  void request('회사 소개와 문화, 공고 분량에 맞는 포스터 템플릿 2종을 추천해줘.')
-                }
-              >
-                <Sparkles />
-                AI 추천
-              </Button>
-            )}
           </div>
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4">
             {refreshedOrshot.isError && (
