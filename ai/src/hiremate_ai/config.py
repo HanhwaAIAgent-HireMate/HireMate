@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,6 +8,15 @@ class Settings(BaseSettings):
     """환경 변수로 읽는 설정. 기본값은 로컬 개발(저장소 루트의 compose.yaml) 기준이다."""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    # custom은 기존 LLM_* 설정을 그대로 사용한다. local/openai는 각각 별도 설정을 선택한다.
+    llm_profile: Literal["custom", "local", "openai"] = "custom"
+    local_llm_base_url: str = "http://127.0.0.1:11434/v1"
+    local_llm_model: str = "gemma4:e4b"
+    local_llm_api_key: SecretStr = SecretStr("ollama")
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-6-luna"
+    openai_api_key: SecretStr = SecretStr("")
 
     database_url: str = "postgresql+psycopg://hiremate:hiremate@localhost:5432/hiremate"
     redis_url: str = "redis://localhost:6379/0"
@@ -39,6 +48,21 @@ class Settings(BaseSettings):
     llm_providers: str = ""
     # 참이면 tests/eval의 실제 모델 평가를 돌린다. CI와 커밋 전 검사에서는 끈다
     llm_eval: bool = False
+    # 선택적 포스터 디자인 참고 색인. 로컬 테스트 자료는 Git에서 제외한다.
+    poster_references_path: str = ""
+    poster_reference_images_path: str = ""
+    # 키는 포스터 텍스트 설계에만 쓴다. 이전 키 이름도 읽어 기존 로컬 설정을 호환한다.
+    poster_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias=AliasChoices("POSTER_API_KEY", "POSTER_IMAGE_API_KEY")
+    )
+    poster_llm_model: str = ""
+    # 이미지 생성은 별도 로컬 Python 환경에서 실행한다. 비우면 배너 없이 디자인만 만든다.
+    poster_local_model_path: str = ""
+    poster_local_python: str = ""
+    poster_local_image_cache: str = ".local/poster-images"
+    poster_local_image_timeout: float = Field(default=300, gt=0, le=600)
+    # 단일 GPU에서 Gemma 설계가 끝나면 가중치를 내리고 이미지 모델을 적재한다.
+    poster_local_release_ollama: bool = False
     # 참이면 모델을 부르는 요청 · 작업을 LangSmith에 기록한다. 지시와 자료(지원 문서 본문 포함)가 외부 서버로 나가므로
     # 가상 지원자로 개발 · 평가할 때만 켠다. 단위 테스트는 켜 두어도 보내지 않는다 (tests/conftest.py)
     langsmith_tracing: bool = False
@@ -99,6 +123,22 @@ class Settings(BaseSettings):
     # 질의 임베딩 모델(이름이나 로컬 경로)과 장치. 표의 벡터를 만든 BGE-M3와 같아야 한다
     ncs_model: str = "BAAI/bge-m3"
     ncs_device: Literal["cpu", "mps", "cuda"] = "cpu"
+
+    @model_validator(mode="after")
+    def _select_llm_profile(self) -> Self:
+        if self.llm_profile == "local":
+            self.llm_base_url = self.local_llm_base_url
+            self.llm_model = self.local_llm_model
+            self.llm_api_key = self.local_llm_api_key
+        elif self.llm_profile == "openai":
+            self.llm_base_url = self.openai_base_url
+            self.llm_model = self.openai_model
+            self.llm_api_key = self.openai_api_key
+            self.llm_temperature = None
+            self.llm_reasoning_effort = "none"
+            self.llm_structured_output = "function_calling"
+            self.poster_local_release_ollama = False
+        return self
 
     @field_validator("llm_temperature", mode="before")
     @classmethod

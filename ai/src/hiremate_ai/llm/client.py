@@ -1,7 +1,9 @@
 from collections.abc import AsyncIterator, Mapping, Sequence
 from functools import cache
 from typing import Annotated, Any, Protocol
+from urllib.parse import urlsplit
 
+import httpx
 from fastapi import Depends, Request
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
@@ -21,7 +23,9 @@ class LlmClient(Protocol):
         """비밀정보 없는 실제 모델 설정. 알 수 없는 구현이면 None으로 재사용을 막는다."""
         ...
 
-    async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
+    async def structured[T: BaseModel](
+        self, output: type[T], *, agent: str, system: str, user: str, images: Sequence[str] = ()
+    ) -> T:
         """system과 user 지시로 모델을 불러 output 형식의 결과를 받는다.
 
         agent는 호출한 Agent 키다 (예: "root", "candidate-analyst"). 호출 로그에 남는다.
@@ -100,6 +104,45 @@ def build_llm(call_log: CallLog, *, timeout: float | None = None) -> LlmClient:
         method=settings.llm_structured_output,
         agent_max_calls=settings.llm_agent_max_calls,
     )
+
+
+@cache
+def get_poster_llm() -> LlmClient | None:
+    """포스터 디자인에서만 선택적으로 OpenAI 모델을 사용한다."""
+    if not settings.poster_llm_model:
+        return None
+    if not settings.poster_api_key.get_secret_value():
+        raise LlmNotConfiguredError("POSTER_LLM_MODEL에는 POSTER_API_KEY 설정이 필요합니다.")
+    model = ChatOpenAI(
+        model=settings.poster_llm_model,
+        base_url="https://api.openai.com/v1",
+        api_key=settings.poster_api_key,
+        timeout=settings.llm_timeout_seconds,
+        max_retries=settings.llm_max_retries,
+        max_tokens=settings.llm_max_tokens,
+        reasoning_effort="none",
+    )
+    return ChatLlm(
+        model,
+        DbCallLog(session_factory()),
+        model_name=settings.poster_llm_model,
+        method="function_calling",
+        agent_max_calls=settings.llm_agent_max_calls,
+    )
+
+
+async def release_local_poster_model() -> bool:
+    """Ollama 서버는 유지하고 가중치만 내려 이미지 모델의 GPU 공간을 확보한다."""
+    base = settings.llm_base_url.rstrip("/").removesuffix("/v1")
+    if urlsplit(base).hostname not in {"127.0.0.1", "localhost", "host.docker.internal"}:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(base + "/api/generate", json={"model": settings.llm_model, "keep_alive": 0})
+            response.raise_for_status()
+            return response.json().get("done") is True
+    except (httpx.HTTPError, ValueError):
+        return False
 
 
 def _provider_limit(providers: str) -> dict[str, Any] | None:

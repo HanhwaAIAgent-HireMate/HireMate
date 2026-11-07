@@ -7,7 +7,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from langsmith import Client, tracing_context
-from pydantic import TypeAdapter
+from pydantic import SecretStr, TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from testcontainers.community.postgres import PostgresContainer
 
@@ -47,6 +47,15 @@ def langsmith_tracing(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
     monkeypatch.setattr(settings, "langsmith_tracing", False)
     with tracing_context(enabled=False):
         yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_poster_provider(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    if request.path.parent.name != "eval":
+        monkeypatch.setattr(settings, "poster_llm_model", "")
+        monkeypatch.setattr(settings, "poster_api_key", SecretStr(""))
+        monkeypatch.setattr(settings, "poster_local_python", "")
+        monkeypatch.setattr(settings, "poster_local_release_ollama", False)
 
 
 @pytest.fixture
