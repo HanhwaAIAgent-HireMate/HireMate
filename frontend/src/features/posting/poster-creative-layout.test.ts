@@ -3,7 +3,13 @@ import { creativeOrshotLayout } from './poster-creative-layout'
 import { ORSHOT_SOURCE_LAYOUTS } from './orshot-source-layouts'
 import { layoutOrshotSource } from './poster-source-layout'
 import type { NativeLayout } from './poster-layout'
-import { readPosterCanvas, refreshOrshotCanvas, type PosterCanvas } from './poster-canvas'
+import {
+  prepareTemplatedRegistration,
+  readPosterCanvas,
+  refreshOrshotCanvas,
+  type PosterCanvas,
+} from './poster-canvas'
+import { initialPoster } from './poster-design'
 import type { PosterPosting } from './PostingPoster'
 
 const base: NativeLayout = { version: 1, paper: '#ffffff', headerBottom: 500, sections: [] }
@@ -43,6 +49,71 @@ const posting: PosterPosting = {
   ],
   notices: ['일정은 사전 안내 후 변경될 수 있습니다.'],
 }
+it('등록용 벡터는 긴 현재 공고를 채우고 늘어난 높이와 편집 원본을 유지한다', async () => {
+  const style = { fontSize: 14, fill: '#101820', fontWeight: 'normal' }
+  const doc: PosterCanvas = {
+    width: 600,
+    height: 700,
+    brandColor: '#082858',
+    templatedRegistration: true,
+    source: {
+      id: 'generated:00000000-0000-0000-0000-000000000001',
+      name: '금융 서비스 채용',
+      url: 'hiremate:generated',
+      license: 'AI 생성',
+    },
+    objects: [
+      {
+        type: 'Textbox',
+        binding: 'title',
+        hmId: 'title',
+        text: '',
+        left: 40,
+        top: 40,
+        width: 520,
+        fontSize: 36,
+        fill: '#082858',
+      },
+    ],
+    nativeLayout: {
+      ...base,
+      headerBottom: 150,
+      sections: ['intro', 'duties', 'qualifications', 'stages', 'documents'].map(
+        (binding, index) => ({
+          binding,
+          left: 40,
+          top: 180 + index * 100,
+          width: 520,
+          height: 100,
+          heading: style,
+          body: style,
+          accent: '#082858',
+          rule: '#eeeeee',
+          card: '#082858',
+          lastCard: '#c2a15f',
+          cardInk: '#ffffff',
+        }),
+      ),
+    },
+  }
+  const canvasJson = JSON.stringify(doc)
+  const request = await prepareTemplatedRegistration(posting, { ...initialPoster(), canvasJson })
+  const svg = new DOMParser().parseFromString(request.svg, 'image/svg+xml')
+  expect(request.height).toBeGreaterThan(doc.height)
+  expect(svg.documentElement.getAttribute('viewBox')).toBe(`0 0 600 ${request.height}`)
+  const text = svg.documentElement.textContent.replace(/\s/g, '')
+  for (const value of [
+    posting.content.title,
+    posting.content.intro,
+    posting.content.qualifications.at(-1)!,
+    '포트폴리오',
+    '최종 합격',
+  ]) {
+    expect(text).toContain(value.replace(/\s/g, ''))
+  }
+  expect(request.sourceId).toBe(doc.source.id)
+  expect(JSON.stringify(doc)).toBe(canvasJson)
+})
 it.each(Object.keys(ORSHOT_SOURCE_LAYOUTS))(
   '%s 원본 구성은 유지하고 긴 내용만 확장하며 재배치 시 중복하지 않는다',
   async (style) => {

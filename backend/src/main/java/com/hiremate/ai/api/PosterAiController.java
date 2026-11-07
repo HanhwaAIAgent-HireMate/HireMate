@@ -39,6 +39,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /** 추천은 저장하지 않는다. 기업과 공고 범위는 인증된 업무 데이터로 고정한다. */
 @RestController
@@ -174,13 +176,6 @@ public class PosterAiController {
         boolean motion = mode == PosterProposal.CandidateMode.MOTION;
         List<PosterProposal.FreeTemplate> external = new ArrayList<>();
         String unavailable = "";
-        if (mode == PosterProposal.CandidateMode.INITIAL) {
-            try {
-                external.addAll(templates.search(proposal.externalQuery(), excluded, true).stream().limit(1).toList());
-            } catch (ApiException exception) {
-                unavailable += " Templated 후보를 불러오지 못했어요.";
-            }
-        }
         try {
             external.addAll(orshot.search(proposal.externalQuery(), excluded, motion)
                     .stream().limit(motion ? 2 : 1).toList());
@@ -188,7 +183,20 @@ public class PosterAiController {
             unavailable += " Orshot 후보를 불러오지 못했어요.";
         }
         List<PosterProposal.Recommendation> generated = motion ? List.of()
-                : generateAlternatives(context, message, logo).stream().limit(1).toList();
+                : generateAlternatives(context, message, logo).stream()
+                        .limit(mode == PosterProposal.CandidateMode.INITIAL ? 2 : 1).toList();
+        if (!generated.isEmpty()) {
+            var first = generated.getFirst();
+            ObjectNode canvas = (ObjectNode) new JsonMapper().readTree(first.design().canvasJson());
+            canvas.put("templatedRegistration", true);
+            PosterDesign design = first.design();
+            var registered = new PosterProposal.Recommendation(new PosterDesign(
+                    design.template(), design.mood(), design.color(), design.decoration(), design.enabled(),
+                    design.showLogo(), design.logoFileId(), design.backgroundStyle(), design.stageIcons(),
+                    design.readableSections(), canvas.toString(), design.tagline(), design.motion()), first.reason());
+            generated = java.util.stream.Stream.concat(java.util.stream.Stream.of(registered),
+                    generated.stream().skip(1)).toList();
+        }
         if (!motion && generated.isEmpty()) {
             unavailable += " 자체 생성 후보를 만들지 못했어요.";
         }
@@ -280,6 +288,24 @@ public class PosterAiController {
     }
 
     public record OrshotImportRequest(@jakarta.validation.constraints.Min(1) long templateId) {
+    }
+
+    @PostMapping("/api/recruitments/{recruitmentId}/posting/poster/templated-register")
+    public TemplatedLibrary.RegisteredTemplate registerTemplated(AuthenticatedMember member,
+            @PathVariable UUID recruitmentId, @Valid @RequestBody TemplatedRegisterRequest request) {
+        PostingView posting = postings.view(member.companyId(), recruitmentId);
+        if (posting.status() != RecruitmentStatus.DRAFT) {
+            throw new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_LOCKED", "게시한 공고는 바꿀 수 없어요.");
+        }
+        return templates.register(member.companyId(), request.sourceId(),
+                request.name(), request.svg(), request.height());
+    }
+
+    public record TemplatedRegisterRequest(
+            @NotBlank @jakarta.validation.constraints.Pattern(regexp = "generated:[a-fA-F0-9-]{36}") String sourceId,
+            @NotBlank @Size(max = 100) String name,
+            @NotBlank @Size(max = 1000000) String svg,
+            @jakarta.validation.constraints.Min(300) @jakarta.validation.constraints.Max(5000) int height) {
     }
 
     @PostMapping("/api/recruitments/{recruitmentId}/posting/poster/template-layout")

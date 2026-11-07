@@ -402,6 +402,87 @@ function posterScreen(
   return { query, router }
 }
 
+it.each([true, false])(
+  '새 양식을 등록한 후보를 선택 전에 저장하지 않고 등록 실패도 알린다 (%s)',
+  async (success) => {
+    const canvasJson = JSON.stringify({
+      width: 600,
+      height: 900,
+      templatedRegistration: true,
+      source: {
+        id: 'generated:00000000-0000-0000-0000-000000000001',
+        name: '새 양식',
+        url: 'hiremate:generated',
+        license: 'AI 생성',
+      },
+      objects: [
+        {
+          type: 'Textbox',
+          hmId: 'title',
+          binding: 'title',
+          text: '',
+          left: 40,
+          top: 60,
+          width: 500,
+          fontSize: 40,
+        },
+      ],
+    })
+    const prepare = vi.spyOn(posterCanvas, 'prepareTemplatedRegistration').mockResolvedValue({
+      sourceId: 'generated:00000000-0000-0000-0000-000000000001',
+      name: '새 양식',
+      height: 900,
+      svg: '<svg viewBox="0 0 600 900"/>',
+    })
+    let registered: unknown
+    const paths: string[] = []
+    vi.stubGlobal('fetch', async (input: Request | string) => {
+      const url = typeof input === 'string' ? input : input.url
+      paths.push(url)
+      if (url.endsWith('/csrf')) return Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' })
+      if (url.endsWith('/ai-requests/stream'))
+        return posterAnswer({
+          reply: '새 양식을 준비했어요',
+          templates: [],
+          recommendations: [{ design: { ...posting.poster!, canvasJson }, reason: '새 구성' }],
+        })
+      if (url.endsWith('/templated-register') && input instanceof Request) {
+        registered = await input.json()
+        return success
+          ? Response.json({ id: 'templated:registered', name: '등록한 새 양식' })
+          : Response.json({ code: 'TEMPLATED_TEMPLATE_LIMIT' }, { status: 502 })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    try {
+      const { query } = posterScreen()
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: '회사 특징을 살린 서로 다른 포스터 템플릿 3개 만들어줘',
+        }),
+      )
+      await screen.findByText(
+        success ? '새 양식을 준비했어요' : /Templated의 등록 권한 또는 템플릿 저장 한도/,
+      )
+      expect(registered).toMatchObject({
+        sourceId: 'generated:00000000-0000-0000-0000-000000000001',
+        height: 900,
+      })
+      expect(screen.getByText(success ? '외부템플릿1' : '생성템플릿1')).toBeInTheDocument()
+      expect(prepare).toHaveBeenCalledTimes(1)
+      expect(
+        paths.some(
+          (url) => url.endsWith('/poster-brand/templates') || url.endsWith('/posting/poster'),
+        ),
+      ).toBe(false)
+      expect(query.getQueryData(postingKeys.posting(posting.recruitmentId))).toEqual(posting)
+      expect(sessionStorage.getItem(`hiremate:posting:${posting.recruitmentId}:poster`)).toBeNull()
+    } finally {
+      prepare.mockRestore()
+    }
+  },
+)
+
 it('설정으로 이동하는 동안 포스터 요청을 계속 처리하고 돌아오면 입력과 답변을 복원한다', async () => {
   let respond: (response: Response) => void = () => {}
   const response = new Promise<Response>((resolve) => {

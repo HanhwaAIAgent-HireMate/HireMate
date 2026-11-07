@@ -2117,6 +2117,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/poster/templated-register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["registerTemplated"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3658,6 +3674,17 @@ export interface components {
             token: string;
             headerName: string;
             parameterName: string;
+        };
+        TemplatedRegisterRequest: {
+            sourceId: string;
+            name: string;
+            svg: string;
+            /** Format: int32 */
+            height?: number;
+        };
+        RegisteredTemplate: {
+            id?: string;
+            name?: string;
         };
     };
     responses: never;
@@ -7352,6 +7379,32 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    registerTemplated: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplatedRegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisteredTemplate"];
+                };
             };
         };
     };

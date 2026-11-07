@@ -42,10 +42,11 @@ import {
   posterAfterTemplateDeletion,
   nextExternalTemplateName,
   upgradeCanvaPoster,
+  prepareTemplatedRegistration,
   type FreeTemplate,
 } from '@/features/posting/poster-canvas'
 import type { Schemas } from '@/lib/api/client'
-import { api, unwrap, errorMessage } from '@/lib/api/client'
+import { api, unwrap, errorMessage, ApiError } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 import { nativeRegions, importNativePoster } from '@/features/posting/poster-layout'
 
@@ -78,7 +79,11 @@ function proposalProvider(design: PosterDesign) {
   if (!design.canvasJson) return '기본 템플릿'
   const source = readPosterCanvas(design.canvasJson).source
   if (source.id?.startsWith('orshot:')) return 'Orshot'
-  if (source.id?.startsWith('templated:')) return 'Templated'
+  if (
+    source.id?.startsWith('templated:') ||
+    readPosterCanvas(design.canvasJson).registeredTemplatedId
+  )
+    return 'Templated'
   if (source.id?.startsWith('canva:')) return 'Canva'
   return source.url === 'hiremate:generated' ? '자체 생성' : '기본 SVG 양식'
 }
@@ -401,6 +406,36 @@ function PosterEditor({ posting }: { posting: Posting }) {
         },
       })
       if (queryClient.getQueryData<PosterChatJob>(chatKey)?.startedAt !== startedAt) return
+      let registrationNote = ''
+      for (const item of result.recommendations) {
+        if (!item.design.canvasJson) continue
+        const canvas = readPosterCanvas(item.design.canvasJson)
+        if (!canvas.templatedRegistration) continue
+        steps.push({ text: '새 양식을 등록하고 다시 불러오고 있어요', depth: 0 })
+        publishSteps()
+        try {
+          const request = await prepareTemplatedRegistration(posting, item.design)
+          const saved = await unwrap(
+            api.POST('/api/recruitments/{recruitmentId}/posting/poster/templated-register', {
+              params: { path: { recruitmentId: posting.recruitmentId } },
+              body: request,
+            }),
+          )
+          if (!saved.id?.startsWith('templated:')) throw new Error('등록 결과를 확인하지 못했어요.')
+          canvas.registeredTemplatedId = saved.id
+          canvas.source.name = saved.name || canvas.source.name
+        } catch (error) {
+          const code = error instanceof ApiError ? error.code : ''
+          registrationNote =
+            code === 'TEMPLATED_TEMPLATE_LIMIT'
+              ? ' Templated의 등록 권한 또는 템플릿 저장 한도를 확인해 주세요. 만든 디자인은 자체 생성 후보로 보여드려요.'
+              : code === 'TEMPLATED_NOT_CONFIGURED'
+                ? ' Templated 키가 없어 만든 디자인을 자체 생성 후보로 보여드려요.'
+                : ' Templated 등록을 완료하지 못해 만든 디자인을 자체 생성 후보로 보여드려요.'
+        }
+        delete canvas.templatedRegistration
+        item.design = { ...item.design, canvasJson: JSON.stringify(canvas) }
+      }
       const candidates = result.templates ?? []
       if (candidates.length) {
         steps.push({ text: '후보에 공고 내용을 채워 미리보기를 준비하고 있어요', depth: 0 })
@@ -416,11 +451,12 @@ function PosterEditor({ posting }: { posting: Posting }) {
           } else failed.push(candidates[index])
         })
         result.templates = failed
-        const count = prepared.filter((item) => item.status === 'fulfilled').length
+        const count = result.recommendations.length
         result.reply = count
           ? `공고 내용을 채운 디자인 ${count}개를 준비했어요. 비교한 뒤 선택해 주세요.${failed.length ? ` ${failed.length}개는 미리보기를 준비하지 못해 원본 후보로 남겼어요.` : ''}`
           : '공고 내용을 채운 미리보기를 준비하지 못했어요. 원본 후보에서 다시 불러올 수 있어요.'
       }
+      result.reply += registrationNote
       const names = [
         ...(brand.data?.templates?.map((item) => item.name) ?? []),
         ...history.flatMap((turn) =>
@@ -444,7 +480,8 @@ function PosterEditor({ posting }: { posting: Posting }) {
       result.recommendations = result.recommendations.map((item) => {
         if (!item.design.canvasJson) return item
         const canvas = readPosterCanvas(item.design.canvasJson)
-        const generated = canvas.source.url === 'hiremate:generated'
+        const generated =
+          canvas.source.url === 'hiremate:generated' && !canvas.registeredTemplatedId
         const name =
           (canvas.source.id && knownNames.get(canvas.source.id)) ||
           nextExternalTemplateName(names, generated ? '생성템플릿' : '외부템플릿')
