@@ -19,6 +19,11 @@ export function inlinePosterSvg(value: string): string {
   )
     throw new Error('포스터 벡터 출력을 확인하지 못했어요.')
   for (const node of [root, ...root.querySelectorAll('*')]) {
+    const id = node.getAttribute('id')
+    if (id === 'poster-reveal-company' || id === 'poster-reveal-title') {
+      node.setAttribute('data-poster-reveal', id.slice('poster-reveal-'.length))
+      node.removeAttribute('id')
+    }
     for (const attribute of [...node.attributes]) {
       if (/^on/i.test(attribute.name)) throw new Error('포스터에 지원하지 않는 속성이 있어요.')
       if (

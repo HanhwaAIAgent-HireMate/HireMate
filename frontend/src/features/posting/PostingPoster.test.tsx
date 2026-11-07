@@ -137,11 +137,11 @@ describe('공고 포스터', () => {
         '직무 교육 지원',
         '협의 후 결정',
         '주 5일',
-        '이력서 PDF · 필수',
         posting.notices[0],
       ]) {
         expect(screen.getByText(text)).toBeInTheDocument()
       }
+      expect(screen.getByText('이력서 PDF').closest('li')).toHaveTextContent('이력서 PDF 필수')
       expect(screen.queryByText(/유연한 출퇴근/)).not.toBeInTheDocument()
     },
   )

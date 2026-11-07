@@ -88,6 +88,7 @@ export function initialPoster(brand?: PosterBrand): PosterDesign {
     readableSections: [],
     canvasJson: null,
     tagline: null,
+    motion: 'NONE',
   }
 }
 
@@ -149,7 +150,12 @@ export async function exportPosterPdf(element: HTMLElement, title: string): Prom
   style.textContent =
     '@page { size: A4; margin: 12mm; } html, body { margin: 0; padding: 0; background: white; color-scheme: light; } .posting-poster { width: 100%; max-width: none; box-shadow: none; border: 0; container-type: normal; } .poster-block, .poster-condition, .poster-step, .poster-brand { break-inside: avoid; } * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }'
   doc.head.append(style)
-  doc.body.append(element.cloneNode(true))
+  const printed = element.cloneNode(true) as HTMLElement
+  // 복제 직후부터 정지한다. 인쇄 미디어 전환 전에도 장식이 움직이지 않는다.
+  printed.setAttribute('data-poster-static', 'true')
+  printed.querySelectorAll('.poster-motion-control').forEach((node) => node.remove())
+  printed.querySelectorAll('.poster-video-region').forEach((node) => node.remove())
+  doc.body.append(printed)
   try {
     await Promise.all(sheets)
     await doc.fonts.ready

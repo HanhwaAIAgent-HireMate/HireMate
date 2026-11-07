@@ -20,10 +20,164 @@
 .posting-poster * {
   box-sizing: border-box;
 }
+.posting-poster .poster-motion-region,
+.posting-poster .poster-video-region,
+.posting-poster .poster-motion {
+  pointer-events: none;
+}
+.posting-poster .poster-motion {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+}
+.posting-poster .poster-motion-effects {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent 35%, black 85%);
+}
+.posting-poster .poster-motion-effects > svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.36;
+  animation: poster-wave-drift 8s ease-in-out infinite alternate;
+}
+.posting-poster .poster-motion-glow {
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(
+    ellipse at 70% 45%,
+    color-mix(in srgb, currentColor 22%, transparent),
+    color-mix(in srgb, currentColor 4%, transparent) 30%,
+    transparent 60%
+  );
+  animation: poster-glow-drift 16s ease-in-out infinite alternate;
+}
+.posting-poster .poster-motion-control {
+  pointer-events: auto;
+  position: absolute;
+  bottom: 10px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #ffffff66;
+  border-radius: 50%;
+  background: #102335bd;
+  color: #fff;
+}
+.posting-poster .poster-motion-control > svg {
+  width: 14px;
+  height: 14px;
+}
+.posting-poster .poster-motion[data-paused='true'] .poster-motion-effects > * {
+  animation-play-state: paused;
+}
+@keyframes poster-wave-drift {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(-9%, -7%);
+  }
+}
+@keyframes poster-glow-drift {
+  from {
+    transform: translate(-3%, 3%) scale(1);
+  }
+  to {
+    transform: translate(5%, -3%) scale(1.08);
+  }
+}
+.posting-poster[data-poster-static] .poster-motion-effects > * {
+  animation: none !important;
+  transform: none !important;
+}
+.posting-poster[data-poster-static] .poster-video-region {
+  display: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .posting-poster .poster-video-region {
+    display: none;
+  }
+  .posting-poster .poster-motion-effects > * {
+    animation: none !important;
+    transform: none !important;
+  }
+  .posting-poster .poster-motion-control {
+    display: none;
+  }
+}
+@media print {
+  .posting-poster .poster-video-region {
+    display: none;
+  }
+  .posting-poster .poster-motion-effects > * {
+    animation: none !important;
+    transform: none !important;
+  }
+  .posting-poster .poster-motion-control {
+    display: none;
+  }
+}
 .posting-poster .poster-vector > svg {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.posting-poster .poster-video-region[data-ready='false'] > .poster-vector {
+  visibility: hidden;
+}
+
+@media screen and (prefers-reduced-motion: no-preference) {
+  .posting-poster:has(> .poster-video-region[data-ready='true'][data-reveal='true'])
+    > .poster-vector
+    [data-poster-reveal] {
+    visibility: hidden;
+  }
+
+  .posting-poster .poster-video-region[data-ready='true'][data-reveal='true'] [data-poster-reveal] {
+    animation: poster-hero-reveal var(--poster-reveal-duration) ease-in-out infinite;
+  }
+
+  .posting-poster
+    .poster-video-region[data-ready='true'][data-reveal='true']
+    [data-poster-reveal='title'] {
+    animation-name: poster-title-reveal;
+  }
+
+  .posting-poster .poster-video-region[data-paused='true'] [data-poster-reveal] {
+    animation-play-state: paused;
+  }
+}
+
+@keyframes poster-hero-reveal {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  15%,
+  90% {
+    opacity: 1;
+  }
+}
+
+@keyframes poster-title-reveal {
+  0%,
+  7%,
+  100% {
+    opacity: 0;
+  }
+  22%,
+  90% {
+    opacity: 1;
+  }
 }
 .posting-poster[data-poster-highlight],
 .posting-poster [data-poster-highlight] {
@@ -204,6 +358,81 @@
 }
 .posting-poster .poster-block ul svg {
   display: none;
+}
+.posting-poster .poster-block .poster-document-list {
+  padding: 0;
+  list-style: none;
+}
+.posting-poster .poster-document-list > li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.posting-poster .poster-document-list small {
+  flex-shrink: 0;
+  font-size: 0.8em;
+  font-weight: 650;
+}
+.posting-poster:is([data-template='EDITORIAL'], [data-template='PREMIUM']) .stage-process {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  counter-reset: poster-stage;
+}
+.posting-poster:is([data-template='EDITORIAL'], [data-template='PREMIUM']) .stage-process > li {
+  flex-direction: row;
+  gap: 10px;
+  padding: 6px 0;
+  text-align: start;
+  border-bottom: 1px solid color-mix(in srgb, var(--stage-color) 22%, transparent);
+  counter-increment: poster-stage;
+}
+.posting-poster:is([data-template='EDITORIAL'], [data-template='PREMIUM'])
+  .stage-process
+  > li::before {
+  content: counter(poster-stage, decimal-leading-zero);
+  position: static;
+  width: auto;
+  height: auto;
+  background: none;
+  color: var(--stage-color);
+  font-size: 0.8em;
+}
+.posting-poster:is([data-template='EDITORIAL'], [data-template='PREMIUM'])
+  .stage-process
+  > li:not(:last-child):not([data-poster-highlight])::after {
+  content: none;
+}
+.posting-poster:is([data-template='EDITORIAL'], [data-template='PREMIUM']) .stage-illustration {
+  width: 36px;
+}
+.posting-poster:is([data-template='BOLD'], [data-template='TICKET']) .stage-process > li {
+  padding: 8px 4px;
+  border-top: 2px solid var(--stage-color);
+  background: color-mix(in srgb, var(--stage-color) 7%, transparent);
+}
+.posting-poster:is([data-template='BOLD'], [data-template='TICKET'])
+  .stage-process
+  > li:last-child {
+  background: color-mix(in srgb, var(--stage-color) 17%, transparent);
+}
+.posting-poster:is([data-template='EDITORIAL'], [data-template='TICKET'])
+  .poster-document-list
+  > li {
+  padding: 5px 0;
+  border-bottom: 1px solid currentColor;
+}
+.posting-poster:is([data-template='BOLD'], [data-template='NATURAL']) .poster-document-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 8px;
+}
+.posting-poster:is([data-template='BOLD'], [data-template='NATURAL']) .poster-document-list > li {
+  margin: 0;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 6px;
 }
 .posting-poster svg {
   width: 16px;

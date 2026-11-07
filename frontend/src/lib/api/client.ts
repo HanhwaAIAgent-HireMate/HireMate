@@ -66,6 +66,10 @@ export async function unwrap<T>(request: Promise<FetchResult<T>>): Promise<T> {
 }
 
 const MESSAGES: Record<string, string> = {
+  ORSHOT_IMPORT_FAILED:
+    'Orshot 배경을 가져오지 못했어요. 계정의 렌더링 한도와 원본을 확인해 주세요.',
+  ORSHOT_NOT_CONFIGURED: 'Orshot 연결 설정이 필요해요. 관리자에게 확인해 주세요.',
+  ORSHOT_TEMPLATE_NOT_ALLOWED: '현재 사용할 수 있는 추천 템플릿을 선택해 주세요.',
   // AI 서버 오류는 '다시 시도'만으로 해결되지 않을 수 있어 계속될 때 할 일까지 알려 준다
   AI_UNAVAILABLE:
     'AI 응답을 받지 못했어요. 잠시 후 다시 시도해 주세요. 계속되면 관리자에게 AI 서버 상태 확인을 요청해 주세요.',

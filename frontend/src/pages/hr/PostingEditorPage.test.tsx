@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, Link, MemoryRouter, RouterProvider } from 'react-router'
 import { toast } from 'sonner'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,8 +10,19 @@ import { posterBrandKey } from '@/features/posting/poster-api'
 import { initialPoster, type PosterDesign } from '@/features/posting/poster-design'
 import { resetCsrf } from '@/lib/api/client'
 import * as thumbnail from '@/features/posting/PosterThumbnail'
+import * as posterCanvas from '@/features/posting/poster-canvas'
+import * as posterComponent from '@/features/posting/PostingPoster'
+import { PostingFormatDialog } from '@/features/posting/PostingFormatDialog'
 import { PostingEditorPage } from '@/pages/hr/PostingEditorPage'
 import { PostingPosterPage } from '@/pages/hr/PostingPosterPage'
+
+function posterAnswer(proposal: unknown) {
+  return new Response(
+    'event:status\ndata:{"text":"공고와 기업 정보를 확인하고 있어요","depth":0}\n\n' +
+      `event:done\ndata:${JSON.stringify(proposal)}\n\n`,
+    { headers: { 'Content-Type': 'text/event-stream' } },
+  )
+}
 
 // 편집기 내부 저장은 기존 동작이며, 여기서는 저장 이후의 형식 선택과 이동을 검사한다.
 vi.mock('@/features/posting/PostingEditor', () => ({
@@ -177,9 +188,9 @@ it('포스터 대화를 지우면 복구 기록과 다음 요청의 대화는 �
   vi.stubGlobal('fetch', async (input: Request | string) => {
     const url = typeof input === 'string' ? input : input.url
     if (url.endsWith('/csrf')) return Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' })
-    if (input instanceof Request && url.endsWith('/ai-requests')) {
+    if (input instanceof Request && url.endsWith('/ai-requests/stream')) {
       request = (await input.json()) as { history: unknown[]; design: PosterDesign }
-      return Response.json({ reply: '새 답변', recommendations: [] })
+      return posterAnswer({ reply: '새 답변', recommendations: [] })
     }
     throw new Error(`Unexpected request: ${url}`)
   })
@@ -249,7 +260,7 @@ it('대표 색상은 추가 템플릿 미리보기에도 반영하며 선택 시
   }
 })
 
-it('생성 제안은 적용할 때만 새 이름의 템플릿으로 추가하며 공고 저장은 실행하지 않는다', async () => {
+it('생성 제안 적용은 해당 공고 목록에만 추가하며 회사 템플릿 설정을 바꾸지 않는다', async () => {
   const canvas = JSON.stringify({
     width: 600,
     height: 900,
@@ -282,8 +293,8 @@ it('생성 제안은 적용할 때만 새 이름의 템플릿으로 추가하며
   vi.stubGlobal('fetch', async (input: Request | string) => {
     const url = typeof input === 'string' ? input : input.url
     if (url.endsWith('/csrf')) return Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' })
-    if (input instanceof Request && url.endsWith('/ai-requests'))
-      return Response.json({
+    if (input instanceof Request && url.endsWith('/ai-requests/stream'))
+      return posterAnswer({
         reply: '새 양식을 생성했어요',
         recommendations: [{ design, reason: '새 배치를 설계합니다.' }],
       })
@@ -297,6 +308,10 @@ it('생성 제안은 적용할 때만 새 이름의 템플릿으로 추가하며
       return Response.json(brand)
     }
     if (url.endsWith('/poster-brand')) return Response.json(brand)
+    if (input instanceof Request && input.method === 'PUT' && url.endsWith('/posting/poster')) {
+      const saved = (await input.json()) as PosterDesign
+      return Response.json({ ...posting, poster: saved })
+    }
     throw new Error(`Unexpected request: ${url}`)
   })
   const query = new QueryClient({
@@ -313,14 +328,29 @@ it('생성 제안은 적용할 때만 새 이름의 템플릿으로 추가하며
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
-  fireEvent.click(screen.getByRole('button', { name: '새로운 포스터 템플릿 2개 만들어줘' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: '회사 특징을 살린 서로 다른 포스터 템플릿 3개 만들어줘' }),
+  )
   await screen.findByText('새 양식을 생성했어요')
   expect(added).toBeUndefined()
   expect(screen.getByText('생성템플릿1')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '적용' }))
-  await waitFor(() => expect(added?.name).toBe('생성템플릿1'))
-  expect(JSON.parse(added!.canvasJson)).toHaveProperty('source.name', '생성템플릿1')
+  await screen.findByRole('button', { name: '생성템플릿1' })
+  expect(added).toBeUndefined()
+  expect(query.getQueryData(posterBrandKey)).toEqual(brand)
   expect(query.getQueryData(postingKeys.posting(posting.recruitmentId))).toEqual(posting)
+  const otherPosting = {
+    ...posting,
+    recruitmentId: 'another-recruitment',
+    postingId: 'another-posting',
+  }
+  query.setQueryData(postingKeys.posting(otherPosting.recruitmentId), otherPosting)
+  await act(async () => {
+    await router.navigate(`/hr/recruitments/${otherPosting.recruitmentId}/posting/poster`)
+  })
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: '생성템플릿1' })).not.toBeInTheDocument(),
+  )
 })
 
 function posterScreen(
@@ -371,6 +401,171 @@ function posterScreen(
   return { query, router }
 }
 
+it('저장된 Orshot 카드는 AI 제안 없이 선택되고 이전 단계에서 바꾼 제목을 자동 반영한다', async () => {
+  const source = {
+    id: 'orshot:11',
+    name: '외부템플릿1',
+    url: 'https://orshot.com/templates/',
+    license: 'Orshot 계정 디자인',
+  }
+  const canvas = {
+    width: 600,
+    height: 900,
+    originalRender: true,
+    source,
+    objects: [],
+    orshotContentKey: posterCanvas.orshotPostingKey(posting),
+  }
+  const saved = {
+    id: 'saved-orshot',
+    name: source.name,
+    template: 'CLASSIC' as const,
+    mood: 'TRUST' as const,
+    decoration: 1,
+    color: '#116644',
+    canvasJson: JSON.stringify(canvas),
+  }
+  const shown: PosterDesign[] = []
+  const view = vi.spyOn(posterComponent, 'PostingPoster').mockImplementation(({ design }) => {
+    shown.push(design)
+    return <div>포스터</div>
+  })
+  const importer = vi
+    .spyOn(posterCanvas, 'importOrshotPoster')
+    .mockImplementation((_template, _color, _original, current) =>
+      Promise.resolve(
+        JSON.stringify({ ...canvas, orshotContentKey: posterCanvas.orshotPostingKey(current!) }),
+      ),
+    )
+  const imports: string[] = []
+  vi.stubGlobal('fetch', (input: Request | string) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.endsWith('/csrf'))
+      return Promise.resolve(Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' }))
+    if (url.endsWith('/orshot-import')) {
+      imports.push(url)
+      return Promise.resolve(Response.json({ id: 'orshot:11', name: source.name }))
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  try {
+    const { query } = posterScreen(posting, [saved])
+    fireEvent.click(screen.getByRole('button', { name: '외부템플릿1' }))
+    await waitFor(() => expect(shown.at(-1)?.canvasJson).toBe(saved.canvasJson))
+    expect(imports).toHaveLength(0)
+    expect(screen.queryByText('AI 디자인 제안 · 적용 전')).not.toBeInTheDocument()
+    const edited = {
+      ...posting,
+      content: { ...posting.content, title: 'AX 개발자 경력 채용', career: '경력 5년 이상' },
+    }
+    query.setQueryData(postingKeys.posting(posting.recruitmentId), edited)
+    await waitFor(() => expect(importer).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(posterCanvas.readPosterCanvas(shown.at(-1)!.canvasJson!).orshotContentKey).toBe(
+        posterCanvas.orshotPostingKey(edited),
+      ),
+    )
+    expect(imports).toHaveLength(1)
+    expect(importer.mock.calls[0][3]?.content.title).toBe(edited.content.title)
+    expect(shown.at(-1)?.color).toBe(posting.poster!.color)
+    expect(shown.at(-1)?.motion).toBe('NONE')
+    expect(screen.queryByText('AI 디자인 제안 · 적용 전')).not.toBeInTheDocument()
+  } finally {
+    view.mockRestore()
+    importer.mockRestore()
+  }
+})
+
+it('검색한 Orshot 후보 모두에 공고를 미리 채우되 선택과 적용 전에는 템플릿을 저장하지 않는다', async () => {
+  const paths: string[] = []
+  const prepared = vi.spyOn(posterCanvas, 'importOrshotPoster').mockImplementation((template) =>
+    Promise.resolve(
+      JSON.stringify({
+        width: 600,
+        height: 900,
+        source: {
+          id: template.id,
+          name: template.name,
+          url: 'https://orshot.com/templates/',
+          license: 'Orshot 계정 디자인',
+        },
+        objects: [
+          {
+            type: 'Textbox',
+            hmId: 'title',
+            binding: 'title',
+            text: '',
+            left: 40,
+            top: 60,
+            width: 500,
+            fontSize: 40,
+          },
+        ],
+      }),
+    ),
+  )
+  vi.stubGlobal('fetch', (input: Request | string) => {
+    const url = typeof input === 'string' ? input : input.url
+    paths.push(url)
+    if (url.endsWith('/csrf'))
+      return Promise.resolve(Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' }))
+    if (url.endsWith('/orshot-import') && input instanceof Request)
+      return input.json().then((body: { templateId: number }) =>
+        Response.json({
+          id: `orshot:${body.templateId}`,
+          name: `디자인 ${body.templateId}`,
+          background: '',
+          width: 600,
+          height: 389,
+          motionUrl: null,
+          motionHeight: 389,
+        }),
+      )
+    if (url.endsWith('/ai-requests/stream'))
+      return Promise.resolve(
+        posterAnswer({
+          reply: '후보 3개를 찾았어요.',
+          recommendations: [],
+          selectedTemplateId: 'orshot:11',
+          templates: [11, 12, 13].map((id) => ({
+            id: `orshot:${id}`,
+            name: `디자인 ${id}`,
+            sourceUrl: 'https://orshot.com/templates/',
+            license: 'Orshot 계정 디자인',
+            svg: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900"/>',
+            thumbnailUrl: '',
+          })),
+          canvaDesigns: [],
+          canvaQuery: null,
+          externalQuery: null,
+        }),
+      )
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  try {
+    const { query } = posterScreen()
+    fireEvent.click(
+      screen.getByRole('button', { name: '금융권에 어울리는 외부 무료 템플릿 찾아줘' }),
+    )
+    await screen.findByText('공고 내용을 채운 디자인 3개를 준비했어요. 비교한 뒤 선택해 주세요.')
+    expect(prepared).toHaveBeenCalledTimes(3)
+    const choices = screen.getAllByRole('button', { name: '이 디자인 보기' })
+    expect(choices).toHaveLength(3)
+    expect(screen.getByRole('button', { name: '적용' })).toBeDisabled()
+    expect(paths.filter((url) => url.endsWith('/orshot-import'))).toHaveLength(3)
+    expect(paths.some((url) => url.includes('/poster-brand/templates'))).toBe(false)
+    expect(query.getQueryData(postingKeys.posting(posting.recruitmentId))).toEqual(posting)
+    expect(sessionStorage.getItem(`hiremate:posting:${posting.recruitmentId}:poster`)).toBeNull()
+    fireEvent.click(choices[1])
+    expect(screen.getByRole('button', { name: '적용' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '되돌리기' }))
+    expect(paths.some((url) => url.includes('/poster-brand/templates'))).toBe(false)
+    expect(sessionStorage.getItem(`hiremate:posting:${posting.recruitmentId}:poster`)).toBeNull()
+  } finally {
+    prepared.mockRestore()
+  }
+})
+
 it('아이콘 제안을 가운데서 즉시 강조하고 되돌리면 원본을, 적용하면 새 그림을 유지한다', async () => {
   const current: Posting = {
     ...posting,
@@ -380,9 +575,9 @@ it('아이콘 제안을 가운데서 즉시 강조하고 되돌리면 원본을,
   vi.stubGlobal('fetch', async (input: Request | string) => {
     const url = typeof input === 'string' ? input : input.url
     if (url.endsWith('/csrf')) return Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' })
-    if (input instanceof Request && url.endsWith('/ai-requests')) {
+    if (input instanceof Request && url.endsWith('/ai-requests/stream')) {
       await input.json()
-      return Response.json({
+      return posterAnswer({
         reply: '다른 아이콘 제안',
         recommendations: [{ design: changed, reason: '대화 아이콘으로 제안해요.' }],
       })
@@ -560,3 +755,86 @@ it('선택한 추가 템플릿을 삭제하면 설정에 저장된 심플형과 
   expect(screen.getByRole('button', { name: /^심플형/ })).toHaveAttribute('aria-pressed', 'true')
   expect(screen.getByLabelText('대표 색상')).toHaveValue('#79634b')
 })
+
+it.each([true, false])(
+  '게시 형식 창도 이전 Orshot 제목을 갱신하고 저장한다 (갱신 키 있음 %s)',
+  async (hasKey) => {
+    const edited = { ...posting, content: { ...posting.content, title: 'AX개발자 공고' } }
+    const canvas = {
+      width: 600,
+      height: 900,
+      originalRender: true,
+      source: {
+        id: 'orshot:11',
+        name: '사진형',
+        url: 'https://orshot.com/templates/',
+        license: 'Orshot 계정 디자인',
+      },
+      objects: [],
+      ...(hasKey ? { orshotContentKey: posterCanvas.orshotPostingKey(posting) } : {}),
+    }
+    edited.poster = { ...edited.poster!, canvasJson: JSON.stringify(canvas) }
+    const key = posterCanvas.orshotPostingKey(edited)
+    let finish!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const importer = vi
+      .spyOn(posterCanvas, 'importOrshotPoster')
+      .mockImplementation(async (_template, _color, _original, current) => {
+        await waiting
+        return JSON.stringify({
+          ...canvas,
+          orshotContentKey: posterCanvas.orshotPostingKey(current!),
+        })
+      })
+    const preview = vi
+      .spyOn(thumbnail, 'PosterThumbnail')
+      .mockImplementation(({ design }) => (
+        <p data-testid="orshot-preview">
+          {posterCanvas.readPosterCanvas(design.canvasJson!).orshotContentKey ?? '이전 이미지'}
+        </p>
+      ))
+    vi.stubGlobal('fetch', (input: Request | string) => {
+      const url = typeof input === 'string' ? input : input.url
+      if (url.endsWith('/csrf'))
+        return Promise.resolve(Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' }))
+      if (url.endsWith('/orshot-import'))
+        return Promise.resolve(Response.json({ id: 'orshot:11', name: '사진형' }))
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    const query = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+    })
+    query.setQueryData(posterBrandKey, {})
+    const selected = vi.fn<(format: 'text' | 'poster', design: PosterDesign) => void>()
+    try {
+      render(
+        <QueryClientProvider client={query}>
+          <PostingFormatDialog
+            posting={edited}
+            pending={false}
+            onClose={vi.fn()}
+            onSelect={selected}
+          />
+        </QueryClientProvider>,
+      )
+      await screen.findByText('변경한 공고 제목을 포스터에 반영하고 있어요.')
+      fireEvent.click(screen.getByRole('button', { name: '포스터 공고 선택' }))
+      expect(screen.getByRole('button', { name: '선택' })).toBeDisabled()
+      finish()
+      await waitFor(() => expect(screen.getByTestId('orshot-preview')).toHaveTextContent(key))
+      await waitFor(() => expect(screen.getByRole('button', { name: '선택' })).toBeEnabled())
+      fireEvent.click(screen.getByRole('button', { name: '선택' }))
+      expect(selected).toHaveBeenCalledOnce()
+      expect(
+        posterCanvas.readPosterCanvas(selected.mock.calls[0][1].canvasJson!).orshotContentKey,
+      ).toBe(key)
+      expect(importer.mock.calls[0][3]?.content.title).toBe('AX개발자 공고')
+    } finally {
+      finish()
+      importer.mockRestore()
+      preview.mockRestore()
+    }
+  },
+)
