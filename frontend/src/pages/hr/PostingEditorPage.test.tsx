@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, Link, MemoryRouter, RouterProvider } from 'react-router'
 import { toast } from 'sonner'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -364,6 +364,7 @@ function posterScreen(
     decoration: number
     canvasJson: string
   }[] = [],
+  logoFileId: string | null = null,
 ) {
   const query = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false }, mutations: { retry: false } },
@@ -374,7 +375,7 @@ function posterScreen(
     mood: 'PREMIUM',
     color: '#79634b',
     decoration: 0,
-    logoFileId: null,
+    logoFileId,
     templates,
   })
   const path = `/hr/recruitments/${current.recruitmentId}/posting/poster`
@@ -400,6 +401,63 @@ function posterScreen(
   )
   return { query, router }
 }
+
+it('설정으로 이동하는 동안 포스터 요청을 계속 처리하고 돌아오면 입력과 답변을 복원한다', async () => {
+  let respond: (response: Response) => void = () => {}
+  const response = new Promise<Response>((resolve) => {
+    respond = resolve
+  })
+  const fetchMock = vi.fn((input: Request | string) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.endsWith('/csrf'))
+      return Promise.resolve(Response.json({ token: 'test', headerName: 'X-CSRF-TOKEN' }))
+    if (url.endsWith('/ai-requests/stream')) return response
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const { router } = posterScreen()
+  const prompt = '우리는 더 고급스러운 느낌이 있어야 해'
+  fireEvent.click(screen.getByRole('button', { name: prompt }))
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  fireEvent.click(screen.getByRole('link', { name: '설정으로 이동' }))
+  await screen.findByText('설정 화면')
+  await act(async () => {
+    await router.navigate(-1)
+  })
+  expect(screen.getByText(prompt)).toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: '수정할 내용' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('link', { name: '설정으로 이동' }))
+  await screen.findByText('설정 화면')
+  act(() => {
+    respond(posterAnswer({ reply: '설정에 있는 동안 완료한 답변', recommendations: [] }))
+  })
+  await act(async () => {
+    await router.navigate(-1)
+  })
+  expect(await screen.findByText('설정에 있는 동안 완료한 답변')).toBeInTheDocument()
+  expect(screen.getByText(prompt)).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
+it('회사 로고가 있으면 기본으로 표시하고 직접 해제하면 숨긴다', () => {
+  const view = vi
+    .spyOn(posterComponent, 'PostingPoster')
+    .mockImplementation(({ design }) => (
+      <div>{design.showLogo ? '로고가 있는 미리보기' : '로고 없는 미리보기'}</div>
+    ))
+  try {
+    posterScreen(posting, [], 'company-logo')
+    const checkbox = screen.getByRole('checkbox', { name: '회사 로고 표시' })
+    const preview = within(screen.getByRole('region', { name: '포스터 미리보기' }))
+    expect(checkbox).toBeChecked()
+    expect(preview.getByText('로고가 있는 미리보기')).toBeInTheDocument()
+    fireEvent.click(checkbox)
+    expect(checkbox).not.toBeChecked()
+    expect(preview.getByText('로고 없는 미리보기')).toBeInTheDocument()
+  } finally {
+    view.mockRestore()
+  }
+})
 
 it('저장된 Orshot 카드는 AI 제안 없이 선택되고 이전 단계에서 바꾼 제목을 자동 반영한다', async () => {
   const source = {
