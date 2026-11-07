@@ -10,6 +10,7 @@ import type { StageIconName } from '@/features/recruit/StageIcon'
 import type { StageType } from '@/features/recruit/labels'
 import { StageProcess } from '@/features/recruit/StageProcess'
 import { CanvasPoster } from '@/features/posting/CanvasPoster'
+import { PosterMotion } from './PosterMotion'
 import { preparePosterLogo } from '@/features/posting/poster-canvas'
 
 import './posting-poster.css'
@@ -98,11 +99,14 @@ export function PostingPoster({
       label: '제출 서류',
       kind: 'documents',
       children: (
-        <ul>
+        <ul className="poster-document-list">
           {posting.documents.map((document) => (
             <li key={document.type}>
-              {document.label}
-              {document.format === 'PDF' && ' PDF'} · {document.required ? '필수' : '선택'}
+              <span>
+                {document.label}
+                {document.format === 'PDF' && ' PDF'}
+              </span>{' '}
+              <small>{document.required ? '필수' : '선택'}</small>
             </li>
           ))}
         </ul>
@@ -128,6 +132,7 @@ export function PostingPoster({
         logoUrl={logoUrl}
         sectionIds={sectionIds}
         changes={changes}
+        compact={compact}
       />
     )
   return (
@@ -143,7 +148,11 @@ export function PostingPoster({
       aria-label={`${posting.companyName} ${content.title} 채용 포스터`}
       data-poster-highlight={changes?.all || undefined}
     >
-      <header className="poster-hero">
+      <header
+        className="poster-hero"
+        data-poster-highlight={changes?.bindings.includes('header-motion') || undefined}
+      >
+        {!compact && <PosterMotion effect={design.motion} />}
         <div className="poster-brand">
           <span>
             {design.showLogo && design.logoFileId && logoUrl && (

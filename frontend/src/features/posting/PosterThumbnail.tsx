@@ -65,7 +65,11 @@ export function PosterThumbnail({
         className={`absolute left-1/2 w-[600px] origin-top ${fill ? 'top-0' : 'top-2'}`}
         style={{ transform: `translateX(-50%) scale(${scale})` }}
       >
-        <PostingPoster posting={thumbnailPosting} design={design} logoUrl={logoUrl} />
+        <PostingPoster
+          posting={thumbnailPosting}
+          design={{ ...design, motion: 'NONE' }}
+          logoUrl={logoUrl}
+        />
       </div>
     </div>
   )

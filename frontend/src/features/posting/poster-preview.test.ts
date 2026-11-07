@@ -53,6 +53,15 @@ it('자동 아이콘의 실제 그림과 비교해 바뀐 전형만 표시한다
   ).toEqual({ all: false, stages: ['2차 면접'], bindings: [] })
 })
 
+it('움직임 수정은 본문이나 전형 대신 상단만 강조한다', () => {
+  const before = initialPoster()
+  expect(posterPreviewChanges(before, { ...before, motion: 'WAVE' }, posting)).toEqual({
+    all: false,
+    stages: [],
+    bindings: ['header-motion'],
+  })
+})
+
 it('생성 대표색은 배너와 본문 강조색·서류 카드·종이색에 함께 반영하고 원본은 보존한다', () => {
   const style = { fontSize: 14, fill: '#101820', fontWeight: 'normal' }
   const doc: PosterCanvas = {

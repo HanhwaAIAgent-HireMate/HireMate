@@ -4,6 +4,8 @@ import type { PosterDesign } from '@/features/posting/poster-design'
 import type { PosterChanges } from './poster-preview'
 import { layoutNativePoster } from './poster-layout'
 import { inlinePosterSvg, loadPosterFonts, POSTER_FONT } from './poster-svg'
+import { PosterMotion } from './PosterMotion'
+import { PosterVideo } from './PosterVideo'
 import {
   posterBindings,
   posterCanvasObjects,
@@ -13,6 +15,7 @@ import {
   preparePosterLogo,
   posterLogoSurface,
   recolorGeneratedPoster,
+  usesPhotoCaption,
 } from '@/features/posting/poster-canvas'
 
 /** SVG로 출력해 웹 미리보기와 PDF 복제 모두에서 벡터 글자를 유지한다. */
@@ -22,16 +25,28 @@ export function CanvasPoster({
   logoUrl,
   sectionIds = false,
   changes,
+  compact = false,
 }: {
   posting: PosterPosting
   design: PosterDesign
   logoUrl?: string
   sectionIds?: boolean
   changes?: PosterChanges
+  compact?: boolean
 }) {
   const [rendered, setRendered] = useState<{
     key: string
     svg: string
+    headerHeight: number
+    headerInk: string
+    media?: {
+      url: string
+      ratio: number
+      overlay: string
+      zoom: number
+      revealHeader: boolean
+      preserveAspectRatio: boolean
+    }
     boxes: { id: string; left: number; top: number; width: number; height: number }[]
   } | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
@@ -66,7 +81,11 @@ export function CanvasPoster({
           backgroundColor: '#ffffff',
         })
         canvas = target
-        if (design.tagline && !doc.objects.some((object) => object.binding === 'tagline')) {
+        if (
+          !doc.originalRender &&
+          design.tagline &&
+          !doc.objects.some((object) => object.binding === 'tagline')
+        ) {
           const title = doc.objects.find((object) => object.binding === 'title')
           doc.objects.push({
             type: 'Textbox',
@@ -243,11 +262,27 @@ export function CanvasPoster({
           target.add(logo)
         }
         if (!disposed) {
+          const headerBindings = ['company', 'title', 'tags', 'tagline']
+          const headerHeight =
+            (Math.min(
+              target.height,
+              Math.max(
+                doc.nativeLayout?.headerBottom ?? doc.canvaLayout?.headerHeight ?? 0,
+                ...target
+                  .getObjects()
+                  .filter((object) => headerBindings.includes(String(object.get('hmId'))))
+                  .map((object) => object.top + object.getScaledHeight() + 32),
+              ),
+            ) /
+              target.height) *
+            100
           const ids = [
             ...(changes?.stages.map((name) => `stage:${name}`) ?? []),
             ...(changes?.bindings ?? []),
           ]
           const boxes = ids.flatMap((id) => {
+            if (id === 'header-motion')
+              return [{ id, left: 0, top: 0, width: 100, height: headerHeight }]
             const bounds = target
               .getObjects()
               .filter((object) => object.get('hmId') === id)
@@ -267,9 +302,41 @@ export function CanvasPoster({
               },
             ]
           })
+          const headerInk = target
+            .getObjects()
+            .find((object) => object.get('hmId') === 'title')?.fill
+          const revealHeader = usesPhotoCaption(doc)
+          if (revealHeader && doc.media) {
+            for (const binding of ['company', 'title']) {
+              target
+                .getObjects()
+                .find((object) => object.get('hmId') === binding)
+                ?.set('id', `poster-reveal-${binding}`)
+            }
+          }
+          const svg = inlinePosterSvg(target.toSVG())
+          let media
+          if (doc.media) {
+            target.backgroundColor = 'transparent'
+            target
+              .getObjects()
+              .find((_, index) => doc.objects[index]?.hmId === 'canva-header')
+              ?.set({ excludeFromExport: true })
+            media = {
+              url: doc.media.url,
+              ratio: doc.media.height / doc.media.clipHeight,
+              zoom: !doc.originalRender && doc.source.id === 'orshot:36661' ? 1.38 : 1,
+              revealHeader,
+              preserveAspectRatio: doc.originalRender === true,
+              overlay: inlinePosterSvg(target.toSVG()),
+            }
+          }
           setRendered({
             key,
-            svg: inlinePosterSvg(target.toSVG()),
+            svg,
+            media,
+            headerHeight,
+            headerInk: typeof headerInk === 'string' ? headerInk : '#24313e',
             boxes,
           })
           setFailed(null)
@@ -297,6 +364,30 @@ export function CanvasPoster({
           className="poster-vector w-full"
           dangerouslySetInnerHTML={{ __html: rendered.svg }}
         />
+      )}
+      {rendered?.key === key &&
+        !compact &&
+        rendered.media &&
+        (rendered.media.preserveAspectRatio || design.motion !== 'NONE') && (
+          <PosterVideo
+            key={rendered.media.url}
+            url={rendered.media.url}
+            ratio={rendered.media.ratio}
+            zoom={rendered.media.zoom}
+            revealHeader={rendered.media.revealHeader}
+            preserveAspectRatio={rendered.media.preserveAspectRatio}
+            showControls={!rendered.media.preserveAspectRatio}
+            headerHeight={rendered.headerHeight}
+            overlay={rendered.media.overlay}
+          />
+        )}
+      {rendered?.key === key && !compact && !rendered.media && (
+        <div
+          className="poster-motion-region absolute inset-x-0 top-0"
+          style={{ height: `${rendered.headerHeight}%`, color: rendered.headerInk }}
+        >
+          <PosterMotion effect={design.motion} />
+        </div>
       )}
       {rendered?.key === key &&
         rendered.boxes.map((box) => (
