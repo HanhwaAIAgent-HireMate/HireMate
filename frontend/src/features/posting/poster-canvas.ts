@@ -12,7 +12,7 @@ import {
 import { drawCanvasStages } from './poster-canvas-stages'
 import type { NativeLayout } from './poster-layout'
 import { creativeOrshotColor, creativeOrshotLayout } from './poster-creative-layout'
-import { POSTER_FONT } from './poster-svg'
+import { inlinePosterSvg, loadPosterFonts, POSTER_FONT } from './poster-svg'
 
 export type FreeTemplate = NonNullable<Schemas['PosterProposal']['templates']>[number]
 export type CanvasObject = Record<string, unknown>
@@ -23,6 +23,8 @@ export type PosterCanvas = {
   heroStyle?: 'PHOTO_CAPTION'
   originalRender?: true
   orshotContentKey?: string
+  templatedRegistration?: true
+  registeredTemplatedId?: string
   source: { id?: string; name: string; url: string; license: string }
   objects: CanvasObject[]
   nativeLayout?: NativeLayout
@@ -37,6 +39,40 @@ export type PosterCanvas = {
     columns: number
     logoFrameCleaned?: boolean
     logoCleanupVersion?: number
+  }
+}
+
+/** 화면과 같은 배치·줄바꿈을 계산한 벡터를 등록해 제공처에서 재배치하지 않도록 한다. */
+export async function prepareTemplatedRegistration(posting: PosterPosting, design: PosterDesign) {
+  const doc = recolorGeneratedPoster(readPosterCanvas(design.canvasJson!), design.color)
+  if (!doc.source.id?.startsWith('generated:') || !doc.nativeLayout)
+    throw new Error('새로 생성한 포스터만 등록할 수 있어요.')
+  const values = posterBindings(posting, design)
+  await loadPosterFonts(Object.values(values).join('\n'))
+  const F = await import('fabric')
+  const { layoutNativePoster } = await import('./poster-layout')
+  const canvas = new F.StaticCanvas(document.createElement('canvas'), {
+    width: doc.width,
+    height: doc.height,
+    backgroundColor: doc.nativeLayout.paper,
+  })
+  try {
+    await canvas.loadFromJSON({ objects: posterCanvasObjects(doc, values, design.color) })
+    await layoutNativePoster(canvas, doc, posting, design)
+    const height = Math.ceil(canvas.height)
+    if (height < 300 || height > 5000) throw new Error('등록 가능한 포스터 길이를 초과했어요.')
+    const parsed = new DOMParser().parseFromString(inlinePosterSvg(canvas.toSVG()), 'image/svg+xml')
+    parsed.documentElement.setAttribute('width', '600')
+    parsed.documentElement.setAttribute('height', String(height))
+    parsed.documentElement.setAttribute('viewBox', `0 0 600 ${height}`)
+    return {
+      sourceId: doc.source.id,
+      name: doc.source.name.slice(0, 100),
+      svg: new XMLSerializer().serializeToString(parsed.documentElement),
+      height,
+    }
+  } finally {
+    await canvas.dispose()
   }
 }
 

@@ -10,19 +10,26 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import tools.jackson.databind.JsonNode;
 
-/** 공개 갤러리와 명시적으로 허용한 공용 테마만 읽는다. 기업 공고와 키를 AI에 보내지 않는다. */
+/** 공개 테마를 조회하고 담당자가 요청한 생성 양식을 등록한다. API 키는 서버에서만 사용한다. */
 @Service
 public class TemplatedLibrary {
     private final WebClient http;
     private final String key;
     private final List<String> sharedIds;
+    private final Map<String, String> registrations = new ConcurrentHashMap<>();
 
     public TemplatedLibrary(WebClient.Builder builder, @Value("${TEMPLATED_API_KEY:}") String key,
             @Value("${TEMPLATED_TEMPLATE_IDS:}") String ids) {
@@ -90,6 +97,93 @@ public class TemplatedLibrary {
     private JsonNode get(String path) {
         return http.get().uri(path).headers(headers -> headers.setBearerAuth(key)).retrieve()
                 .bodyToMono(JsonNode.class).block(Duration.ofSeconds(30));
+    }
+
+    /** 요청별 생성 양식만 등록한다. 재조회 실패 뒤 다시 요청해도 같은 원본을 중복 생성하지 않는다. */
+    public RegisteredTemplate register(UUID companyId, String sourceId, String name, String svg, int height) {
+        if (key.isEmpty()) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "TEMPLATED_NOT_CONFIGURED",
+                    "Templated API 키를 설정해 주세요.");
+        }
+        validateGeneratedSvg(svg, height);
+        String requestKey = companyId + ":" + sourceId + ":"
+                + UUID.nameUUIDFromBytes(svg.getBytes(StandardCharsets.UTF_8));
+        try {
+            String id = registrations.computeIfAbsent(requestKey, ignored -> {
+                JsonNode created = http.post().uri("/v1/template")
+                        .headers(headers -> headers.setBearerAuth(key))
+                        .bodyValue(Map.of("name", name, "width", 600, "height", height,
+                                "layers", List.of(Map.of("layer", "poster", "type", "shape",
+                                        "x", 0, "y", 0, "width", 600, "height", height, "html", svg))))
+                        .retrieve().bodyToMono(JsonNode.class).block(Duration.ofSeconds(45));
+                String result = created == null ? "" : created.path("id").asString("");
+                if (!result.matches("[a-fA-F0-9-]{36}")) {
+                    throw new IllegalArgumentException("Invalid created template ID");
+                }
+                return result;
+            });
+            JsonNode saved = get("/v1/template/" + id + "?includeLayers=true");
+            if (saved == null || !id.equals(saved.path("id").asString(""))) {
+                throw new IllegalArgumentException("Registered template was not retrieved");
+            }
+            return new RegisteredTemplate("templated:" + id, saved.path("name").asString(name));
+        } catch (WebClientResponseException.Forbidden exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "TEMPLATED_TEMPLATE_LIMIT",
+                    "Templated 등록 권한 또는 저장 가능한 템플릿 개수를 확인해 주세요.");
+        } catch (RuntimeException exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "TEMPLATED_REGISTRATION_FAILED",
+                    "Templated에 새 양식을 등록하거나 다시 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+        }
+    }
+
+    public record RegisteredTemplate(String id, String name) {
+    }
+
+    private static void validateGeneratedSvg(String svg, int height) {
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            var root = factory.newDocumentBuilder().parse(new org.xml.sax.InputSource(
+                    new java.io.StringReader(svg))).getDocumentElement();
+            if (!root.getLocalName().equals("svg") || height < 300 || height > 5000
+                    || !root.getAttribute("viewBox").equals("0 0 600 " + height)) {
+                throw new IllegalArgumentException("Invalid generated SVG dimensions");
+            }
+            Set<String> allowed = Set.of("svg", "g", "defs", "clipPath", "rect", "circle", "ellipse",
+                    "line", "polygon", "polyline", "path", "text", "tspan", "image",
+                    "linearGradient", "radialGradient", "stop", "pattern", "desc", "title");
+            var nodes = root.getElementsByTagName("*");
+            if (nodes.getLength() > 15000) {
+                throw new IllegalArgumentException("Too many SVG elements");
+            }
+            for (int index = -1; index < nodes.getLength(); index++) {
+                var node = index < 0 ? root : (org.w3c.dom.Element) nodes.item(index);
+                if (!allowed.contains(node.getLocalName())) {
+                    throw new IllegalArgumentException("Unsupported SVG element");
+                }
+                var attributes = node.getAttributes();
+                for (int at = 0; at < attributes.getLength(); at++) {
+                    var attribute = attributes.item(at);
+                    String value = attribute.getNodeValue();
+                    String attributeName = attribute.getNodeName().toLowerCase(Locale.ROOT);
+                    if (attributeName.startsWith("on") || value.contains("@import")
+                            || value.toLowerCase(Locale.ROOT).contains("javascript:")
+                            || value.matches("(?is).*url\\(\\s*['\"]?(?!#).*")
+                            || attributeName.endsWith("href") && !value.matches(
+                                    "data:image/(png|jpeg);base64,[A-Za-z0-9+/=]+")) {
+                        throw new IllegalArgumentException("External SVG reference");
+                    }
+                }
+            }
+        } catch (Exception exception) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_TEMPLATED_DESIGN",
+                    "등록할 포스터 양식을 확인하지 못했어요.");
+        }
     }
 
     static List<FreeTemplate> candidates(List<JsonNode> rows, String query) {

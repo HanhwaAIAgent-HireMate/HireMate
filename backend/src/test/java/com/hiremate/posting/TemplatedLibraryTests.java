@@ -1,15 +1,81 @@
 package com.hiremate.posting;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 class TemplatedLibraryTests {
     private final JsonMapper json = new JsonMapper();
+
+    @Test
+    void registersThenRetrievesOncePerCompanyAndGeneratedSource() {
+        List<String> calls = new ArrayList<>();
+        TemplatedLibrary library = new TemplatedLibrary(WebClient.builder().exchangeFunction(request -> {
+            calls.add(request.method() + " " + request.url().getPath());
+            return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "application/json")
+                    .body("{\"id\":\"00000000-0000-0000-0000-000000000001\",\"name\":\"새 공고 양식\"}").build());
+        }), "test-key", "");
+        UUID company = UUID.randomUUID();
+        String svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 900'><text>채용</text></svg>";
+        var first = library.register(company, "generated:one", "새 공고 양식", svg, 900);
+        assertThat(library.register(company, "generated:one", "새 공고 양식", svg, 900)).isEqualTo(first);
+        assertThat(first.id()).startsWith("templated:");
+        assertThat(calls).containsExactly("POST /v1/template",
+                "GET /v1/template/00000000-0000-0000-0000-000000000001",
+                "GET /v1/template/00000000-0000-0000-0000-000000000001");
+        library.register(UUID.randomUUID(), "generated:one", "새 공고 양식", svg, 900);
+        assertThat(calls.stream().filter(call -> call.startsWith("POST"))).hasSize(2);
+    }
+
+    @Test
+    void retriesRetrievalWithoutCreatingAnotherTemplate() {
+        List<String> calls = new ArrayList<>();
+        TemplatedLibrary library = new TemplatedLibrary(WebClient.builder().exchangeFunction(request -> {
+            calls.add(request.method().name());
+            if (calls.size() == 2) {
+                return Mono.just(ClientResponse.create(HttpStatus.SERVICE_UNAVAILABLE).build());
+            }
+            return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "application/json")
+                    .body("{\"id\":\"00000000-0000-0000-0000-000000000001\"}").build());
+        }), "test-key", "");
+        UUID company = UUID.randomUUID();
+        String svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 900'/>";
+        assertThatThrownBy(() -> library.register(company, "generated:one", "양식", svg, 900))
+                .isInstanceOf(com.hiremate.global.ApiException.class);
+        assertThat(library.register(company, "generated:one", "양식", svg, 900).id())
+                .isEqualTo("templated:00000000-0000-0000-0000-000000000001");
+        assertThat(calls).containsExactly("POST", "GET", "GET");
+    }
+
+    @Test
+    void rejectsActiveOrExternalSvgBeforeSendingToProviderAndReportsTemplateLimit() {
+        List<String> calls = new ArrayList<>();
+        TemplatedLibrary library = new TemplatedLibrary(WebClient.builder().exchangeFunction(request -> {
+            calls.add(request.method().name());
+            return Mono.just(ClientResponse.create(HttpStatus.FORBIDDEN).build());
+        }), "test-key", "");
+        for (String fragment : List.of("<script/>", "<image href='https://example.com/photo.png'/>",
+                "<rect style='fill:url(https://example.com/x)'/>")) {
+            assertThatThrownBy(() -> library.register(UUID.randomUUID(), "generated:x", "양식",
+                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 900'>"
+                            + fragment + "</svg>", 900)).isInstanceOf(com.hiremate.global.ApiException.class);
+        }
+        assertThat(calls).isEmpty();
+        assertThatThrownBy(() -> library.register(UUID.randomUUID(), "generated:x", "양식",
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 900'/>", 900))
+                .isInstanceOfSatisfying(com.hiremate.global.ApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("TEMPLATED_TEMPLATE_LIMIT"));
+    }
 
     @Test
     void returnsThreeDistinctRelevantThemesAndRejectsUnsupportedPhotos() {

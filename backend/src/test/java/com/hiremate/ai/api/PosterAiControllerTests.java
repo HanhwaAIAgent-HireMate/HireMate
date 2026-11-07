@@ -33,7 +33,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 class PosterAiControllerTests {
     @ParameterizedTest
     @EnumSource(PosterProposal.CandidateMode.class)
-    @DisplayName("첫 추천은 제공처별 한 개, 재요청은 정적 두 개, 모션은 Orshot 두 개를 준비한다")
+    @DisplayName("정적 후보 중 하나를 새 Templated 양식으로 등록하고 모션은 Orshot 후보를 준비한다")
     void keepsCandidateSourcesForEachRequest(PosterProposal.CandidateMode mode) {
         PostingService postings = mock(PostingService.class);
         CompanyService companies = mock(CompanyService.class);
@@ -61,15 +61,12 @@ class PosterAiControllerTests {
                 "#082858", 1, true, false, null, PosterDesign.BackgroundStyle.SOLID,
                 Map.of(), List.of(), "{\"source\":{\"id\":\"generated:new-design\"}}", null, PosterDesign.Motion.NONE);
         when(agent.generate(any(), anyString())).thenReturn(new PosterProposal("새 디자인",
-                List.of(new PosterProposal.Recommendation(design, "새 구성"))));
-        var external = new PosterProposal.FreeTemplate("templated:one", "Templated",
-                "https://templated.io/templates/", "Templated 테마", "<svg/>");
+                List.of(new PosterProposal.Recommendation(design, "새 구성"),
+                        new PosterProposal.Recommendation(design, "다른 구성"))));
         var first = new PosterProposal.FreeTemplate("orshot:one", "Orshot 1",
                 "https://orshot.com/templates/", "Orshot 계정 디자인", "<svg/>");
         var second = new PosterProposal.FreeTemplate("orshot:two", "Orshot 2",
                 "https://orshot.com/templates/", "Orshot 계정 디자인", "<svg/>");
-        when(templated.search(anyString(), any(), org.mockito.ArgumentMatchers.eq(true)))
-                .thenReturn(List.of(external));
         when(orshot.search(anyString(), any(), any())).thenReturn(List.of(first, second));
         PosterAiController controller = new PosterAiController(postings, companies, agent, validator, canva,
                 templated, mock(PosterTemplateSearch.class), orshot);
@@ -82,8 +79,12 @@ class PosterAiControllerTests {
         switch (mode) {
             case INITIAL -> {
                 assertThat(result.templates()).extracting(PosterProposal.FreeTemplate::id)
-                        .containsExactly("templated:one", "orshot:one");
-                assertThat(result.recommendations()).hasSize(1);
+                        .containsExactly("orshot:one");
+                assertThat(result.recommendations()).hasSize(2);
+                assertThat(result.recommendations().getFirst().design().canvasJson())
+                        .contains("\"templatedRegistration\":true");
+                assertThat(result.recommendations().get(1).design().canvasJson())
+                        .doesNotContain("templatedRegistration");
             }
             case STATIC -> {
                 assertThat(result.templates()).extracting(PosterProposal.FreeTemplate::id)
