@@ -15,7 +15,6 @@ import {
   preparePosterLogo,
   posterLogoSurface,
   recolorGeneratedPoster,
-  usesPhotoCaption,
 } from '@/features/posting/poster-canvas'
 
 /** SVG로 출력해 웹 미리보기와 PDF 복제 모두에서 벡터 글자를 유지한다. */
@@ -43,9 +42,8 @@ export function CanvasPoster({
       url: string
       ratio: number
       overlay: string
-      zoom: number
-      revealHeader: boolean
       preserveAspectRatio: boolean
+      frame?: { left: number; top: number; width: number; height: number }
     }
     boxes: { id: string; left: number; top: number; width: number; height: number }[]
   } | null>(null)
@@ -222,6 +220,9 @@ export function CanvasPoster({
             })
           }
         }
+        const coverEnd = target
+          .getObjects()
+          .find((object) => object.get('hmId') === 'orshot-cover-end')
         if (logoUrl && design.showLogo && design.logoFileId) {
           const loaded = await F.FabricImage.fromURL(logoUrl)
           loaded.scale(Math.min(1, 1600 / Math.max(loaded.width, loaded.height)))
@@ -239,8 +240,9 @@ export function CanvasPoster({
           logo.scaleToWidth(
             Math.min(prepared.width / Math.max(1, prepared.height) > 2.2 ? 132 : 64, logo.width),
           )
+          if (coverEnd && logo.getScaledHeight() > 60) logo.scaleToHeight(60)
           logo.set({
-            left: doc.width - logo.getScaledWidth() - 40,
+            left: coverEnd ? 40 : doc.width - logo.getScaledWidth() - 40,
             top: 20,
             originX: 'left',
             originY: 'top',
@@ -266,13 +268,14 @@ export function CanvasPoster({
           const headerHeight =
             (Math.min(
               target.height,
-              Math.max(
-                doc.nativeLayout?.headerBottom ?? doc.canvaLayout?.headerHeight ?? 0,
-                ...target
-                  .getObjects()
-                  .filter((object) => headerBindings.includes(String(object.get('hmId'))))
-                  .map((object) => object.top + object.getScaledHeight() + 32),
-              ),
+              coverEnd?.top ??
+                Math.max(
+                  doc.nativeLayout?.headerBottom ?? doc.canvaLayout?.headerHeight ?? 0,
+                  ...target
+                    .getObjects()
+                    .filter((object) => headerBindings.includes(String(object.get('hmId'))))
+                    .map((object) => object.top + object.getScaledHeight() + 32),
+                ),
             ) /
               target.height) *
             100
@@ -305,30 +308,28 @@ export function CanvasPoster({
           const headerInk = target
             .getObjects()
             .find((object) => object.get('hmId') === 'title')?.fill
-          const revealHeader = usesPhotoCaption(doc)
-          if (revealHeader && doc.media) {
-            for (const binding of ['company', 'title']) {
-              target
-                .getObjects()
-                .find((object) => object.get('hmId') === binding)
-                ?.set('id', `poster-reveal-${binding}`)
-            }
-          }
           const svg = inlinePosterSvg(target.toSVG())
           let media
           if (doc.media) {
             target.backgroundColor = 'transparent'
-            target
+            const cover = target
               .getObjects()
-              .find((_, index) => doc.objects[index]?.hmId === 'canva-header')
-              ?.set({ excludeFromExport: true })
+              .find((object) => object.get('hmId') === 'canva-header')
+            cover?.set({ excludeFromExport: true })
             media = {
               url: doc.media.url,
               ratio: doc.media.height / doc.media.clipHeight,
-              zoom: !doc.originalRender && doc.source.id === 'orshot:36661' ? 1.38 : 1,
-              revealHeader,
               preserveAspectRatio: doc.originalRender === true,
               overlay: inlinePosterSvg(target.toSVG()),
+              frame:
+                coverEnd && cover
+                  ? {
+                      left: (cover.left / doc.width) * 100,
+                      top: (cover.top / coverEnd.top) * 100,
+                      width: (cover.getScaledWidth() / doc.width) * 100,
+                      height: (cover.getScaledHeight() / coverEnd.top) * 100,
+                    }
+                  : undefined,
             }
           }
           setRendered({
@@ -373,12 +374,10 @@ export function CanvasPoster({
             key={rendered.media.url}
             url={rendered.media.url}
             ratio={rendered.media.ratio}
-            zoom={rendered.media.zoom}
-            revealHeader={rendered.media.revealHeader}
             preserveAspectRatio={rendered.media.preserveAspectRatio}
-            showControls={!rendered.media.preserveAspectRatio}
             headerHeight={rendered.headerHeight}
             overlay={rendered.media.overlay}
+            frame={rendered.media.frame}
           />
         )}
       {rendered?.key === key && !compact && !rendered.media && (

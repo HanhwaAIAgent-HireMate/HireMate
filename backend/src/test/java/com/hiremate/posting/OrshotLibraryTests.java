@@ -23,7 +23,41 @@ import reactor.core.publisher.Mono;
 
 class OrshotLibraryTests {
     @Test
-    void nativePhotoRenderHidesOnlyCornerDotsAndPreservesTheBadgeAndAnimation() throws Exception {
+    void fullRecruitmentSourceKeepsItsThemeAndSeparatesEditableBodyFromNativeMotion() throws Exception {
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(600, 1622, BufferedImage.TYPE_INT_RGB), "jpg", image);
+        String background = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(image.toByteArray());
+        OrshotLibrary library = new OrshotLibrary(WebClient.builder().exchangeFunction(request -> {
+            if (!request.url().getPath().endsWith("render")) {
+                return Mono.just(json("""
+                        {"id":11,"canvas_width":1080,"canvas_height":2920,
+                        "tags":["hiremate-layout:REEL_HIRING"],"pages_data":[{"has_motion":true}],
+                        "modifications":[{"key":"hm_recruitment_title","type":"text"},
+                        {"key":"hm_recruitment_company","type":"text"},{"key":"hm_full_intro","type":"text"}]}
+                        """));
+            }
+            var written = new MockClientHttpRequest(HttpMethod.POST, URI.create("http://orshot.test"));
+            request.writeTo(written, ExchangeStrategies.withDefaults()).block();
+            String body = written.getBodyAsString().block();
+            assertThat(body).contains("\"hm_recruitment_title\":\"AX 개발자\"",
+                    "\"hm_recruitment_company\":\"가온금융\"", "\"hm_full_intro.opacity\":0");
+            assertThat(body).doesNotContain("videoOptions", "enterDuration", "ambientType");
+            return Mono.just(json(body.contains("\"format\":\"mp4\"")
+                    ? "{\"data\":{\"content\":\"https://storage.orshot.com/test/full.mp4\"}}"
+                    : "{\"data\":{\"content\":\"" + background + "\"}}"));
+        }), "test-key", "11");
+        var posting = org.mockito.Mockito.mock(PostingView.class);
+        org.mockito.Mockito.when(posting.companyName()).thenReturn("가온금융");
+        org.mockito.Mockito.when(posting.content()).thenReturn(new PostingContent(
+                "AX 개발자", "개발", "정규직", "", "서울", "", List.of(), List.of(), List.of(), List.of()));
+        var result = library.renderOriginal(11, posting);
+        assertThat(result.height()).isEqualTo(400);
+        assertThat(result.motionHeight()).isEqualTo(1622);
+        assertThat(result.layoutStyle()).isEqualTo("REEL_HIRING");
+    }
+
+    @Test
+    void nativePhotoRenderPreservesTheBadgeAndRequestsHigherResolutionOriginalMotion() throws Exception {
         ByteArrayOutputStream image = new ByteArrayOutputStream();
         ImageIO.write(new BufferedImage(600, 389, BufferedImage.TYPE_INT_RGB), "jpg", image);
         String background = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(image.toByteArray());
@@ -36,10 +70,16 @@ class OrshotLibraryTests {
                         "\"role_title\":\"AX 개발자 · 경력 1년\"");
                 assertThat(body).doesNotContain("videoOptions", "playbackRate", "animation",
                         "role_title.opacity", "hm_role_badge.opacity");
+                if (body.contains("\"format\":\"mp4\"")) {
+                    assertThat(body).contains("\"width\":900", "\"height\":584");
+                    return Mono.just(json("{\"data\":{\"content\":\"https://storage.orshot.com/test/original.mp4\"}}"));
+                }
+                assertThat(body).contains("\"quality\":88");
                 return Mono.just(json("{\"data\":{\"content\":\"" + background + "\"}}"));
             }
             return Mono.just(json("""
-                    {"id":11,"canvas_width":1080,"canvas_height":700,"modifications":[
+                    {"id":11,"canvas_width":1080,"canvas_height":700,
+                    "tags":["hiremate-layout:CINEMA"],"pages_data":[{"has_motion":true}],"modifications":[
                     {"key":"hero_photo","type":"imageUrl"},{"key":"headline","type":"text"},
                     {"key":"role_title","type":"text"},{"key":"hm_role_badge","type":"fill"},
                     {"key":"hm_corner_dots","type":"imageUrl"}]}
@@ -49,7 +89,40 @@ class OrshotLibraryTests {
         var content = new PostingContent("AX 개발자", "개발", "정규직", "경력 1년", "서울", "", List.of(),
                 List.of(), List.of(), List.of());
         org.mockito.Mockito.when(posting.content()).thenReturn(content);
-        library.renderOriginal(11, posting);
+        var result = library.renderOriginal(11, posting);
+        assertThat(result.motionUrl()).isEqualTo("https://storage.orshot.com/test/original.mp4");
+        assertThat(result.width()).isEqualTo(600);
+    }
+
+    @Test
+    void multiSceneOriginalUsesPostingTextAndCombinesNativeScenes() throws Exception {
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(600, 1067, BufferedImage.TYPE_INT_RGB), "jpg", image);
+        String background = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(image.toByteArray());
+        OrshotLibrary library = new OrshotLibrary(WebClient.builder().exchangeFunction(request -> {
+            if (!request.url().getPath().endsWith("render")) {
+                return Mono.just(json("""
+                        {"id":11,"canvas_width":1080,"canvas_height":1920,
+                        "pages_data":[{"has_motion":true},{"has_motion":true}],"modifications":[
+                        {"key":"page1@headliner","type":"text"},{"key":"page2@venue_line","type":"text"}]}
+                        """));
+            }
+            var written = new MockClientHttpRequest(HttpMethod.POST, URI.create("http://orshot.test"));
+            request.writeTo(written, ExchangeStrategies.withDefaults()).block();
+            String body = written.getBodyAsString().block();
+            assertThat(body).contains("\"page1@headliner\":\"AX 개발자\"", "\"page2@venue_line\":\"서울\"");
+            if (body.contains("\"format\":\"mp4\"")) {
+                assertThat(body).contains("\"combinePages\":true").doesNotContain("pageTransition", "includePages");
+                return Mono.just(json("{\"data\":{\"content\":\"https://storage.orshot.com/test/scenes.mp4\"}}"));
+            }
+            assertThat(body).contains("\"includePages\":[1]").doesNotContain("videoOptions");
+            return Mono.just(json("{\"data\":{\"content\":\"" + background + "\"}}"));
+        }), "test-key", "11");
+        var posting = org.mockito.Mockito.mock(PostingView.class);
+        org.mockito.Mockito.when(posting.content()).thenReturn(new PostingContent(
+                "AX 개발자", "개발", "정규직", "", "서울", "", List.of(), List.of(), List.of(), List.of()));
+        assertThat(library.renderOriginal(11, posting).motionUrl())
+                .isEqualTo("https://storage.orshot.com/test/scenes.mp4");
     }
 
     @Test

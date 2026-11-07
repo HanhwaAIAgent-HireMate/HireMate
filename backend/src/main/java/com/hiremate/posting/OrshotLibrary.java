@@ -155,23 +155,21 @@ public class OrshotLibrary {
                     .filter(value -> value != null && !value.isBlank())
                     .collect(java.util.stream.Collectors.joining(" · "));
             Map<String, Object> modifications = new LinkedHashMap<>();
+            boolean hasHeadline = false;
             for (JsonNode field : metadata.path("modifications")) {
                 String name = field.path("key").asString("");
                 if (name.equals("hm_corner_dots") && field.path("type").asString("").equals("imageUrl")) {
                     modifications.put(name + ".opacity", 0);
                 }
-                if (!name.matches("[a-zA-Z0-9_-]{1,100}") || !field.path("type").asString("").equals("text")) {
+                if (!name.matches("(?:page[1-9][0-9]*@)?[a-zA-Z0-9_-]{1,100}")
+                        || !field.path("type").asString("").equals("text")) {
                     continue;
                 }
-                String value = switch (name) {
-                    case "company_name", "brand_name", "company" -> posting.companyName();
-                    case "headline", "title" -> role;
-                    case "role_title", "badge_text" -> badge;
-                    case "subtitle" -> content.employmentType();
-                    case "cta_text" -> "채용 안내";
-                    case "website", "footer_text" -> content.location();
-                    default -> "";
-                };
+                String key = name.substring(name.indexOf('@') + 1);
+                boolean headline = Set.of("headline", "title", "role_title", "hook_headline", "hm_recruitment_title",
+                        "hook", "headliner", "quote", "property_address").contains(key);
+                hasHeadline |= headline;
+                String value = headline && !key.equals("role_title") ? role : recruitmentText(key, posting, badge);
                 modifications.put(name, value == null ? "" : value);
                 modifications.put(name + ".fontFamily", "Noto Sans KR");
                 // 빈 문자열은 제공처에서 예시 문구를 유지할 수 있으므로 명시적으로 숨긴다.
@@ -179,7 +177,7 @@ public class OrshotLibrary {
                     modifications.put(name + ".opacity", 0);
                 }
             }
-            if (!modifications.containsKey("headline") && !modifications.containsKey("title")) {
+            if (!hasHeadline) {
                 throw new IllegalArgumentException("No editable headline");
             }
             int sourceWidth = metadata.path("canvas_width").asInt();
@@ -190,10 +188,15 @@ public class OrshotLibrary {
             String layoutStyle = layoutStyle(metadata);
             int renderHeight = Math.max(2, 2 * (int) Math.round(sourceHeight * 300.0 / sourceWidth));
             Map<String, Object> imageResponse = layoutStyle == null
-                    ? Map.of("type", "base64", "format", "jpg", "quality", 70)
-                    : Map.of("type", "base64", "format", "jpg", "quality", 70,
+                    ? Map.of("type", "base64", "format", "jpg", "quality", 88)
+                    : Map.of("type", "base64", "format", "jpg", "quality", 88,
                             "width", 600, "height", renderHeight);
-            String image = renderAsset(id, modifications, imageResponse);
+            boolean multiPage = metadata.path("pages_data").size() > 1;
+            if (multiPage) {
+                imageResponse = new LinkedHashMap<>(imageResponse);
+                imageResponse.put("includePages", List.of(1));
+            }
+            String image = renderAsset(id, modifications, imageResponse, Map.of());
             if (!image.matches("^data:image/(jpeg|jpg);base64,[A-Za-z0-9+/=]+$") || image.length() > 3500000) {
                 throw new IllegalArgumentException("Invalid original image");
             }
@@ -202,16 +205,19 @@ public class OrshotLibrary {
             boolean legacyBody = java.util.stream.StreamSupport.stream(
                     metadata.path("modifications").spliterator(), false)
                     .anyMatch(field -> field.path("key").asString("").equals("hm_intro_text"));
-            Header header = layoutStyle != null ? creativeHeader(image, sourceWidth)
+            Header header = layoutStyle != null ? creativeHeader(image, sourceWidth, layoutStyle)
                     : legacyBody ? legacyHeader(image) : new Header(image, 600, motionHeight);
             if (header.background().length() > 160000) {
                 throw new IllegalArgumentException("Original image too large");
             }
             String motion = null;
             if (hasMotion(metadata)) {
+                int videoWidth = Math.min(900, sourceWidth) / 2 * 2;
+                int videoHeight = Math.max(2, 2 * (int) Math.round(sourceHeight * videoWidth / (2.0 * sourceWidth)));
                 motion = renderAsset(id, modifications, layoutStyle == null
                         ? Map.of("type", "url", "format", "mp4")
-                        : Map.of("type", "url", "format", "mp4", "width", 600, "height", renderHeight));
+                        : Map.of("type", "url", "format", "mp4", "width", videoWidth, "height", videoHeight),
+                        multiPage ? Map.of("combinePages", true) : Map.of());
                 if (!motion.matches("https://storage\\.orshot\\.com/[A-Za-z0-9_./-]+\\.mp4")) {
                     throw new IllegalArgumentException("Invalid original video");
                 }
@@ -227,9 +233,56 @@ public class OrshotLibrary {
         }
     }
 
+    private static String recruitmentText(String key, PostingView posting, String badge) {
+        var content = posting.content();
+        return switch (key) {
+            case "company_name", "brand_name", "company", "site_name", "author_name", "event_name",
+                    "hm_recruitment_company",
+                    "brokerage_name", "handle", "agent_name" -> posting.companyName();
+            case "role_title", "badge_text", "recap_line" -> badge;
+            case "subtitle", "a_pill_text", "stat_1_value", "author_role", "s1_chip" -> content.employmentType();
+            case "location_line", "city", "venue_line", "venue", "open_house_line",
+                    "website", "footer_text", "stat_3_value", "s3_chip" -> content.location();
+            case "salary_line", "list_price" -> content.salary();
+            case "stat_2_value", "s2_chip" -> content.career();
+            case "stat_4_value", "s4_chip" -> content.position();
+            case "a_label", "listing_status", "category", "collection_label", "eyebrow", "live_text",
+                    "hm_recruitment_label",
+                    "badge", "s1_kicker", "hook_text" -> "채용 공고";
+            case "b_label" -> "근무 조건";
+            case "c_label", "cta_text", "end_label", "end_title", "end_headline", "tagline" -> "채용 안내";
+            case "price_label" -> "급여";
+            case "stat_1_label" -> "고용 형태";
+            case "stat_2_label" -> "경력";
+            case "stat_3_label", "open_house_label" -> "근무지";
+            case "stat_4_label" -> "직급";
+            case "features_title", "s3_kicker" -> "주요 업무";
+            case "benefit_1", "benefit_2", "benefit_3" -> listEntry(content.benefits(), key.charAt(key.length() - 1));
+            case "b1_plus", "b2_plus", "b3_plus" -> listEntry(content.benefits(), key.charAt(1)).isBlank() ? "" : "+";
+            case "feature_1", "feature_2", "feature_3", "feature_4", "item_1", "item_2", "item_3",
+                    "item_4", "item_5", "track_1", "track_2", "track_3", "habit_1", "habit_2", "habit_3" ->
+                    listEntry(content.duties(), key.charAt(key.length() - 1));
+            case "excerpt" -> content.intro();
+            case "genre_tags", "hook_subtext", "offer_text", "details" -> content.jobCategory();
+            case "product_1_name", "product_2_name", "product_3_name", "product_4_name" ->
+                    listEntry(content.duties(), key.charAt(8));
+            case "product_1_details", "product_2_details", "product_3_details", "product_4_details" ->
+                    listEntry(content.qualifications(), key.charAt(8));
+            case "n1", "n2", "n3", "n4", "n5" -> key.substring(1);
+            default -> "";
+        };
+    }
+
+    private static String listEntry(List<String> entries, char number) {
+        int index = number - '1';
+        return entries != null && index < entries.size() ? entries.get(index) : "";
+    }
+
     private static String layoutStyle(JsonNode metadata) {
         Set<String> allowed = Set.of("MAGAZINE", "COLLAGE", "FEATURE", "POSTCARD", "CINEMA",
-                "TYPE", "AURORA", "RIBBON", "ORBIT");
+                "TYPE", "AURORA", "RIBBON", "ORBIT",
+                "REEL_HIRING", "REEL_EDITORIAL", "REEL_STUDIO", "REEL_TYPE", "REEL_NEON",
+                "REEL_EVENT", "REEL_BEATS", "REEL_PRODUCT", "REEL_SPACE", "REEL_LIVING");
         for (JsonNode tag : metadata.path("tags")) {
             String text = tag.asString("");
             if (text.startsWith("hiremate-layout:") && allowed.contains(text.substring(16))) {
@@ -239,11 +292,12 @@ public class OrshotLibrary {
         return null;
     }
 
-    private static Header creativeHeader(String image, int sourceWidth) {
+    private static Header creativeHeader(String image, int sourceWidth, String layoutStyle) {
         try {
             BufferedImage full = ImageIO.read(new ByteArrayInputStream(
                     Base64.getDecoder().decode(image.substring(image.indexOf(',') + 1))));
-            int height = Math.min(full.getHeight(), (int) Math.round(900 * 600.0 / sourceWidth));
+            int sourceHeaderHeight = layoutStyle.startsWith("REEL_") ? 720 : 900;
+            int height = Math.min(full.getHeight(), (int) Math.round(sourceHeaderHeight * 600.0 / sourceWidth));
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             ImageIO.write(full.getSubimage(0, 0, 600, height), "jpg", output);
             return new Header("data:image/jpeg;base64," + Base64.getEncoder().encodeToString(output.toByteArray()),
@@ -268,6 +322,9 @@ public class OrshotLibrary {
                 int scaledHeight = (int) Math.round(height * 600.0 / width);
                 if (width < 30 || width > 6000 || height > 6000 || scaledHeight < 30 || scaledHeight > 3000) {
                     throw new IllegalArgumentException("Invalid original dimensions");
+                }
+                if (width == 600 && reader.getFormatName().equalsIgnoreCase("JPEG")) {
+                    return image;
                 }
                 BufferedImage scaled = new BufferedImage(600, scaledHeight, BufferedImage.TYPE_INT_RGB);
                 var graphics = scaled.createGraphics();
@@ -353,10 +410,15 @@ public class OrshotLibrary {
         }
     }
 
-    private String renderAsset(long id, Map<String, Object> modifications, Map<String, Object> response) {
+    private String renderAsset(long id, Map<String, Object> modifications, Map<String, Object> response,
+            Map<String, Object> videoOptions) {
+        Map<String, Object> request = new LinkedHashMap<>(Map.of(
+                "templateId", id, "lang", "ko", "modifications", modifications, "response", response));
+        if (!videoOptions.isEmpty()) {
+            request.put("videoOptions", videoOptions);
+        }
         JsonNode result = http.post().uri("/v1/studio/render").headers(headers -> headers.setBearerAuth(key))
-                .bodyValue(Map.of("templateId", id, "lang", "ko", "modifications", modifications,
-                        "response", response)).retrieve().bodyToMono(JsonNode.class).block(Duration.ofSeconds(90));
+                .bodyValue(request).retrieve().bodyToMono(JsonNode.class).block(Duration.ofSeconds(90));
         JsonNode data = result == null ? null : result.path("data");
         if (data != null && data.isArray()) {
             if (data.size() != 1) {

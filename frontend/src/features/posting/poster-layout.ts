@@ -550,13 +550,63 @@ export async function layoutNativePoster(
       )
         node.set({ top: Math.max(node.top, previous.top + previous.getScaledHeight() + 20) })
   })
-  const bottom = Math.max(
+  const portraitCover = target
+    .getObjects()
+    .find(
+      (object) =>
+        doc.originalRender && object.get('hmId') === 'canva-header' && object.height > object.width,
+    )
+  let bottom = Math.max(
     layout.headerBottom,
     (tags?.top ?? 0) + (tags?.getScaledHeight() ?? 0) + 24,
     (title?.top ?? 0) + (title?.getScaledHeight() ?? 0) + 32,
     (company?.top ?? 0) + (company?.getScaledHeight() ?? 0) + 32,
     (tagline?.top ?? 0) + (tagline?.getScaledHeight() ?? 0) + 32,
   )
+  if (portraitCover) {
+    const scale = Math.min(244 / portraitCover.width, 408 / portraitCover.height)
+    portraitCover.set({
+      left: 560 - portraitCover.width * scale,
+      top: 24,
+      scaleX: scale,
+      scaleY: scale,
+    })
+    const accent = readable(exemplar.accent, layout.paper)
+    const start = design?.showLogo && design.logoFileId ? 106 : 54
+    const label = text('채용 공고', 40, start, 240, {
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: accent,
+    })
+    const companyLabel = text(values.company, 40, label.top + label.getScaledHeight() + 14, 240, {
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: accent,
+    })
+    const titleLabel = text(
+      values.title,
+      40,
+      companyLabel.top + companyLabel.getScaledHeight() + 14,
+      240,
+      {
+        fontSize: 36,
+        fontWeight: 'bold',
+        fill: ink(layout.paper),
+      },
+    )
+    titleLabel.set({ hmId: 'title' })
+    const details = [employmentType, career, location].filter(Boolean).join(' · ')
+    const description = text(details, 40, titleLabel.top + titleLabel.getScaledHeight() + 16, 240, {
+      fontSize: 14,
+      fontWeight: 'normal',
+      fill: ink(layout.paper),
+    })
+    bottom = Math.max(
+      portraitCover.top + portraitCover.getScaledHeight() + 24,
+      description.top + description.getScaledHeight() + 24,
+    )
+    rect(40, bottom, 520, 1, exemplar.rule).set({ hmId: 'orshot-cover-end' })
+  }
   for (const object of target.getObjects()) {
     if (object.get('hmId') === 'generated-banner' && object instanceof F.FabricImage) {
       const original = object.getOriginalSize()
@@ -588,7 +638,7 @@ export async function layoutNativePoster(
       object.set({ scaleY: (bottom - object.top) / object.height })
       continue
     }
-    if (object.get('hmId') === 'canva-header') {
+    if (object.get('hmId') === 'canva-header' && object !== portraitCover) {
       object.set({ scaleY: bottom / object.height })
       if (!doc.originalRender && doc.source.id === 'orshot:36661') {
         // 원본에 구워진 짧은 CTA가 보이지 않는 사진 영역만 사용한다.

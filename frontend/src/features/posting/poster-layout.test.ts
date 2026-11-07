@@ -9,6 +9,97 @@ import {
 import type { PosterPosting } from './PostingPoster'
 import { initialPoster } from './poster-design'
 
+it('세로 Orshot 원본의 비율을 유지하며 채용 제목과 본문 사이 높이를 줄인다', async () => {
+  const F = await import('fabric')
+  const target = new F.StaticCanvas(document.createElement('canvas'), { width: 600, height: 1800 })
+  try {
+    const image = document.createElement('canvas')
+    image.width = 600
+    image.height = 1067
+    const cover = new F.FabricImage(image, { hmId: 'canva-header' })
+    target.add(cover)
+    const posting: PosterPosting = {
+      companyName: '가온금융',
+      openAt: null,
+      closeAt: null,
+      content: {
+        title: 'AX 개발자',
+        intro: '디지털 금융을 만듭니다.',
+        jobCategory: '개발',
+        employmentType: '정규직',
+        career: '신입',
+        location: '서울',
+        duties: [],
+        qualifications: [],
+        preferred: [],
+        benefits: [],
+        roles: [],
+        headcount: null,
+        position: '',
+        education: '',
+        workHours: '',
+        salary: '',
+        blind: false,
+      },
+      stages: [],
+      documents: [],
+      notices: [],
+    }
+    const style = { fontSize: 14, fill: '#101820', fontWeight: 'normal' }
+    const doc: PosterCanvas = {
+      width: 600,
+      height: 1800,
+      originalRender: true,
+      source: {
+        id: 'orshot:11',
+        name: '채용 영상',
+        url: 'https://orshot.com/templates/',
+        license: '',
+      },
+      objects: [],
+      nativeLayout: {
+        version: 1,
+        paper: '#ffffff',
+        headerBottom: 1067,
+        sections: [
+          {
+            binding: 'intro',
+            left: 40,
+            top: 1107,
+            width: 520,
+            height: 100,
+            heading: style,
+            body: style,
+            accent: '#082858',
+            rule: '#dce4ef',
+            card: '#f2f6fb',
+            lastCard: '#082858',
+            cardInk: '#ffffff',
+          },
+        ],
+      },
+    }
+    await layoutNativePoster(target, doc, posting)
+    const divider = target.getObjects().find((node) => node.get('hmId') === 'orshot-cover-end')!
+    const title = target.getObjects().find((node) => node.get('hmId') === 'title')!
+    expect(cover.scaleX).toBe(cover.scaleY)
+    expect(divider.top).toBeLessThan(500)
+    expect(title.left + title.getScaledWidth()).toBeLessThan(cover.left)
+    expect(
+      target
+        .getObjects()
+        .some(
+          (node) =>
+            node instanceof F.Textbox &&
+            node.text.includes('디지털 금융을 만듭니다.') &&
+            node.top > divider.top,
+        ),
+    ).toBe(true)
+  } finally {
+    await target.dispose()
+  }
+})
+
 it.each([
   { edition: 3, body: 'EDITORIAL' as const },
   { edition: 3, body: 'PANELS' as const },
