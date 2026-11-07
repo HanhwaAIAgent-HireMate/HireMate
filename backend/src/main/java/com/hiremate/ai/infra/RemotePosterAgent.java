@@ -26,6 +26,12 @@ class RemotePosterAgent implements PosterAgent {
     }
 
     @Override
+    public PosterProposal generate(PosterContext context, String request) {
+        return client.post(AiAgent.POSTING, "design", Map.of("context", context, "request", request,
+                "generateOnly", true), PosterProposal.class);
+    }
+
+    @Override
     public CanvaMapping mapCanva(List<CanvaRegion> regions) {
         return client.post(AiAgent.POSTING, "map-canva", Map.of("regions", regions), CanvaMapping.class);
     }

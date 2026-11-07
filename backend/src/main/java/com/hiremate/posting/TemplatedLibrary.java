@@ -2,6 +2,8 @@ package com.hiremate.posting;
 
 import com.hiremate.global.ApiException;
 import com.hiremate.posting.PosterProposal.FreeTemplate;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -32,16 +34,20 @@ public class TemplatedLibrary {
     }
 
     public List<FreeTemplate> search(String query) {
+        return search(query, Set.of());
+    }
+
+    public List<FreeTemplate> search(String query, Set<String> excluded) {
+        return search(query, excluded, false);
+    }
+
+    public List<FreeTemplate> search(String query, Set<String> excluded, boolean includeRelated) {
         if (key.isEmpty()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "TEMPLATED_NOT_CONFIGURED",
                     "외부 템플릿 서비스 연결 설정이 필요해요.");
         }
         try {
-            List<JsonNode> rows = new ArrayList<>();
-            JsonNode gallery = get("/v1/templates/gallery?limit=100&includeLayers=true");
-            if (gallery != null && gallery.isArray()) {
-                gallery.forEach(rows::add);
-            }
+            List<JsonNode> rows = gallery(query);
             // 계정 전체 라이브러리를 조회하지 않는다. 관리자가 승인한 공용 디자인만 포함한다.
             for (String id : sharedIds) {
                 JsonNode shared = get("/v1/template/" + id + "?includeLayers=true");
@@ -49,13 +55,36 @@ public class TemplatedLibrary {
                     rows.add(shared);
                 }
             }
-            return candidates(rows, query);
+            List<JsonNode> eligible = rows.stream()
+                    .filter(row -> !excluded.contains("templated:" + row.path("id").asString("")))
+                    .toList();
+            List<FreeTemplate> matched = candidates(eligible, query);
+            if (includeRelated && matched.isEmpty()) {
+                List<JsonNode> related = gallery("recruitment hiring").stream()
+                        .filter(row -> !excluded.contains("templated:" + row.path("id").asString("")))
+                        .toList();
+                return candidates(related, "recruitment hiring vacancy careers");
+            }
+            return matched;
         } catch (ApiException exception) {
             throw exception;
         } catch (RuntimeException exception) {
             throw new ApiException(HttpStatus.BAD_GATEWAY, "TEMPLATED_UNAVAILABLE",
                     "외부 템플릿을 조회하지 못했어요. 연결 설정을 확인하고 다시 요청해 주세요.");
         }
+    }
+
+    private List<JsonNode> gallery(String query) {
+        List<JsonNode> rows = new ArrayList<>();
+        for (String word : java.util.Arrays.stream(query.split("\\s+"))
+                .filter(word -> word.length() > 2).distinct().limit(4).toList()) {
+            JsonNode page = get("/v1/templates/gallery?limit=100&includeLayers=true&query="
+                    + URLEncoder.encode(word, StandardCharsets.UTF_8));
+            if (page != null && page.isArray()) {
+                page.forEach(rows::add);
+            }
+        }
+        return rows;
     }
 
     private JsonNode get(String path) {
@@ -66,6 +95,7 @@ public class TemplatedLibrary {
     static List<FreeTemplate> candidates(List<JsonNode> rows, String query) {
         Set<String> ids = new HashSet<>();
         Set<String> names = new HashSet<>();
+        Set<String> layouts = new HashSet<>();
         List<FreeTemplate> result = new ArrayList<>();
         for (JsonNode row : rows.stream().sorted(Comparator.comparingInt(
                 (JsonNode item) -> score(item, query)).reversed()).toList()) {
@@ -76,7 +106,7 @@ public class TemplatedLibrary {
                 continue;
             }
             String svg = preview(row);
-            if (svg != null) {
+            if (svg != null && layouts.add(layoutKey(row))) {
                 result.add(new FreeTemplate("templated:" + id, name.substring(0, Math.min(name.length(), 100)),
                         "https://templated.io/templates/", "Templated 테마", svg,
                         row.path("thumbnail").asString("")));
@@ -86,6 +116,21 @@ public class TemplatedLibrary {
             }
         }
         return List.copyOf(result);
+    }
+
+    /** 문구와 색만 다른 복제본은 같은 후보로 취급한다. */
+    private static String layoutKey(JsonNode row) {
+        StringBuilder key = new StringBuilder().append(row.path("width").asInt())
+                .append(':').append(row.path("height").asInt());
+        for (JsonNode layer : row.path("layers")) {
+            if (!layer.path("hide").asBoolean(false)) {
+                key.append('|').append(layer.path("type").asString(""));
+                for (String field : List.of("x", "y", "width", "height")) {
+                    key.append(':').append(Math.round(dimension(layer, field) / 8));
+                }
+            }
+        }
+        return key.toString();
     }
 
     private static int score(JsonNode row, String query) {

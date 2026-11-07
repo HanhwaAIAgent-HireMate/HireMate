@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
+import com.hiremate.company.CompanyService;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -19,9 +20,12 @@ import java.util.UUID;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.JsonNode;
 
 class PosterTests extends IntegrationTest {
+    @Autowired
+    private CompanyService companies;
 
     @Test
     @DisplayName("외부 포스터 요소와 출처를 저장하고 게시 후에도 그대로 조회한다")
@@ -32,16 +36,18 @@ class PosterTests extends IntegrationTest {
         String canvas = "{\"width\":600,\"height\":900,\"objects\":[],\"source\":{\"license\":\"CC0 1.0\"}}";
         PosterDesign design = new PosterDesign(PosterDesign.Template.CLASSIC, PosterDesign.Mood.TRUST,
                 "#2459a6", 1, true, false, null, PosterDesign.BackgroundStyle.SOLID,
-                Map.of(), List.of(), canvas, "새로운 도전을 함께 시작합니다");
+                Map.of(), List.of(), canvas, "새로운 도전을 함께 시작합니다", PosterDesign.Motion.WAVE);
         JsonNode saved = json(expect(hr.put(base + "/poster", design), 200));
         assertThat(saved.path("poster").path("canvasJson").asString()).isEqualTo(canvas);
         assertThat(saved.path("poster").path("tagline").asString()).isEqualTo(design.tagline());
+        assertThat(saved.path("poster").path("motion").asString()).isEqualTo("WAVE");
         expect(hr.post(base + "/publish", Map.of("openAt", Instant.now().minusSeconds(60).toString(),
                 "closeAt", Instant.now().plusSeconds(3600).toString())), 200);
         JsonNode published = json(expect(anonymous().get("/api/public/postings/"
                 + draft.path("postingId").asString()), 200));
         assertThat(published.path("poster").path("canvasJson").asString()).isEqualTo(canvas);
         assertThat(published.path("poster").path("tagline").asString()).isEqualTo(design.tagline());
+        assertThat(published.path("poster").path("motion").asString()).isEqualTo("WAVE");
         expect(hr.put(base + "/poster", design), 409);
     }
 
@@ -58,10 +64,14 @@ class PosterTests extends IntegrationTest {
                 "color", "#2459a6", "decoration", 1, "enabled", true, "showLogo", false,
                 "stageIcons", Map.of("실무면접", "USERS"), "readableSections", List.of(2)));
         JsonNode saved = json(expect(hr.put(base + "/poster", design), 200));
+        assertThat(saved.path("poster").path("motion").asString()).isEqualTo("NONE");
         assertThat(saved.path("poster").path("stageIcons").path("실무면접").asString()).isEqualTo("USERS");
         assertThat(saved.path("stages")).isEqualTo(before);
         assertThat(saved.path("poster").path("readableSections").get(0).asInt()).isEqualTo(2);
         design.put("stageIcons", Map.of("없는 전형", "HEALTH"));
+        expect(hr.put(base + "/poster", design), 400);
+        design.put("stageIcons", Map.of());
+        design.put("motion", "SCRIPT");
         expect(hr.put(base + "/poster", design), 400);
     }
 
@@ -113,6 +123,32 @@ class PosterTests extends IntegrationTest {
                 .path("templates").size()).isZero();
         expect(hr.post("/api/companies/me/poster-brand/templates", Map.of("name", " ",
                 "template", "CLASSIC", "color", "#2459a6")), 400);
+    }
+
+    @Test
+    @DisplayName("같은 외부 원본을 이름만 바꿔 저장해도 회사 템플릿이 중복되지 않는다")
+    void externalOriginIsIdempotentAcrossNames() throws Exception {
+        TestApi hr = newHr();
+        String path = "/api/companies/me/poster-brand/templates";
+        String canvas = "{\"width\":600,\"height\":900,\"objects\":[],\"source\":{\"id\":\"orshot:11\"}}";
+        JsonNode first = json(expect(hr.post(path, Map.of("name", "외부템플릿1", "template", "CLASSIC",
+                "color", "#082858", "canvasJson", canvas)), 200));
+        JsonNode again = json(expect(hr.post(path, Map.of("name", "외부템플릿2", "template", "CLASSIC",
+                "color", "#082858", "canvasJson", canvas)), 200));
+        assertThat(again.path("templates")).isEqualTo(first.path("templates"));
+        assertThat(again.path("templates").size()).isEqualTo(1);
+        companies.attachPosterTemplateMotion(hr.companyId(), "orshot:11", "https://storage.orshot.com/test/video.mp4",
+                600, 360, "data:image/jpeg;base64,AA==");
+        JsonNode enriched = json(expect(hr.get("/api/companies/me/poster-brand"), 200));
+        assertThat(enriched.path("templates").size()).isEqualTo(1);
+        assertThat(enriched.path("templates").path(0).path("id"))
+                .isEqualTo(first.path("templates").path(0).path("id"));
+        assertThat(enriched.path("templates").path(0).path("name").asString()).isEqualTo("외부템플릿1");
+        var enrichedCanvas = com.hiremate.global.JsonText.read(
+                enriched.path("templates").path(0).path("canvasJson").asString(), JsonNode.class);
+        assertThat(enrichedCanvas.path("source").path("id").asString()).isEqualTo("orshot:11");
+        assertThat(enrichedCanvas.path("media").path("url").asString()).endsWith("/test/video.mp4");
+        assertThat(enrichedCanvas.path("media").path("version").asInt()).isEqualTo(2);
     }
 
     @Test
@@ -235,5 +271,22 @@ class PosterTests extends IntegrationTest {
         assertThat(body).contains("PosterDesign", "/api/companies/me/poster-brand",
                 "/api/recruitments/{recruitmentId}/posting/poster");
         Files.writeString(Path.of("build", "openapi.json"), body);
+    }
+
+    @Test
+    @DisplayName("생성한 디자인 세 개의 대화를 유지하고 네 개 이상은 거부한다")
+    void acceptsThreeRecommendationsInHistory() throws Exception {
+        TestApi hr = newHr();
+        JsonNode draft = json(expect(hr.post("/api/recruitments", null), 201));
+        String base = "/api/recruitments/" + draft.path("recruitmentId").asString() + "/posting";
+        Map<String, Object> recommendation = Map.of("design", draft.path("poster"), "reason", "다른 디자인 구성");
+        Map<String, Object> valid = Map.of("role", "ASSISTANT", "text", "새 템플릿 세 개",
+                "recommendations", Collections.nCopies(3, recommendation));
+        expect(hr.post(base + "/poster/ai-requests", Map.of("message", "세 번째 디자인으로",
+                "history", List.of(valid))), 200);
+        Map<String, Object> invalid = Map.of("role", "ASSISTANT", "text", "잘못된 후보 수",
+                "recommendations", Collections.nCopies(4, recommendation));
+        expect(hr.post(base + "/poster/ai-requests", Map.of("message", "이 디자인으로",
+                "history", List.of(invalid))), 400);
     }
 }
