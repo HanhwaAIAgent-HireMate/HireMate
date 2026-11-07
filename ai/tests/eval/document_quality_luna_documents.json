@@ -1,0 +1,345 @@
+{
+  "resume": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "RESUME",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1"
+        ],
+        "type": "paragraph",
+        "role": "body",
+        "text": "SAMPLE RESUME"
+      },
+      {
+        "id": "b000002",
+        "sourceIds": [
+          "s2"
+        ],
+        "type": "section",
+        "title": "Skills Work History",
+        "blocks": [
+          {
+            "id": "b000003",
+            "sourceIds": [
+              "s3"
+            ],
+            "type": "paragraph",
+            "role": "body",
+            "text": "Python Orion Lab"
+          },
+          {
+            "id": "b000004",
+            "sourceIds": [
+              "s4"
+            ],
+            "type": "paragraph",
+            "role": "body",
+            "text": "SQL Built a data pipeline 25% faster."
+          }
+        ]
+      },
+      {
+        "id": "b000005",
+        "sourceIds": [
+          "s5"
+        ],
+        "type": "paragraph",
+        "role": "page_footer",
+        "text": "SAMPLE RESUME | 1"
+      }
+    ]
+  },
+  "cover_letter": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "COVER_LETTER",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1"
+        ],
+        "type": "paragraph",
+        "role": "page_header",
+        "text": "C O V E R  L E T T E R"
+      },
+      {
+        "id": "b000002",
+        "sourceIds": [
+          "s2"
+        ],
+        "type": "section",
+        "title": "Motivation",
+        "blocks": [
+          {
+            "id": "b000003",
+            "sourceIds": [
+              "s3",
+              "s4"
+            ],
+            "type": "paragraph",
+            "role": "body",
+            "text": "I worked with users to improve a booking process by 25%."
+          },
+          {
+            "id": "b000004",
+            "sourceIds": [
+              "s5"
+            ],
+            "type": "paragraph",
+            "role": "body",
+            "text": "I verified each change with data."
+          }
+        ]
+      },
+      {
+        "id": "b000005",
+        "sourceIds": [
+          "s6"
+        ],
+        "type": "paragraph",
+        "role": "page_footer",
+        "text": "SAMPLE LETTER | 1"
+      }
+    ]
+  },
+  "portfolio": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "PORTFOLIO",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1"
+        ],
+        "type": "paragraph",
+        "role": "page_header",
+        "text": "SAMPLE PORTFOLIO"
+      },
+      {
+        "id": "b000002",
+        "sourceIds": [
+          "s2"
+        ],
+        "type": "section",
+        "title": "Project Results",
+        "blocks": [
+          {
+            "id": "b000003",
+            "sourceIds": [
+              "s3",
+              "s4"
+            ],
+            "type": "list",
+            "items": [
+              {
+                "marker": "-",
+                "text": "Reduced wait time",
+                "children": []
+              },
+              {
+                "marker": "-",
+                "text": "Improved reliability",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "b000004",
+            "sourceIds": [
+              "s5",
+              "s6",
+              "s7"
+            ],
+            "type": "table",
+            "caption": null,
+            "headers": [
+              "Metric",
+              "Before",
+              "After"
+            ],
+            "rows": [
+              [
+                "Latency",
+                "4.1s",
+                "2.3s"
+              ],
+              [
+                "Failures",
+                "11",
+                "2"
+              ]
+            ]
+          },
+          {
+            "id": "b000005",
+            "sourceIds": [
+              "s8"
+            ],
+            "type": "reference",
+            "kind": "possible_visual",
+            "text": "Performance chart",
+            "notice": "관련 시각 자료가 있을 수 있습니다. 원본 PDF를 확인해 주세요."
+          }
+        ]
+      },
+      {
+        "id": "b000006",
+        "sourceIds": [
+          "s9"
+        ],
+        "type": "paragraph",
+        "role": "page_footer",
+        "text": "SAMPLE PORTFOLIO | 1"
+      },
+      {
+        "id": "b000007",
+        "sourceIds": [
+          "s10"
+        ],
+        "type": "paragraph",
+        "role": "page_header",
+        "text": "SAMPLE PORTFOLIO"
+      },
+      {
+        "id": "b000008",
+        "sourceIds": [
+          "s11"
+        ],
+        "type": "section",
+        "title": "Implementation",
+        "blocks": [
+          {
+            "id": "b000009",
+            "sourceIds": [
+              "s12"
+            ],
+            "type": "paragraph",
+            "role": "body",
+            "text": "The following code shows the calculation."
+          },
+          {
+            "id": "b000010",
+            "sourceIds": [
+              "s13",
+              "s14"
+            ],
+            "type": "paragraph",
+            "role": "body",
+            "text": "def latency_ms(value):\nreturn value * 1000"
+          }
+        ]
+      },
+      {
+        "id": "b000011",
+        "sourceIds": [
+          "s15"
+        ],
+        "type": "paragraph",
+        "role": "page_footer",
+        "text": "SAMPLE PORTFOLIO | 2"
+      }
+    ]
+  },
+  "korean": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "COVER_LETTER",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1"
+        ],
+        "type": "section",
+        "title": "자기소개서",
+        "blocks": [
+          {
+            "id": "b000002",
+            "sourceIds": [
+              "s2"
+            ],
+            "type": "section",
+            "title": "지원동기",
+            "blocks": [
+              {
+                "id": "b000003",
+                "sourceIds": [
+                  "s3",
+                  "s4"
+                ],
+                "type": "paragraph",
+                "role": "body",
+                "text": "예약 변경 정책을 데이터로 확인했습니다."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b000004",
+        "sourceIds": [
+          "s5"
+        ],
+        "type": "paragraph",
+        "role": "unassigned",
+        "text": "지원서 1"
+      }
+    ]
+  },
+  "korean_parser_text": {
+    "schemaVersion": 1,
+    "documentId": "00000000-0000-0000-0000-000000000001",
+    "revision": 1,
+    "documentType": "COVER_LETTER",
+    "blocks": [
+      {
+        "id": "b000001",
+        "sourceIds": [
+          "s1"
+        ],
+        "type": "section",
+        "title": "자기소개서",
+        "blocks": [
+          {
+            "id": "b000002",
+            "sourceIds": [
+              "s2"
+            ],
+            "type": "section",
+            "title": "지원동기",
+            "blocks": [
+              {
+                "id": "b000003",
+                "sourceIds": [
+                  "s3",
+                  "s4"
+                ],
+                "type": "paragraph",
+                "role": "body",
+                "text": "예약 변경 정책을 데이터로 확인했습니다."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b000004",
+        "sourceIds": [
+          "s5"
+        ],
+        "type": "paragraph",
+        "role": "unassigned",
+        "text": "지원서 1"
+      }
+    ]
+  }
+}

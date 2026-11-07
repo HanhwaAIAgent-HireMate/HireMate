@@ -1,0 +1,67 @@
+%PDF-1.4
+%fixture
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 2 /Kids [4 0 R 6 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 831 >>
+stream
+BT /F1 18 Tf 1 0 0 1 70 748 Tm (SAMPLE PORTFOLIO) Tj ET
+BT /F1 14 Tf 1 0 0 1 70 710 Tm (Project Results) Tj ET
+BT /F1 11 Tf 1 0 0 1 70 680 Tm (- Reduced wait time) Tj ET
+BT /F1 11 Tf 1 0 0 1 70 660 Tm (- Improved reliability) Tj ET
+BT /F1 11 Tf 1 0 0 1 70 620 Tm (Metric) Tj ET
+BT /F1 11 Tf 1 0 0 1 240 620 Tm (Before) Tj ET
+BT /F1 11 Tf 1 0 0 1 330 620 Tm (After) Tj ET
+BT /F1 11 Tf 1 0 0 1 70 600 Tm (Latency) Tj ET
+BT /F1 11 Tf 1 0 0 1 240 600 Tm (4.1s) Tj ET
+BT /F1 11 Tf 1 0 0 1 330 600 Tm (2.3s) Tj ET
+BT /F1 11 Tf 1 0 0 1 70 580 Tm (Failures) Tj ET
+BT /F1 11 Tf 1 0 0 1 240 580 Tm (11) Tj ET
+BT /F1 11 Tf 1 0 0 1 330 580 Tm (2) Tj ET
+BT /F1 10 Tf 1 0 0 1 70 278 Tm (Performance chart) Tj ET
+BT /F1 9 Tf 1 0 0 1 70 55 Tm (SAMPLE PORTFOLIO | 1) Tj ET
+70 300 240 70 re S
+100 310 25 20 re f
+160 310 25 40 re f
+220 310 25 55 re f
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 371 >>
+stream
+BT /F1 12 Tf 1 0 0 1 70 748 Tm (SAMPLE PORTFOLIO) Tj ET
+BT /F1 14 Tf 1 0 0 1 70 710 Tm (Implementation) Tj ET
+BT /F1 11 Tf 1 0 0 1 70 680 Tm (The following code shows the calculation.) Tj ET
+BT /F1 11 Tf 1 0 0 1 70 655 Tm (def latency_ms\(value\):) Tj ET
+BT /F1 11 Tf 1 0 0 1 90 638 Tm (return value * 1000) Tj ET
+BT /F1 9 Tf 1 0 0 1 70 55 Tm (SAMPLE PORTFOLIO | 2) Tj ET
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000018 00000 n 
+0000000067 00000 n 
+0000000130 00000 n 
+0000000200 00000 n 
+0000000326 00000 n 
+0000001208 00000 n 
+0000001334 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1756
+%%EOF

@@ -1,0 +1,317 @@
+{
+  "approach": "rewrite",
+  "model": "gpt-6-luna",
+  "structured_output": "function_calling",
+  "temperature": 0.0,
+  "reasoning_effort": "none",
+  "langsmith_tracing": false,
+  "call_timeout_seconds": 60,
+  "document_timeout_seconds": 150,
+  "results": {
+    "resume": {
+      "outcome": "structured",
+      "error_kind": null,
+      "validation_category": null,
+      "validation_errors": [],
+      "elapsed_seconds": 2.9,
+      "model_call_records": 1,
+      "call_statuses": [
+        "OK"
+      ],
+      "input_tokens": 1046,
+      "output_tokens": 137,
+      "metrics": {
+        "document_type_matches": true,
+        "source_content_matches": true,
+        "source_numeric_matches": true,
+        "source_provenance_matches": true,
+        "all_source_ids_known": true,
+        "required_checks_pass": true,
+        "pdf_reading_order_matches": false,
+        "structure_passed": 1,
+        "structure_total": 7,
+        "structure_checks": [
+          {
+            "type": "section",
+            "value": "Skills",
+            "parent": null,
+            "pass": false
+          },
+          {
+            "type": "paragraph",
+            "value": "Python",
+            "parent": "Skills",
+            "pass": false
+          },
+          {
+            "type": "paragraph",
+            "value": "SQL",
+            "parent": "Skills",
+            "pass": false
+          },
+          {
+            "type": "section",
+            "value": "Work History",
+            "parent": null,
+            "pass": false
+          },
+          {
+            "type": "paragraph",
+            "value": "Orion Lab",
+            "parent": "Work History",
+            "pass": false
+          },
+          {
+            "type": "paragraph",
+            "value": "Built a data pipeline 25% faster.",
+            "parent": "Work History",
+            "pass": false
+          },
+          {
+            "type": "paragraph",
+            "value": "SAMPLE RESUME | 1",
+            "parent": null,
+            "pass": true
+          }
+        ]
+      }
+    },
+    "cover_letter": {
+      "outcome": "structured",
+      "error_kind": null,
+      "validation_category": null,
+      "validation_errors": [],
+      "elapsed_seconds": 2.21,
+      "model_call_records": 1,
+      "call_statuses": [
+        "OK"
+      ],
+      "input_tokens": 1077,
+      "output_tokens": 154,
+      "metrics": {
+        "document_type_matches": true,
+        "source_content_matches": true,
+        "source_numeric_matches": true,
+        "source_provenance_matches": true,
+        "all_source_ids_known": true,
+        "required_checks_pass": true,
+        "pdf_reading_order_matches": true,
+        "structure_passed": 4,
+        "structure_total": 4,
+        "structure_checks": [
+          {
+            "type": "section",
+            "value": "Motivation",
+            "parent": null,
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "I worked with users to improve a booking process by 25%.",
+            "parent": "Motivation",
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "I verified each change with data.",
+            "parent": "Motivation",
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "SAMPLE LETTER | 1",
+            "parent": null,
+            "pass": true
+          }
+        ]
+      }
+    },
+    "portfolio": {
+      "outcome": "structured",
+      "error_kind": null,
+      "validation_category": null,
+      "validation_errors": [],
+      "elapsed_seconds": 7.17,
+      "model_call_records": 2,
+      "call_statuses": [
+        "OK",
+        "OK"
+      ],
+      "input_tokens": 2625,
+      "output_tokens": 686,
+      "metrics": {
+        "document_type_matches": true,
+        "source_content_matches": true,
+        "source_numeric_matches": true,
+        "source_provenance_matches": true,
+        "all_source_ids_known": true,
+        "required_checks_pass": true,
+        "pdf_reading_order_matches": true,
+        "structure_passed": 8,
+        "structure_total": 10,
+        "structure_checks": [
+          {
+            "type": "section",
+            "value": "Project Results",
+            "parent": null,
+            "pass": true
+          },
+          {
+            "type": "list",
+            "value": "Reduced wait time|Improved reliability",
+            "parent": "Project Results",
+            "pass": true
+          },
+          {
+            "type": "table",
+            "value": "Metric|Before|After;Latency|4.1s|2.3s;Failures|11|2",
+            "parent": "Project Results",
+            "pass": true
+          },
+          {
+            "type": "reference",
+            "value": "Performance chart",
+            "parent": "Project Results",
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "SAMPLE PORTFOLIO | 1",
+            "parent": null,
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "SAMPLE PORTFOLIO",
+            "parent": null,
+            "pass": false
+          },
+          {
+            "type": "section",
+            "value": "Implementation",
+            "parent": null,
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "The following code shows the calculation.",
+            "parent": "Implementation",
+            "pass": true
+          },
+          {
+            "type": "reference",
+            "value": "",
+            "parent": "Implementation",
+            "pass": false
+          },
+          {
+            "type": "paragraph",
+            "value": "SAMPLE PORTFOLIO | 2",
+            "parent": null,
+            "pass": true
+          }
+        ]
+      }
+    },
+    "korean": {
+      "outcome": "structured",
+      "error_kind": null,
+      "validation_category": null,
+      "validation_errors": [],
+      "elapsed_seconds": 1.93,
+      "model_call_records": 1,
+      "call_statuses": [
+        "OK"
+      ],
+      "input_tokens": 1045,
+      "output_tokens": 115,
+      "metrics": {
+        "document_type_matches": true,
+        "source_content_matches": true,
+        "source_numeric_matches": true,
+        "source_provenance_matches": true,
+        "all_source_ids_known": true,
+        "required_checks_pass": true,
+        "pdf_reading_order_matches": true,
+        "structure_passed": 3,
+        "structure_total": 4,
+        "structure_checks": [
+          {
+            "type": "paragraph",
+            "value": "자기소개서",
+            "parent": null,
+            "pass": false
+          },
+          {
+            "type": "section",
+            "value": "지원동기",
+            "parent": null,
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "예약 변경 정책을 데이터로 확인했습니다.",
+            "parent": "지원동기",
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "지원서 1",
+            "parent": null,
+            "pass": true
+          }
+        ]
+      }
+    },
+    "korean_parser_text": {
+      "outcome": "structured",
+      "error_kind": null,
+      "validation_category": null,
+      "validation_errors": [],
+      "elapsed_seconds": 2.06,
+      "model_call_records": 1,
+      "call_statuses": [
+        "OK"
+      ],
+      "input_tokens": 1045,
+      "output_tokens": 115,
+      "metrics": {
+        "document_type_matches": true,
+        "source_content_matches": true,
+        "source_numeric_matches": true,
+        "source_provenance_matches": true,
+        "all_source_ids_known": true,
+        "required_checks_pass": true,
+        "pdf_reading_order_matches": null,
+        "structure_passed": 3,
+        "structure_total": 4,
+        "structure_checks": [
+          {
+            "type": "paragraph",
+            "value": "자기소개서",
+            "parent": null,
+            "pass": false
+          },
+          {
+            "type": "section",
+            "value": "지원동기",
+            "parent": null,
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "예약 변경 정책을 데이터로 확인했습니다.",
+            "parent": "지원동기",
+            "pass": true
+          },
+          {
+            "type": "paragraph",
+            "value": "지원서 1",
+            "parent": null,
+            "pass": true
+          }
+        ]
+      }
+    }
+  }
+}

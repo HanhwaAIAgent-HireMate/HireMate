@@ -1,0 +1,251 @@
+{
+  "resume": {
+    "document_type_matches": true,
+    "source_content_matches": true,
+    "source_numeric_matches": true,
+    "single_space_matches": true,
+    "source_word_matches": true,
+    "source_provenance_matches": true,
+    "all_source_ids_known": true,
+    "required_checks_pass": true,
+    "pdf_reading_order_matches": false,
+    "structure_passed": 0,
+    "structure_total": 7,
+    "structure_checks": [
+      {
+        "type": "section",
+        "value": "Skills",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "Python",
+        "parent": "Skills",
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "SQL",
+        "parent": "Skills",
+        "pass": false
+      },
+      {
+        "type": "section",
+        "value": "Work History",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "Orion Lab",
+        "parent": "Work History",
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "Built a data pipeline 25% faster.",
+        "parent": "Work History",
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "SAMPLE RESUME | 1",
+        "parent": null,
+        "pass": false
+      }
+    ]
+  },
+  "cover_letter": {
+    "document_type_matches": true,
+    "source_content_matches": true,
+    "source_numeric_matches": true,
+    "single_space_matches": true,
+    "source_word_matches": true,
+    "source_provenance_matches": true,
+    "all_source_ids_known": true,
+    "required_checks_pass": true,
+    "pdf_reading_order_matches": true,
+    "structure_passed": 3,
+    "structure_total": 4,
+    "structure_checks": [
+      {
+        "type": "section",
+        "value": "Motivation",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "I worked with users to improve a booking process by 25%.",
+        "parent": "Motivation",
+        "pass": true
+      },
+      {
+        "type": "paragraph",
+        "value": "I verified each change with data.",
+        "parent": "Motivation",
+        "pass": true
+      },
+      {
+        "type": "paragraph",
+        "value": "SAMPLE LETTER | 1",
+        "parent": null,
+        "pass": true
+      }
+    ]
+  },
+  "portfolio": {
+    "document_type_matches": true,
+    "source_content_matches": true,
+    "source_numeric_matches": true,
+    "single_space_matches": true,
+    "source_word_matches": true,
+    "source_provenance_matches": true,
+    "all_source_ids_known": true,
+    "required_checks_pass": true,
+    "pdf_reading_order_matches": true,
+    "structure_passed": 0,
+    "structure_total": 10,
+    "structure_checks": [
+      {
+        "type": "section",
+        "value": "Project Results",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "list",
+        "value": "Reduced wait time|Improved reliability",
+        "parent": "Project Results",
+        "pass": false
+      },
+      {
+        "type": "table",
+        "value": "Metric|Before|After;Latency|4.1s|2.3s;Failures|11|2",
+        "parent": "Project Results",
+        "pass": false
+      },
+      {
+        "type": "reference",
+        "value": "Performance chart",
+        "parent": "Project Results",
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "SAMPLE PORTFOLIO | 1",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "SAMPLE PORTFOLIO",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "section",
+        "value": "Implementation",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "The following code shows the calculation.",
+        "parent": "Implementation",
+        "pass": false
+      },
+      {
+        "type": "reference",
+        "value": "",
+        "parent": "Implementation",
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "SAMPLE PORTFOLIO | 2",
+        "parent": null,
+        "pass": false
+      }
+    ]
+  },
+  "korean": {
+    "document_type_matches": true,
+    "source_content_matches": true,
+    "source_numeric_matches": true,
+    "single_space_matches": true,
+    "source_word_matches": true,
+    "source_provenance_matches": true,
+    "all_source_ids_known": true,
+    "required_checks_pass": true,
+    "pdf_reading_order_matches": true,
+    "structure_passed": 2,
+    "structure_total": 4,
+    "structure_checks": [
+      {
+        "type": "paragraph",
+        "value": "자기소개서",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "section",
+        "value": "지원동기",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "예약 변경 정책을 데이터로 확인했습니다.",
+        "parent": "지원동기",
+        "pass": true
+      },
+      {
+        "type": "paragraph",
+        "value": "지원서 1",
+        "parent": null,
+        "pass": true
+      }
+    ]
+  },
+  "korean_parser_text": {
+    "document_type_matches": true,
+    "source_content_matches": true,
+    "source_numeric_matches": true,
+    "single_space_matches": true,
+    "source_word_matches": true,
+    "source_provenance_matches": true,
+    "all_source_ids_known": true,
+    "required_checks_pass": true,
+    "pdf_reading_order_matches": null,
+    "structure_passed": 0,
+    "structure_total": 4,
+    "structure_checks": [
+      {
+        "type": "paragraph",
+        "value": "자기소개서",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "section",
+        "value": "지원동기",
+        "parent": null,
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "예약 변경 정책을 데이터로 확인했습니다.",
+        "parent": "지원동기",
+        "pass": false
+      },
+      {
+        "type": "paragraph",
+        "value": "지원서 1",
+        "parent": null,
+        "pass": false
+      }
+    ]
+  }
+}
