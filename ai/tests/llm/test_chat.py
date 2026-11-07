@@ -134,6 +134,22 @@ async def test_asks_again_when_output_does_not_match() -> None:
     assert [record.status for record in call_log.records] == ["OK"]
 
 
+async def test_structured_image_input_is_preserved_on_retry_without_logging_image_bytes() -> None:
+    log = RecordingCallLog()
+    requests: list[dict[str, Any]] = []
+    llm = chat_llm(['{"wrong": 1}', '{"text": "관찰한 배치"}'], log, requests)
+    image = "data:image/jpeg;base64,/9j/test"
+    result = await llm.structured(Summary, agent="posting", system="이미지를 관찰한다", user="KR-01", images=[image])
+    assert result.text == "관찰한 배치"
+    assert len(requests) == 2
+    for request in requests:
+        assert request["messages"][1]["content"] == [
+            {"type": "text", "text": "KR-01"},
+            {"type": "image_url", "image_url": {"url": image}},
+        ]
+    assert log.records[0].user == "KR-01"
+
+
 async def test_structured_parse_retries_consume_the_shared_budget() -> None:
     requests: list[dict[str, Any]] = []
     log = RecordingCallLog()

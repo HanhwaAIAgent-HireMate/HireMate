@@ -24,6 +24,7 @@ class LlmCall:
     system: str
     user: str
     output: type[BaseModel]
+    images: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -53,9 +54,11 @@ class FakeLlm:
     def analysis_recipe(self) -> dict[str, Any]:
         return dict(self._recipe)
 
-    async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
+    async def structured[T: BaseModel](
+        self, output: type[T], *, agent: str, system: str, user: str, images: Sequence[str] = ()
+    ) -> T:
         consume_model_call()
-        result = self._reply(LlmCall(agent=agent, system=system, user=user, output=output))
+        result = self._reply(LlmCall(agent=agent, system=system, user=user, output=output, images=tuple(images)))
         if not isinstance(result, output):
             raise AssertionError(f"FakeLlm 응답이 {output.__name__}가 아니다 ({type(result).__name__})")
         return result

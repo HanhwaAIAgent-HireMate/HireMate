@@ -403,7 +403,9 @@ class BatchLlm:
             "reasoning_effort": job.reasoning_effort,
         }
 
-    async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
+    async def structured[T: BaseModel](
+        self, output: type[T], *, agent: str, system: str, user: str, images: Sequence[str] = ()
+    ) -> T:
         job = current_batch_job()
         if job is None:
             raise BatchError("배치 모델은 워커 작업 context 안에서만 호출할 수 있다")
@@ -429,7 +431,7 @@ class BatchLlm:
                 agent_max_calls=settings.llm_agent_max_calls,
             )
         try:
-            return await self._models[key].structured(output, agent=agent, system=system, user=user)
+            return await self._models[key].structured(output, agent=agent, system=system, user=user, images=images)
         except Exception as error:
             # OpenAI SDK는 사용자 전송기 예외도 APIConnectionError로 감싼다. 영구 실패 구분을 복원한다.
             cause: BaseException | None = error

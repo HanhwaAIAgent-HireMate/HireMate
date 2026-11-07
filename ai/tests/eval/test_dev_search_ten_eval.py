@@ -82,8 +82,10 @@ class ExtractionObserver:
     def analysis_recipe(self) -> dict[str, Any] | None:
         return self.client.analysis_recipe()
 
-    async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
-        result = await self.client.structured(output, agent=agent, system=system, user=user)
+    async def structured[T: BaseModel](
+        self, output: type[T], *, agent: str, system: str, user: str, images: Sequence[str] = ()
+    ) -> T:
+        result = await self.client.structured(output, agent=agent, system=system, user=user, images=images)
         if isinstance(result, ExtractedFacts):
             self.first.append(result)
         return result
@@ -109,8 +111,10 @@ class JudgmentObserver(ExtractionObserver):
         super().__init__(client)
         self.judgments: list[dict[str, Any]] = []
 
-    async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
-        result = await super().structured(output, agent=agent, system=system, user=user)
+    async def structured[T: BaseModel](
+        self, output: type[T], *, agent: str, system: str, user: str, images: Sequence[str] = ()
+    ) -> T:
+        result = await super().structured(output, agent=agent, system=system, user=user, images=images)
         if isinstance(result, RecheckResult | CriteriaResult):
             self.judgments.append(
                 {
