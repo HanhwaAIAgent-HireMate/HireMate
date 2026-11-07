@@ -28,13 +28,14 @@ class PosterDesign(ContractModel):
     readable_sections: list[int] = Field(default_factory=list, max_length=12)
     canvas_json: str | None = Field(default=None, max_length=200000)
     tagline: str | None = Field(default=None, max_length=60)
+    motion: Literal["NONE", "WAVE", "GLOW"] = "NONE"
 
 
 class PosterTurn(ContractModel):
     role: Literal["USER", "ASSISTANT"]
     text: str = Field(min_length=1, max_length=1000)
     design: PosterDesign | None = None
-    recommendations: list["PosterRecommendation"] = Field(default_factory=list, max_length=2)
+    recommendations: list["PosterRecommendation"] = Field(default_factory=list, max_length=3)
     templates: list["FreePosterTemplate"] = Field(default_factory=list, max_length=3)
 
 
@@ -66,11 +67,12 @@ class FreePosterTemplate(ContractModel):
 
 class PosterProposal(ContractModel):
     reply: str = Field(min_length=1, max_length=500)
-    recommendations: list[PosterRecommendation] = Field(max_length=2)
+    recommendations: list[PosterRecommendation] = Field(max_length=3)
     templates: list[FreePosterTemplate] = Field(default_factory=list, max_length=3)
     selected_template_id: str | None = Field(default=None, max_length=80)
     canva_query: str | None = Field(default=None, max_length=100)
     external_query: str | None = Field(default=None, max_length=100)
+    candidate_mode: Literal["INITIAL", "STATIC", "MOTION"] | None = None
     canva_designs: list["CanvaDesign"] = Field(default_factory=list, max_length=6)
 
 
@@ -82,12 +84,14 @@ class CanvaDesign(ContractModel):
 
 
 class PosterEdits(ContractModel):
-    scope: Literal["ICONS", "CONTRAST", "DESIGN", "RESTORE", "RECOMMEND", "TAGLINE"]
+    scope: Literal["ICONS", "CONTRAST", "COLOR", "DESIGN", "RESTORE", "RECOMMEND", "TAGLINE", "MOTION"]
     reply: str = Field(min_length=1, max_length=500)
     stage_icons: dict[str, StageIcon] = Field(default_factory=dict, max_length=10)
     readable_sections: list[int] = Field(default_factory=list, max_length=12)
     recommendations: list[PosterRecommendation] = Field(default_factory=list, max_length=2)
     tagline: str | None = Field(default=None, max_length=60)
+    motion: Literal["NONE", "WAVE", "GLOW"] | None = None
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
 
 
 SYSTEM = (
@@ -97,12 +101,17 @@ SYSTEM = (
 실적·순위·혜택·규모·고용 보장 등 새로운 사실은 넣지 않는다. 전달된 사실을 과장하거나 없는 업종을 확정하지 않는다.
 디자인 추천에는 디자인별 tagline을 함께 제안한다. 상단 문구만 수정하면 scope=TAGLINE, 최상위 tagline에 넣는다.
 첫 추천은 서로 다른 템플릿 2종, 명시적 수정 요청에는 현재 디자인을 보존하며 수정안 1종을 낸다.
+전체 대표색·기업색 변경 요청은 scope=COLOR, 최상위 color에 실제 #rrggbb를 넣고 recommendations=[]로 둔다.
+기업색 요청은 brand_color를 쓴다. 색만 변경할 때 tagline을 새로 쓰지 않는다.
 모호한 취향 요청도 디자인 제안으로 구체화하되, 채용 사실을 덧붙이지 않는다.
 템플릿: CLASSIC 반듯한 행/정보형, EDITORIAL 잡지형/따뜻한 2열, BOLD 큰 숫자와 모듈,
 PREMIUM 절제된 장식/여백/세리프 제목, NATURAL 둥근 카드와 혜택 타일, TICKET 정보 칸/절취선.
 분위기: TRUST 정돈/신뢰, CLEAR 맑음/곡선/물결, WARM 따뜻함, PREMIUM 절제,
 LIVELY 경쾌함, NATURAL 부드러움/자연. decoration은 장식 없음 0, 은은함 1, 강조 2.
 background_style은 SOLID 단색, SOFT_GRADIENT 은은한 그라데이션이다. 배경 그라데이션 요청에 사용한다.
+상단 움직임/애니메이션 수정은 scope=MOTION, 최상위 motion을 지정한다. WAVE 움직이는 물결,
+GLOW 은은하게 흐르는 빛, NONE 움직임 끄기다. 정적인 물결 장식과 움직이는 물결을 구분한다.
+움직임 요청은 recommendations=[]로 두고 motion에 값을 넣는다. 설명만으로 완료했다고 말하지 않는다.
 전형 아이콘은 기본적으로 자동 표시한다. 아이콘 수정 요청은 stage_icons에 해당 전형 이름과 아이콘만 지정한다.
 stage_names에 있는 전형만 지정하고 전형 이름, 종류, 순서나 공고 본문은 변경하지 않는다.
 아이콘: AUTO 자동, NONE 숨김, FILE_TEXT 문서, CLIPBOARD_CHECK 체크리스트, CODE 코드,
@@ -159,7 +168,23 @@ async def propose_poster(llm: LlmClient, context: PosterContext, request: str) -
     current = context.design
     logo = current.logo_file_id if current else None
     candidates = proposal.recommendations
-    if current and proposal.scope == "TAGLINE" and proposal.tagline:
+    if current and proposal.scope == "COLOR":
+        if proposal.color is None:
+            return PosterProposal(reply="변경할 색상을 알려 주세요.", recommendations=[])
+        candidates = [
+            PosterRecommendation(
+                design=current.model_copy(update={"color": proposal.color}),
+                reason="선택한 대표색을 배너 색조와 본문 배색에 적용합니다.",
+            )
+        ]
+    elif current and proposal.scope == "MOTION" and proposal.motion is not None:
+        candidates = [
+            PosterRecommendation(
+                design=current.model_copy(update={"motion": proposal.motion}),
+                reason="기존 디자인을 유지하고 상단 장식의 움직임만 변경합니다. PDF에서는 정지합니다.",
+            )
+        ]
+    elif current and proposal.scope == "TAGLINE" and proposal.tagline:
         candidates = [
             PosterRecommendation(
                 design=current.model_copy(update={"tagline": proposal.tagline}),
@@ -208,6 +233,9 @@ async def propose_poster(llm: LlmClient, context: PosterContext, request: str) -
                 ),
                 "tagline": proposed.tagline if proposed.tagline is not None else current.tagline if current else None,
                 "canvas_json": current.canvas_json if current and proposal.scope != "RECOMMEND" else None,
+                "motion": current.motion
+                if current and proposal.scope not in {"RECOMMEND", "MOTION"}
+                else proposed.motion,
             }
         )
         recommendations.append(item.model_copy(update={"design": design}))
