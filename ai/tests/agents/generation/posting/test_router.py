@@ -17,7 +17,7 @@ from hiremate_ai.agents.generation.posting.poster import (
     PosterEdits,
     PosterRecommendation,
 )
-from hiremate_ai.agents.generation.posting.poster_chat import PosterChatReply
+from hiremate_ai.agents.generation.posting.poster_chat import PosterChatReply, PosterIntent
 from hiremate_ai.agents.generation.posting.reviser import (
     NOTHING_CHANGED_REPLY,
     CitedContentChanges,
@@ -106,6 +106,7 @@ def test_design_keeps_existing_endpoint_and_runs_inside_posting_agent(sample_com
         logo_file_id=None,
     )
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         ToolCall("consult_posting_designer", {"request": "더 고급스럽게"}),
         PosterEdits(
             scope="DESIGN",
@@ -131,7 +132,7 @@ def test_design_keeps_existing_endpoint_and_runs_inside_posting_agent(sample_com
     )
     assert response.status_code == 200
     assert response.json()["recommendations"][0]["design"]["mood"] == "PREMIUM"
-    assert [call.agent for call in llm.calls] == ["posting", "posting", "posting"]
+    assert [call.agent for call in llm.calls] == ["posting"] * 4
 
 
 def test_revise_returns_backend_result_shape() -> None:
@@ -237,7 +238,10 @@ def test_design_conversation_keeps_posting_path(sample_company: CompanyProfile) 
     context = PosterContext(
         company=sample_company, posting=PostingContent.model_validate(CONTENT), design=None, brand_color=None
     )
-    llm = FakeLlm(PosterChatReply(kind="CONVERSATION", reply="원하는 분위기를 알려 주세요.", result=None))
+    llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
+        PosterChatReply(kind="CONVERSATION", reply="원하는 분위기를 알려 주세요.", result=None),
+    )
     response = client(llm).post(
         "/agents/posting/design",
         json={"context": context.model_dump(mode="json", by_alias=True), "request": "디자인은 어떻게 바꿔?"},
@@ -251,4 +255,5 @@ def test_design_conversation_keeps_posting_path(sample_company: CompanyProfile) 
         "canvaQuery": None,
         "canvaDesigns": [],
         "externalQuery": None,
+        "candidateMode": None,
     }

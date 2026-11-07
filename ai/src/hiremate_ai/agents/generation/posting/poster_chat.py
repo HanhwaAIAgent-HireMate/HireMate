@@ -28,15 +28,21 @@ from hiremate_ai.config import settings
 from hiremate_ai.contract import ContractModel
 from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError, model_call_budget, reserve_model_calls
 from hiremate_ai.llm.client import LlmClient
-from hiremate_ai.llm.prompt import data_block
+from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 logger = logging.getLogger(__name__)
 
 
 class PosterChatReply(ContractModel):
-    kind: Literal["DESIGN", "CONVERSATION", "CLARIFY"]
+    kind: Literal["GENERATE", "DESIGN", "CONVERSATION", "CLARIFY"]
     reply: str = Field(min_length=1, max_length=500)
     result: int | None = Field(ge=1)
+
+
+class PosterIntent(ContractModel):
+    kind: Literal["GENERATE", "INITIAL", "STATIC", "MOTION", "SEARCH", "ADJUST", "CANVAS", "CONTENT", "OTHER"]
+    query: str = Field(default="", max_length=100)
+    canva_query: str = Field(default="", max_length=100)
 
 
 @dataclass
@@ -53,9 +59,89 @@ def _blocked_design_request(message: str) -> bool:
     return bool(blocked_attribute(message))
 
 
-async def design_poster(llm: LlmClient, context: PosterContext, message: str) -> PosterProposal:
+async def design_poster(
+    llm: LlmClient, context: PosterContext, message: str, *, generate_only: bool = False
+) -> PosterProposal:
     if _blocked_design_request(message):
         return PosterProposal(reply=BLOCKED_REPLY, recommendations=[])
+    try:
+        with model_call_budget(settings.llm_agent_max_calls):
+            if generate_only:
+                return await generate_poster(llm, context, message)
+            intent = await llm.structured(
+                PosterIntent,
+                agent="posting",
+                system=(
+                    "채용 포스터 요청의 의도만 분류한다. 아직 추천을 보지 않은 상태에서 일반적으로 "
+                    "'템플릿 찾아줘', '직무에 어울리는 공고 찾아줘', '템플릿 추천해줘', "
+                    "'포스터 만들어줘'는 모두 INITIAL이다. "
+                    "INITIAL은 Templated 1개, 정적 Orshot 1개, 자체 생성 1개를 비교하는 첫 추천이다. "
+                    "움직이는 포스터나 애니메이션 포스터를 새로 요청하면 MOTION이다. "
+                    "역동적인 느낌만 요청하면 정적 디자인의 분위기이며 MOTION이 아니다. "
+                    "저장된 참고 사례를 활용한 생성도 GENERATE다. 외부 검색 없이, 자체 생성만 요청하면 "
+                    "이전 대화와 무관하게 GENERATE다. 외부 제공처만 검색하라고 명시하거나 "
+                    "Orshot·Templated·Canva 등 특정 제공처를 지정해 찾으면 SEARCH다. "
+                    "무료라는 표현만으로 기본 SVG 양식을 선택하지 않는다. "
+                    "SEARCH의 query에는 업종과 분위기를 영어 검색어로, canva_query에는 한국어 검색어를 적는다. "
+                    "현재 디자인의 대표 색상, 제목 위 문구, 특정 항목 가독성 수정은 ADJUST다. "
+                    "특정 항목(01·02·03 등)의 제목·번호·글자 색상이나 폰트·배치 수정은 CANVAS다. "
+                    "번호 색상을 바꾸라는 요청을 상단 문구 수정으로 해석하지 않는다. "
+                    "급여, 복지 내용, 자격 조건 등 실제 채용 사실을 바꿔 달라는 요청은 CONTENT다. "
+                    "전형 아이콘 변경과 그 요청을 이어 가는 답변은 OTHER다. "
+                    "직전 확인 질문에 '1차'처럼 답하면 최근 대화에서 원래 요청과 선택한 전형을 함께 해석한다. "
+                    "명시적인 CC0 SVG 제공처, 요소 배치·폰트 수정, 기존 장식의 움직임 수정, "
+                    "이전 후보 선택과 일반 질문은 OTHER다. "
+                    "이전 후보를 본 뒤 별도 자체 생성 지시 없이 '다른 걸로 다시 만들어줘'는 STATIC이다. "
+                    "INITIAL, STATIC, MOTION의 query에는 회사 업종, 직무, 분위기를 영어 검색어로 적는다. "
+                    "담당자의 현재 요청만 분류하고 디자인이나 설명을 생성하지 않는다.\n" + UNTRUSTED_RULE
+                ),
+                user=data_block(
+                    "previous-results",
+                    json.dumps({"has_recommendations": any(t.recommendations or t.templates for t in context.history)}),
+                )
+                + data_block("company", context.company.model_dump_json())
+                + data_block("job", context.posting.job_category)
+                + _recent_dialogue(context)
+                + "\n담당자 요청: "
+                + message,
+            )
+            if intent.kind == "GENERATE":
+                return await generate_poster(llm, context, message)
+            if intent.kind == "ADJUST":
+                return await propose_poster(llm, context, message)
+            if intent.kind == "CANVAS":
+                return await revise_canvas(llm, context, message)
+            if intent.kind == "CONTENT":
+                return PosterProposal(
+                    reply="급여·자격 요건 같은 채용 내용은 공고 편집 화면에서 변경해 주세요.",
+                    recommendations=[],
+                )
+            if intent.kind in ("INITIAL", "STATIC", "MOTION"):
+                return PosterProposal(
+                    reply="공고에 맞는 후보를 준비할게요.",
+                    recommendations=[],
+                    external_query=intent.query or message[:100],
+                    candidate_mode=intent.kind,
+                )
+            if intent.kind == "SEARCH":
+                return PosterProposal(
+                    reply="연결된 제공처에서 공고에 맞는 템플릿을 찾아볼게요.",
+                    recommendations=[],
+                    external_query=intent.query or message[:100],
+                    canva_query=(intent.canva_query or message[:100]) if context.canva_connected else None,
+                )
+            return await _design_poster(llm, context, message)
+    except LlmOutputError as error:
+        logger.warning("공고 Agent 포스터 생성 분기 실패 (reason=%s)", error.reason.value)
+        return PosterProposal(reply="디자인 요청을 확인하지 못했어요. 잠시 후 다시 요청해 주세요.", recommendations=[])
+
+
+def _recent_dialogue(context: PosterContext) -> str:
+    turns = [{"role": turn.role, "text": turn.text} for turn in context.history[-6:]]
+    return data_block("recent-poster-dialogue", json.dumps(turns, ensure_ascii=False))
+
+
+async def _design_poster(llm: LlmClient, context: PosterContext, message: str) -> PosterProposal:
     run = PosterRun(context)
     choices = []
     designs = {}
@@ -99,18 +185,8 @@ async def design_poster(llm: LlmClient, context: PosterContext, message: str) ->
             )
 
     @tool
-    async def create_poster_template(request: str, runtime: ToolRuntime[PosterRun]) -> str:
-        """기존 검색 결과와 다른 새 편집용 템플릿 2개를 생성한다. 저장/게시나 외부 서비스 생성은 하지 않는다."""
-        if _blocked_design_request(request):
-            return BLOCKED_REPLY
-        with reserve_model_calls(1):
-            proposal = await generate_poster(llm, runtime.context.context, request)
-        runtime.context.proposals.append(proposal)
-        return f"결과 번호: {len(runtime.context.proposals)}\n{proposal.reply}"
-
-    @tool
     async def find_external_templates(query: str, runtime: ToolRuntime[PosterRun], canva_query: str = "") -> str:
-        """Templated 공개 갤러리와 관리자가 등록한 공용 테마를 조회한다. 영어 검색어를 사용한다."""
+        """Templated와 Orshot의 승인된 공용 원본, 연결한 Canva 디자인을 조회한다. 영어 검색어를 사용한다."""
         proposal = PosterProposal(
             reply="외부 템플릿 후보를 찾아볼게요.",
             recommendations=[],
@@ -157,7 +233,7 @@ async def design_poster(llm: LlmClient, context: PosterContext, message: str) ->
         selected = free_choices.get(reference)
         templates = (
             [selected]
-            if selected and selected.id.startswith("templated:")
+            if selected and selected.id.startswith(("templated:", "orshot:"))
             else await search_free_templates("", selected_id=selected.id)
             if selected
             else []
@@ -217,6 +293,31 @@ async def design_poster(llm: LlmClient, context: PosterContext, message: str) ->
                 PosterRecommendation(
                     design=current.model_copy(update={"stage_icons": {**current.stage_icons, **icons}}),
                     reason="선택한 템플릿·배색·공고 문구를 유지하고 지정한 전형 아이콘만 변경합니다.",
+                )
+            ],
+        )
+        runtime.context.proposals.append(proposal)
+        return f"결과 번호: {len(runtime.context.proposals)}\n{proposal.reply}"
+
+    @tool
+    async def edit_poster_motion(effect: Literal["NONE", "WAVE", "GLOW"], runtime: ToolRuntime[PosterRun]) -> str:
+        """현재 템플릿과 색상을 유지하고 상단 장식의 움직임만 제안한다. NONE 정지, WAVE 물결, GLOW 은은한 빛.
+
+        원본 GIF/영상 다운로드가 아닌 웹 장식 효과다. 본문·글자·아이콘은 움직이지 않으며 PDF는 정지한다.
+        """
+        current = runtime.context.context.design
+        if current is None:
+            return "현재 디자인을 먼저 선택해 주세요."
+        proposal = PosterProposal(
+            reply=(
+                "상단 움직임을 끄는 수정안이에요. 확인하고 적용해 주세요."
+                if effect == "NONE"
+                else "상단 장식만 은은하게 움직이는 수정안이에요. 웹에서는 움직이고 PDF에서는 정지해요."
+            ),
+            recommendations=[
+                PosterRecommendation(
+                    design=current.model_copy(update={"motion": effect}),
+                    reason="현재 템플릿·색상·문구·전형 아이콘을 보존하고 상단 장식의 움직임만 변경합니다.",
                 )
             ],
         )
@@ -285,9 +386,16 @@ async def design_poster(llm: LlmClient, context: PosterContext, message: str) ->
         PosterChatReply,
         agent="posting",
         system="""너는 공고 Agent의 포스터 대화 처리기다. 담당자 요청과 현재 디자인을 보고 필요한 도구를 고른다.
-템플릿을 '만들어줘', '생성해줘', '새 디자인 제작' 요청은 create_poster_template로 새 양식 2개를 생성한다.
-생성 요청을 검색으로 대체하지 않는다. '또 만들어줘', '다르게 만들어줘'도 새 생성이다.
+템플릿을 '만들어줘', '생성해줘', '새 디자인 제작' 요청은 kind=GENERATE, result=null로 바로 답한다.
+코드가 이 응답을 받아 참고 사례를 읽고 새 양식 3개를 실제 생성한다. 생성했다고 설명만 쓰지 않는다.
+처음 생성하는 경우 자체 생성한다. 이미 생성하거나 가져온 후보를 본 뒤 '다시/또 만들어줘', '마음에 안 들어',
+'다른 걸로 만들어줘'를 요청하면 다른 후보를 원하므로 find_external_templates로 찾아준다.
+이때 부분 수정 도구로 보내지 않는다. 다만 '더 고급스럽게', '색을 바꿔줘', '장식을 줄여줘'처럼
+현재 디자인의 일부 수정은 기존 템플릿을 유지한다. '외부 말고 자체로 다시 생성'은 kind=GENERATE다.
+외부 검색 없이·검색하지 말고·저장된 참고 자료로 자체 생성하라는 요청은 이 규칙보다 우선한다.
+이 경우 find_external_templates나 find_canva_designs를 부르지 않고 kind=GENERATE, result=null로 바로 답한다.
 외부 템플릿을 '찾아줘', '검색해줘', '가져와줘' 요청하면 find_external_templates를 사용한다. Canva 연결 여부와 무관하다.
+Orshot을 명시한 검색도 find_external_templates를 사용한다. backend가 Orshot·Templated·Canva의 새 후보를 모은다.
 Canva/Templated에서 직접 생성해 달라는 요청은 외부 생성 기능을 지원한다고 주장하지 말고 자체 생성으로 제안할지 되묻는다.
 검색 query는 요청한 분위기·업종을 영어로 풀어 쓴다. 예: financial recruitment elegant clean.
 canva_query는 같은 요청의 한국어 검색어다. 예: 금융 채용. backend가 두 제공처 결과를 함께 모은다.
@@ -296,6 +404,11 @@ Canva에서 검색 가능한 것은 연결한 계정이 소유하거나 공유�
 사용자가 무료 SVG 제공처를 명시한 경우에는 find_free_templates를 사용한다.
 CC0 SVG 제공처를 명시한 경우만 find_free_templates로 처리한다. 검색을 내장 템플릿 추천으로 대체하지 않는다.
 현재 canvasJson에 요소 요약이 있으면 위치·크기·서체·정렬·배색 수정은 edit_canvas_layout을 사용한다.
+움직임·애니메이션·동적인 배경 요청은 내장/생성/외부 템플릿 모두 edit_poster_motion으로 처리한다.
+물결은 WAVE, 은은한 빛/움직이는 그라데이션은 GLOW, 움직임 제거/정지는 NONE이다.
+어떤 움직임인지 지정하지 않았다면 차분한 금융/기업 포스터는 GLOW, 청량한 물 느낌은 WAVE로 제안한다.
+글자나 본문, 전형 아이콘이 움직이는 요청은 가독성을 위해 상단 장식만 움직이는 대안을 제안한다.
+이 기능은 기존 원본 GIF/MP4를 가져오는 기능이 아니다. 원본 애니메이션을 보존했다고 주장하지 않는다.
 전형 아이콘 변경은 canvasJson 유무와 상관없이 edit_stage_icons를 사용한다. 내장 심플형 등에서도 가능하다.
 어떤 아이콘인지 지정하지 않고 '다른 걸로' 바꾸라면 해당 전형에 맞는 대안을 직접 제안한다.
 이때 replace_current=true로 호출한다. displayedStageIcons는 실제 표시 중인 아이콘이다. 그것과 다른 아이콘을 고른다.
@@ -303,6 +416,8 @@ CC0 SVG 제공처를 명시한 경우만 find_free_templates로 처리한다. �
 검진·코드 아이콘은 해당 전형 요청일 때만 쓴다. '사람으로'는 USERS, '메시지/대화'는 MESSAGES다. 되묻기만 하지 않는다.
 예: '1차면접을 사람으로'는 stage_names의 정확한 이름(예: '1차 면접')을 키로 icons={"1차 면접":"USERS"}다.
 전형명에는 요청의 띄어쓰기 대신 stage_names 값을 그대로 쓴다. 아이콘 요청을 외부 템플릿 수정으로 보내지 않는다.
+담당자가 직전 확인 질문에 '1차'처럼 짧게 답하면 recent-poster-dialogue에서 원래 요청을 찾아 이어서 처리한다.
+대상 전형을 골랐고 아이콘 종류를 지정하지 않았다면 그 전형에 맞는 다른 아이콘을 제안한다.
 현재 canvas에 없는 QR코드·사진 등 새 요소 추가와 문구 변경 요청도 edit_canvas_layout에서 지원 범위를 안내한다.
 지원하지 않는 요소를 추가했다고 말하거나 요청과 무관한 기존 템플릿 추천으로 바꾸지 않는다.
 외부 검색도 kind=DESIGN과 도구의 result 번호로 응답한다. 무료 제공처의 제한된 양식에서 찾았다고 알린다.
@@ -326,12 +441,12 @@ history가 없거나 참조 대상이 불분명하면 result=null로 다시 추�
 확인하지 않은 이전 추천을 기억하거나 불러왔다고 주장하지 않는다.
 """,
         tools=[
-            create_poster_template,
             consult_posting_designer,
             recall_poster,
             find_free_templates,
             recall_free_template,
             edit_stage_icons,
+            edit_poster_motion,
             *([edit_canvas_layout] if context.design and canvas_summary(context.design.canvas_json) else []),
             find_canva_designs,
             find_external_templates,
@@ -343,11 +458,14 @@ history가 없거나 참조 대상이 불분명하면 result=null로 다시 추�
             reply = await agent.run(
                 data_block("current-poster", _prompt_context(context))
                 + data_block("poster-history", json.dumps(choices, ensure_ascii=False))
+                + _recent_dialogue(context)
                 + "\n담당자 요청: "
                 + message,
                 context=run,
                 validate=validate,
             )
+            if reply.kind == "GENERATE":
+                return await generate_poster(llm, context, message)
     except LlmOutputError as error:
         logger.warning("공고 Agent 포스터 응답 실패 (reason=%s)", error.reason.value)
         # 최종 응답 형식만 비어 있어도, 이미 검증한 읽기 전용 도구 결과는 버리지 않는다.
