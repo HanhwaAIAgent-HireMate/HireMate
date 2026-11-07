@@ -13,6 +13,27 @@ from hiremate_ai.contract import CompanyProfile, PostingContent
 from hiremate_ai.llm.fake import FakeLlm
 
 
+async def test_brand_color_edit_preserves_tagline_canvas_and_icons() -> None:
+    current = context()
+    assert current.design
+    original = current.design.model_copy(
+        update={
+            "tagline": "함께 만드는 다음",
+            "stage_icons": {"1차 면접": "USERS"},
+            "canvas_json": '{"source":{"id":"generated:test"}}',
+        }
+    )
+    current = current.model_copy(update={"design": original, "brand_color": "#116644", "stage_names": ["1차 면접"]})
+    result = await propose_poster(
+        FakeLlm(PosterEdits(scope="COLOR", reply="기업색 적용", color="#116644", tagline="모델이 덧붙인 문구")),
+        current,
+        "기업색으로 바꿔줘",
+    )
+    changed = result.recommendations[0].design
+    assert changed.color == "#116644"
+    assert changed.model_dump(exclude={"color"}) == original.model_dump(exclude={"color"})
+
+
 def context() -> PosterContext:
     return PosterContext(
         company=CompanyProfile(company_id=UUID(int=1), name="예시 기업", intro="", culture="", talents=[], benefits=[]),
@@ -95,6 +116,20 @@ async def test_tagline_changes_only_the_poster_copy_and_keeps_business_content()
     assert current.design is not None
     assert result.recommendations[0].design.color == current.design.color
     assert current.posting.title == "채용"
+
+
+@pytest.mark.parametrize("motion", ["WAVE", "GLOW", "NONE"])
+async def test_designer_motion_route_preserves_every_other_current_setting(motion: str) -> None:
+    current = context()
+    assert current.design is not None
+    result = await propose_poster(
+        FakeLlm(PosterEdits.model_validate({"scope": "MOTION", "reply": "상단 움직임 수정", "motion": motion})),
+        current,
+        "상단에 움직이는 물결을 넣어줘",
+    )
+    design = result.recommendations[0].design
+    assert design.motion == motion
+    assert design.model_dump(exclude={"motion"}) == current.design.model_dump(exclude={"motion"})
 
 
 async def test_style_edit_preserves_canvas_even_when_model_rewrites_invalid_json() -> None:

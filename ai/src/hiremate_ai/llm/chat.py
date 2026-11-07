@@ -166,8 +166,19 @@ class ChatLlm:
     def analysis_recipe(self) -> dict[str, Any] | None:
         return model_recipe(self._model, method=self._method)
 
-    async def structured[T: BaseModel](self, output: type[T], *, agent: str, system: str, user: str) -> T:
-        messages: list[BaseMessage] = [SystemMessage(system), HumanMessage(user)]
+    async def structured[T: BaseModel](
+        self, output: type[T], *, agent: str, system: str, user: str, images: Sequence[str] = ()
+    ) -> T:
+        def input_messages(text: str) -> list[BaseMessage]:
+            content: str | list[str | dict[str, Any]] = text
+            if images:
+                content = [
+                    {"type": "text", "text": text},
+                    *({"type": "image_url", "image_url": {"url": image}} for image in images),
+                ]
+            return [SystemMessage(system), HumanMessage(content)]
+
+        messages = input_messages(user)
         runnable = self._model.with_structured_output(output, method=self._method, include_raw=True)
         recorder = _Recorder(self._call_log, agent=agent, model=self._model_name)
         started = time.perf_counter()
@@ -183,12 +194,12 @@ class ChatLlm:
                     continue
                 except LengthFinishReasonError:
                     failure = CUT
-                    messages = [SystemMessage(system), HumanMessage(f"{user}\n\n{SHORTER}")]
+                    messages = input_messages(f"{user}\n\n{SHORTER}")
                     continue
                 tokens.add(result["raw"])
                 if _at_limit(result["raw"], _max_tokens(self._model)):
                     failure = CUT
-                    messages = [SystemMessage(system), HumanMessage(f"{user}\n\n{SHORTER}")]
+                    messages = input_messages(f"{user}\n\n{SHORTER}")
                     continue
                 parsed = result["parsed"]
                 if result["parsing_error"] is None and isinstance(parsed, output):

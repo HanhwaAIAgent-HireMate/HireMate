@@ -836,6 +836,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/poster/orshot-import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["importOrshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/posting/poster/canva-import": {
         parameters: {
             query?: never;
@@ -868,6 +884,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/poster/ai-requests/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/posting/close": {
         parameters: {
             query?: never;
@@ -893,7 +925,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["request"];
+        post: operations["request_1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2085,6 +2117,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/poster/templated-register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["registerTemplated"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2324,6 +2372,8 @@ export interface components {
             readableSections: number[];
             canvasJson: string | null;
             tagline: string | null;
+            /** @enum {string} */
+            motion: "NONE" | "WAVE" | "GLOW";
         };
         PostingContent: {
             title: string;
@@ -2798,6 +2848,23 @@ export interface components {
         TemplateLayout: {
             sections: components["schemas"]["LayoutSection"][];
         };
+        OrshotImportRequest: {
+            /** Format: int64 */
+            templateId: number;
+        };
+        OrshotTemplate: {
+            id: string;
+            name: string;
+            background: string;
+            /** Format: int32 */
+            width: number;
+            /** Format: int32 */
+            height: number;
+            motionUrl: string | null;
+            /** Format: int32 */
+            motionHeight: number;
+            layoutStyle: string | null;
+        };
         CanvaImportRequest: {
             designId: string;
         };
@@ -2875,6 +2942,8 @@ export interface components {
             canvaQuery: string | null;
             canvaDesigns: components["schemas"]["CanvaDesign"][];
             externalQuery: string | null;
+            /** @enum {string|null} */
+            candidateMode: "INITIAL" | "STATIC" | "MOTION" | null;
         };
         PostingAiRequest: {
             message: string;
@@ -3137,25 +3206,25 @@ export interface components {
             object: boolean;
             float: boolean;
             number: boolean;
-            binary: boolean;
-            pojo: boolean;
-            short: boolean;
-            long: boolean;
-            double: boolean;
-            int: boolean;
-            /** @deprecated */
-            textual: boolean;
-            boolean: boolean;
-            string: boolean;
-            floatingPointNumber: boolean;
-            bigInteger: boolean;
             valueNode: boolean;
-            bigDecimal: boolean;
             container: boolean;
-            integralNumber: boolean;
             missingNode: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            integralNumber: boolean;
+            floatingPointNumber: boolean;
+            bigInteger: boolean;
+            bigDecimal: boolean;
+            long: boolean;
+            /** @deprecated */
+            textual: boolean;
+            binary: boolean;
+            int: boolean;
+            short: boolean;
+            string: boolean;
+            pojo: boolean;
+            double: boolean;
+            boolean: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3605,6 +3674,17 @@ export interface components {
             token: string;
             headerName: string;
             parameterName: string;
+        };
+        TemplatedRegisterRequest: {
+            sourceId: string;
+            name: string;
+            svg: string;
+            /** Format: int32 */
+            height?: number;
+        };
+        RegisteredTemplate: {
+            id?: string;
+            name?: string;
         };
     };
     responses: never;
@@ -5212,6 +5292,32 @@ export interface operations {
             };
         };
     };
+    importOrshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrshotImportRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["OrshotTemplate"];
+                };
+            };
+        };
+    };
     importCanva: {
         parameters: {
             query?: never;
@@ -5264,6 +5370,32 @@ export interface operations {
             };
         };
     };
+    request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PosterAiRequest"];
+            };
+        };
+        responses: {
+            /** @description SSE. status · done · error 이벤트 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["ChatStatus"] | components["schemas"]["PosterProposal"] | components["schemas"]["ChatError"];
+                };
+            };
+        };
+    };
     close: {
         parameters: {
             query?: never;
@@ -5286,7 +5418,7 @@ export interface operations {
             };
         };
     };
-    request: {
+    request_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -7247,6 +7379,32 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    registerTemplated: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplatedRegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisteredTemplate"];
+                };
             };
         };
     };

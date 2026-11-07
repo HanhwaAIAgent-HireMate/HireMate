@@ -20,12 +20,21 @@ public record PosterDesign(@NotNull Template template, @NotNull Mood mood,
         @Size(max = 10) Map<@Size(min = 1, max = 50) String, @NotNull StageIcon> stageIcons,
         @Size(max = 12) List<@NotNull @Min(1) @Max(12) Integer> readableSections,
         @Schema(nullable = true) @Size(max = 200000) String canvasJson,
-        @Schema(nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED) @Size(max = 60) String tagline) {
+        @Schema(nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED) @Size(max = 60) String tagline,
+        @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED) Motion motion) {
 
     public PosterDesign {
         backgroundStyle = backgroundStyle == null ? BackgroundStyle.SOLID : backgroundStyle;
         stageIcons = stageIcons == null ? Map.of() : Map.copyOf(stageIcons);
         readableSections = readableSections == null ? List.of() : List.copyOf(readableSections);
+        motion = motion == null ? Motion.NONE : motion;
+    }
+
+    public PosterDesign(Template template, Mood mood, String color, int decoration, boolean enabled,
+            boolean showLogo, UUID logoFileId, BackgroundStyle backgroundStyle, Map<String, StageIcon> stageIcons,
+            List<Integer> readableSections, String canvasJson, String tagline) {
+        this(template, mood, color, decoration, enabled, showLogo, logoFileId, backgroundStyle, stageIcons,
+                readableSections, canvasJson, tagline, Motion.NONE);
     }
 
     public PosterDesign(Template template, Mood mood, String color, int decoration, boolean enabled,
@@ -59,6 +68,10 @@ public record PosterDesign(@NotNull Template template, @NotNull Mood mood,
 
     public enum BackgroundStyle {
         SOLID, SOFT_GRADIENT
+    }
+
+    public enum Motion {
+        NONE, WAVE, GLOW
     }
 
     public enum Template {

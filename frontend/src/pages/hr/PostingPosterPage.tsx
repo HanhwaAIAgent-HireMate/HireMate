@@ -1,5 +1,6 @@
-import { ArrowLeft, ArrowRight, FileDown, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, ArrowRight, FileDown, LoaderCircle, Trash2 } from 'lucide-react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
@@ -7,11 +8,11 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PosterTemplateDelete } from '@/features/company/PosterTemplateDelete'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
+import type { ChatStep } from '@/features/chat/steps'
 import { errorReply } from '@/features/posting/errorReply'
 import { usePosting, type Posting } from '@/features/posting/api'
 import {
   companyPosterLogoUrl,
-  useAddPosterTemplate,
   savedPosterLogoUrl,
   usePosterAi,
   usePosterBrand,
@@ -28,22 +29,34 @@ import { PostingPoster } from '@/features/posting/PostingPoster'
 import { PosterThumbnail } from '@/features/posting/PosterThumbnail'
 import { PostingStepHeader } from '@/features/posting/PostingStepHeader'
 import { usePostingRecovery } from '@/features/posting/usePostingRecovery'
+import { useOrshotPoster } from '@/features/posting/useOrshotPoster'
 import { useSaveDraftOnLeave } from '@/features/posting/useSaveDraftOnLeave'
 import { posterPreviewChanges } from '@/features/posting/poster-preview'
 import {
   importPosterTemplate,
   importCanvaPoster,
+  importOrshotPoster,
   readPosterCanvas,
   samePosterCanvas,
+  sameImportedArtwork,
   posterAfterTemplateDeletion,
   nextExternalTemplateName,
   upgradeCanvaPoster,
+  prepareTemplatedRegistration,
   type FreeTemplate,
 } from '@/features/posting/poster-canvas'
 import type { Schemas } from '@/lib/api/client'
-import { api, unwrap, errorMessage } from '@/lib/api/client'
+import { api, unwrap, errorMessage, ApiError } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 import { nativeRegions, importNativePoster } from '@/features/posting/poster-layout'
+
+type PosterChatTurn = Schemas['PosterTurn'] & Pick<AiMessage, 'steps' | 'seconds' | 'admin'>
+
+type PosterChatJob = {
+  startedAt: number
+  steps: ChatStep[]
+  completion?: { turn: PosterChatTurn; proposal?: PosterProposal }
+}
 
 function sectionNames(element: HTMLElement | null) {
   return [...(element?.querySelectorAll('.poster-section-title h3') ?? [])].map(
@@ -60,6 +73,19 @@ function proposalName(design: PosterDesign) {
     }
   }
   return POSTER_TEMPLATES.find((template) => template.id === design.template)?.name
+}
+
+function proposalProvider(design: PosterDesign) {
+  if (!design.canvasJson) return '기본 템플릿'
+  const source = readPosterCanvas(design.canvasJson).source
+  if (source.id?.startsWith('orshot:')) return 'Orshot'
+  if (
+    source.id?.startsWith('templated:') ||
+    readPosterCanvas(design.canvasJson).registeredTemplatedId
+  )
+    return 'Templated'
+  if (source.id?.startsWith('canva:')) return 'Canva'
+  return source.url === 'hiremate:generated' ? '자체 생성' : '기본 SVG 양식'
 }
 
 export function PostingPosterPage() {
@@ -89,7 +115,6 @@ export function PostingPosterPage() {
 function PosterEditor({ posting }: { posting: Posting }) {
   const navigate = useNavigate()
   const brand = usePosterBrand()
-  const addTemplate = useAddPosterTemplate()
   const save = useSavePoster(posting.recruitmentId)
   const ai = usePosterAi(posting.recruitmentId)
   const editable = posting.status === 'DRAFT'
@@ -98,7 +123,42 @@ function PosterEditor({ posting }: { posting: Posting }) {
     posting.poster ?? initialPoster(),
     editable,
   )
-  const { value: design, setValue: setDesign } = recovery
+  const { value: storedDesign, setValue: setDesign } = recovery
+  const logoFileId = brand.data?.logoFileId
+  const design = useMemo(
+    () =>
+      editable && logoFileId && !storedDesign.logoFileId
+        ? { ...storedDesign, logoFileId, showLogo: true }
+        : storedDesign,
+    [editable, logoFileId, storedDesign],
+  )
+  const { value: postingTemplates, setValue: setPostingTemplates } = usePostingRecovery<
+    Schemas['PosterTemplate'][]
+  >(`${posting.recruitmentId}:poster-templates`, [], editable, false)
+  const templateChoices = useMemo(() => {
+    const choices = [...(brand.data?.templates ?? []), ...postingTemplates]
+    if (
+      design.canvasJson &&
+      !choices.some((item) => samePosterCanvas(item.canvasJson, design.canvasJson))
+    ) {
+      const source = readPosterCanvas(design.canvasJson).source
+      if (
+        !choices.some(
+          (item) => item.canvasJson && readPosterCanvas(item.canvasJson).source.id === source.id,
+        )
+      )
+        choices.push({
+          id: 'current-posting',
+          name: source.name,
+          template: design.template,
+          mood: design.mood,
+          color: design.color,
+          decoration: design.decoration,
+          canvasJson: design.canvasJson,
+        })
+    }
+    return choices
+  }, [brand.data?.templates, postingTemplates, design])
   const savedDesign = JSON.stringify(posting.poster ?? initialPoster())
   const savedDesignRef = useRef(savedDesign)
   useEffect(() => {
@@ -110,15 +170,43 @@ function PosterEditor({ posting }: { posting: Posting }) {
     restoredNotice.current = true
     toast.info('저장하지 않은 포스터 디자인을 복구했어요.')
   }, [recovery.restored, recovery.dirty])
-  const { value: history, setValue: setHistory } = usePostingRecovery<Schemas['PosterTurn'][]>(
+  const { value: storedHistory, setValue: setStoredHistory } = usePostingRecovery<PosterChatTurn[]>(
     `${posting.recruitmentId}:poster-chat`,
     [],
     editable,
     false,
   )
-  const [messages, setMessages] = useState<AiMessage[]>(() =>
-    history.map((turn) => ({ role: turn.role === 'USER' ? 'user' : 'ai', text: turn.text })),
-  )
+  const queryClient = useQueryClient()
+  const historyKey = ['poster-chat-history', posting.postingId] as const
+  const { data: cachedHistory } = useQuery<PosterChatTurn[]>({
+    queryKey: historyKey,
+    queryFn: skipToken,
+    gcTime: 30 * 60 * 1000,
+  })
+  const history = cachedHistory ?? storedHistory
+  const setHistory = (
+    next: PosterChatTurn[] | ((previous: PosterChatTurn[]) => PosterChatTurn[]),
+  ) => {
+    const previous = queryClient.getQueryData<PosterChatTurn[]>(historyKey) ?? storedHistory
+    const turns = typeof next === 'function' ? next(previous) : next
+    queryClient.setQueryData(historyKey, turns)
+    setStoredHistory(turns)
+  }
+  const chatKey = ['poster-chat-job', posting.postingId] as const
+  const { data: chatJob } = useQuery<PosterChatJob | null>({
+    queryKey: chatKey,
+    queryFn: skipToken,
+    gcTime: 30 * 60 * 1000,
+  })
+  const chatPending = Boolean(chatJob)
+  const messages: AiMessage[] = history.map((turn) => ({
+    role: turn.role === 'USER' ? 'user' : 'ai',
+    text: turn.text,
+    steps: turn.steps,
+    seconds: turn.seconds,
+    admin: turn.admin,
+    agent: turn.role === 'ASSISTANT' && !turn.admin ? 'Posting Agent' : undefined,
+  }))
   const [proposal, setProposal] = useState<PosterProposal | null>(null)
   const [preview, setPreview] = useState<PosterDesign | null>(null)
   const [exporting, setExporting] = useState(false)
@@ -127,8 +215,42 @@ function PosterEditor({ posting }: { posting: Posting }) {
   const [smallPane, setSmallPane] = useState<'options' | 'poster' | 'chat'>('poster')
   const poster = useRef<HTMLDivElement>(null)
   const recommended = useRef(false)
-  const busy = save.isPending || ai.isPending || addTemplate.isPending || importing
   const shown = preview ?? design
+  const currentSource = useMemo(() => {
+    try {
+      return design.canvasJson ? readPosterCanvas(design.canvasJson).source : null
+    } catch {
+      return null
+    }
+  }, [design.canvasJson])
+  const refreshedOrshot = useOrshotPoster(posting, design)
+  useEffect(() => {
+    const canvasJson = refreshedOrshot.design.canvasJson
+    if (!canvasJson || canvasJson === design.canvasJson) return
+    setDesign((current) =>
+      current.canvasJson === design.canvasJson
+        ? { ...current, canvasJson, motion: 'NONE' }
+        : current,
+    )
+  }, [refreshedOrshot.design.canvasJson, design.canvasJson, setDesign])
+  const busy = save.isPending || chatPending || importing || refreshedOrshot.isFetching
+  const appliedSources = new Set(
+    [design.canvasJson, ...(brand.data?.templates?.map((item) => item.canvasJson) ?? [])].flatMap(
+      (canvas) => {
+        if (!canvas) return []
+        try {
+          const id = readPosterCanvas(canvas).source.id
+          return id ? [id] : []
+        } catch {
+          return []
+        }
+      },
+    ),
+  )
+  const availableTemplates =
+    proposal?.templates?.filter((item) => !appliedSources.has(item.id)) ?? []
+  const availableCanvaDesigns =
+    proposal?.canvaDesigns?.filter((item) => !appliedSources.has(`canva:${item.id}`)) ?? []
   const changes = useMemo(
     () => (preview ? posterPreviewChanges(design, preview, posting) : undefined),
     [design, preview, posting],
@@ -172,46 +294,10 @@ function PosterEditor({ posting }: { posting: Posting }) {
       active = false
     }
   }, [design.canvasJson, design.color, editable, posting, setDesign])
-  useEffect(() => {
-    if (recommended.current || !editable || posting.poster?.enabled || history.length) return
-    recommended.current = true
-    ai.mutate(
-      {
-        message:
-          '회사 소개와 문화, 공고 분량을 보고 어울리는 포스터 템플릿 2종과 분위기를 추천해줘. 브랜드 색상이 있으면 반영해줘.',
-        design,
-        history,
-        sectionNames: sectionNames(poster.current),
-      },
-      {
-        onSuccess: (result) => {
-          setProposal(result)
-          setPreview(result.recommendations[0]?.design ?? null)
-          setHistory(
-            (previous) =>
-              [
-                ...previous,
-                {
-                  role: 'ASSISTANT',
-                  text: result.reply,
-                  design: null,
-                  recommendations: result.recommendations,
-                },
-              ].slice(-12) as Schemas['PosterTurn'][],
-          )
-          setMessages((current) => [
-            ...current,
-            { role: 'ai', text: result.reply, agent: 'Posting Agent' },
-          ])
-        },
-        onError: (error) => setMessages((current) => [...current, errorReply(error)]),
-      },
-    )
-  }, [ai, design, editable, posting.poster?.enabled, history, setHistory])
   const update = (patch: Partial<PosterDesign>) => {
     setPreview(null)
     setProposal(null)
-    setDesign((current) => ({ ...current, ...patch }))
+    setDesign({ ...design, ...patch })
   }
   const persist = async (next = design, notify = false) => {
     try {
@@ -231,16 +317,146 @@ function PosterEditor({ posting }: { posting: Posting }) {
     isDirty: () => JSON.stringify(design) !== savedDesignRef.current,
     save: () => persist(),
   })
-  const request = async (message: string) => {
+  const prepareCandidate = async (template: FreeTemplate): Promise<PosterDesign> => {
+    let canvasJson: string
+    if (template.id.startsWith('orshot:')) {
+      if (
+        template.sourceUrl !== 'https://orshot.com/templates/' ||
+        template.license !== 'Orshot 계정 디자인'
+      ) {
+        throw new Error('Orshot 출처를 확인하지 못했어요.')
+      }
+      const imported = await unwrap(
+        api.POST('/api/recruitments/{recruitmentId}/posting/poster/orshot-import', {
+          params: { path: { recruitmentId: posting.recruitmentId } },
+          body: { templateId: Number(template.id.slice('orshot:'.length)) },
+        }),
+      )
+      canvasJson = await importOrshotPoster(
+        { ...imported, name: template.name },
+        design.color,
+        true,
+        posting,
+      )
+    } else if (template.id.startsWith('templated:') && nativeRegions(template.svg).length > 1) {
+      const plan = await unwrap(
+        api.POST('/api/recruitments/{recruitmentId}/posting/poster/template-layout', {
+          params: { path: { recruitmentId: posting.recruitmentId } },
+          body: { regions: nativeRegions(template.svg) },
+        }),
+      )
+      canvasJson = await importNativePoster(template, plan, design.color)
+    } else {
+      canvasJson = await importPosterTemplate(template, posting, design.color)
+    }
+    const canvas = readPosterCanvas(canvasJson)
+    return {
+      ...design,
+      enabled: true,
+      canvasJson,
+      color: canvas.brandColor ?? design.color,
+      motion: template.id.startsWith('orshot:') ? 'NONE' : canvas.media ? 'WAVE' : 'NONE',
+    }
+  }
+
+  const request = async (message: string, automatic = false) => {
+    if (queryClient.getQueryData(chatKey)) return
     const current = preview ?? design
-    setMessages((current) => [...current, { role: 'user', text: message }])
+    const startedAt = Date.now()
+    const steps: ChatStep[] = []
+    queryClient.setQueryData<PosterChatJob>(chatKey, { startedAt, steps: [] })
+    const updateJob = (patch: Partial<PosterChatJob>) =>
+      queryClient.setQueryData<PosterChatJob>(chatKey, (job) =>
+        job?.startedAt === startedAt ? { ...job, ...patch } : job,
+      )
+    const publishSteps = () => updateJob({ steps: [...steps] })
+    const processing = () => ({
+      steps: [...steps],
+      seconds: Math.floor((Date.now() - startedAt) / 1000),
+    })
+    if (!automatic) {
+      setHistory((previous) =>
+        [
+          ...previous,
+          {
+            role: 'USER' as const,
+            text: message,
+            design: current,
+            recommendations: [],
+            templates: [],
+          },
+        ].slice(-12),
+      )
+    }
     try {
       const result = await ai.mutateAsync({
         message,
         design: current,
-        history,
+        history: history.map((turn) => ({
+          role: turn.role,
+          text: turn.text,
+          design: turn.design,
+          recommendations: turn.recommendations,
+          templates: turn.templates,
+        })),
         sectionNames: sectionNames(poster.current),
+        onStep: (step) => {
+          steps.push(step)
+          publishSteps()
+        },
       })
+      if (queryClient.getQueryData<PosterChatJob>(chatKey)?.startedAt !== startedAt) return
+      let registrationNote = ''
+      for (const item of result.recommendations) {
+        if (!item.design.canvasJson) continue
+        const canvas = readPosterCanvas(item.design.canvasJson)
+        if (!canvas.templatedRegistration) continue
+        steps.push({ text: '새 양식을 등록하고 다시 불러오고 있어요', depth: 0 })
+        publishSteps()
+        try {
+          const request = await prepareTemplatedRegistration(posting, item.design)
+          const saved = await unwrap(
+            api.POST('/api/recruitments/{recruitmentId}/posting/poster/templated-register', {
+              params: { path: { recruitmentId: posting.recruitmentId } },
+              body: request,
+            }),
+          )
+          if (!saved.id?.startsWith('templated:')) throw new Error('등록 결과를 확인하지 못했어요.')
+          canvas.registeredTemplatedId = saved.id
+          canvas.source.name = saved.name || canvas.source.name
+        } catch (error) {
+          const code = error instanceof ApiError ? error.code : ''
+          registrationNote =
+            code === 'TEMPLATED_TEMPLATE_LIMIT'
+              ? ' Templated의 등록 권한 또는 템플릿 저장 한도를 확인해 주세요. 만든 디자인은 자체 생성 후보로 보여드려요.'
+              : code === 'TEMPLATED_NOT_CONFIGURED'
+                ? ' Templated 키가 없어 만든 디자인을 자체 생성 후보로 보여드려요.'
+                : ' Templated 등록을 완료하지 못해 만든 디자인을 자체 생성 후보로 보여드려요.'
+        }
+        delete canvas.templatedRegistration
+        item.design = { ...item.design, canvasJson: JSON.stringify(canvas) }
+      }
+      const candidates = result.templates ?? []
+      if (candidates.length) {
+        steps.push({ text: '후보에 공고 내용을 채워 미리보기를 준비하고 있어요', depth: 0 })
+        publishSteps()
+        const prepared = await Promise.allSettled(candidates.map(prepareCandidate))
+        const failed: FreeTemplate[] = []
+        prepared.forEach((item, index) => {
+          if (item.status === 'fulfilled') {
+            result.recommendations.push({
+              design: item.value,
+              reason: '현재 공고 내용을 채운 미리보기예요. 비교한 뒤 선택해 주세요.',
+            })
+          } else failed.push(candidates[index])
+        })
+        result.templates = failed
+        const count = result.recommendations.length
+        result.reply = count
+          ? `공고 내용을 채운 디자인 ${count}개를 준비했어요. 비교한 뒤 선택해 주세요.${failed.length ? ` ${failed.length}개는 미리보기를 준비하지 못해 원본 후보로 남겼어요.` : ''}`
+          : '공고 내용을 채운 미리보기를 준비하지 못했어요. 원본 후보에서 다시 불러올 수 있어요.'
+      }
+      result.reply += registrationNote
       const names = [
         ...(brand.data?.templates?.map((item) => item.name) ?? []),
         ...history.flatMap((turn) =>
@@ -264,41 +480,76 @@ function PosterEditor({ posting }: { posting: Posting }) {
       result.recommendations = result.recommendations.map((item) => {
         if (!item.design.canvasJson) return item
         const canvas = readPosterCanvas(item.design.canvasJson)
-        if (canvas.source.url !== 'hiremate:generated') return item
+        const generated =
+          canvas.source.url === 'hiremate:generated' && !canvas.registeredTemplatedId
         const name =
           (canvas.source.id && knownNames.get(canvas.source.id)) ||
-          nextExternalTemplateName(names, '생성템플릿')
+          nextExternalTemplateName(names, generated ? '생성템플릿' : '외부템플릿')
         names.push(name)
         canvas.source.name = name
         return { ...item, design: { ...item.design, canvasJson: JSON.stringify(canvas) } }
       })
-      setHistory(
-        (previous) =>
-          [
-            ...previous,
-            { role: 'USER', text: message, design: current, recommendations: [] },
-            {
-              role: 'ASSISTANT',
-              text: result.reply,
-              design: null,
-              recommendations: result.recommendations,
-              templates: result.templates ?? [],
-            },
-          ].slice(-12) as Schemas['PosterTurn'][],
-      )
-      setProposal(result)
-      setPreview(result.recommendations[0]?.design ?? null)
-      if (result.recommendations.length) setSmallPane('poster')
-      setMessages((current) => [
-        ...current,
-        { role: 'ai', text: result.reply, agent: 'Posting Agent' },
-      ])
-      const selected = result.templates?.find((item) => item.id === result.selectedTemplateId)
-      if (selected) await importTemplate(selected)
+      updateJob({
+        steps,
+        completion: {
+          proposal: result,
+          turn: {
+            role: 'ASSISTANT',
+            text: result.reply,
+            design: null,
+            recommendations: result.recommendations,
+            templates: result.templates ?? [],
+            ...processing(),
+          },
+        },
+      })
     } catch (error) {
-      setMessages((current) => [...current, errorReply(error)])
+      const reply = errorReply(error)
+      updateJob({
+        steps,
+        completion: {
+          turn: {
+            role: 'ASSISTANT',
+            text: reply.text,
+            design: null,
+            recommendations: [],
+            templates: [],
+            admin: reply.admin,
+            ...processing(),
+          },
+        },
+      })
     }
   }
+  const completeChat = useEffectEvent(() => {
+    const completion = queryClient.getQueryData<PosterChatJob>(chatKey)?.completion
+    if (!completion) return
+    queryClient.setQueryData(chatKey, null)
+    setHistory((previous) => [...previous, completion.turn].slice(-12))
+    const result = completion.proposal
+    if (!result) return
+    setProposal(result)
+    setPreview(
+      result.recommendations.length === 1 &&
+        !result.templates?.length &&
+        !result.canvaDesigns?.length
+        ? result.recommendations[0].design
+        : null,
+    )
+    if (result.recommendations.length) setSmallPane('poster')
+  })
+  useEffect(() => {
+    if (chatJob?.completion) queueMicrotask(() => completeChat())
+  }, [chatJob])
+  const recommend = useEffectEvent(() => {
+    void request('회사 소개와 문화, 공고 분량에 맞는 포스터 템플릿 2종을 추천해줘.', true)
+  })
+  useEffect(() => {
+    if (recommended.current || !editable || posting.poster?.enabled || history.length || chatJob)
+      return
+    recommended.current = true
+    recommend()
+  }, [editable, posting.poster?.enabled, history.length, chatJob])
   const pdf = async () => {
     const element = poster.current?.firstElementChild
     if (!(element instanceof HTMLElement)) return
@@ -313,9 +564,77 @@ function PosterEditor({ posting }: { posting: Posting }) {
     }
   }
 
-  const importTemplate = async (template: FreeTemplate) => {
+  const previewImported = (next: PosterDesign) => {
+    setPreview(next)
+    setProposal((current) => ({
+      reply: '미리보기를 확인한 뒤 적용해 주세요.',
+      templates: current?.templates ?? [],
+      selectedTemplateId: null,
+      canvaQuery: null,
+      canvaDesigns: current?.canvaDesigns ?? [],
+      externalQuery: null,
+      candidateMode: null,
+      recommendations: [{ design: next, reason: '아직 적용하지 않은 미리보기예요.' }],
+    }))
+    setSmallPane('poster')
+  }
+
+  const applyOrshotOriginal = async (sourceId: string, name: string) => {
     setImporting(true)
     try {
+      const imported = await unwrap(
+        api.POST('/api/recruitments/{recruitmentId}/posting/poster/orshot-import', {
+          params: { path: { recruitmentId: posting.recruitmentId } },
+          body: { templateId: Number(sourceId.slice('orshot:'.length)) },
+        }),
+      )
+      const canvasJson = await importOrshotPoster(
+        { ...imported, name },
+        design.color,
+        true,
+        posting,
+      )
+      const next = {
+        ...design,
+        enabled: true,
+        canvasJson,
+        color: readPosterCanvas(canvasJson).brandColor ?? design.color,
+        motion: 'NONE' as const,
+      }
+      previewImported(next)
+      toast.info('미리보기를 준비했어요. 적용을 누르면 템플릿 목록에 추가돼요.')
+    } catch (error) {
+      toast.error(errorMessage(error))
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const importTemplate = async (template: FreeTemplate) => {
+    if (template.id.startsWith('orshot:')) {
+      if (
+        template.sourceUrl !== 'https://orshot.com/templates/' ||
+        template.license !== 'Orshot 계정 디자인'
+      ) {
+        toast.error('Orshot 출처를 확인하지 못했어요.')
+        return
+      }
+      await applyOrshotOriginal(template.id, template.name)
+      return
+    }
+    setImporting(true)
+    try {
+      const saved = brand.data?.templates.find((item) => {
+        try {
+          return item.canvasJson && readPosterCanvas(item.canvasJson).source.id === template.id
+        } catch {
+          return false
+        }
+      })
+      if (saved?.canvasJson) {
+        previewImported({ ...design, enabled: true, canvasJson: saved.canvasJson })
+        return
+      }
       let canvasJson: string
       if (template.id.startsWith('templated:') && nativeRegions(template.svg).length > 1) {
         const plan = await unwrap(
@@ -333,7 +652,10 @@ function PosterEditor({ posting }: { posting: Posting }) {
         if (!item.canvasJson) return false
         try {
           const saved = readPosterCanvas(item.canvasJson).source
-          return saved.id ? saved.id === source.id : saved.name === source.name
+          return (
+            (saved.id ? saved.id === source.id : saved.name === source.name) ||
+            sameImportedArtwork(item.canvasJson, canvasJson)
+          )
         } catch {
           return false
         }
@@ -344,19 +666,13 @@ function PosterEditor({ posting }: { posting: Posting }) {
       const document = readPosterCanvas(canvasJson)
       document.source.name = name
       canvasJson = JSON.stringify(document)
-      if (!existing) {
-        await addTemplate.mutateAsync({
-          name,
-          template: 'CLASSIC',
-          color: design.color,
-          canvasJson,
-        })
-      }
-      setDesign((current) => ({ ...current, enabled: true, canvasJson }))
-      setPreview(null)
-      setProposal(null)
-      setSmallPane('poster')
-      toast.success('템플릿 선택에 추가하고 공고에 적용했어요.')
+      previewImported({
+        ...design,
+        enabled: true,
+        canvasJson: existing?.canvasJson ?? canvasJson,
+        motion: document.media && design.motion === 'NONE' ? 'WAVE' : design.motion,
+      })
+      toast.info('미리보기를 준비했어요. 적용을 누르면 템플릿 목록에 추가돼요.')
     } catch (error) {
       toast.error(errorMessage(error))
     } finally {
@@ -364,20 +680,31 @@ function PosterEditor({ posting }: { posting: Posting }) {
     }
   }
 
-  const applyRecommendation = async (next: PosterDesign) => {
+  const applyRecommendation = (next: PosterDesign) => {
     try {
       if (next.canvasJson) {
         const canvas = readPosterCanvas(next.canvasJson)
         if (
-          canvas.source.url === 'hiremate:generated' &&
-          !brand.data?.templates.some((item) => samePosterCanvas(item.canvasJson, next.canvasJson))
+          !templateChoices.some((item) =>
+            canvas.source.id && item.canvasJson
+              ? readPosterCanvas(item.canvasJson).source.id === canvas.source.id
+              : samePosterCanvas(item.canvasJson, next.canvasJson),
+          )
         ) {
-          await addTemplate.mutateAsync({
+          if (canvas.source.url !== 'hiremate:generated') {
+            canvas.source.name = nextExternalTemplateName(templateChoices.map((item) => item.name))
+            next = { ...next, canvasJson: JSON.stringify(canvas) }
+          }
+          const saved = {
+            id: canvas.source.id || crypto.randomUUID(),
             name: canvas.source.name,
             template: next.template,
+            mood: next.mood,
+            decoration: next.decoration,
             color: next.color,
             canvasJson: next.canvasJson,
-          })
+          }
+          setPostingTemplates((current) => [...current, saved])
         }
       }
       setDesign(next)
@@ -394,6 +721,19 @@ function PosterEditor({ posting }: { posting: Posting }) {
     setImportError(null)
     setImporting(true)
     try {
+      const saved = brand.data?.templates.find((item) => {
+        try {
+          return (
+            item.canvasJson && readPosterCanvas(item.canvasJson).source.id === `canva:${designId}`
+          )
+        } catch {
+          return false
+        }
+      })
+      if (saved?.canvasJson) {
+        previewImported({ ...design, canvasJson: saved.canvasJson, enabled: true })
+        return
+      }
       const imported = await unwrap(
         api.POST('/api/recruitments/{recruitmentId}/posting/poster/canva-import', {
           params: { path: { recruitmentId: posting.recruitmentId } },
@@ -401,19 +741,19 @@ function PosterEditor({ posting }: { posting: Posting }) {
         }),
       )
       const canvasJson = await importCanvaPoster(imported, posting, design.color)
+      const duplicate = brand.data?.templates.find((item) =>
+        sameImportedArtwork(item.canvasJson, canvasJson),
+      )
+      if (duplicate?.canvasJson) {
+        previewImported({ ...design, canvasJson: duplicate.canvasJson, enabled: true })
+        return
+      }
       const name = nextExternalTemplateName(brand.data?.templates.map((item) => item.name) ?? [])
       const document = readPosterCanvas(canvasJson)
       document.source.name = name
       const namedCanvas = JSON.stringify(document)
-      await addTemplate.mutateAsync({
-        name,
-        template: 'CLASSIC',
-        color: design.color,
-        canvasJson: namedCanvas,
-      })
-      update({ canvasJson: namedCanvas, enabled: true })
-      setSmallPane('poster')
-      toast.success('Canva 디자인을 템플릿에 추가하고 현재 공고를 채웠어요.')
+      previewImported({ ...design, canvasJson: namedCanvas, enabled: true })
+      toast.info('미리보기를 준비했어요. 적용을 누르면 템플릿 목록에 추가돼요.')
     } catch (error) {
       setImportError(errorMessage(error))
       toast.error(errorMessage(error))
@@ -426,21 +766,28 @@ function PosterEditor({ posting }: { posting: Posting }) {
     <AiRequestPanel
       messages={messages}
       examples={[
-        '새로운 포스터 템플릿 2개 만들어줘',
+        '회사 특징을 살린 서로 다른 포스터 템플릿 3개 만들어줘',
         '금융권에 어울리는 외부 무료 템플릿 찾아줘',
+        '움직이는 포스터 템플릿 추천해줘',
         '우리는 더 고급스러운 느낌이 있어야 해',
-        '더 청량하게, 물결 장식은 은은하게 해줘',
+        '장식 없이 깔끔하게 정리해줘',
         '회사 소개에 어울리는 디자인을 추천해줘',
         '실무면접 아이콘을 사람 아이콘으로 바꿔줘',
       ]}
       hint="분위기와 장식은 이곳에서 요청해 주세요. AI 수정안은 적용해야 반영돼요."
-      pending={ai.isPending}
+      pending={chatPending || importing}
+      steps={
+        chatPending
+          ? chatJob?.steps
+          : importing
+            ? [{ text: '공고 내용을 채운 미리보기를 준비하고 있어요', depth: 0 }]
+            : undefined
+      }
       disabled={busy}
       onSend={(message) => void request(message)}
       onReset={() => {
         if (busy) return
         recommended.current = true
-        setMessages([])
         setHistory([])
       }}
     />
@@ -531,7 +878,26 @@ function PosterEditor({ posting }: { posting: Posting }) {
             </Button>
           ))}
       </nav>
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        {(importing || refreshedOrshot.isFetching) && (
+          <div className="absolute inset-0 z-10 grid place-items-center bg-background/60 p-4">
+            <div
+              role="status"
+              className="flex items-center gap-3 rounded-lg border bg-background p-4 shadow-sm"
+            >
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-5 shrink-0 motion-safe:animate-spin"
+              />
+              <div>
+                <p className="text-sm font-medium">공고를 채운 미리보기 준비 중…</p>
+                <p className="text-xs text-muted-foreground">
+                  배경과 공고 내용을 불러오는 중이에요.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         <aside
           aria-label="디자인 옵션"
           className={cn(
@@ -541,22 +907,22 @@ function PosterEditor({ posting }: { posting: Posting }) {
         >
           <div className="flex h-12 shrink-0 items-center justify-between border-b px-4">
             <h2 className="text-sm font-semibold">디자인 옵션</h2>
-            {editable && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() =>
-                  void request('회사 소개와 문화, 공고 분량에 맞는 포스터 템플릿 2종을 추천해줘.')
-                }
-              >
-                <Sparkles />
-                AI 추천
-              </Button>
-            )}
           </div>
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4">
-            {(proposal?.canvaDesigns?.length ?? 0) > 0 && (
+            {refreshedOrshot.isError && (
+              <div role="alert" className="rounded-md border p-3 text-xs">
+                <p>공고 변경 내용을 Orshot 원본에 반영하지 못했어요.</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2"
+                  onClick={() => void refreshedOrshot.refetch()}
+                >
+                  다시 시도
+                </Button>
+              </div>
+            )}
+            {availableCanvaDesigns.length > 0 && (
               <section aria-label="Canva 디자인 검색 결과" className="space-y-3">
                 {importError && (
                   <p role="alert" className="text-xs text-destructive">
@@ -567,7 +933,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
                 <p className="text-xs text-muted-foreground">
                   배경과 글 영역을 가져와 현재 공고로 채워요. 문구·배치는 채팅으로 수정할 수 있어요.
                 </p>
-                {proposal?.canvaDesigns?.slice(0, 3).map((item) => (
+                {availableCanvaDesigns.slice(0, 3).map((item) => (
                   <div key={item.id} className="rounded-lg border bg-background p-3">
                     {item.thumbnailUrl && (
                       <img
@@ -591,20 +957,20 @@ function PosterEditor({ posting }: { posting: Posting }) {
                       disabled={busy}
                       onClick={() => void importCanva(item.id)}
                     >
-                      {importing ? '가져오는 중…' : '현재 공고로 가져오기'}
+                      {importing ? '불러오는 중…' : '선택'}
                     </Button>
                   </div>
                 ))}
               </section>
             )}
-            {(proposal?.templates?.length ?? 0) > 0 && (
+            {availableTemplates.length > 0 && (
               <section aria-label="외부 템플릿" className="space-y-3">
                 <h3 className="text-xs font-semibold">외부 템플릿</h3>
                 <p className="text-xs text-muted-foreground">
                   선택한 테마의 배색과 구성을 현재 공고 길이에 맞춰 적용해요. 원본 문구는 가져오지
                   않아요.
                 </p>
-                {proposal?.templates?.map((template) => (
+                {availableTemplates.map((template) => (
                   <div key={template.id} className="rounded-lg border bg-background p-3">
                     <img
                       className="mb-2 h-28 w-full bg-white object-contain"
@@ -629,7 +995,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
                       disabled={busy}
                       onClick={() => void importTemplate(template)}
                     >
-                      {importing ? '가져오는 중…' : '공고에 적용'}
+                      {importing ? '불러오는 중…' : '선택'}
                     </Button>
                   </div>
                 ))}
@@ -646,7 +1012,20 @@ function PosterEditor({ posting }: { posting: Posting }) {
                 <div className="mt-3 space-y-3">
                   {proposal.recommendations.map((item, index) => (
                     <div key={index} className="rounded-md border bg-background p-3">
+                      {proposal.recommendations.length > 1 && (
+                        <div className="mb-2 overflow-hidden rounded border">
+                          <PosterThumbnail
+                            posting={posting}
+                            design={item.design}
+                            logoUrl={logoUrl}
+                            compact
+                          />
+                        </div>
+                      )}
                       <strong className="text-xs">{proposalName(item.design)}</strong>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {proposalProvider(item.design)}
+                      </p>
                       <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
                         {item.reason}
                       </p>
@@ -697,6 +1076,18 @@ function PosterEditor({ posting }: { posting: Posting }) {
             )}
             <section aria-label="템플릿 선택">
               <h3 className="mb-3 text-xs font-medium">템플릿 선택</h3>
+              {editable && currentSource?.id?.startsWith('orshot:') && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mb-3 w-full"
+                  disabled={busy}
+                  onClick={() => void applyOrshotOriginal(currentSource.id!, currentSource.name)}
+                >
+                  Orshot 원본 다시 적용
+                </Button>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 {POSTER_TEMPLATES.map((item) => (
                   <button
@@ -724,19 +1115,42 @@ function PosterEditor({ posting }: { posting: Posting }) {
                     </div>
                   </button>
                 ))}
-                {(brand.data?.templates ?? []).map((item) => (
+                {templateChoices.map((item) => (
                   <div key={item.id} className="group relative">
                     <button
                       type="button"
                       disabled={!editable || busy}
-                      aria-pressed={samePosterCanvas(item.canvasJson, design.canvasJson)}
+                      aria-pressed={
+                        samePosterCanvas(item.canvasJson, design.canvasJson) ||
+                        (!!currentSource?.id &&
+                          !!item.canvasJson &&
+                          readPosterCanvas(item.canvasJson).source.id === currentSource.id)
+                      }
                       className={cn(
                         'w-full overflow-hidden rounded-md border text-left disabled:cursor-default',
-                        samePosterCanvas(item.canvasJson, design.canvasJson)
+                        samePosterCanvas(item.canvasJson, design.canvasJson) ||
+                          (!!currentSource?.id &&
+                            !!item.canvasJson &&
+                            readPosterCanvas(item.canvasJson).source.id === currentSource.id)
                           ? 'border-foreground ring-1 ring-foreground'
                           : 'hover:border-foreground/40',
                       )}
-                      onClick={() =>
+                      onClick={() => {
+                        const sourceId = item.canvasJson
+                          ? readPosterCanvas(item.canvasJson).source.id
+                          : undefined
+                        if (sourceId?.startsWith('orshot:')) {
+                          update({
+                            template:
+                              POSTER_TEMPLATES.find((base) => base.id === item.template)?.id ??
+                              'CLASSIC',
+                            decoration: item.decoration,
+                            canvasJson: item.canvasJson,
+                            enabled: true,
+                            motion: 'NONE',
+                          })
+                          return
+                        }
                         update({
                           template:
                             POSTER_TEMPLATES.find((base) => base.id === item.template)?.id ??
@@ -745,7 +1159,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
                           canvasJson: item.canvasJson ?? null,
                           enabled: true,
                         })
-                      }
+                      }}
                     >
                       <PosterThumbnail
                         posting={posting}
@@ -764,24 +1178,49 @@ function PosterEditor({ posting }: { posting: Posting }) {
                         <strong className="block text-center text-[11px]">{item.name}</strong>
                       </div>
                     </button>
-                    <PosterTemplateDelete
-                      id={item.id}
-                      name={item.name}
-                      disabled={busy}
-                      onDeleted={(savedBrand) => {
-                        if (
-                          posterAfterTemplateDeletion(design, item, savedBrand) !== design ||
-                          (preview &&
-                            posterAfterTemplateDeletion(preview, item, savedBrand) !== preview)
-                        ) {
+                    {brand.data?.templates.some((saved) => saved.id === item.id) ? (
+                      <PosterTemplateDelete
+                        id={item.id}
+                        name={item.name}
+                        disabled={busy}
+                        onDeleted={(savedBrand) => {
+                          if (
+                            posterAfterTemplateDeletion(design, item, savedBrand) !== design ||
+                            (preview &&
+                              posterAfterTemplateDeletion(preview, item, savedBrand) !== preview)
+                          ) {
+                            setPreview(null)
+                            setProposal(null)
+                          }
+                          setDesign((current) =>
+                            posterAfterTemplateDeletion(current, item, savedBrand),
+                          )
+                        }}
+                      />
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-sm"
+                        aria-label={`${item.name} 템플릿 삭제`}
+                        disabled={busy}
+                        className="absolute top-1.5 right-1.5 z-10 size-6 rounded-full bg-background shadow-sm [&_svg]:size-3.5"
+                        onClick={() => {
+                          setPostingTemplates((current) =>
+                            current.filter((saved) => saved.id !== item.id),
+                          )
+                          const savedBrand = brand.data
+                          if (savedBrand)
+                            setDesign((current) =>
+                              posterAfterTemplateDeletion(current, item, savedBrand),
+                            )
                           setPreview(null)
                           setProposal(null)
-                        }
-                        setDesign((current) =>
-                          posterAfterTemplateDeletion(current, item, savedBrand),
-                        )
-                      }}
-                    />
+                        }}
+                      >
+                        <Trash2 />
+                      </Button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -842,17 +1281,6 @@ function PosterEditor({ posting }: { posting: Posting }) {
                   로고 · 회사 템플릿 관리
                 </Link>
               </div>
-              <Button
-                variant="outline"
-                className="w-full"
-                disabled={!brand.data}
-                onClick={() => {
-                  update({ ...initialPoster(brand.data), enabled: design.enabled })
-                  toast.info('최신 기업 기본값을 가져왔어요.')
-                }}
-              >
-                최신 기업 설정 가져오기
-              </Button>
             </fieldset>
           </div>
         </aside>

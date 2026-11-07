@@ -18,6 +18,7 @@ import {
 } from '@/features/posting/poster-api'
 import { initialPoster, type PosterDesign } from '@/features/posting/poster-design'
 import { PosterThumbnail } from '@/features/posting/PosterThumbnail'
+import { useOrshotPoster } from '@/features/posting/useOrshotPoster'
 import { cn } from '@/lib/utils'
 
 export type PostingFormat = 'text' | 'poster'
@@ -35,7 +36,12 @@ export function PostingFormatDialog({
 }) {
   const [selected, setSelected] = useState<PostingFormat | null>(null)
   const brand = usePosterBrand()
-  const design = { ...(posting.poster ?? initialPoster(brand.data)), enabled: true }
+  const refreshed = useOrshotPoster(posting, {
+    ...(posting.poster ?? initialPoster(brand.data)),
+    enabled: true,
+  })
+  const design = refreshed.design
+  const waitingForPoster = selected === 'poster' && (refreshed.isFetching || refreshed.isError)
   const logoUrl =
     design.logoFileId === brand.data?.logoFileId
       ? companyPosterLogoUrl(design.logoFileId)
@@ -129,12 +135,25 @@ export function PostingFormatDialog({
               ? '포스터 템플릿 선택·편집으로 이동해요.'
               : '원하는 형식을 선택해 주세요.'}
         </p>
+        {refreshed.isFetching && (
+          <p role="status" className="text-xs text-muted-foreground">
+            변경한 공고 제목을 포스터에 반영하고 있어요.
+          </p>
+        )}
+        {refreshed.isError && (
+          <div role="alert" className="text-xs">
+            <p>포스터에 공고 변경 내용을 반영하지 못했어요.</p>
+            <Button variant="outline" size="sm" onClick={() => void refreshed.refetch()}>
+              다시 시도
+            </Button>
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" disabled={pending} onClick={onClose}>
             취소
           </Button>
           <Button
-            disabled={!selected || pending}
+            disabled={!selected || pending || waitingForPoster}
             onClick={() => selected && onSelect(selected, design)}
           >
             {pending ? '저장 중…' : '선택'}

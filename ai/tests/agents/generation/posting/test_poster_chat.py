@@ -12,16 +12,83 @@ from hiremate_ai.agents.generation.posting.poster import (
     PosterRecommendation,
     PosterTurn,
 )
-from hiremate_ai.agents.generation.posting.poster_chat import PosterChatReply
+from hiremate_ai.agents.generation.posting.poster_chat import PosterChatReply, PosterIntent
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY
 from hiremate_ai.contract import CompanyProfile, PostingContent
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
 
 
+async def test_provider_search_does_not_fall_back_to_basic_svg(
+    sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    llm = FakeLlm(PosterIntent(kind="SEARCH", query="financial recruitment", canva_query="금융 채용"))
+    context = PosterContext(company=sample_company, posting=sample_posting, design=None, brand_color=None)
+    proposal = await design_poster(llm, context, "Orshot에서 무료 채용 템플릿 찾아줘")
+    assert proposal.external_query == "financial recruitment"
+    assert proposal.templates == []
+    assert proposal.recommendations == []
+    assert len(llm.calls) == 1
+
+
+async def test_motion_request_returns_provider_plan_without_generating_static_artwork(
+    sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    llm = FakeLlm(PosterIntent(kind="MOTION", query="banking technology developer"))
+    context = PosterContext(company=sample_company, posting=sample_posting, design=None, brand_color=None)
+    proposal = await design_poster(llm, context, "움직이는 포스터로 만들어줘")
+    assert proposal.candidate_mode == "MOTION"
+    assert proposal.external_query == "banking technology developer"
+    assert not proposal.recommendations
+    assert len(llm.calls) == 1
+
+
+async def test_poster_chat_rejects_posting_fact_edit_without_offering_another_change(
+    sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    llm = FakeLlm(PosterIntent(kind="CONTENT"))
+    context = PosterContext(company=sample_company, posting=sample_posting, design=None, brand_color=None)
+    proposal = await design_poster(llm, context, "연봉을 1억원으로 바꿔줘")
+    assert "공고 편집 화면" in proposal.reply
+    assert not proposal.recommendations
+    assert len(llm.calls) == 1
+
+
+@pytest.mark.parametrize("effect", ["WAVE", "GLOW", "NONE"])
+@pytest.mark.parametrize("canvas", [None, '{"source":{"id":"orshot:36665"},"objects":[]}'])
+async def test_motion_changes_only_header_effect_and_preserves_current_design(
+    sample_company: CompanyProfile, sample_posting: PostingContent, effect: str, canvas: str | None
+) -> None:
+    current = PosterDesign(
+        template="PREMIUM",
+        mood="TRUST",
+        color="#082858",
+        decoration=1,
+        enabled=True,
+        show_logo=False,
+        logo_file_id=None,
+        canvas_json=canvas,
+        motion="GLOW",
+        stage_icons={"1차 면접": "USERS"},
+        tagline="다음 금융을 함께 만듭니다",
+    )
+    context = PosterContext(company=sample_company, posting=sample_posting, design=current, brand_color=None)
+    llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
+        ToolCall("edit_poster_motion", {"effect": effect}),
+        PosterChatReply(kind="DESIGN", reply="상단 움직임 수정안", result=1),
+    )
+    result = await design_poster(llm, context, "상단 장식만 움직이게 해줘")
+    changed = result.recommendations[0].design
+    assert changed.motion == effect
+    assert changed.model_dump(exclude={"motion"}) == current.model_dump(exclude={"motion"})
+
+
+@pytest.mark.parametrize("follow_up", [False, True])
 async def test_other_icon_replaces_the_current_displayed_icon_instead_of_proposing_no_change(
     sample_company: CompanyProfile,
     sample_posting: PostingContent,
+    follow_up: bool,
 ) -> None:
     current = PosterDesign(
         template="PREMIUM",
@@ -41,10 +108,27 @@ async def test_other_icon_replaces_the_current_displayed_icon_instead_of_proposi
         displayed_stage_icons={"2차 면접": "USERS"},
     )
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         ToolCall("edit_stage_icons", {"icons": {"2차 면접": "USERS"}, "replace_current": True}),
         PosterChatReply(kind="DESIGN", reply="대화 아이콘 제안", result=1),
     )
-    result = await design_poster(llm, context, "2차면접 아이콘 다른 걸로 바꿔줘")
+    request = "면접 아이콘 바꿔줘"
+    question = "1차 면접인가요, 2차 면접인가요?"
+    if follow_up:
+        context = context.model_copy(
+            update={
+                "stage_names": ["1차 면접", "2차 면접"],
+                "history": [
+                    PosterTurn(role="USER", text=request),
+                    PosterTurn(role="ASSISTANT", text=question),
+                ],
+            }
+        )
+    result = await design_poster(llm, context, "2차" if follow_up else "2차면접 아이콘 다른 걸로 바꿔줘")
+    if follow_up:
+        for call in llm.calls[:2]:
+            assert request in call.user
+            assert question in call.user
     assert result.recommendations[0].design.stage_icons == {"2차 면접": "MESSAGES"}
     assert result.recommendations[0].design.template == "PREMIUM"
 
@@ -75,6 +159,7 @@ async def test_stage_icon_tool_works_on_builtins_without_canvas_and_preserves_de
         stage_names=["서류 전형", "1차 면접", "2차 면접"],
     )
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         ToolCall("edit_stage_icons", {"icons": {"1차 면접": "USERS"}}),
         PosterChatReply(kind="DESIGN", reply="수정안", result=1),
     )
@@ -83,7 +168,7 @@ async def test_stage_icon_tool_works_on_builtins_without_canvas_and_preserves_de
         exclude={"stage_icons"}
     )
     assert result.recommendations[0].design.stage_icons == {"1차 면접": "USERS", "2차 면접": "USERS"}
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3
 
 
 async def test_stage_icon_tool_repairs_unknown_stage_name_without_changing_other_stages(
@@ -107,6 +192,7 @@ async def test_stage_icon_tool_repairs_unknown_stage_name_without_changing_other
         stage_names=["1차 면접", "2차 면접"],
     )
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         ToolCall("edit_stage_icons", {"icons": {"1차면접": "USERS"}}),
         ToolCall("edit_stage_icons", {"icons": {"1차 면접": "USERS"}}),
         PosterChatReply(kind="DESIGN", reply="수정안", result=1),
@@ -121,6 +207,7 @@ async def test_external_search_uses_public_provider_without_canva_connection(
 ) -> None:
     context = PosterContext(company=sample_company, posting=sample_posting, design=None, brand_color=None)
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         ToolCall("find_external_templates", {"query": "recruitment clean elegant"}),
         PosterChatReply(kind="DESIGN", reply="검색합니다", result=1),
     )
@@ -128,6 +215,51 @@ async def test_external_search_uses_public_provider_without_canva_connection(
     assert result.external_query == "recruitment clean elegant"
     assert result.canva_query is None
     assert result.templates == []
+
+
+@pytest.mark.parametrize("in_history", [False, True])
+@pytest.mark.parametrize(
+    "source", ["hiremate:generated", "https://orshot.com/templates/", "https://templated.io/templates/"]
+)
+async def test_repeated_generation_can_select_external_search(
+    sample_company: CompanyProfile, sample_posting: PostingContent, in_history: bool, source: str
+) -> None:
+    generated = PosterDesign(
+        template="CLASSIC",
+        mood="TRUST",
+        color="#082858",
+        decoration=1,
+        enabled=True,
+        show_logo=False,
+        logo_file_id=None,
+        canvas_json='{"source":{"url":"' + source + '"},"objects":[]}',
+    )
+    context = PosterContext(
+        company=sample_company,
+        posting=sample_posting,
+        design=None if in_history else generated,
+        brand_color=None,
+        canva_connected=True,
+        history=[
+            PosterTurn(
+                role="ASSISTANT",
+                text="생성안",
+                recommendations=[PosterRecommendation(design=generated, reason="처음 생성")],
+            )
+        ]
+        if in_history
+        else [],
+    )
+    llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
+        ToolCall("find_external_templates", {"query": "financial recruitment", "canva_query": "금융 채용"}),
+        PosterChatReply(kind="DESIGN", reply="다른 후보", result=1),
+    )
+    result = await design_poster(llm, context, "마음에 안 들어 다시 만들어줘")
+    assert result.external_query == "financial recruitment"
+    assert result.canva_query == "금융 채용"
+    assert not result.recommendations
+    assert generated.color == "#082858"
 
 
 async def test_recall_external_theme_preserves_the_verified_candidate(
@@ -148,6 +280,7 @@ async def test_recall_external_theme_preserves_the_verified_candidate(
         history=[PosterTurn(role="ASSISTANT", text="외부 후보", design=None, templates=[template])],
     )
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         ToolCall("recall_free_template", {"reference": "H1-T1"}),
         PosterChatReply(kind="DESIGN", reply="선택", result=1),
     )
@@ -164,6 +297,7 @@ async def test_canva_search_is_deferred_to_the_authenticated_backend(
         company=sample_company, posting=sample_posting, design=None, brand_color=None, canva_connected=True
     )
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         ToolCall("find_canva_designs", {"query": "금융권"}),
         PosterChatReply(kind="DESIGN", reply="검색합니다", result=1),
     )
@@ -173,6 +307,7 @@ async def test_canva_search_is_deferred_to_the_authenticated_backend(
     disconnected = context.model_copy(update={"canva_connected": False})
     result = await design_poster(
         FakeLlm(
+            PosterIntent(kind="OTHER"),
             ToolCall("find_canva_designs", {"query": "금융권"}),
             PosterChatReply(kind="DESIGN", reply="연결 필요", result=1),
         ),
@@ -208,6 +343,7 @@ async def test_known_a4_portrait_label_is_not_an_applicant_age(
     )
     result = await design_poster(
         FakeLlm(
+            PosterIntent(kind="OTHER"),
             ToolCall("recall_free_template", {"reference": "H1-T1"}),
             PosterChatReply(kind="DESIGN", reply="선택했습니다", result=1),
         ),
@@ -215,7 +351,13 @@ async def test_known_a4_portrait_label_is_not_an_applicant_age(
         "A4 세로 기본 양식으로 적용해줘",
     )
     assert result.selected_template_id == candidate.id
-    blocked = await design_poster(FakeLlm(), context, "A4 세로 기본 양식으로 적용하고 20세만 지원하도록 해줘")
+    blocked = await design_poster(
+        FakeLlm(
+            PosterIntent(kind="OTHER"),
+        ),
+        context,
+        "A4 세로 기본 양식으로 적용하고 20세만 지원하도록 해줘",
+    )
     assert blocked.reply == BLOCKED_REPLY
 
 
@@ -245,6 +387,7 @@ async def test_free_template_results_are_real_tool_results_and_can_be_selected(
         raise LlmOutputError("Empty final response after verified tool result")
 
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         ToolCall("find_free_templates", {"query": "finance bank"}),
         empty_response if empty_final else PosterChatReply(kind="DESIGN", reply="후보를 확인해 주세요.", result=1),
     )
@@ -258,6 +401,7 @@ async def test_free_template_results_are_real_tool_results_and_can_be_selected(
     )
     selected = await design_poster(
         FakeLlm(
+            PosterIntent(kind="OTHER"),
             ToolCall("recall_free_template", {"reference": "H1-T1"}),
             PosterChatReply(kind="DESIGN", reply="선택했습니다.", result=1),
         ),
@@ -283,6 +427,7 @@ async def test_poster_chat_delegates_design_and_preserves_logo_scope(
         recommendations=[PosterRecommendation(design=proposed, reason="차분하고 절제된 디자인이에요.")],
     )
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         *([PosterChatReply(kind="DESIGN", reply="아이콘을 변경합니다.", result=None)] if premature else []),
         ToolCall("consult_posting_designer", {"request": "더 고급스럽게 해줘"}),
         proposal,
@@ -295,8 +440,8 @@ async def test_poster_chat_delegates_design_and_preserves_logo_scope(
     )
     assert result.recommendations[0].design.logo_file_id == logo
     assert result.recommendations[0].design.template == "PREMIUM"
-    assert [call.agent for call in llm.calls] == ["posting"] * (4 if premature else 3)
-    assert "<data" in llm.calls[2 if premature else 1].user
+    assert [call.agent for call in llm.calls] == ["posting"] * (5 if premature else 4)
+    assert "<data" in llm.calls[3 if premature else 2].user
     assert current.template == "CLASSIC"
 
 
@@ -304,6 +449,7 @@ async def test_poster_chat_rejects_fabricated_result_number(
     sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         PosterChatReply(kind="CONVERSATION", reply="적용했어요", result=9),
         PosterChatReply(kind="CONVERSATION", reply="디자인을 구체적으로 알려 주세요.", result=None),
     )
@@ -311,7 +457,7 @@ async def test_poster_chat_rejects_fabricated_result_number(
         llm, PosterContext(company=sample_company, posting=sample_posting, design=None, brand_color=None), "디자인 안내"
     )
     assert result.recommendations == []
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3
 
 
 @pytest.mark.parametrize("patch", [{"color": "url(evil)"}, {"decoration": 3}, {"template": "CUSTOM"}])
@@ -363,6 +509,7 @@ async def test_recall_restores_exact_prior_design_or_asks_without_inventing(
         ],
     )
     llm = FakeLlm(
+        PosterIntent(kind="OTHER"),
         ToolCall("recall_poster", {"reference": f"H2-R{index}"}),
         PosterChatReply(kind="CONVERSATION", reply="확인해 주세요", result=1),
     )
@@ -372,4 +519,4 @@ async def test_recall_restores_exact_prior_design_or_asks_without_inventing(
         assert "찾지 못했어요" in result.reply
     else:
         assert result.recommendations[0].design == (first if index == 1 else second)
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3

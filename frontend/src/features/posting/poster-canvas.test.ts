@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   importPosterTemplate,
   importCanvaPoster,
+  importOrshotPoster,
   posterBindings,
   posterCanvasObjects,
   readPosterCanvas,
+  sameImportedArtwork,
   samePosterCanvas,
   posterAfterTemplateDeletion,
   nextExternalTemplateName,
@@ -22,6 +24,118 @@ const doc = {
 }
 
 describe('외부 포스터 데이터', () => {
+  it.each([
+    ['#8b32be', 'PANELS', 'CARDS', 'COMPACT'],
+    ['#d85d36', 'EDITORIAL', 'STEPS', 'LIST'],
+    ['#082858', 'EDITORIAL', 'TIMELINE', 'TILES'],
+  ] as const)(
+    'Orshot 원본 %s의 배색을 본문에 잇고 하단 표현을 맞춘다',
+    async (color, body, process, documents) => {
+      const F = await import('fabric')
+      const bitmap = document.createElement('canvas')
+      bitmap.width = 600
+      bitmap.height = 360
+      const context = bitmap.getContext('2d')!
+      context.fillStyle = color
+      context.fillRect(0, 0, 600, 360)
+      const mock = vi.spyOn(F.FabricImage, 'fromURL').mockResolvedValue(new F.FabricImage(bitmap))
+      try {
+        const imported = readPosterCanvas(
+          await importOrshotPoster(
+            {
+              id: 'orshot:11',
+              name: '원본',
+              background: bitmap.toDataURL('image/jpeg'),
+              width: 600,
+              height: 360,
+              motionUrl: null,
+              motionHeight: 360,
+              layoutStyle: null,
+            },
+            '#082858',
+            true,
+          ),
+        )
+        expect(imported.brandColor).toBe(color)
+        expect(imported.nativeLayout?.appearance).toMatchObject({ body, process, documents })
+        expect(imported.nativeLayout?.sections.every((section) => section.accent === color)).toBe(
+          true,
+        )
+      } finally {
+        mock.mockRestore()
+      }
+    },
+  )
+  it('Orshot 배경에는 원본 글을 넣지 않고 현재 공고를 채울 편집 영역을 만든다', async () => {
+    const F = await import('fabric')
+    const bitmap = document.createElement('canvas')
+    bitmap.width = 600
+    bitmap.height = 360
+    const context = bitmap.getContext('2d')!
+    context.fillStyle = '#082858'
+    context.fillRect(0, 0, 600, 360)
+    const mock = vi.spyOn(F.FabricImage, 'fromURL').mockResolvedValue(new F.FabricImage(bitmap))
+    try {
+      const imported = readPosterCanvas(
+        await importOrshotPoster(
+          {
+            id: 'orshot:11',
+            name: '사진형',
+            background: bitmap.toDataURL('image/jpeg'),
+            width: 600,
+            height: 360,
+            motionUrl: 'https://storage.orshot.com/test/background.mp4',
+            motionHeight: 600,
+            layoutStyle: null,
+          },
+          '#082858',
+        ),
+      )
+      expect(imported.source.id).toBe('orshot:11')
+      expect(imported.media?.url).toBe('https://storage.orshot.com/test/background.mp4')
+      expect(imported.nativeLayout?.sections.map((section) => section.binding)).toEqual(
+        expect.arrayContaining(['intro', 'duties', 'qualifications', 'stages', 'documents']),
+      )
+      expect(
+        imported.objects.filter((object) => object.binding).every((object) => object.text === ''),
+      ).toBe(true)
+      expect(imported.objects.find((object) => object.binding === 'title')?.fill).toBe('#ffffff')
+    } finally {
+      mock.mockRestore()
+    }
+    await expect(
+      importOrshotPoster(
+        {
+          id: 'orshot:11',
+          name: '사진형',
+          background: 'https://private.example/image.jpg',
+          width: 600,
+          height: 360,
+          motionUrl: null,
+          motionHeight: 0,
+          layoutStyle: null,
+        },
+        '#082858',
+      ),
+    ).rejects.toThrow()
+  })
+  it('Orshot 출처는 계정 디자인 표기와 유효한 템플릿 번호가 함께 있어야 한다', () => {
+    const source = {
+      id: 'orshot:36664',
+      name: '사진형',
+      url: 'https://orshot.com/templates/',
+      license: 'Orshot 계정 디자인',
+    }
+    expect(readPosterCanvas(JSON.stringify({ ...doc, source })).source).toEqual(source)
+    for (const invalid of [
+      { ...source, id: 'orshot:../private' },
+      { ...source, url: 'https://orshot.com.evil.test/templates/' },
+      { ...source, license: '무료' },
+    ]) {
+      expect(() => readPosterCanvas(JSON.stringify({ ...doc, source: invalid }))).toThrow()
+    }
+  })
+
   it('선택 중인 템플릿을 삭제하면 저장된 기업 기본 디자인으로 돌아가고 다른 템플릿 삭제는 유지한다', () => {
     const brand: PosterBrand = {
       template: 'PREMIUM',
@@ -232,6 +346,13 @@ describe('외부 포스터 데이터', () => {
   })
   it('요소별 편집과 출처를 보존한다', () => {
     expect(readPosterCanvas(JSON.stringify(doc))).toEqual(doc)
+  })
+  it('이름과 원본 ID가 다른 동일 디자인의 복사본을 구분한다', () => {
+    const copy = { ...doc, source: { ...doc.source, id: 'copy', name: '외부템플릿2' } }
+    expect(sameImportedArtwork(JSON.stringify(doc), JSON.stringify(copy))).toBe(true)
+    expect(sameImportedArtwork(JSON.stringify(doc), JSON.stringify({ ...copy, objects: [] }))).toBe(
+      false,
+    )
   })
   it('초기 중앙 원점 데이터를 복구하고 최신 색상과 내용만 채운다', () => {
     const old = {

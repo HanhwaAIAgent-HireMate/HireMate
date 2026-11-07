@@ -114,6 +114,11 @@ public class CanvaConnectionService {
     }
 
     public List<CanvaDesign> search(AuthenticatedMember member, HttpSession session, String query) {
+        return search(member, session, query, java.util.Set.of());
+    }
+
+    public List<CanvaDesign> search(AuthenticatedMember member, HttpSession session, String query,
+            java.util.Set<String> excluded) {
         Map<String, Object> arguments = query.isBlank()
                 ? Map.of("sort_by", "modified_descending", "limit", 12,
                         "user_intent", "Find recruitment poster designs in my Canva library")
@@ -130,7 +135,7 @@ public class CanvaConnectionService {
                 break;
             }
             String id = row.path("id").asString(row.path("design_id").asString(""));
-            if (!id.matches("D[A-Za-z0-9_-]{5,79}") || !seen.add(id)) {
+            if (!id.matches("D[A-Za-z0-9_-]{5,79}") || excluded.contains("canva:" + id) || !seen.add(id)) {
                 continue;
             }
             JsonNode metadata = call(member, session, "get-design", Map.of("design_id", id,

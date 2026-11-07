@@ -11,7 +11,8 @@ import {
 } from '@/features/posting/poster-design'
 import { drawCanvasStages } from './poster-canvas-stages'
 import type { NativeLayout } from './poster-layout'
-import { POSTER_FONT } from './poster-svg'
+import { creativeOrshotColor, creativeOrshotLayout } from './poster-creative-layout'
+import { inlinePosterSvg, loadPosterFonts, POSTER_FONT } from './poster-svg'
 
 export type FreeTemplate = NonNullable<Schemas['PosterProposal']['templates']>[number]
 export type CanvasObject = Record<string, unknown>
@@ -19,9 +20,15 @@ export type PosterCanvas = {
   width: number
   height: number
   brandColor?: string
+  heroStyle?: 'PHOTO_CAPTION'
+  originalRender?: true
+  orshotContentKey?: string
+  templatedRegistration?: true
+  registeredTemplatedId?: string
   source: { id?: string; name: string; url: string; license: string }
   objects: CanvasObject[]
   nativeLayout?: NativeLayout
+  media?: { url: string; height: number; clipHeight: number; version?: number }
   continuation?: { start: number; sampleTop: number; sampleBottom: number; color: string }
   canvaLayout?: {
     version: 2
@@ -33,6 +40,48 @@ export type PosterCanvas = {
     logoFrameCleaned?: boolean
     logoCleanupVersion?: number
   }
+}
+
+/** 화면과 같은 배치·줄바꿈을 계산한 벡터를 등록해 제공처에서 재배치하지 않도록 한다. */
+export async function prepareTemplatedRegistration(posting: PosterPosting, design: PosterDesign) {
+  const doc = recolorGeneratedPoster(readPosterCanvas(design.canvasJson!), design.color)
+  if (!doc.source.id?.startsWith('generated:') || !doc.nativeLayout)
+    throw new Error('새로 생성한 포스터만 등록할 수 있어요.')
+  const values = posterBindings(posting, design)
+  await loadPosterFonts(Object.values(values).join('\n'))
+  const F = await import('fabric')
+  const { layoutNativePoster } = await import('./poster-layout')
+  const canvas = new F.StaticCanvas(document.createElement('canvas'), {
+    width: doc.width,
+    height: doc.height,
+    backgroundColor: doc.nativeLayout.paper,
+  })
+  try {
+    await canvas.loadFromJSON({ objects: posterCanvasObjects(doc, values, design.color) })
+    await layoutNativePoster(canvas, doc, posting, design)
+    const height = Math.ceil(canvas.height)
+    if (height < 300 || height > 5000) throw new Error('등록 가능한 포스터 길이를 초과했어요.')
+    const parsed = new DOMParser().parseFromString(inlinePosterSvg(canvas.toSVG()), 'image/svg+xml')
+    parsed.documentElement.setAttribute('width', '600')
+    parsed.documentElement.setAttribute('height', String(height))
+    parsed.documentElement.setAttribute('viewBox', `0 0 600 ${height}`)
+    return {
+      sourceId: doc.source.id,
+      name: doc.source.name.slice(0, 100),
+      svg: new XMLSerializer().serializeToString(parsed.documentElement),
+      height,
+    }
+  } finally {
+    await canvas.dispose()
+  }
+}
+
+export function usesPhotoCaption(doc: PosterCanvas): boolean {
+  return (
+    !doc.originalRender &&
+    doc.source.url === 'https://orshot.com/templates/' &&
+    (doc.heroStyle === 'PHOTO_CAPTION' || doc.source.id === 'orshot:36661')
+  )
 }
 
 /** 생성 테마의 배경·본문·강조색을 함께 바꾼다. 원본 캔버스는 저장된 기준 배색으로 남긴다. */
@@ -297,6 +346,21 @@ export function samePosterCanvas(first?: string | null, second?: string | null):
   }
 }
 
+export function sameImportedArtwork(first: string | null | undefined, second: string): boolean {
+  if (!first) return false
+  try {
+    const { source: left, ...firstArtwork } = readPosterCanvas(first)
+    const { source: right, ...secondArtwork } = readPosterCanvas(second)
+    return (
+      left.url !== 'hiremate:generated' &&
+      right.url !== 'hiremate:generated' &&
+      JSON.stringify(firstArtwork) === JSON.stringify(secondArtwork)
+    )
+  } catch {
+    return false
+  }
+}
+
 export function posterAfterTemplateDeletion(
   current: Schemas['PosterDesign'],
   deleted: Schemas['PosterBrand']['templates'][number],
@@ -504,6 +568,7 @@ export function readPosterCanvas(value: string): PosterCanvas {
     const layout = doc.nativeLayout as NativeLayout
     if (
       layout.version !== 1 ||
+      (layout.sourceTemplate !== undefined && !creativeOrshotColor(layout.sourceTemplate)) ||
       !/^#[0-9a-f]{6}$/i.test(layout.paper) ||
       !Number.isFinite(layout.headerBottom) ||
       layout.headerBottom < 0 ||
@@ -546,6 +611,22 @@ export function readPosterCanvas(value: string): PosterCanvas {
         throw new Error('원본 구역의 크기나 배색을 확인하지 못했어요.')
     }
   }
+  const media = doc.media as Partial<NonNullable<PosterCanvas['media']>> | undefined
+  if (
+    media &&
+    (source?.url !== 'https://orshot.com/templates/' ||
+      typeof media.url !== 'string' ||
+      !/^https:\/\/storage\.orshot\.com\/[A-Za-z0-9_./-]+\.mp4$/.test(media.url) ||
+      typeof media.height !== 'number' ||
+      !Number.isFinite(media.height) ||
+      media.height < 10 ||
+      media.height > 20000 ||
+      typeof media.clipHeight !== 'number' ||
+      !Number.isFinite(media.clipHeight) ||
+      media.clipHeight < 260 ||
+      media.clipHeight > (doc.originalRender === true ? 3000 : 480))
+  )
+    throw new Error('원본 영상 정보를 확인하지 못했어요.')
   if (
     !source ||
     typeof source.name !== 'string' ||
@@ -556,7 +637,11 @@ export function readPosterCanvas(value: string): PosterCanvas {
         source.license === 'AI 생성' &&
         typeof source.id === 'string' &&
         /^generated:[a-f0-9-]{36}$/.test(source.id)) ||
-      (source.url === 'https://templated.io/templates/' && source.license === 'Templated 테마')
+      (source.url === 'https://templated.io/templates/' && source.license === 'Templated 테마') ||
+      (source.url === 'https://orshot.com/templates/' &&
+        source.license === 'Orshot 계정 디자인' &&
+        typeof source.id === 'string' &&
+        /^orshot:[1-9][0-9]*$/.test(source.id))
     )
   ) {
     throw new Error('무료 템플릿 출처를 확인하지 못했어요.')
@@ -701,6 +786,16 @@ export async function importPosterTemplate(
   const sourceHeight = Number(imported.options.height) || 850
   const decoration = imported.objects
     .filter((item) => item && !['text', 'textbox', 'i-text'].includes(item.type.toLowerCase()))
+    // 기본 문서 SVG의 입력 칸·구획선은 새 공고의 행 위치와 맞지 않는다.
+    // 종이 배경만 보존하고 구획은 아래의 실측된 공고 레이아웃에서 만든다.
+    .filter(
+      (item) =>
+        item &&
+        item.type.toLowerCase() === 'rect' &&
+        !item.stroke &&
+        item.width * item.scaleX >= sourceWidth * 0.9 &&
+        item.height * item.scaleY >= sourceHeight * 0.9,
+    )
     .map((item, index) => {
       if (!item) throw new Error('SVG 요소를 읽지 못했어요.')
       item.set({
@@ -835,6 +930,235 @@ async function importTemplatedTheme(
   } finally {
     await target.dispose()
   }
+}
+
+/** Orshot은 원본의 글을 제거한 상단 배경을 보존하고 편집 가능한 본문을 같은 색조로 확장한다. */
+export async function importOrshotPoster(
+  template: Schemas['OrshotTemplate'],
+  color: string,
+  originalRender = false,
+  posting?: PosterPosting,
+): Promise<string> {
+  if (
+    !/^orshot:[1-9][0-9]*$/.test(template.id) ||
+    !/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(template.background) ||
+    template.background.length > 160000 ||
+    template.width !== 600 ||
+    template.height < (originalRender ? 30 : 260) ||
+    template.height > (originalRender ? 3000 : 480)
+  )
+    throw new Error('Orshot 원본 배경을 확인하지 못했어요.')
+  const F = await import('fabric')
+  const image = await F.FabricImage.fromURL(template.background)
+  const pixels = image.toCanvasElement().getContext('2d')
+  const sample = pixels?.getImageData(
+    Math.min(36, image.width - 1),
+    Math.min(36, image.height - 1),
+    1,
+    1,
+  ).data
+  const ink =
+    sample && sample[0] * 0.2126 + sample[1] * 0.7152 + sample[2] * 0.0722 > 150
+      ? '#24313e'
+      : '#ffffff'
+  if (originalRender && pixels) {
+    color =
+      creativeOrshotColor(template.layoutStyle) ??
+      orshotArtworkColor(pixels.getImageData(0, 0, image.width, image.height).data, color)
+  }
+  const palette = posterPalette(color) as Record<string, string>
+  const [red, green, blue] = [1, 3, 5].map((at) => Number.parseInt(color.slice(at, at + 2), 16))
+  const graphic = blue > green * 1.2 && red > green * 1.2
+  const warm = red > blue * 1.3
+  const objects: CanvasObject[] = [
+    {
+      type: 'Image',
+      hmId: 'canva-header',
+      src: template.background,
+      left: 0,
+      top: 0,
+      width: template.width,
+      height: template.height,
+      originX: 'left',
+      originY: 'top',
+    },
+  ]
+  const text = (binding: string, top: number, size: number, width = 520) =>
+    objects.push({
+      type: 'Textbox',
+      hmId: binding,
+      binding,
+      text: '',
+      left: 40,
+      top,
+      width,
+      fontSize: size,
+      fontFamily: POSTER_FONT,
+      fill: ink,
+      fontWeight: binding === 'title' ? 'bold' : 'normal',
+      originX: 'left',
+      originY: 'top',
+      splitByGrapheme: true,
+    })
+  if (!originalRender) {
+    text('company', 28, 17, 350)
+    text('tagline', 82, 13)
+    text('title', 122, 38)
+    text('tags', Math.max(220, template.height - 70), 13)
+  }
+  const sections = [
+    'intro',
+    'conditions',
+    'duties',
+    'qualifications',
+    'preferred',
+    'benefits',
+    'stages',
+    'documents',
+    'notices',
+    'period',
+  ].map((binding, index) => ({
+    binding,
+    left: ['qualifications', 'benefits'].includes(binding) ? 312 : 40,
+    top: template.height + 40 + index * 140,
+    width: ['duties', 'qualifications', 'preferred', 'benefits'].includes(binding) ? 248 : 520,
+    height: 120,
+    heading: { fontSize: 18, fill: palette['--poster-heading'], fontWeight: 'bold' },
+    body: { fontSize: 14, fill: '#24313e', fontWeight: 'normal' },
+    accent: color,
+    rule: `#${new F.Color(palette['--poster-line']).toHex()}`,
+    card: `#${new F.Color(palette['--poster-soft']).toHex()}`,
+    lastCard: color,
+    cardInk: palette['--poster-on-primary'],
+  }))
+  sections.find((s) => s.binding === 'qualifications')!.top = sections.find(
+    (s) => s.binding === 'duties',
+  )!.top
+  sections.find((s) => s.binding === 'benefits')!.top = sections.find(
+    (s) => s.binding === 'preferred',
+  )!.top
+  const result = JSON.stringify({
+    width: 600,
+    height: template.height + 1600,
+    brandColor: color,
+    source: {
+      id: template.id,
+      name: template.name,
+      url: 'https://orshot.com/templates/',
+      license: 'Orshot 계정 디자인',
+    },
+    ...(originalRender ? { originalRender: true } : {}),
+    ...(posting ? { orshotContentKey: orshotPostingKey(posting) } : {}),
+    ...(!originalRender && /\bphoto hero\b/i.test(template.name)
+      ? { heroStyle: 'PHOTO_CAPTION' }
+      : {}),
+    ...(template.motionUrl
+      ? {
+          media: {
+            url: template.motionUrl,
+            height: template.motionHeight,
+            clipHeight: template.height,
+            version: 2,
+          },
+        }
+      : {}),
+    objects,
+    nativeLayout: creativeOrshotLayout(template.layoutStyle, {
+      version: 1,
+      paper: '#ffffff',
+      headerBottom: template.height,
+      sections,
+      appearance: {
+        edition: 3,
+        body: graphic ? 'PANELS' : 'EDITORIAL',
+        process: graphic ? 'CARDS' : warm ? 'STEPS' : 'TIMELINE',
+        documents: graphic ? 'COMPACT' : warm ? 'LIST' : 'TILES',
+        expression: 'CALM',
+      },
+    }),
+  } satisfies PosterCanvas)
+  readPosterCanvas(result)
+  return result
+}
+
+/** 원본 영상에 구워지는 문구가 바뀔 때만 다시 렌더링한다. 본문은 매번 현재 공고로 그린다. */
+export function orshotPostingKey(posting: PosterPosting): string {
+  const content = JSON.stringify([
+    5,
+    posting.companyName,
+    posting.content.title,
+    posting.content.career,
+    posting.content.employmentType,
+    posting.content.location,
+  ])
+  let first = 2166136261
+  let second = 5381
+  for (let at = 0; at < content.length; at++) {
+    first = Math.imul(first ^ content.charCodeAt(at), 16777619)
+    second = Math.imul(second, 33) ^ content.charCodeAt(at)
+  }
+  return `source-layout-v2-${(first >>> 0).toString(16)}-${(second >>> 0).toString(16)}`
+}
+
+/** 새 헤더와 원본 영상만 교체하고 HR이 고른 본문 배치와 배색은 보존한다. */
+export function refreshOrshotCanvas(current: string, refreshed: string): string {
+  const original = readPosterCanvas(current)
+  const next = readPosterCanvas(refreshed)
+  if (!original.source.id?.startsWith('orshot:') || original.source.id !== next.source.id) {
+    throw new Error('같은 Orshot 원본만 갱신할 수 있어요.')
+  }
+  const delta = (next.nativeLayout?.headerBottom ?? 0) - (original.nativeLayout?.headerBottom ?? 0)
+  original.objects = [
+    ...next.objects.filter((item) => item.hmId === 'canva-header'),
+    ...original.objects.filter((item) => item.hmId !== 'canva-header'),
+  ]
+  if (original.nativeLayout && next.nativeLayout) {
+    // 이전 가져오기의 공통 본문을 한 번만 원본 구성으로 전환한다.
+    // 별도 objects에 저장한 HR의 본문 수정은 위에서 보존한다.
+    if (!original.nativeLayout.sourceTemplate && next.nativeLayout.sourceTemplate) {
+      original.nativeLayout = next.nativeLayout
+    } else {
+      original.nativeLayout.headerBottom = next.nativeLayout.headerBottom
+      original.nativeLayout.sections = original.nativeLayout.sections.map((section) => ({
+        ...section,
+        top: section.top + delta,
+      }))
+    }
+  }
+  original.height += delta
+  original.media = next.media
+  original.orshotContentKey = next.orshotContentKey
+  return JSON.stringify(original)
+}
+
+/** 원본의 큰 색 면에서 강조색을 골라 추가 본문도 같은 팔레트를 사용한다. */
+export function orshotArtworkColor(pixels: Uint8ClampedArray, fallback: string): string {
+  const buckets = new Map<string, { count: number; r: number; g: number; b: number }>()
+  for (let at = 0; at < pixels.length; at += 64) {
+    const [r, g, b] = pixels.slice(at, at + 3)
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    if (max < 65 || max > 240 || max - min < 45 || pixels[at + 3] < 200) continue
+    const key = [r, g, b].map((value) => Math.floor(value / 32)).join(',')
+    const bucket = buckets.get(key) ?? { count: 0, r: 0, g: 0, b: 0 }
+    bucket.count++
+    bucket.r += r
+    bucket.g += g
+    bucket.b += b
+    buckets.set(key, bucket)
+  }
+  const best = [...buckets.values()].sort((a, b) => b.count - a.count)[0]
+  if (!best) return fallback
+  return (
+    '#' +
+    [best.r, best.g, best.b]
+      .map((value) =>
+        Math.round(value / best.count)
+          .toString(16)
+          .padStart(2, '0'),
+      )
+      .join('')
+  )
 }
 
 export async function importCanvaPoster(

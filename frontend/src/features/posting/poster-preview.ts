@@ -22,6 +22,7 @@ export function posterPreviewChanges(
     )
     .map((stage) => stage.name)
   const bindings = before.tagline !== after.tagline ? ['tagline'] : []
+  if ((before.motion ?? 'NONE') !== (after.motion ?? 'NONE')) bindings.push('header-motion')
   let all = (
     ['template', 'color', 'mood', 'decoration', 'backgroundStyle', 'showLogo'] as const
   ).some((key) => before[key] !== after[key])

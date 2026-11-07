@@ -29,7 +29,7 @@ from hiremate_ai.agents.generation.posting.types import (
     RevisionStep,
 )
 from hiremate_ai.contract import ContractModel
-from hiremate_ai.llm.client import LlmDep
+from hiremate_ai.llm.client import LlmDep, get_poster_llm
 from hiremate_ai.ncs_search.reference import NcsDep
 
 router = APIRouter(prefix="/agents/posting", tags=["posting"])
@@ -74,11 +74,12 @@ async def revise(body: ReviseRequest, llm: LlmDep, ncs: NcsDep) -> AsyncIterator
 class DesignRequest(ContractModel):
     context: PosterContext
     request: str = Field(min_length=1, max_length=1000)
+    generate_only: bool = False
 
 
 @router.post("/design")
 async def design(body: DesignRequest, llm: LlmDep) -> PosterProposal:
-    return await design_poster(llm, body.context, body.request)
+    return await design_poster(get_poster_llm() or llm, body.context, body.request, generate_only=body.generate_only)
 
 
 class CanvaMapRequest(ContractModel):
@@ -87,7 +88,7 @@ class CanvaMapRequest(ContractModel):
 
 @router.post("/map-canva")
 async def map_template(body: CanvaMapRequest, llm: LlmDep) -> CanvaMapping:
-    return await map_canva(llm, body.regions)
+    return await map_canva(get_poster_llm() or llm, body.regions)
 
 
 class TemplateLayoutRequest(ContractModel):
@@ -96,4 +97,4 @@ class TemplateLayoutRequest(ContractModel):
 
 @router.post("/template-layout")
 async def template_layout(body: TemplateLayoutRequest, llm: LlmDep) -> TemplateLayout:
-    return await plan_template_layout(llm, body.regions)
+    return await plan_template_layout(get_poster_llm() or llm, body.regions)

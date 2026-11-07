@@ -330,7 +330,16 @@ def canvas_summary(value: str | None) -> dict[str, Any] | None:
                 }
                 for element in data["objects"]
                 if isinstance(element, dict)
-            ][:150],
+            ][:150]
+            + [
+                {
+                    "hmId": f"{kind}:{section['binding']}",
+                    "label": LABELS.get(section["binding"], section["binding"]) + label,
+                    **(section.get("heading", {}) if kind == "heading" else {"fill": section.get("accent")}),
+                }
+                for section in data.get("nativeLayout", {}).get("sections", [])
+                for kind, label in (("heading", " 제목"), ("number", " 항목 번호"))
+            ],
         }
     except (ValueError, TypeError, KeyError):
         return None
@@ -339,9 +348,28 @@ def canvas_summary(value: str | None) -> dict[str, Any] | None:
 def apply_canvas_changes(value: str, changes: list[CanvasChange], scope: str = "MIXED") -> str:
     data = json.loads(value)
     objects = {element["hmId"]: element for element in data["objects"] if "hmId" in element}
-    if any(change.element_id not in objects for change in changes):
+    sections = {section["binding"]: section for section in data.get("nativeLayout", {}).get("sections", [])}
+    virtual = {
+        f"{kind}:{binding}": (section, kind) for binding, section in sections.items() for kind in ("heading", "number")
+    }
+    if any(change.element_id not in objects and change.element_id not in virtual for change in changes):
         raise ValueError("Unknown element")
     for change in changes:
+        if change.element_id in virtual:
+            section, kind = virtual[change.element_id]
+            if kind == "number" and change.fill and scope in {"COLOR", "MIXED"}:
+                section["accent"] = change.fill
+            if kind == "heading":
+                update = change.model_dump(by_alias=True, exclude_none=True, exclude={"element_id"})
+                section_allowed = {
+                    "COLOR": {"fill"},
+                    "TYPOGRAPHY": {"fontSize", "fontFamily", "fontWeight"},
+                    "LAYOUT": set(),
+                }.get(scope, {"fill", "fontSize", "fontFamily", "fontWeight"})
+                section.setdefault("heading", {}).update(
+                    {key: value for key, value in update.items() if key in section_allowed}
+                )
+            continue
         element = objects[change.element_id]
         if element.get("hmId") in {"canva-background", "canva-header"}:
             raise ValueError("Canva background is a preserved image")
@@ -384,6 +412,9 @@ async def revise_canvas(llm: LlmClient, context: PosterContext, request: str) ->
             "생성 템플릿(source=hiremate:generated)의 전체 대표색 변경은 palette에 새 #rrggbb를 넣는다. "
             "전체 색상 요청은 배너만 바꾸지 않는다. palette는 전체 배경·본문·강조색을 함께 바꾼다. "
             "특정 요소만 색을 바꾸면 palette=null로 두고 changes만 사용한다. "
+            "heading:항목은 본문 항목 제목, number:항목은 01·02 같은 번호다. "
+            "항목 번호는 displayed-sections 순서(1부터)와 제목으로 대조한다. "
+            "번호들의 색만 요청하면 number: ID들만 변경한다. brand-color가 있으면 기업색 요청에 그 값을 쓴다. "
             "서체·크기·정렬만 요청하면 fill을 변경하지 않는다. "
             "지원하지 않는 문구 변경·새 요소 추가는 완료했다고 말하지 않고 가능한 범위를 안내한다. "
             "canva-background는 원본 이미지라 색/장식/위치를 바꿀 수 없다. 해당 요청은 "
@@ -394,6 +425,8 @@ async def revise_canvas(llm: LlmClient, context: PosterContext, request: str) ->
             + UNTRUSTED_RULE
         ),
         user=data_block("canvas-elements", json.dumps(canvas_summary(current.canvas_json), ensure_ascii=False))
+        + data_block("displayed-sections", json.dumps(context.section_names, ensure_ascii=False))
+        + data_block("brand-color", context.brand_color or "")
         + "\n담당자 요청: "
         + request,
     )

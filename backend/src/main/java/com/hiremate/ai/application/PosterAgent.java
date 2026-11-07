@@ -9,6 +9,10 @@ import java.util.List;
 public interface PosterAgent {
     PosterProposal design(PosterContext context, String request);
 
+    default PosterProposal generate(PosterContext context, String request) {
+        return new PosterProposal("새 디자인을 만들려면 실제 모델 연결이 필요해요.", List.of());
+    }
+
     default CanvaMapping mapCanva(List<CanvaRegion> regions) {
         throw new com.hiremate.global.ApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
                 "CANVA_MODEL_REQUIRED", "Canva 디자인을 가져오려면 실제 모델 연결이 필요해요.");

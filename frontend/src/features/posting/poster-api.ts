@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { postingKeys } from '@/features/posting/api'
 import type { PosterBrand, PosterDesign } from '@/features/posting/poster-design'
-import { api, unwrap, type Schemas } from '@/lib/api/client'
+import { api, ApiError, unwrap, type Schemas } from '@/lib/api/client'
+import { readEvents } from '@/lib/api/sse'
+import type { ChatStep } from '@/features/chat/steps'
 
 export const posterBrandKey = ['company', 'poster-brand'] as const
 
@@ -64,19 +66,42 @@ export function useDeletePosterTemplate() {
 
 export function usePosterAi(recruitmentId: string) {
   return useMutation({
-    mutationFn: (body: {
+    mutationFn: async ({
+      onStep,
+      ...body
+    }: {
       message: string
       design: PosterDesign
       history?: Schemas['PosterTurn'][]
       sectionNames?: string[]
-    }) =>
-      unwrap(
-        api.POST('/api/recruitments/{recruitmentId}/posting/poster/ai-requests', {
+      onStep?: (step: ChatStep) => void
+    }) => {
+      const stream = await unwrap(
+        api.POST('/api/recruitments/{recruitmentId}/posting/poster/ai-requests/stream', {
           params: { path: { recruitmentId } },
           body: { ...body, history: body.history ?? [], sectionNames: body.sectionNames ?? [] },
+          parseAs: 'stream',
         }),
-      ),
+      )
+      if (!stream) throw new ApiError(502, 'AI_UNAVAILABLE', '')
+      return readPosterProposal(stream, onStep ?? (() => {}))
+    },
   })
+}
+
+export async function readPosterProposal(
+  stream: ReadableStream<Uint8Array>,
+  onStep: (step: ChatStep) => void,
+): Promise<Schemas['PosterProposal']> {
+  for await (const { event, data } of readEvents(stream)) {
+    if (event === 'status') onStep(JSON.parse(data) as ChatStep)
+    else if (event === 'done') return JSON.parse(data) as Schemas['PosterProposal']
+    else if (event === 'error') {
+      const error = JSON.parse(data) as Schemas['ChatError']
+      throw new ApiError(error.status, error.code, '')
+    }
+  }
+  throw new ApiError(502, 'AI_UNAVAILABLE', '')
 }
 
 export function savedPosterLogoUrl(recruitmentId: string, logoId?: string | null) {

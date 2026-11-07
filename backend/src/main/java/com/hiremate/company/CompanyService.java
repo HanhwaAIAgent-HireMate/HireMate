@@ -23,6 +23,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
 
 /** 기업 정보와 설정(회사 소개 · 채용 공고 · 안내 메일). 다른 모듈은 조회 메서드로 설정을 가져간다. */
 @Service
@@ -126,6 +127,11 @@ public class CompanyService {
             String canvasJson) {
         PosterBrand brand = posterBrand(companyId);
         String title = name.strip();
+        String source = PosterTemplate.sourceId(canvasJson);
+        if (!source.isEmpty() && brand.templates().stream()
+                .anyMatch(item -> source.equals(PosterTemplate.sourceId(item.canvasJson())))) {
+            return brand;
+        }
         if (brand.templates().size() >= 12 || brand.templates().stream()
                 .anyMatch(item -> item.name().equalsIgnoreCase(title))) {
             throw new ApiException(HttpStatus.CONFLICT, "POSTER_TEMPLATE_CONFLICT",
@@ -142,6 +148,41 @@ public class CompanyService {
         templates.add(new PosterTemplate(UUID.randomUUID(), title, template, mood, color, 1, canvasJson));
         return updatePosterBrand(companyId, new PosterBrand(brand.template(), brand.mood(), brand.color(),
                 brand.decoration(), brand.logoFileId(), templates));
+    }
+
+    /** 승인된 원본의 영상만 보충하며 저장된 이름·배색·본문 배치는 유지한다. */
+    @Transactional
+    public void attachPosterTemplateMotion(UUID companyId, String sourceId, String url, int height,
+            int clipHeight, String background) {
+        if (!sourceId.matches("orshot:[1-9][0-9]*")
+                || !url.matches("https://storage\\.orshot\\.com/[A-Za-z0-9_./-]+\\.mp4")
+                || height < 10 || height > 20000 || clipHeight < 260 || clipHeight > 480
+                || !background.startsWith("data:image/jpeg;base64,") || background.length() > 160000) {
+            throw new IllegalArgumentException("Invalid poster motion");
+        }
+        PosterBrand brand = posterBrand(companyId);
+        List<PosterTemplate> templates = brand.templates().stream().map(item -> {
+            if (!sourceId.equals(PosterTemplate.sourceId(item.canvasJson()))) {
+                return item;
+            }
+            Map<String, Object> canvas = JsonText.read(item.canvasJson(), new TypeReference<>() { });
+            canvas.put("media", Map.of("url", url, "height", height, "clipHeight", clipHeight, "version", 2));
+            var nodes = JsonText.read(item.canvasJson(), tools.jackson.databind.JsonNode.class);
+            var objects = nodes.path("objects");
+            for (var object : objects) {
+                if (object.path("hmId").asString("").equals("canva-header")
+                        && object instanceof tools.jackson.databind.node.ObjectNode image) {
+                    image.put("src", background);
+                }
+            }
+            canvas.put("objects", objects);
+            return new PosterTemplate(item.id(), item.name(), item.template(), item.mood(), item.color(),
+                    item.decoration(), JsonText.write(canvas));
+        }).toList();
+        if (!templates.equals(brand.templates())) {
+            updatePosterBrand(companyId, new PosterBrand(brand.template(), brand.mood(), brand.color(),
+                    brand.decoration(), brand.logoFileId(), templates));
+        }
     }
 
     /** 추가한 템플릿만 지운다. 공고에 복사된 디자인과 기본 제공 양식은 바꾸지 않는다. */

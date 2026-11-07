@@ -71,6 +71,35 @@ def canvas() -> str:
     )
 
 
+def test_section_numbers_and_headings_have_independent_editable_colors() -> None:
+    data = json.loads(canvas())
+    data["nativeLayout"] = {
+        "sections": [
+            {"binding": "intro", "accent": "#112233", "heading": {"fill": "#112233", "fontSize": 18}},
+            {"binding": "duties", "accent": "#112233", "heading": {"fill": "#112233", "fontSize": 18}},
+        ]
+    }
+    before = json.dumps(data)
+    summary = canvas_summary(before)
+    assert summary and any(item["hmId"] == "number:intro" for item in summary["elements"])
+    result = json.loads(
+        apply_canvas_changes(
+            before,
+            [
+                CanvasChange(element_id="number:intro", fill="#ff0000"),
+                CanvasChange(element_id="number:duties", fill="#ff0000"),
+                CanvasChange(element_id="heading:duties", fill="#116644"),
+            ],
+            "COLOR",
+        )
+    )
+    intro, duties = result["nativeLayout"]["sections"]
+    assert intro["accent"] == duties["accent"] == "#ff0000"
+    assert intro["heading"]["fill"] == "#112233"
+    assert duties["heading"] == {"fill": "#116644", "fontSize": 18}
+    assert result["objects"] == data["objects"]
+
+
 async def test_generated_palette_request_updates_the_design_color_without_changing_job_text(
     sample_company: CompanyProfile,
     sample_posting: PostingContent,

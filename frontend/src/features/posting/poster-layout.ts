@@ -1,12 +1,14 @@
 import type { StaticCanvas } from 'fabric'
 import type { PosterCanvas, FreeTemplate } from './poster-canvas'
-import { posterBindings } from './poster-canvas'
+import { posterBindings, usesPhotoCaption } from './poster-canvas'
 import type { PosterPosting } from './PostingPoster'
 import type { Schemas } from '@/lib/api/client'
 import type { PosterDesign } from './poster-design'
 import { drawCanvasStages } from './poster-canvas-stages'
+import { drawCanvasDocuments } from './poster-canvas-documents'
 import { POSTER_FONT } from './poster-svg'
 import { conditionRows } from './conditions'
+import { layoutOrshotSource } from './poster-source-layout'
 
 const labels: Record<string, string> = {
   intro: '회사 소개',
@@ -28,6 +30,7 @@ type TextStyle = {
   textAlign?: 'left' | 'center' | 'right'
 }
 export type NativeSection = {
+  variant?: 'RULE' | 'NUMBER' | 'RIBBON' | 'TILE' | 'QUOTE' | 'CHECKLIST'
   binding: string
   left: number
   top: number
@@ -43,15 +46,17 @@ export type NativeSection = {
 }
 export type NativeLayout = {
   version: 1
+  sourceTemplate?: string
   paper: string
   headerBottom: number
   sections: NativeSection[]
   appearance?: {
     body: 'EDITORIAL' | 'PANELS' | 'SIDEBAR' | 'STRIPES'
-    process: 'CARDS' | 'TIMELINE' | 'STEPS'
-    documents: 'TILES' | 'LIST' | 'COMPACT'
+    process: 'CARDS' | 'TIMELINE' | 'STEPS' | 'CHEVRONS' | 'RAIL' | 'BADGES'
+    documents: 'TILES' | 'LIST' | 'COMPACT' | 'TICKETS' | 'CHECKLIST' | 'ROWS'
     edition?: number
     direction?: string
+    expression?: 'CALM' | 'GRAPHIC' | 'TYPE'
   }
 }
 
@@ -244,7 +249,27 @@ export async function layoutNativePoster(
   const F = await import('fabric')
   const layout = doc.nativeLayout
   if (!layout) return
+  if (layout.sourceTemplate) {
+    await layoutOrshotSource(target, doc, posting, design)
+    return
+  }
+  const designed = (layout.appearance?.edition ?? 0) >= 2
+  const modern = (layout.appearance?.edition ?? 0) >= 3
+  const planned = (layout.appearance?.edition ?? 0) >= 4
+  const orshotPhoto = usesPhotoCaption(doc)
   const values = posterBindings(posting, design)
+  const { location, employmentType, career } = posting.content
+  const conditions = [
+    ...(orshotPhoto || doc.originalRender
+      ? [
+          { label: '근무지', value: location },
+          { label: '고용 형태', value: employmentType },
+        ].filter((item) => item.value)
+      : []),
+    ...conditionRows(posting.content),
+  ]
+  if (orshotPhoto || doc.originalRender)
+    values.conditions = conditions.map(({ label, value }) => `${label}  ${value}`).join('\n')
   const all = [
     'intro',
     'duties',
@@ -263,7 +288,13 @@ export async function layoutNativePoster(
       const override = doc.objects.find(
         (object) => object.binding === section.binding && object.hmNativeBody === true,
       )
-      if (!override) return { ...section }
+      if (!override && !modern) return { ...section }
+      if (!override)
+        return {
+          ...section,
+          heading: { ...section.heading, fontSize: Math.max(16, section.heading.fontSize) },
+          body: { ...section.body, fontSize: Math.max(13, section.body.fontSize) },
+        }
       return {
         ...section,
         left: Number(override.left),
@@ -314,11 +345,38 @@ export async function layoutNativePoster(
     sections.filter((s) => s.binding === binding),
   )
   const rows: NativeSection[][] = []
-  const designed = layout.appearance?.edition === 2
-  const longSection = (section: NativeSection) => (values[section.binding]?.length ?? 0) > 240
-  for (const section of regular.sort((a, b) => a.top - b.top || a.left - b.left)) {
-    if (designed && longSection(section)) {
-      rows.push([{ ...section, left: 40, width: 520 }])
+  const margin = modern
+    ? Math.max(32, Math.min(48, ...sections.map((section) => section.left)))
+    : 40
+  const fullWidth = doc.width - margin * 2
+  // 목록 전체 길이로 두 단 구성을 풀지 않고, 긴 문장 하나가 있을 때만 폭을 늘린다.
+  const longSection = (section: NativeSection) =>
+    modern
+      ? (values[section.binding] ?? '').split('\n').some((line) => line.length > 150)
+      : (values[section.binding]?.length ?? 0) > 240
+  const priority = (binding: string) =>
+    binding === 'intro'
+      ? 0
+      : binding === 'conditions'
+        ? 1
+        : binding === 'period'
+          ? 3
+          : binding === 'notices'
+            ? 4
+            : 2
+  for (const section of regular.sort(
+    (a, b) =>
+      (modern && !planned ? priority(a.binding) - priority(b.binding) : 0) ||
+      a.top - b.top ||
+      a.left - b.left,
+  )) {
+    if (
+      (modern &&
+        !planned &&
+        ['intro', 'conditions', 'period', 'notices'].includes(section.binding)) ||
+      (designed && longSection(section))
+    ) {
+      rows.push([{ ...section, left: margin, width: fullWidth }])
       continue
     }
     const row = rows.find((row) => Math.abs(row[0].top - section.top) < 10)
@@ -332,11 +390,40 @@ export async function layoutNativePoster(
       row.push(section)
     else rows.push([section])
   }
-  if (designed)
+  if (designed && !modern)
     rows.forEach((row) => {
-      if (row.length === 1 && row[0].width < 450) row[0] = { ...row[0], left: 40, width: 520 }
+      if (row.length === 1 && row[0].width < 450)
+        row[0] = { ...row[0], left: margin, width: fullWidth }
     })
-  tail.forEach((s) => rows.push([{ ...s, left: 44, width: 512 }]))
+  if (modern && !planned) {
+    const balanced: NativeSection[][] = []
+    let columns: NativeSection[] = []
+    const flushColumns = () => {
+      if (columns.length)
+        balanced.push(
+          columns.length === 1 ? [{ ...columns[0], left: margin, width: fullWidth }] : columns,
+        )
+      columns = []
+    }
+    for (const row of rows) {
+      if (row.every((section) => section.width < 450)) columns.push(...row)
+      else {
+        flushColumns()
+        balanced.push(row)
+      }
+    }
+    flushColumns()
+    rows.splice(0, rows.length, ...balanced)
+  }
+  if (planned) {
+    for (const row of rows) {
+      if (row.length === 1 && row[0].width < fullWidth)
+        row[0] = { ...row[0], left: margin, width: fullWidth }
+    }
+  }
+  tail.forEach((s) =>
+    rows.push([{ ...s, left: modern ? margin : 44, width: modern ? fullWidth : 512 }]),
+  )
   const text = (value: string, left: number, top: number, width: number, style: TextStyle) => {
     const node = new F.Textbox(value, {
       left,
@@ -348,7 +435,7 @@ export async function layoutNativePoster(
       originX: 'left',
       originY: 'top',
       splitByGrapheme: true,
-      lineHeight: designed ? 1.65 : 1.5,
+      lineHeight: modern ? 1.55 : designed ? 1.65 : 1.5,
     })
     target.add(node)
     return node
@@ -375,6 +462,21 @@ export async function layoutNativePoster(
       ? '#ffffff'
       : '#101820'
   }
+  const readable = (fill: string, paper: string) => {
+    const luminance = (color: string) => {
+      const [r, g, b] = new F.Color(color).getSource().map((value, index) => {
+        if (index === 3) return value
+        const channel = value / 255
+        return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+      })
+      return r * 0.2126 + g * 0.7152 + b * 0.0722
+    }
+    const first = luminance(fill),
+      second = luminance(paper)
+    return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05) >= 4.5
+      ? fill
+      : ink(paper)
+  }
   // 네모/회사명 위치를 바꾸지 않고 제목이 길 때만 뒤의 헤더 정보를 아래로 이동한다.
   const headerObjects = target.getObjects()
   const title =
@@ -387,9 +489,58 @@ export async function layoutNativePoster(
     headerObjects.find((object) => object.get('hmId') === 'company') ??
     headerObjects.find((_, i) => doc.objects[i]?.binding === 'company')
   const tagline = headerObjects.find((object) => object.get('hmId') === 'tagline')
-  if (title && tags) tags.set({ top: Math.max(tags.top, title.top + title.getScaledHeight() + 20) })
+  if (orshotPhoto && tags instanceof F.Textbox) {
+    company?.set({ fill: '#ffffff' })
+    tags.set({
+      text: [values.title, career].filter(Boolean).join(' · ').replace(/\s+/g, ' '),
+      left: 48,
+      top: layout.headerBottom * 0.65,
+      width: 504,
+      fill: '#ffffff',
+      fontSize: 12,
+      fontWeight: 'bold',
+      lineHeight: 1,
+    })
+    tags.initDimensions()
+    while (tags.getScaledHeight() > tags.fontSize * 1.5 && tags.fontSize > 9) {
+      tags.set({ fontSize: tags.fontSize - 0.5 })
+      tags.initDimensions()
+    }
+    if (title instanceof F.Textbox) {
+      title.set({
+        text: values.tagline,
+        left: 32,
+        top: tags.top + tags.getScaledHeight() + 18,
+        width: 520,
+        fill: '#ffffff',
+        fontWeight: 'bold',
+        lineHeight: 1.04,
+      })
+      title.initDimensions()
+    }
+    tagline?.set({ visible: false })
+  }
+  if (title instanceof F.Textbox && !doc.originalRender) {
+    // '담당자 채 / 용'처럼 어절이 쪼개지지 않게 한다. 폭보다 긴 단어만 글자 단위로 푼다.
+    const available = Math.min(title.width, 600 - title.left - 32)
+    title.set({
+      width: available,
+      splitByGrapheme: false,
+      ...(doc.source.id?.startsWith('templated:')
+        ? { fontSize: Math.min(title.fontSize, 56), lineHeight: 1.15 }
+        : {}),
+    })
+    title.initDimensions()
+    if (title.width > available) {
+      title.set({ width: available, splitByGrapheme: true })
+      title.initDimensions()
+    }
+  }
+  if (!orshotPhoto && title && tags)
+    tags.set({ top: Math.max(tags.top, title.top + title.getScaledHeight() + 20) })
   const arranged = [company, title, tags, tagline]
     .filter((node) => node !== undefined)
+    .filter((node) => node.visible)
     .sort((a, b) => a.top - b.top)
   arranged.forEach((node, index) => {
     for (const previous of arranged.slice(0, index))
@@ -399,15 +550,112 @@ export async function layoutNativePoster(
       )
         node.set({ top: Math.max(node.top, previous.top + previous.getScaledHeight() + 20) })
   })
-  const bottom = Math.max(
+  const portraitCover = target
+    .getObjects()
+    .find(
+      (object) =>
+        doc.originalRender && object.get('hmId') === 'canva-header' && object.height > object.width,
+    )
+  let bottom = Math.max(
     layout.headerBottom,
     (tags?.top ?? 0) + (tags?.getScaledHeight() ?? 0) + 24,
     (title?.top ?? 0) + (title?.getScaledHeight() ?? 0) + 32,
     (company?.top ?? 0) + (company?.getScaledHeight() ?? 0) + 32,
     (tagline?.top ?? 0) + (tagline?.getScaledHeight() ?? 0) + 32,
   )
+  if (portraitCover) {
+    const scale = Math.min(244 / portraitCover.width, 408 / portraitCover.height)
+    portraitCover.set({
+      left: 560 - portraitCover.width * scale,
+      top: 24,
+      scaleX: scale,
+      scaleY: scale,
+    })
+    const accent = readable(exemplar.accent, layout.paper)
+    const start = design?.showLogo && design.logoFileId ? 106 : 54
+    const label = text('채용 공고', 40, start, 240, {
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: accent,
+    })
+    const companyLabel = text(values.company, 40, label.top + label.getScaledHeight() + 14, 240, {
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: accent,
+    })
+    const titleLabel = text(
+      values.title,
+      40,
+      companyLabel.top + companyLabel.getScaledHeight() + 14,
+      240,
+      {
+        fontSize: 36,
+        fontWeight: 'bold',
+        fill: ink(layout.paper),
+      },
+    )
+    titleLabel.set({ hmId: 'title' })
+    const details = [employmentType, career, location].filter(Boolean).join(' · ')
+    const description = text(details, 40, titleLabel.top + titleLabel.getScaledHeight() + 16, 240, {
+      fontSize: 14,
+      fontWeight: 'normal',
+      fill: ink(layout.paper),
+    })
+    bottom = Math.max(
+      portraitCover.top + portraitCover.getScaledHeight() + 24,
+      description.top + description.getScaledHeight() + 24,
+    )
+    rect(40, bottom, 520, 1, exemplar.rule).set({ hmId: 'orshot-cover-end' })
+  }
   for (const object of target.getObjects()) {
-    if (object.get('hmId') === 'canva-header') object.set({ scaleY: bottom / object.height })
+    if (object.get('hmId') === 'generated-banner' && object instanceof F.FabricImage) {
+      const original = object.getOriginalSize()
+      const imageWidth = Number(original.width)
+      const imageHeight = Number(original.height)
+      const scale = Math.max(600 / imageWidth, bottom / imageHeight)
+      object.set({
+        left: (600 - imageWidth * scale) / 2,
+        top: (bottom - imageHeight * scale) / 2,
+        width: imageWidth,
+        height: imageHeight,
+        cropX: 0,
+        cropY: 0,
+        scaleX: scale,
+        scaleY: scale,
+        opacity: 1,
+        clipPath: new F.Rect({
+          left: 0,
+          top: 0,
+          width: 600,
+          height: bottom,
+          originX: 'left',
+          originY: 'top',
+          absolutePositioned: true,
+        }),
+      })
+    }
+    if (modern && ['generated-header', 'generated-spine'].includes(String(object.get('hmId')))) {
+      object.set({ scaleY: (bottom - object.top) / object.height })
+      continue
+    }
+    if (object.get('hmId') === 'canva-header' && object !== portraitCover) {
+      object.set({ scaleY: bottom / object.height })
+      if (!doc.originalRender && doc.source.id === 'orshot:36661') {
+        // 원본에 구워진 짧은 CTA가 보이지 않는 사진 영역만 사용한다.
+        object.set({
+          scaleY: (bottom / object.height) * 1.38,
+          clipPath: new F.Rect({
+            left: 0,
+            top: 0,
+            width: 600,
+            height: bottom,
+            absolutePositioned: true,
+            originX: 'left',
+            originY: 'top',
+          }),
+        })
+      }
+    }
     if (
       object.type === 'rect' &&
       object.top === 0 &&
@@ -417,51 +665,149 @@ export async function layoutNativePoster(
       object.set({ scaleY: bottom / object.height })
     }
   }
+  const banner = target.getObjects().find((object) => object.get('hmId') === 'generated-banner')
+  if (banner) {
+    const brand = /^#[0-9a-f]{6}$/i.test(design?.color ?? '')
+      ? design!.color
+      : (doc.brandColor ?? '#24496c')
+    const [red, green, blue] = [1, 3, 5].map((at) =>
+      Math.round(Number.parseInt(brand.slice(at, at + 2), 16) * 0.55),
+    )
+    const tone = `${red},${green},${blue}`
+    const shade = rect(0, 0, 600, bottom, 'transparent')
+    shade.set({
+      hmId: 'generated-banner-shade',
+      fill: new F.Gradient({
+        type: 'linear',
+        gradientUnits: 'percentage',
+        coords: { x1: 0, y1: 0, x2: 1, y2: 0 },
+        colorStops: [
+          { offset: 0, color: `rgba(${tone},0.96)` },
+          { offset: 0.65, color: `rgba(${tone},0.8)` },
+          { offset: 1, color: `rgba(${tone},0.45)` },
+        ],
+      }),
+    })
+    target.moveObjectTo(banner, 1)
+    target.moveObjectTo(shade, 2)
+    for (const object of [company, title, tags, tagline])
+      if (object) object.set({ fill: '#ffffff' })
+  }
+  if (orshotPhoto) {
+    const shade = rect(0, 0, 600, bottom, 'transparent')
+    shade.set({
+      fill: new F.Gradient({
+        type: 'linear',
+        gradientUnits: 'percentage',
+        coords: { x1: 0, y1: 0, x2: 0, y2: 1 },
+        colorStops: [
+          { offset: 0, color: 'rgba(0,0,0,0.35)' },
+          { offset: 0.32, color: 'rgba(0,0,0,0.05)' },
+          { offset: 0.58, color: 'rgba(0,0,0,0.58)' },
+          { offset: 1, color: 'rgba(0,0,0,0.9)' },
+        ],
+      }),
+    })
+    target.moveObjectTo(shade, 1)
+  }
   target.set({ backgroundColor: layout.paper })
   let top = bottom + 28
   let number = 0
   const rendered = new Set<string>()
   for (const row of rows) {
     let rowHeight = 0
-    for (const section of row) {
-      const panel = layout.appearance?.body === 'PANELS'
-      const stripe = layout.appearance?.body === 'STRIPES'
+    const masonry =
+      modern && !planned && row.length > 1 && row.every((section) => section.width < 450)
+    const columnBottoms = [top, top]
+    for (const item of row) {
+      const column = columnBottoms[0] <= columnBottoms[1] ? 0 : 1
+      const source = masonry
+        ? { ...item, left: margin + (column * (fullWidth + 24)) / 2, width: (fullWidth - 24) / 2 }
+        : item
+      const sectionY = masonry ? columnBottoms[column] : top
+      const periodBand = modern && source.binding === 'period'
+      const surface =
+        planned && ['TILE', 'QUOTE'].includes(source.variant ?? '')
+          ? source.rule
+          : periodBand
+            ? source.card
+            : layout.appearance?.body === 'PANELS' || layout.appearance?.body === 'STRIPES'
+              ? layout.appearance.body === 'PANELS' && designed
+                ? '#ffffff'
+                : number % 2
+                  ? layout.paper
+                  : '#ffffff'
+              : layout.paper
+      const section = modern
+        ? {
+            ...source,
+            accent: readable(source.accent, surface),
+            heading: { ...source.heading, fill: readable(source.heading.fill, surface) },
+            body: { ...source.body, fill: readable(source.body.fill, surface) },
+          }
+        : source
+      const panel = planned
+        ? ['TILE', 'QUOTE'].includes(section.variant ?? '')
+        : layout.appearance?.body === 'PANELS'
+      const stripe = planned
+        ? section.variant === 'CHECKLIST'
+        : layout.appearance?.body === 'STRIPES'
       const side =
-        layout.appearance?.body === 'SIDEBAR' && !['stages', 'documents'].includes(section.binding)
-      const inset = panel ? (designed ? 20 : 14) : 0
+        !planned &&
+        layout.appearance?.body === 'SIDEBAR' &&
+        (!modern || section.width >= 450) &&
+        !['stages', 'documents'].includes(section.binding)
+      const inset = panel || periodBand ? (modern ? 18 : designed ? 20 : 14) : 0
       const left = section.left + inset,
         width = section.width - inset * 2
-      const sectionTop = top + (panel ? 16 : 0)
+      const sectionTop = sectionY + (modern ? 12 : panel ? 16 : 0)
       const box =
-        panel || stripe
+        panel || stripe || periodBand
           ? rect(
-              panel ? section.left : 0,
-              top - 8,
-              panel ? section.width : doc.width,
+              panel || periodBand || planned ? section.left : 0,
+              sectionY - 8,
+              panel || periodBand || planned ? section.width : doc.width,
               1,
-              panel && designed ? '#ffffff' : number % 2 ? layout.paper : '#ffffff',
+              surface,
             )
           : null
       if (panel && box)
-        box.set({ rx: 10, ry: 10, stroke: section.rule, strokeWidth: designed ? 0.5 : 1 })
+        box.set({
+          rx: modern ? 8 : 10,
+          ry: modern ? 8 : 10,
+          stroke: section.rule,
+          strokeWidth: designed ? 0.5 : 1,
+        })
       const heading = text(
         labels[section.binding] ?? section.binding,
-        left + 30,
+        left + (section.variant === 'NUMBER' ? 62 : 30),
         sectionTop,
-        side ? 92 : width - 30,
+        side ? 92 : width - (section.variant === 'NUMBER' ? 62 : 30),
         {
           ...section.heading,
           ...(side ? { fontSize: Math.min(16, section.heading.fontSize) } : {}),
           fontWeight: 'bold',
+          ...(section.variant === 'RIBBON' ? { fill: ink(section.card) } : {}),
+          ...(section.variant === 'QUOTE' ? { fontFamily: 'serif' } : {}),
         },
       )
-      text(String(++number).padStart(2, '0'), left, sectionTop + 2, 28, {
-        fontSize: 11,
-        fill: section.accent,
-        fontWeight: 'normal',
-      })
-      const ruleTop = sectionTop + heading.height + 10
-      if (!side)
+      text(
+        String(++number).padStart(2, '0'),
+        left,
+        sectionTop + 2,
+        section.variant === 'NUMBER' ? 56 : 28,
+        {
+          fontSize: section.variant === 'NUMBER' ? 30 : 11,
+          fill: section.variant === 'RIBBON' ? ink(section.card) : section.accent,
+          fontWeight: 'normal',
+        },
+      )
+      if (section.variant === 'RIBBON') {
+        const ribbon = rect(left - 8, sectionTop - 7, width + 16, heading.height + 14, section.card)
+        target.moveObjectTo(ribbon, target.getObjects().indexOf(heading))
+      }
+      const ruleTop = modern && !panel ? sectionY : sectionTop + heading.height + 10
+      if (!side && !['RIBBON', 'NUMBER', 'QUOTE', 'TILE'].includes(section.variant ?? ''))
         rect(
           left,
           ruleTop,
@@ -469,7 +815,11 @@ export async function layoutNativePoster(
           designed && panel ? 2 : 0.7,
           section.rule,
         )
-      const bodyTop = side ? sectionTop : ruleTop + (designed ? 20 : 16)
+      const bodyTop = side
+        ? sectionTop
+        : modern && (!panel || planned)
+          ? sectionTop + heading.height + 14
+          : ruleTop + (modern ? 14 : designed ? 20 : 16)
       const content = values[section.binding]
       const body = content.startsWith((labels[section.binding] ?? '') + '\n')
         ? content.slice(content.indexOf('\n') + 1)
@@ -478,10 +828,10 @@ export async function layoutNativePoster(
       if (designed && section.binding === 'conditions') {
         const x = side ? left + 142 : left
         const available = side ? width - 142 : width
-        const columns = available >= 420 ? 3 : 2
+        const columns = available >= 420 ? 3 : available >= 300 ? 2 : 1
         const gap = 20
         const cellWidth = (available - gap * (columns - 1)) / columns
-        const fields = conditionRows(posting.content)
+        const fields = conditions
         for (let offset = 0; offset < fields.length; offset += columns) {
           let rowHeight = 0
           fields.slice(offset, offset + columns).forEach((field, index) => {
@@ -513,6 +863,16 @@ export async function layoutNativePoster(
           fontSize: section.body.fontSize,
           variant: layout.appearance?.process,
           paper: layout.paper,
+          refined: modern,
+        })
+      } else if (modern && section.binding === 'documents') {
+        height = await drawCanvasDocuments(target, posting.documents, left, bodyTop, width, {
+          variant: layout.appearance?.documents ?? 'LIST',
+          primary: section.card,
+          ink: section.body.fill,
+          rule: section.rule,
+          paper: surface,
+          fontSize: section.body.fontSize,
         })
       } else if (
         section.binding === 'documents' &&
@@ -598,6 +958,25 @@ export async function layoutNativePoster(
           }
           height += cellHeight + 12
         }
+      } else if (
+        modern &&
+        ['duties', 'qualifications', 'preferred', 'benefits', 'notices'].includes(section.binding)
+      ) {
+        const items =
+          section.binding === 'notices'
+            ? posting.notices
+            : posting.content[
+                section.binding as 'duties' | 'qualifications' | 'preferred' | 'benefits'
+              ]
+        const x = side ? left + 142 : left
+        const available = side ? width - 142 : width
+        for (const item of items) {
+          const node = text(item, x + 12, bodyTop + height, available - 12, section.body)
+          rect(x + 1, bodyTop + height + section.body.fontSize * 0.65, 3, 3, section.accent)
+          node.set('hmId', section.binding)
+          height += node.height + 8
+        }
+        height = Math.max(0, height - 8)
       } else {
         const node = text(body, left, bodyTop, width, section.body)
         if (side) {
@@ -608,15 +987,17 @@ export async function layoutNativePoster(
         height = node.height
       }
       rendered.add(section.binding)
-      rowHeight = Math.max(rowHeight, bodyTop - top + height + 20)
+      let sectionHeight = bodyTop - sectionY + height + 20
       if (side) {
-        rowHeight = Math.max(rowHeight, heading.height + 24)
-        rect(left + 124, top, 2, rowHeight - 12, section.rule)
+        sectionHeight = Math.max(sectionHeight, heading.height + 24)
+        rect(left + 124, sectionY, 2, sectionHeight - 12, section.rule)
       }
-      if (stripe) rect(section.left - 16, top, 4, rowHeight - 8, section.rule)
-      box?.set({ height: rowHeight + 16 })
+      if (stripe) rect(section.left - 16, sectionY, 4, sectionHeight - 8, section.rule)
+      rowHeight = Math.max(rowHeight, sectionY - top + sectionHeight)
+      box?.set({ height: (modern ? sectionHeight : rowHeight) + 16 })
+      if (masonry) columnBottoms[column] = sectionY + sectionHeight + 22
     }
-    top += rowHeight + (designed ? 36 : 28)
+    top += rowHeight + (modern ? 22 : designed ? 36 : 28)
   }
   if (top > 20000 || all.some((key) => values[key] && !rendered.has(key)))
     throw new Error('전체 공고 내용을 안전하게 배치하지 못했어요.')

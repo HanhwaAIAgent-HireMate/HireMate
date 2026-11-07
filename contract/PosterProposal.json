@@ -1,5 +1,5 @@
 {
-  "reply": "청량한 배색과 은은한 물결을 사용한 디자인 수정안을 만들었어요.",
+  "reply": "서로 다른 새 템플릿 3개를 생성했어요. 원하는 디자인을 적용해 주세요.",
   "recommendations": [
     {
       "design": {
@@ -14,14 +14,52 @@
         "stageIcons": {},
         "readableSections": [],
         "canvasJson": null,
-        "tagline": null
+        "tagline": null,
+        "motion": "NONE"
       },
       "reason": "정보를 정돈한 구조에 밝은 배색을 적용한 디자인이에요."
+    },
+    {
+      "design": {
+        "template": "EDITORIAL",
+        "mood": "WARM",
+        "color": "#92583c",
+        "decoration": 1,
+        "enabled": true,
+        "showLogo": false,
+        "logoFileId": null,
+        "backgroundStyle": "SOLID",
+        "stageIcons": {},
+        "readableSections": [],
+        "canvasJson": null,
+        "tagline": null,
+        "motion": "NONE"
+      },
+      "reason": "차분한 편집 구성의 디자인이에요."
+    },
+    {
+      "design": {
+        "template": "PREMIUM",
+        "mood": "PREMIUM",
+        "color": "#24496c",
+        "decoration": 0,
+        "enabled": true,
+        "showLogo": false,
+        "logoFileId": null,
+        "backgroundStyle": "SOLID",
+        "stageIcons": {},
+        "readableSections": [],
+        "canvasJson": null,
+        "tagline": null,
+        "motion": "NONE"
+      },
+      "reason": "큰 제목과 절제된 여백을 사용한 디자인이에요."
     }
   ],
   "templates": [],
   "selectedTemplateId": null,
   "canvaQuery": null,
   "canvaDesigns": [],
-  "externalQuery": null
+  "externalQuery": null,
+  "candidateMode": null
 }
