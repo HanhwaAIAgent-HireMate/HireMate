@@ -1061,7 +1061,7 @@ export function orshotPostingKey(posting: PosterPosting): string {
     first = Math.imul(first ^ content.charCodeAt(at), 16777619)
     second = Math.imul(second, 33) ^ content.charCodeAt(at)
   }
-  return `${(first >>> 0).toString(16)}-${(second >>> 0).toString(16)}`
+  return `source-layout-v2-${(first >>> 0).toString(16)}-${(second >>> 0).toString(16)}`
 }
 
 /** 새 헤더와 원본 영상만 교체하고 HR이 고른 본문 배치와 배색은 보존한다. */

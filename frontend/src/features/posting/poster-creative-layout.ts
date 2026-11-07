@@ -14,7 +14,9 @@ const palettes: Record<string, { primary: string; accent: string }> = {
 }
 
 export function creativeOrshotColor(style: string | null | undefined) {
-  return style ? palettes[style]?.primary : undefined
+  return style
+    ? (palettes[style]?.primary ?? ORSHOT_SOURCE_LAYOUTS[style]?.stages.cells.at(-1)?.shape.fill)
+    : undefined
 }
 
 /** 원본의 항목 순서와 실제 스타일을 유지한다. 본문은 source renderer가 길이만 늘린다. */

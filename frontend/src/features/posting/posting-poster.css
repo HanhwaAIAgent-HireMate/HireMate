@@ -135,50 +135,6 @@
   visibility: hidden;
 }
 
-@media screen and (prefers-reduced-motion: no-preference) {
-  .posting-poster:has(> .poster-video-region[data-ready='true'][data-reveal='true'])
-    > .poster-vector
-    [data-poster-reveal] {
-    visibility: hidden;
-  }
-
-  .posting-poster .poster-video-region[data-ready='true'][data-reveal='true'] [data-poster-reveal] {
-    animation: poster-hero-reveal var(--poster-reveal-duration) ease-in-out infinite;
-  }
-
-  .posting-poster
-    .poster-video-region[data-ready='true'][data-reveal='true']
-    [data-poster-reveal='title'] {
-    animation-name: poster-title-reveal;
-  }
-
-  .posting-poster .poster-video-region[data-paused='true'] [data-poster-reveal] {
-    animation-play-state: paused;
-  }
-}
-
-@keyframes poster-hero-reveal {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  15%,
-  90% {
-    opacity: 1;
-  }
-}
-
-@keyframes poster-title-reveal {
-  0%,
-  7%,
-  100% {
-    opacity: 0;
-  }
-  22%,
-  90% {
-    opacity: 1;
-  }
-}
 .posting-poster[data-poster-highlight],
 .posting-poster [data-poster-highlight] {
   outline: 3px solid var(--ai);
