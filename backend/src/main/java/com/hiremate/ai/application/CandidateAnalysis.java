@@ -50,8 +50,11 @@ public record CandidateAnalysis(List<Condition> conditions, List<Finding> notabl
             List<String> tags, List<String> items) {
     }
 
-    /** 정리 표의 한 행 (카드면 카드 하나). evidence는 원문으로 가는 근거 문장이다. */
-    public record DigestRow(String title, List<String> cells, List<Evidence> evidence) {
+    /** 정리 표의 한 행 (카드면 카드 하나). tags는 카드에 칩으로 보일 기술이고, evidence는 행을 받치는 원문 근거 문장이다. */
+    public record DigestRow(String title, List<String> cells, List<String> tags, List<Evidence> evidence) {
+        public DigestRow {
+            tags = tags == null ? List.of() : tags;
+        }
     }
 
     /** 항목 판정. PARTIAL은 복합 경험형만 쓰고 UNKNOWN은 판단 불가(확인 필요)다. */
