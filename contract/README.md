@@ -1,20 +1,6 @@
 # contract
 
-[지원 문서 JSON 정책](DOCUMENT_JSON_README.md)은 이력서, 자기소개서, 포트폴리오 정리와 검색의 확정 명세다.
-
-`DocumentSource`, `DocumentNormalizationRequest`, `NormalizedDocument`, `DocumentIndexRequest`, `DocumentIndexResult`는 지원 문서 정제 계약이다.
-정제 문서는 블록 ID 중복을 검사하며, 저장 전 `validateSources` 또는 `validate_sources`로
-요청 원문 조각의 출처 ID를 검증한다. 문서 ID와 버전은 요청값을 사용하고 블록 ID는 코드가 부여한다.
-목록 항목의 `children`은 하위 항목이 없으면 빈 배열이다. 표 셀은 읽히지 않은 값에 `null`을 사용한다.
-
-문서 정제는 `application/normalize`, 저장된 성공 결과의 색인은 `application/index-document` 워커 작업으로 처리한다.
-Backend가 작업 ID와 문서 버전을 검증해 저장하며, AI 색인은 모든 벡터를 받은 뒤 한 트랜잭션으로 교체한다.
-검색은 현재 활성 색인의 기업, 채용과 전형 지원자 범위를 확인하고 저장된 원문 조각을 인용한다.
-
-기존 문서는 HR의 `POST /api/recruitments/{recruitmentId}/documents/normalization`으로 원본 PDF부터 다시 처리한다.
-완료하거나 처리 중인 버전은 건너뛰고 실패 문서는 재개한다. 개별 문서를 명시적으로 다시 처리할 때는
-`POST /api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{documentId}/normalization`을 쓴다.
-기존 `text`와 원본 PDF, 이전에 성공한 정제 JSON 및 색인은 새 시도가 실패해도 유지한다.
+[지원 문서 JSON 정책](DOCUMENT_JSON_README.md)은 이력서, 자기소개서, 포트폴리오 정리 기준이다.
 
 포스터 디자인과 AI 수정안은 `PosterDesign.json`, `PosterProposal.json`으로 왕복 검사한다.
 디자인 제안은 저장/게시 명령이 아니며 담당자가 공고 API로 적용한다.

@@ -247,3 +247,30 @@ def test_application_route_indexes_saved_profile(
 
     assert response.status_code == 200
     assert indexed == [(rubric.company_id, rubric.recruitment_id, applicant.info.application_id)]
+
+
+def test_normalize_route_returns_json(store: MemoryStore) -> None:
+    from uuid import uuid4
+
+    from hiremate_ai.agents.analysis.application.normalize import LayoutProposal
+
+    proposal = LayoutProposal.model_validate(
+        {"title": None, "blocks": [{"type": "paragraph", "pages": [1], "text": "정돈된 본문"}]}
+    )
+    app.dependency_overrides[get_llm] = lambda: FakeLlm(proposal)
+    document_id = str(uuid4())
+    response = TestClient(app).post(
+        "/agents/application/normalize",
+        json={
+            "companyId": str(uuid4()),
+            "recruitmentId": str(uuid4()),
+            "applicationId": str(uuid4()),
+            "documentId": document_id,
+            "revision": 1,
+            "documentType": "RESUME",
+            "pages": [{"number": 1, "text": "본문", "issues": [], "spans": [], "imageCount": 0, "formCount": 0}],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["document"]["id"] == document_id
+    assert response.json()["blocks"][0]["text"] == "정돈된 본문"

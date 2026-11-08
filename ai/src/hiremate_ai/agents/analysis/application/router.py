@@ -45,6 +45,16 @@ from hiremate_ai.tools.profile_search import ProfileIndexer, get_profile_embedde
 router = APIRouter(tags=["application"])
 
 
+@router.post("/agents/application/normalize")
+async def normalize(request: DocumentNormalizationRequest, llm: LlmDep) -> NormalizedDocument:
+    try:
+        return await normalize_document(llm, request)
+    except LlmOutputError as error:
+        raise HTTPException(status_code=503, detail="문서 정제를 완료하지 못했습니다. 다시 요청해 주세요.") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="문서 정제 결과의 형식을 확인하지 못했습니다.") from error
+
+
 def get_store() -> ReviewStore:
     """FastAPI 의존성. 테스트는 app.dependency_overrides[get_store]로 메모리 저장소를 넣는다."""
     return DbReviewStore(session_factory())
@@ -160,13 +170,3 @@ async def talents(request: TalentFitRequest, llm: LlmDep, store: StoreDep, artif
     fit = await judge_talents(llm, review, request.talents)
     await artifacts.save_talents(fit, **scope, source_hash=source, recipe_hash=recipe)
     return fit
-
-
-@router.post("/agents/application/normalize")
-async def normalize(request: DocumentNormalizationRequest, llm: LlmDep) -> NormalizedDocument:
-    try:
-        return await normalize_document(llm, request)
-    except LlmOutputError as error:
-        raise HTTPException(status_code=503, detail="문서 정제를 완료하지 못했습니다. 다시 요청해 주세요.") from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail="문서 원문을 보존하는 정제 결과를 만들지 못했습니다.") from error

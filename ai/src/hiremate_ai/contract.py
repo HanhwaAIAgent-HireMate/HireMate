@@ -444,117 +444,122 @@ class JobResult(ContractModel):
     error: str | None
 
 
-class DocumentSource(ContractModel):
-    """블라인드 처리한 파서 원문 조각."""
-
-    id: str = Field(min_length=1, pattern=r"\S")
-    page: int | None = Field(ge=1)
+class PdfTextSpan(ContractModel):
     text: str
+    x: float
+    y: float
+    end_x: float
+
+
+class PdfPage(ContractModel):
+    number: int = Field(ge=1)
+    text: str
+    issues: list[str] = Field(default_factory=list)
+    spans: list[PdfTextSpan] = Field(default_factory=list)
+    image_count: int = Field(default=0, ge=0)
+    form_count: int = Field(default=0, ge=0)
 
 
 NormalizedDocumentType = Literal[DocumentType.RESUME, DocumentType.COVER_LETTER, DocumentType.PORTFOLIO]
-ParagraphRole = Literal["body", "caption", "page_header", "page_footer", "form_instruction", "unassigned"]
-VISUAL_NOTICE = "관련 시각 자료가 있을 수 있습니다. 원본 PDF를 확인해 주세요."
-CODE_NOTICE = "코드 예시가 포함되어 있습니다. 원본 PDF를 확인해 주세요."
-
-
-class DocumentBlockBase(ContractModel):
-    model_config = ConfigDict(extra="forbid")
-    id: str = Field(min_length=1, pattern=r"\S")
-    source_ids: list[Annotated[str, Field(min_length=1, pattern=r"\S")]]
-
-
-class DocumentSection(DocumentBlockBase):
-    type: Literal["section"] = "section"
-    title: str | None
-    blocks: list["DocumentBlock"]
-
-    @model_validator(mode="after")
-    def validate_title_sources(self) -> "DocumentSection":
-        if self.title is None and self.source_ids:
-            raise ValueError("Untitled sections cannot have title sources")
-        return self
-
-
-class DocumentParagraph(DocumentBlockBase):
-    type: Literal["paragraph"] = "paragraph"
-    role: ParagraphRole
-    text: str
 
 
 class DocumentListItem(ContractModel):
     model_config = ConfigDict(extra="forbid")
-    marker: str | None
+    id: str = Field(min_length=1)
     text: str
-    children: list["DocumentListItem"]
+    pages: list[int]
+    items: list["DocumentListItem"] = Field(default_factory=list)
 
 
-class DocumentList(DocumentBlockBase):
-    type: Literal["list"] = "list"
+class DocumentSection(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1)
+    type: Literal["section"]
+    title: str | None
+    pages: list[int]
+    blocks: list["DocumentBlock"]
+
+
+class DocumentParagraph(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1)
+    type: Literal["paragraph"]
+    pages: list[int]
+    text: str
+
+
+class DocumentList(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1)
+    type: Literal["list"]
+    pages: list[int]
     items: list[DocumentListItem]
 
 
-class DocumentTable(DocumentBlockBase):
-    type: Literal["table"] = "table"
-    caption: str | None
-    headers: list[str | None]
-    rows: list[list[str | None]]
+class DocumentTable(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1)
+    type: Literal["table"]
+    pages: list[int]
+    title: str | None
+    headers: list[str]
+    rows: list[list[str]]
+    reconstruction: Literal["inferred"]
 
 
-class DocumentReference(DocumentBlockBase):
-    type: Literal["reference"] = "reference"
-    kind: Literal["possible_visual", "code_example"]
-    text: str | None
-    notice: str
-
-    @model_validator(mode="after")
-    def validate_notice(self) -> "DocumentReference":
-        expected = VISUAL_NOTICE if self.kind == "possible_visual" else CODE_NOTICE
-        if self.notice != expected:
-            raise ValueError("Reference notice must be assigned by code")
-        return self
+class DocumentVisualNotice(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1)
+    type: Literal["visual_notice"]
+    pages: list[int]
+    visual_type: Literal["image", "chart", "diagram", "unknown"]
+    detection: Literal["suspected"]
+    message: str
 
 
 DocumentBlock = Annotated[
-    DocumentSection | DocumentParagraph | DocumentList | DocumentTable | DocumentReference,
+    DocumentSection | DocumentParagraph | DocumentList | DocumentTable | DocumentVisualNotice,
     Field(discriminator="type"),
 ]
 DocumentSection.model_rebuild()
 
 
+class DocumentMetadata(ContractModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    type: Literal["resume", "cover_letter", "portfolio"]
+    title: str | None
+    page_count: int = Field(ge=1)
+
+
 class NormalizedDocument(ContractModel):
-    """코드가 메타데이터와 블록 ID를 부여한 정제 문서."""
+    """정책에 따라 정리한 문서. 출처 번호는 PDF 페이지를 가리킨다."""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[1] = 1
-    document_id: UUID
-    revision: int = Field(gt=0)
-    document_type: NormalizedDocumentType
+    schema_version: Literal["1.0"] = "1.0"
+    document: DocumentMetadata
     blocks: list[DocumentBlock]
 
-    def all_blocks(self) -> list[DocumentBlock]:
-        def flatten(blocks: list[DocumentBlock]) -> list[DocumentBlock]:
-            return [
-                child
-                for block in blocks
-                for child in ([block] + (flatten(block.blocks) if isinstance(block, DocumentSection) else []))
-            ]
-
-        return flatten(self.blocks)
-
     @model_validator(mode="after")
-    def validate_block_ids(self) -> "NormalizedDocument":
-        ids = [block.id for block in self.all_blocks()]
-        if len(ids) != len(set(ids)):
-            raise ValueError("Duplicate block IDs")
-        return self
+    def validate_structure(self) -> "NormalizedDocument":
+        if "\u00b7" in self.model_dump_json():
+            raise ValueError("Unprocessed character in normalized document")
+        seen: set[str] = set()
 
-    def validate_sources(self, sources: list[DocumentSource]) -> None:
-        ids = {source.id for source in sources}
-        if len(ids) != len(sources):
-            raise ValueError("Duplicate source IDs")
-        if any(source_id not in ids for block in self.all_blocks() for source_id in block.source_ids):
-            raise ValueError("Unknown source ID")
+        def check(item: DocumentBlock | DocumentListItem) -> None:
+            if item.id in seen or any(page < 1 or page > self.document.page_count for page in item.pages):
+                raise ValueError("Duplicate ID or invalid page")
+            seen.add(item.id)
+            if isinstance(item, DocumentSection):
+                for child in item.blocks:
+                    check(child)
+            if isinstance(item, (DocumentList, DocumentListItem)):
+                for list_item in item.items:
+                    check(list_item)
+
+        for block in self.blocks:
+            check(block)
+        return self
 
 
 class DocumentNormalizationRequest(ContractModel):
@@ -567,38 +572,4 @@ class DocumentNormalizationRequest(ContractModel):
     document_id: UUID
     revision: int = Field(gt=0)
     document_type: NormalizedDocumentType
-    sources: list[DocumentSource]
-
-    @model_validator(mode="after")
-    def validate_source_ids(self) -> "DocumentNormalizationRequest":
-        if len({source.id for source in self.sources}) != len(self.sources):
-            raise ValueError("Duplicate source IDs")
-        return self
-
-
-class DocumentIndexRequest(ContractModel):
-    """backend가 검증하고 저장한 문서와 그 문서를 만든 권한 범위."""
-
-    model_config = ConfigDict(extra="forbid")
-    request: DocumentNormalizationRequest
-    document: NormalizedDocument
-
-    @model_validator(mode="after")
-    def validate_document(self) -> "DocumentIndexRequest":
-        if (
-            self.request.document_id != self.document.document_id
-            or self.request.revision != self.document.revision
-            or self.request.document_type != self.document.document_type
-        ):
-            raise ValueError("Normalized document identity does not match its request")
-        self.document.validate_sources(self.request.sources)
-        return self
-
-
-class DocumentIndexResult(ContractModel):
-    """Accepted document index completion, including harmless stale delivery."""
-
-    model_config = ConfigDict(extra="forbid")
-    document_id: UUID
-    revision: int = Field(gt=0)
-    status: Literal["INDEXED", "UNCHANGED", "STALE"]
+    pages: list[PdfPage] = Field(default_factory=list)
