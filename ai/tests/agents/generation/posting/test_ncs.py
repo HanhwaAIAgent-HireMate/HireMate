@@ -8,7 +8,6 @@ from hiremate_ai.agents.generation.posting.ncs import (
     NCS_UNAVAILABLE,
     Cited,
     LineCitation,
-    NcsQuery,
     NcsSources,
     SupportReview,
     SupportVerdict,
@@ -20,6 +19,7 @@ from hiremate_ai.agents.generation.posting.ncs import (
 )
 from hiremate_ai.contract import PostingContent
 from hiremate_ai.llm.fake import FakeLlm
+from hiremate_ai.ncs_search.cite import NcsQuery
 
 
 class Malformed(BaseModel):

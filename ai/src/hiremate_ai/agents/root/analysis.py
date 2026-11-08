@@ -39,7 +39,8 @@ from hiremate_ai.agents.root.turns import Turn
 from hiremate_ai.agents.root.types import CandidateRow, ChatContext, ChatPlan
 from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError, record_interrupted_model_tool, reserve_model_calls
 from hiremate_ai.llm.client import LlmClient
-from hiremate_ai.llm.prompt import data_block
+from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
+from hiremate_ai.ncs_search.cite import find_sources, source_path
 
 FEW_TARGETS = 5
 THINKING = "요청에 맞는 답변을 준비하고 있어요"
@@ -62,6 +63,19 @@ NO_ITEMS = "근거 번호를 단 항목을 items에 하나 이상 쓰세요."
 NO_TURNS = "앞 대화가 없어요."
 SEARCH_BUDGET = "호출 한도가 남지 않아 검색 후보를 다시 확인하지 못했어요. 지금까지 읽은 자료로 답하세요."
 
+NCS_ANSWER_RULES = """- 담당자가 NCS를 묻거나 참고해 달라고 하면 search_ncs로 직무 자료를 찾는다. 직무 기준 설명에
+  실질적으로 도움이 될 때도 참고할 수 있지만 모든 요청에 검색하지 않는다. NCS는 일반 직무 참고자료이며
+  지원자가 그 일을 했다는 근거가 아니다. 지원자 경험은 그 사람의 근거를 따로 인용한다.
+- NCS 자료를 찾지 못하거나 검색할 수 없으면 그 사실을 알리고 NCS 내용을 추측해 쓰지 않는다."""
+NCS_QUERY_SYSTEM = (
+    """요청에 맞는 NCS 직무 자료를 찾을 검색어와 능력단위를 고른다.
+- 요청한 직무의 업무, 지식, 기술, 자격 등 확인할 내용을 tasks에 1개에서 3개 쓴다. 없는 사실이나 수치는 추가하지 않는다.
+- units에는 목록에서 그 직무와 업무를 직접 다루는 능력단위 코드만 최대 5개 고른다.
+- 낱말만 같고 직무나 산업이 다른 단위는 고르지 않는다. 관련 단위가 없으면 빈 목록으로 둔다.
+"""
+    + UNTRUSTED_RULE
+)
+
 ANALYSIS_SYSTEM = """[역할]
 너는 Root Agent의 분석 단계다. 계획 단계가 정한 과제와 대상을 받아, 필요한 자료만 도구로 확인하고
 최종 답 도구 하나로 답한다. 도구는 읽기만 한다. 원문 해석은 서류 Agent와 면접 Agent의 결과를 쓰고
@@ -70,12 +84,14 @@ ANALYSIS_SYSTEM = """[역할]
 [자료]
 - 각 줄 앞의 E번호가 근거 번호다. [근거 확인] 줄은 사실로 쓸 수 있고, [확인 필요] 줄은 확인 필요로만 쓴다.
 - 미리 넣은 자료로 답할 수 있으면 도구를 부르지 않는다.
+{NCS_ANSWER_RULES}
 - 저장된 분석이 없거나, 담당자가 다시 검토해 달라고 했거나, 사실 전체의 근거를 봐야 할 때만
   review_documents나 review_interview를 부른다.
 - 아직 진행하지 않은 전형의 자료는 생기기 전이다. 부족한 점으로 쓰지 않는다.
 
 [답 쓰기]
-- 항목마다 지원자 한 명과 그 지원자의 근거 번호를 refs에 적는다. 비교도 지원자마다 항목을 나눈다.
+- 지원자 항목마다 한 명과 그 사람의 근거 번호를 refs에 적는다. NCS 등 공통 자료 항목은 candidate를 비우고
+  해당 근거 번호를 적는다. 비교도 지원자마다 항목을 나눈다.
   항목에는 그 지원자의 사실만 쓰고, 다른 지원자와 견주는 말은 message에 쓴다.
 - C번호와 E번호는 candidate와 refs에만, S번호는 find의 result에만, D번호는 review_interview의 previous에만 쓴다.
   message와 text에는 이름과 내용으로 쓴다.
@@ -91,7 +107,9 @@ ANALYSIS_SYSTEM = """[역할]
   그 이유를 쓴다. 담당자가 기준을 말하지 않았으면 질문의 뜻에 가까운 기준을 네가 골라 밝히고 견준다.
   기준을 묻거나 판단을 미루지 않는다. 기준마다 앞서는 사람이 다르면 기준별로 누가 앞서는지 쓴다.
   합격이나 불합격을 권하지 않는다.
-- message와 text는 '~요'로 끝나는 존댓말로 쓴다. 앞 대화에서 말투를 바꿔 달라고 했으면 그 말투를 쓴다."""
+- message와 text는 '~요'로 끝나는 존댓말로 쓴다. 앞 대화에서 말투를 바꿔 달라고 했으면 그 말투를 쓴다.""".replace(
+    "{NCS_ANSWER_RULES}", NCS_ANSWER_RULES
+)
 
 
 class ItemDraft(BaseModel):
@@ -205,12 +223,15 @@ async def run_analysis(
     # 도구와 하위 Agent의 일은 Root 단계 아래에 들여 보인다
     inner = nested(progress)
     delegation = Delegation(llm, inner, artifacts=toolkit.artifacts, ledger=run.ledger)
-    tools = [*_tools(llm, toolkit, inner), *delegation.review_tools()]
+    tools = [*_tools(llm, toolkit, inner, include_ncs=task == "answer"), *delegation.review_tools()]
     forms = ANSWER_FORMS if task == "answer" else QUESTION_FORMS
     progress.status(THINKING)
-    agent = llm.tool_agent(
-        AnalysisReply, agent="root", system=ANALYSIS_SYSTEM, tools=tools, context=AnalysisRun, forms=forms
+    system = (
+        ANALYSIS_SYSTEM
+        if task == "answer"
+        else ANALYSIS_SYSTEM.replace(NCS_ANSWER_RULES, "- 면접 질문의 NCS 참고는 질문 생성 단계에서 처리한다.")
     )
+    agent = llm.tool_agent(AnalysisReply, agent="root", system=system, tools=tools, context=AnalysisRun, forms=forms)
 
     async def validate(reply: AnalysisReply) -> str | None:
         return check_reply(reply, run)
@@ -290,7 +311,7 @@ async def _prompt(toolkit: RootToolkit, run: AnalysisRun, task: Literal["answer"
     return "\n\n".join(parts)
 
 
-def _tools(llm: LlmClient, toolkit: RootToolkit, progress: Progress) -> list[BaseTool]:
+def _tools(llm: LlmClient, toolkit: RootToolkit, progress: Progress, *, include_ncs: bool = True) -> list[BaseTool]:
     @tool
     async def read_candidates(
         candidates: list[str], detail: Literal["profile", "application", "interview"], runtime: ToolRuntime[AnalysisRun]
@@ -331,6 +352,30 @@ def _tools(llm: LlmClient, toolkit: RootToolkit, progress: Progress) -> list[Bas
         """회사 소개, 문화, 인재상과 공고(담당 업무, 자격 요건, 우대 사항)를 읽는다."""
         progress.status(READING_COMPANY)
         return company_block(runtime.context.ledger, runtime.context.chat)
+
+    @tool
+    async def search_ncs(query: str, runtime: ToolRuntime[AnalysisRun]) -> str:
+        """요청한 직무나 업무에 맞는 NCS 원문을 찾는다. 지원자 경험을 증명하는 자료가 아니다."""
+        if toolkit.ncs is None:
+            return "NCS 참고자료를 사용할 수 없어요."
+        if not query.strip():
+            return "찾을 직무나 업무를 구체적으로 적어 주세요."
+        progress.status("NCS 직무 자료를 찾고 있어요")
+        with reserve_model_calls(KEEP_CALLS):
+            sources, miss = await find_sources(
+                llm, toolkit.ncs, query, "", agent="root", system=NCS_QUERY_SYSTEM, strict_units=True
+            )
+        if miss == "UNAVAILABLE":
+            return "NCS 검색에 문제가 있어 참고자료를 확인하지 못했어요."
+        if sources is None:
+            return "관련 NCS 참고자료를 찾지 못했어요."
+        lines = []
+        ledger = runtime.context.ledger
+        for task, sentence in sources.items.values():
+            source = f"NCS {source_path(task)} ({task.unit_code}) 원문: {sentence}"
+            ref = ledger.add(None, sentence, quote=sentence, source=source, cap="OK")
+            lines.append(ledger.line(ref))
+        return data_block("ncs", "\n".join(lines)) if lines else "관련 NCS 참고자료를 찾지 못했어요."
 
     @tool
     async def search_candidates(
@@ -393,4 +438,7 @@ def _tools(llm: LlmClient, toolkit: RootToolkit, progress: Progress) -> list[Bas
         run = runtime.context
         return turns_block(run.ledger, run.chat, run.turns) or NO_TURNS
 
-    return [read_candidates, stage_overview, company_and_posting, search_candidates, previous_turns]
+    result = [read_candidates, stage_overview, company_and_posting, search_candidates, previous_turns]
+    if include_ncs:
+        result.append(search_ncs)
+    return result

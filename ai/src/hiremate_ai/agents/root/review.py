@@ -1,7 +1,7 @@
 """근거 검토. 분석 루프가 낸 항목을 근거 번호표와 맞춰 상태를 정하고, 문장이 근거보다 세게 말하는지 한 번에 판정한다.
 
 코드: 항목 상태는 인용한 근거의 최고 상태 이하다. 팀 사실을 본인 성과로 올릴 수 없다.
-모델: 지원자 항목이 있을 때만 한 번 부른다. 과장은 확인 필요로 낮추고 관계없는 근거를 단 항목은 버린다.
+모델: 지원자나 NCS 항목이 있을 때 한 번 부른다. 과장은 확인 필요로 낮추고 관계없는 항목은 버린다.
 """
 
 from collections.abc import Sequence
@@ -24,7 +24,7 @@ from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 MESSAGE_FALLBACK = "확인한 내용을 정리했어요."
-REVIEW_INCOMPLETE = "근거 검토를 끝내지 못해 지원자 항목은 확인 필요로 표시했어요."
+REVIEW_INCOMPLETE = "근거 검토를 끝내지 못해 일부 항목을 확인 필요로 표시했어요."
 NO_EVIDENCE = "근거를 확인하지 못했어요. 조건을 좁혀 다시 말씀해 주세요."
 FOCUS_LABEL = "확인할 점"
 
@@ -60,8 +60,12 @@ async def review_items(
     """(보여 줄 답, 검토를 통과한 항목)을 돌려준다. 호출 예산이 남지 않았으면 지원자 항목을 확인 필요로 둔다."""
     checked = cap_items(context, ledger, drafts)
     message = without_later_gaps(context, readable(message, context)) or MESSAGE_FALLBACK
-    # 지원자 항목과 지원자별 근거를 인용한 공통 항목은 지원자에 대한 주장이다. 답 문장이 지원자를 말해도 판정한다
-    claimed = [index for index, each in enumerate(checked) if _about_candidates(each)]
+    # 지원자에 대한 주장과 NCS 원문을 인용한 항목은 실제 근거가 문장을 받쳐 주는지 판정한다
+    claimed = [
+        index
+        for index, each in enumerate(checked)
+        if _about_candidates(each) or any(e.source.startswith("NCS ") for e in each.evidence)
+    ]
     if not claimed and not any(row.name in message for row in context.candidates):
         return message, checked
     keys = {index: f"I{number}" for number, index in enumerate(claimed, start=1)}
