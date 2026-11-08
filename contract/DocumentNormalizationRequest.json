@@ -5,36 +5,21 @@
   "documentId": "00000000-0000-0000-0000-000000000001",
   "revision": 1,
   "documentType": "PORTFOLIO",
-  "sources": [
+  "pages": [
     {
-      "id": "s1",
-      "page": 1,
-      "text": "프로젝트"
-    },
-    {
-      "id": "s2",
-      "page": 1,
-      "text": "개발했습니다"
-    },
-    {
-      "id": "s3",
-      "page": 1,
-      "text": "항목"
-    },
-    {
-      "id": "s4",
-      "page": null,
-      "text": "성과"
-    },
-    {
-      "id": "s5",
-      "page": null,
-      "text": "그림 설명"
-    },
-    {
-      "id": "s6",
-      "page": null,
-      "text": "코드 설명"
+      "number": 1,
+      "text": "프로젝트\n개발했습니다\n항목\n성과",
+      "issues": [],
+      "spans": [
+        {
+          "text": "프로젝트",
+          "x": 10.0,
+          "y": 20.0,
+          "endX": 45.0
+        }
+      ],
+      "imageCount": 1,
+      "formCount": 0
     }
   ]
 }

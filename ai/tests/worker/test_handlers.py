@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from application_context import YUMIN_SUMMARY, make_posting, make_rubric, scripted, yumin_script
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.agents.analysis.assessment import AssessmentInput
@@ -318,99 +318,28 @@ async def test_assessment_worker_indexes_updated_profile(monkeypatch: pytest.Mon
     ]
 
 
-async def test_worker_normalizes_direct_request_with_application_model() -> None:
-    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
-    from hiremate_ai.contract import DocumentNormalizationRequest
+async def test_normalization_job_returns_policy_json_without_indexing() -> None:
+    from hiremate_ai.agents.analysis.application.normalize import LayoutProposal
 
-    request = DocumentNormalizationRequest.model_validate_json(
-        (CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text()
+    proposal = LayoutProposal.model_validate(
+        {
+            "title": None,
+            "blocks": [{"type": "paragraph", "pages": [1], "text": "정리된 내용"}],
+        }
     )
-    text = "\n".join(source.text for source in request.sources)
-    batch = FakeLlm(
-        DocumentLayout.model_validate(
-            {
-                "blocks": [
-                    {
-                        "type": "paragraph",
-                        "sourceIds": [source.id for source in request.sources],
-                        "role": "body",
-                        "text": text,
-                    }
-                ]
-            }
-        )
+    handlers = job_handlers(FakeLlm(proposal), MemoryStore(), SESSIONS)
+    document_id = str(uuid4())
+    result = await handlers["application/normalize"](
+        {
+            "companyId": str(uuid4()),
+            "recruitmentId": str(uuid4()),
+            "applicationId": str(uuid4()),
+            "documentId": document_id,
+            "revision": 1,
+            "documentType": "RESUME",
+            "pages": [{"number": 1, "text": "추출 내용", "issues": [], "spans": [], "imageCount": 0, "formCount": 0}],
+        }
     )
-    instant = FakeLlm()
-    handle = job_handlers(instant, MemoryStore(), SESSIONS, application_llm=batch)["application/normalize"]
-    result = await handle(request.model_dump(mode="json"))
-    assert result["documentId"] == str(request.document_id)
-    assert result["revision"] == request.revision
-    assert result["blocks"][0]["text"] == text
-    assert not instant.calls
-
-
-async def test_worker_normalization_invalid_content_keeps_the_source_text() -> None:
-    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
-
-    llm = FakeLlm(DocumentLayout.model_validate({"blocks": []}))
-    handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/normalize"]
-    request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
-    result = await handle(request)
-    assert "\n".join(block["text"] for block in result["blocks"]) == "\n".join(
-        source["text"] for source in request["sources"]
-    )
-    assert [source_id for block in result["blocks"] for source_id in block["sourceIds"]] == [
-        source["id"] for source in request["sources"]
-    ]
-
-
-async def test_worker_normalization_without_any_content_is_permanent() -> None:
-    from hiremate_ai.agents.analysis.application.normalize import DocumentLayout
-
-    llm = FakeLlm(DocumentLayout.model_validate({"blocks": []}))
-    handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/normalize"]
-    request = json.loads((CONTRACT_DIR / "DocumentNormalizationRequest.json").read_text())
-    for source in request["sources"]:
-        source["text"] = "   "
-    with pytest.raises(PermanentError):
-        await handle(request)
-
-
-async def test_index_document_rejects_invalid_payload_before_accessing_services() -> None:
-    handle = job_handlers(FakeLlm(), MemoryStore(), SESSIONS)["application/index-document"]
-    with pytest.raises(PermanentError, match="accepted document"):
-        await handle({"documentId": str(uuid4())})
-
-
-async def test_document_index_worker_commits_before_acknowledging(database_url: str) -> None:
-    from hiremate_ai.contract import DocumentIndexRequest
-    from hiremate_ai.db.document_index import DocumentIndex
-
-    class Embedder:
-        async def embed(self, texts: list[str]) -> list[list[float]]:
-            return [[0.1] * 1024 for _ in texts]
-
-    request = DocumentIndexRequest.model_validate_json((CONTRACT_DIR / "DocumentIndexRequest.json").read_bytes())
-    document_id = uuid4()
-    request = DocumentIndexRequest(
-        request=request.request.model_copy(update={"document_id": document_id}),
-        document=request.document.model_copy(update={"document_id": document_id}),
-    )
-    engine = create_async_engine(database_url)
-    sessions = async_sessionmaker(engine)
-    handle = job_handlers(FakeLlm(), MemoryStore(), sessions, document_embedder=Embedder())[
-        "application/index-document"
-    ]
-    try:
-        result = await handle(request.model_dump(mode="json"))
-        assert result == {"documentId": str(document_id), "revision": 1, "status": "INDEXED"}
-        async with sessions() as session:
-            saved = await session.get(DocumentIndex, document_id)
-            assert saved is not None and saved.revision == 1
-        assert (await handle(request.model_dump(mode="json")))["status"] == "UNCHANGED"
-    finally:
-        async with sessions() as session, session.begin():
-            saved = await session.get(DocumentIndex, document_id)
-            if saved is not None:
-                await session.delete(saved)
-        await engine.dispose()
+    assert result["document"]["id"] == document_id
+    assert result["blocks"][0]["text"] == "정리된 내용"
+    assert "application/index-document" not in handlers
