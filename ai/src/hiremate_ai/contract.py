@@ -322,6 +322,36 @@ class SummarySection(ContractModel):
     evidence: list[Evidence]
 
 
+class DigestRow(ContractModel):
+    """서류 정리 표의 한 행 (카드면 카드 하나). cells는 구역 columns 순서다. evidence는 원문으로 가는 근거 문장이다."""
+
+    title: str = ""
+    cells: list[str] = []
+    tags: list[str] = []  # 카드에 칩으로 보일 기술 (포트폴리오 프로젝트)
+    evidence: list[Evidence] = []
+
+
+class DigestSection(ContractModel):
+    """서류 정리의 한 구역. layout은 table(표) 또는 cards(제목 + 칸 카드)다.
+
+    tags는 기술 같은 칩, items는 자격 같은 한 줄이다.
+    """
+
+    title: str
+    layout: Literal["table", "cards"] = "table"
+    columns: list[str] = []
+    rows: list[DigestRow] = []
+    tags: list[str] = []
+    items: list[str] = []
+
+
+class DocumentDigest(ContractModel):
+    """이력서 · 포트폴리오를 담당자가 보기 좋게 정리한 것 (CandidateAnalysis.DocumentDigest). 적힌 것만 옮긴다."""
+
+    document: DocumentType
+    sections: list[DigestSection] = []
+
+
 class CandidateAnalysis(ContractModel):
     """지원자 카드의 AI 분석 요약 (ai.application.CandidateAnalysis). 근거가 없으면 확인 필요로 둔다.
 
@@ -340,6 +370,7 @@ class CandidateAnalysis(ContractModel):
     highlights: list[Evidence]
     agent: str
     stub: bool
+    digests: list[DocumentDigest] = []  # 이력서 · 포트폴리오 정리. 예전 분석에는 없다
 
 
 class FeatureLabelsRequest(ContractModel):

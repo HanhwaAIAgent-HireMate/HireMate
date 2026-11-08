@@ -17,11 +17,42 @@ import java.util.List;
  * @param criteria 항목별 판정. 분석 전이거나 서류를 읽지 못했으면 비어 있다
  * @param summaries 자기소개서 문항별 요약. 판단 없이 무엇을 썼는지만 담는다
  * @param highlights 문서 Viewer에 표시할 근거 문장
+ * @param digests 이력서 · 포트폴리오를 표 · 카드로 정리한 것 (서류 화면의 정리 보기). 예전 분석에는 없다
  */
 public record CandidateAnalysis(List<Condition> conditions, List<Finding> notable, List<Finding> checks,
         List<Finding> holds, @Schema(nullable = true) String criteriaVersion,
         List<CriterionLine> criteria, List<SummarySection> summaries, List<Evidence> highlights, String agent,
-        boolean stub) {
+        boolean stub, List<DocumentDigest> digests) {
+
+    public CandidateAnalysis {
+        digests = digests == null ? List.of() : digests;
+    }
+
+    /** 서류 정리 없이 만든다 (stub · 예전 분석). */
+    public CandidateAnalysis(List<Condition> conditions, List<Finding> notable, List<Finding> checks,
+            List<Finding> holds, String criteriaVersion, List<CriterionLine> criteria, List<SummarySection> summaries,
+            List<Evidence> highlights, String agent, boolean stub) {
+        this(conditions, notable, checks, holds, criteriaVersion, criteria, summaries, highlights, agent, stub,
+                List.of());
+    }
+
+    /**
+     * 이력서 · 포트폴리오 정리. 판단 없이 서류에 적힌 것만 짧게 옮기고, 행마다 원문 근거 문장을 단다.
+     */
+    public record DocumentDigest(DocumentType document, List<DigestSection> sections) {
+    }
+
+    /**
+     * 정리의 한 구역. layout은 table(표) · cards(제목 + 칸 카드)다. rows의 cells는 columns 순서다.
+     * tags는 기술 같은 칩, items는 자격 같은 한 줄이다.
+     */
+    public record DigestSection(String title, String layout, List<String> columns, List<DigestRow> rows,
+            List<String> tags, List<String> items) {
+    }
+
+    /** 정리 표의 한 행 (카드면 카드 하나). evidence는 원문으로 가는 근거 문장이다. */
+    public record DigestRow(String title, List<String> cells, List<Evidence> evidence) {
+    }
 
     /** 항목 판정. PARTIAL은 복합 경험형만 쓰고 UNKNOWN은 판단 불가(확인 필요)다. */
     public enum Verdict {

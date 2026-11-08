@@ -18,6 +18,9 @@ from hiremate_ai.contract import (
     Condition,
     CriterionCategory,
     CriterionLine,
+    DigestRow,
+    DigestSection,
+    DocumentDigest,
     Evidence,
     Finding,
     SummarySection,
@@ -96,6 +99,33 @@ def to_candidate_analysis(review: ApplicationReview, documents: Sequence[Applica
         highlights=highlights,
         agent=AGENT_NAME,
         stub=False,
+        digests=[
+            DocumentDigest(
+                document=digest.document,
+                sections=[
+                    DigestSection(
+                        title=section.title,
+                        layout=section.layout,
+                        columns=section.columns,
+                        rows=[
+                            DigestRow(
+                                title=row.title,
+                                cells=row.cells,
+                                tags=row.tags,
+                                evidence=[
+                                    Evidence(document=quote.document, sentence=quote.sentence) for quote in row.quotes
+                                ],
+                            )
+                            for row in section.rows
+                        ],
+                        tags=section.tags,
+                        items=section.items,
+                    )
+                    for section in digest.sections
+                ],
+            )
+            for digest in review.digests
+        ],
     )
 
 
