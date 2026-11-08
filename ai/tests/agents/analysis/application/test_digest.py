@@ -23,7 +23,7 @@ RESUME = ApplicantDocument(
 )
 
 
-def test_resume_rows_need_source_evidence_and_unwritten_numbers_are_blanked():
+def test_resume_rows_need_source_evidence_and_unwritten_numbers_are_blanked() -> None:
     digest = resume_digest(
         RESUME,
         ResumeDigest.model_validate(
@@ -62,7 +62,7 @@ def test_resume_rows_need_source_evidence_and_unwritten_numbers_are_blanked():
     assert skills.items == ["정보처리기사 (2021.06)"]
 
 
-def test_blind_drops_education_rows():
+def test_blind_drops_education_rows() -> None:
     digest = resume_digest(
         RESUME,
         ResumeDigest.model_validate(
@@ -83,7 +83,7 @@ def test_blind_drops_education_rows():
     assert digest.sections == []
 
 
-def test_portfolio_projects_become_cards():
+def test_portfolio_projects_become_cards() -> None:
     document = ApplicantDocument(
         type=DocumentType.PORTFOLIO,
         file_id=uuid4(),
