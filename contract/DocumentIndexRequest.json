@@ -1,0 +1,83 @@
+{
+  "companyId": "00000000-0000-0000-0000-000000000001",
+  "recruitmentId": "00000000-0000-0000-0000-000000000001",
+  "applicationId": "00000000-0000-0000-0000-000000000001",
+  "revision": 1,
+  "blind": false,
+  "applicantName": "가상 지원자",
+  "document": {
+    "schemaVersion": "1.0",
+    "document": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "type": "portfolio",
+      "title": "포트폴리오",
+      "pageCount": 1
+    },
+    "blocks": [
+      {
+        "id": "b1",
+        "type": "section",
+        "title": "프로젝트",
+        "pages": [
+          1
+        ],
+        "blocks": [
+          {
+            "id": "b2",
+            "type": "paragraph",
+            "pages": [
+              1
+            ],
+            "text": "개발했습니다"
+          },
+          {
+            "id": "b3",
+            "type": "list",
+            "pages": [
+              1
+            ],
+            "items": [
+              {
+                "id": "i1",
+                "text": "항목",
+                "pages": [
+                  1
+                ],
+                "items": []
+              }
+            ]
+          },
+          {
+            "id": "b4",
+            "type": "table",
+            "pages": [
+              1
+            ],
+            "title": "성과",
+            "headers": [
+              "항목",
+              "값"
+            ],
+            "rows": [
+              [
+                "속도",
+                "30%"
+              ]
+            ],
+            "reconstruction": "inferred"
+          },
+          {
+            "id": "b5",
+            "type": "visual_notice",
+            "pages": [
+              1
+            ],
+            "visualType": "unknown",
+            "detection": "suspected",
+            "message": "시각 자료는 원본 PDF를 확인해 주세요."
+          }
+        ]
+      }
+    ]
+  }
+}

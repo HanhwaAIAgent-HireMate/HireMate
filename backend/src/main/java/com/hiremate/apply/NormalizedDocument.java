@@ -2,12 +2,14 @@ package com.hiremate.apply;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.hiremate.posting.BlindMask;
 import com.hiremate.posting.DocumentType;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 
 /** 제출 PDF를 정책에 따라 정리한 페이지 기반 문서. */
 public record NormalizedDocument(String schemaVersion, Metadata document, List<Block> blocks) {
@@ -30,6 +32,35 @@ public record NormalizedDocument(String schemaVersion, Metadata document, List<B
         if (revision < 1 || type == DocumentType.CERTIFICATE) {
             throw new IllegalArgumentException("Invalid document revision or type");
         }
+    }
+
+    /** 저장된 JSON을 바꾸지 않고 기존 가림 규칙을 검색용 복사본에 적용한다. */
+    public NormalizedDocument forSearch(String name, boolean blind) {
+        UnaryOperator<String> mask = value -> value == null ? null
+                : BlindMask.maskApplicant(blind ? BlindMask.mask(value) : value, name);
+        var metadata = new Metadata(document.id(), document.type(), mask.apply(document.title()), document.pageCount());
+        return new NormalizedDocument(schemaVersion, metadata,
+                blocks.stream().map(block -> maskBlock(block, mask)).toList());
+    }
+
+    private static Block maskBlock(Block block, UnaryOperator<String> mask) {
+        return switch (block) {
+            case Section section -> new Section(section.id(), section.pages(), mask.apply(section.title()),
+                    section.blocks().stream().map(child -> maskBlock(child, mask)).toList());
+            case Paragraph paragraph -> new Paragraph(paragraph.id(), paragraph.pages(), mask.apply(paragraph.text()));
+            case Listing listing -> new Listing(listing.id(), listing.pages(),
+                    listing.items().stream().map(item -> maskItem(item, mask)).toList());
+            case Table table -> new Table(table.id(), table.pages(), mask.apply(table.title()),
+                    table.headers().stream().map(mask).toList(),
+                    table.rows().stream().map(row -> row.stream().map(mask).toList()).toList(), table.reconstruction());
+            case VisualNotice notice -> new VisualNotice(notice.id(), notice.pages(), notice.visualType(),
+                    notice.detection(), mask.apply(notice.message()));
+        };
+    }
+
+    private static ListItem maskItem(ListItem item, UnaryOperator<String> mask) {
+        return new ListItem(item.id(), mask.apply(item.text()), item.pages(),
+                item.items().stream().map(child -> maskItem(child, mask)).toList());
     }
 
     private static void checkText(String text) {

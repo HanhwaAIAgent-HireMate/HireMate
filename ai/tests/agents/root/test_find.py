@@ -1484,3 +1484,25 @@ async def test_incomplete_search_does_not_assert_posting_maximum_or_absence(
     plan = await plan_find(FakeLlm(result), preferred(mode), context, RootToolkit(search=search))
 
     assert "전체 결과를 정할 수 없어요" in plan.message
+
+
+def test_normalized_document_evidence_respects_scope_without_raw_text_comparison(
+    sample_applicants: dict[str, ApplicantDetail], sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    from uuid import uuid4
+
+    from hiremate_ai.agents.root.find import _in_source
+    from hiremate_ai.tools.document_search import DocumentProvenance, DocumentSentence
+
+    context = make_context(sample_applicants, sample_company, sample_posting, message="결제 경험")
+    candidate = context.candidates[0].application_id
+    evidence = "정제된 결제 승인 서버 개발"
+    source = DocumentSentence(
+        sentence=evidence,
+        source="이력서",
+        provenance=DocumentProvenance(
+            context.company.company_id, context.recruitment_id, candidate, uuid4(), 1, False, "block-1", (1,), evidence
+        ),
+    )
+    assert _in_source(context, candidate, source)
+    assert not _in_source(context, uuid4(), source)

@@ -5,13 +5,11 @@ from uuid import UUID
 
 import pytest
 from application_context import YUMIN_SUMMARY, make_posting, make_rubric, scripted, yumin_script
-from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
-from hiremate_ai.agents.analysis.application import router
-from hiremate_ai.agents.analysis.application.router import get_profile_indexer, get_store
+from hiremate_ai.agents.analysis.application.router import get_store
 from hiremate_ai.agents.analysis.application.service import analyze_application
-from hiremate_ai.agents.analysis.application.types import AnalyzeRequest, ApplicationReview, ScreeningRubric
+from hiremate_ai.agents.analysis.application.types import ApplicationReview, ScreeningRubric
 from hiremate_ai.contract import ApplicantDetail, PostingContent
 from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.llm.client import get_document_normalization_llm, get_llm
@@ -45,11 +43,7 @@ class MemoryStore:
 def store() -> Iterator[MemoryStore]:
     memory = MemoryStore()
 
-    async def no_index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
-        pass
-
     app.dependency_overrides[get_store] = lambda: memory
-    app.dependency_overrides[get_profile_indexer] = lambda: no_index
     yield memory
     app.dependency_overrides.clear()
 
@@ -186,67 +180,6 @@ def test_candidate_card_reanalyzes_when_criteria_changed(
     assert response.status_code == 200
     assert response.json()["criteriaVersion"] == "다음 버전"
     assert store.saved == 2
-
-
-def test_candidate_card_does_not_index_saved_review(
-    store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
-) -> None:
-    applicant = sample_applicants["정유민"]
-    saved_yesterday(store, applicant, sample_posting)
-    indexed: list[UUID] = []
-
-    async def index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
-        indexed.append(application_id)
-
-    app.dependency_overrides[get_llm] = lambda: FakeLlm()
-    app.dependency_overrides[get_profile_indexer] = lambda: index
-
-    response = TestClient(app).post(
-        "/agents/candidate-analyst/analyze", json=body(applicant, sample_posting, make_rubric())
-    )
-
-    assert response.status_code == 200
-    assert indexed == []
-
-
-async def test_candidate_card_returns_before_indexing_new_review(
-    store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
-) -> None:
-    applicant = sample_applicants["정유민"]
-    request = AnalyzeRequest.model_validate(body(applicant, sample_posting, make_rubric()))
-    indexed: list[UUID] = []
-
-    async def index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
-        indexed.append(application_id)
-
-    tasks = BackgroundTasks()
-
-    card = await router.candidate(request, yumin_llm(), store, index, tasks)
-
-    assert card.criteria_version == make_rubric().criteria_version
-    assert indexed == []
-    await tasks()
-    assert indexed == [applicant.info.application_id]
-
-
-def test_application_route_indexes_saved_profile(
-    store: MemoryStore, sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
-) -> None:
-    assert hasattr(router, "get_profile_indexer")
-    indexed: list[tuple[UUID, UUID, UUID]] = []
-
-    async def index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
-        indexed.append((company_id, recruitment_id, application_id))
-
-    app.dependency_overrides[get_llm] = yumin_llm
-    app.dependency_overrides[router.get_profile_indexer] = lambda: index
-    applicant = sample_applicants["정유민"]
-    rubric = make_rubric()
-
-    response = TestClient(app).post("/agents/application/analyze", json=body(applicant, sample_posting, rubric))
-
-    assert response.status_code == 200
-    assert indexed == [(rubric.company_id, rubric.recruitment_id, applicant.info.application_id)]
 
 
 def test_normalize_route_returns_json(store: MemoryStore) -> None:

@@ -37,18 +37,15 @@ from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SearchResults, SourcedSentence
+from hiremate_ai.tools.document_search import document_embedding_search
+from hiremate_ai.tools.embedding import Embedder, get_embedder
 from hiremate_ai.tools.profile_lookup import (
     Sessions,
     ordered_items,
     profile_front,
     read_profile,
 )
-from hiremate_ai.tools.profile_search import (
-    ProfileEmbedder,
-    get_profile_embedder,
-    profile_embedding_search,
-    profile_search,
-)
+from hiremate_ai.tools.profile_search import profile_search
 from hiremate_ai.tools.scope import ToolScope
 
 
@@ -719,9 +716,7 @@ def default_toolkit() -> RootToolkit:
     return RootToolkit(search=keyword_search)
 
 
-def profile_toolkit(
-    sessions: async_sessionmaker[AsyncSession], *, embedder: ProfileEmbedder | None = None
-) -> RootToolkit:
+def profile_toolkit(sessions: async_sessionmaker[AsyncSession], *, embedder: Embedder | None = None) -> RootToolkit:
     """지원자 프로필을 함께 쓰는 묶음.
 
     찾기는 프로필 문장을 먼저 쓰고, 모자라거나 프로필이 없으면 제출 문서 문장으로 채운다.
@@ -729,7 +724,7 @@ def profile_toolkit(
     """
     searches = [profile_search(sessions, terms=concept_terms), keyword_search]
     if embedder is not None:
-        searches.append(profile_embedding_search(sessions, embedder, model=settings.ncs_model))
+        searches.append(document_embedding_search(sessions, embedder, model=settings.ncs_model))
     search = merged_search(*searches)
     return RootToolkit(
         search=search,
@@ -747,7 +742,7 @@ def get_toolkit() -> RootToolkit:
     프로세스에 하나만 만들어 찾기 재확인의 판정 기억을 요청끼리 같이 쓴다.
     DB 없이 찾기 · 분석을 거치는 테스트는 default_toolkit으로 바꿔 넣는다.
     """
-    return profile_toolkit(session_factory(), embedder=get_profile_embedder())
+    return profile_toolkit(session_factory(), embedder=get_embedder())
 
 
 ToolkitDep = Annotated[RootToolkit, Depends(get_toolkit)]

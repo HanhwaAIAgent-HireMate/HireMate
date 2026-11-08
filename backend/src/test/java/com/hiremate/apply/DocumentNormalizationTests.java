@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 
 class DocumentNormalizationTests {
     @Test
@@ -57,12 +58,49 @@ class DocumentNormalizationTests {
         when(files.read(companyId, document.getFileId())).thenReturn(new FileContent(null, pdf("Original text")));
         when(jobs.enqueue(eq("application/normalize"), eq(document.getId().toString()), any()))
                 .thenReturn(UUID.randomUUID());
-        var service = new DocumentNormalizationService(applications, documents, files, jobs);
+        var service = new DocumentNormalizationService(applications, documents, files, jobs,
+                mock(ApplicationService.class), mock(ApplicationEventPublisher.class));
         service.submit(companyId, recruitmentId, application.getId());
         var payload = ArgumentCaptor.forClass(DocumentNormalizationRequest.class);
         verify(jobs).enqueue(eq("application/normalize"), eq(document.getId().toString()), payload.capture());
         assertThat(payload.getValue().pages().getFirst().text()).contains("Original text");
         assertThat(document.getText()).isEqualTo("masked existing text");
+    }
+
+    @Test
+    void queuesSavedJsonForIndexingWithExistingBlindMask() {
+        var applications = mock(JobApplicationRepository.class);
+        var documents = mock(ApplicationDocumentRepository.class);
+        var files = mock(FileService.class);
+        var jobs = mock(JobQueue.class);
+        var applicationService = mock(ApplicationService.class);
+        UUID companyId = UUID.randomUUID();
+        UUID recruitmentId = UUID.randomUUID();
+        var application = new JobApplication(recruitmentId, companyId, UUID.randomUUID(), 1,
+                "홍길동", "user@example.com", "010", "");
+        var document = new ApplicationDocument(application.getId(), DocumentType.RESUME, UUID.randomUUID(),
+                "resume.pdf", 1, "본문");
+        UUID job = UUID.randomUUID();
+        document.queueNormalization(job);
+        var result = new NormalizedDocument("1.0", new NormalizedDocument.Metadata(document.getId(), "resume", null, 1),
+                List.of(new NormalizedDocument.Paragraph("block-1", List.of(1), "홍길동 한빛대학교 결제 서버 개발")));
+        when(documents.findLockedById(document.getId())).thenReturn(Optional.of(document));
+        when(applications.findById(application.getId())).thenReturn(Optional.of(application));
+        when(applicationService.blind(companyId, recruitmentId)).thenReturn(true);
+        when(jobs.enqueue(eq("application/index-document"), eq(document.getId().toString()), any()))
+                .thenReturn(UUID.randomUUID());
+        var events = mock(ApplicationEventPublisher.class);
+        var service = new DocumentNormalizationService(applications, documents, files, jobs, applicationService,
+                events);
+        service.complete(document.getId(), job, result);
+        verify(events).publishEvent(new DocumentNormalized(document.getId()));
+        service.enqueueIndex(document.getId());
+        var payload = ArgumentCaptor.forClass(DocumentIndexRequest.class);
+        verify(jobs).enqueue(eq("application/index-document"), eq(document.getId().toString()), payload.capture());
+        var indexed = (NormalizedDocument.Paragraph) payload.getValue().document().blocks().getFirst();
+        assertThat(indexed.text()).doesNotContain("홍길동", "한빛대학교");
+        assertThat(((NormalizedDocument.Paragraph) document.getNormalizedDocument().blocks().getFirst()).text())
+                .contains("홍길동", "한빛대학교");
     }
 
 }

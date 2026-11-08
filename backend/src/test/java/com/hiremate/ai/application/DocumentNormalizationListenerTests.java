@@ -48,4 +48,23 @@ class DocumentNormalizationListenerTests {
         verify(service).complete(org.mockito.ArgumentMatchers.eq(documentId), org.mockito.ArgumentMatchers.eq(jobId),
                 org.mockito.ArgumentMatchers.any());
     }
+
+    @Test
+    void queuesIndexAfterNormalizationAndAcceptsTheMatchingResult() {
+        var service = mock(DocumentNormalizationService.class);
+        var settings = mock(AiSettings.class);
+        var mapper = JsonMapper.builder().build();
+        var listener = new DocumentNormalizationListener(service, settings, Duration.ofMinutes(1), mapper);
+        UUID documentId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        listener.on(new com.hiremate.apply.DocumentNormalized(documentId));
+        verify(service).enqueueIndex(documentId);
+        var result = mapper.valueToTree(Map.of("documentId", documentId.toString(), "revision", 1, "status", "DONE"));
+        listener.on(new JobFinished(new JobResult(jobId, DocumentNormalizationService.INDEX_JOB,
+                documentId.toString(), JobStatus.DONE, result, null)));
+        verify(service).completeIndex(org.mockito.ArgumentMatchers.eq(documentId),
+                org.mockito.ArgumentMatchers.eq(jobId),
+                org.mockito.ArgumentMatchers.any());
+    }
+
 }
