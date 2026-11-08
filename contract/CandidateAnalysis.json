@@ -130,5 +130,51 @@
     }
   ],
   "agent": "Application Agent",
-  "stub": false
+  "stub": false,
+  "digests": [
+    {
+      "document": "RESUME",
+      "sections": [
+        {
+          "title": "경력",
+          "layout": "table",
+          "columns": [
+            "기간",
+            "소속 · 역할",
+            "주요 업무"
+          ],
+          "rows": [
+            {
+              "title": "",
+              "cells": [
+                "2022.03 ~ 현재",
+                "한빛카드 · 결제플랫폼팀",
+                "카드 결제 승인 · 정산 API 개발"
+              ],
+              "tags": [],
+              "evidence": [
+                {
+                  "document": "RESUME",
+                  "sentence": "카드 결제 승인 · 정산 API를 Java와 Spring Boot로 개발했습니다."
+                }
+              ]
+            }
+          ],
+          "tags": [],
+          "items": []
+        },
+        {
+          "title": "기술 · 자격",
+          "layout": "table",
+          "columns": [],
+          "rows": [],
+          "tags": [
+            "Java",
+            "Spring Boot"
+          ],
+          "items": []
+        }
+      ]
+    }
+  ]
 }

@@ -7,6 +7,7 @@
 """
 
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -159,6 +160,33 @@ class DocumentSection(_Record):
     quotes: list[Quote] = []
 
 
+class DigestRow(_Record):
+    """정리 표의 한 행 (카드면 카드 하나). cells는 구역의 columns 순서다. quotes는 원문으로 가는 근거 문장이다."""
+
+    title: str = ""
+    cells: list[str] = []
+    tags: list[str] = []  # 카드에 칩으로 보일 기술 (포트폴리오 프로젝트)
+    quotes: list[Quote] = []
+
+
+class DigestSection(_Record):
+    """서류 정리의 한 구역. table은 표, cards는 제목 + 칸 카드다. tags(기술 등)와 items(자격 등 한 줄)도 담는다."""
+
+    title: str
+    layout: Literal["table", "cards"] = "table"
+    columns: list[str] = []
+    rows: list[DigestRow] = []
+    tags: list[str] = []
+    items: list[str] = []
+
+
+class DocumentDigest(_Record):
+    """이력서 · 포트폴리오를 담당자가 훑어보기 좋게 정리한 것. 판단 없이 서류에 적힌 것만 짧게 옮긴다."""
+
+    document: DocumentType
+    sections: list[DigestSection] = []
+
+
 class Note(_Record):
     """카드에 보여 줄 한 줄과 출처. 눈여겨볼 점 묶음이면 제목 · 한 일 · 지표를 따로 담는다."""
 
@@ -181,6 +209,7 @@ class ApplicationReview(_Record):
     facts: list[Fact] = []
     periods: list[Period] = []
     sections: list[DocumentSection] = []  # 자기소개서 문항별 요약
+    digests: list[DocumentDigest] = []  # 이력서 · 포트폴리오 정리 (서류 화면의 정리 보기)
     career_years: int | None = None
     last_company: str | None = None
     criteria: list[CriterionResult] = []

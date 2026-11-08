@@ -13,6 +13,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from hiremate_ai.agents.analysis.application.digest import PortfolioDigest, ResumeDigest
 from hiremate_ai.agents.analysis.application.extract import (
     ExtractedFacts,
     ExtractedPeriod,
@@ -139,6 +140,8 @@ class Script:
     reviews: dict[str, ReviewVerdict] = field(default_factory=dict)
     omit: set[str] = field(default_factory=set)
     summary: LetterSummary = field(default_factory=LetterSummary)
+    resume_digest: ResumeDigest = field(default_factory=ResumeDigest)
+    portfolio_digest: PortfolioDigest = field(default_factory=PortfolioDigest)
     warnings: _Warnings = field(default_factory=lambda: _Warnings(items=[]))
     jobs: dict[str, str] = field(default_factory=dict)
 
@@ -149,6 +152,10 @@ class Script:
             return ExtractionCorrections()
         if call.output is LetterSummary:
             return self.summary
+        if call.output is ResumeDigest:
+            return self.resume_digest
+        if call.output is PortfolioDigest:
+            return self.portfolio_digest
         if call.output is _Warnings:
             return self.warnings
         if call.output is JobCareer:

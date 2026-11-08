@@ -19,6 +19,7 @@ from langgraph.runtime import Runtime
 
 from hiremate_ai.agents.analysis.application.career import career_years, last_company
 from hiremate_ai.agents.analysis.application.context import readable
+from hiremate_ai.agents.analysis.application.digest import digest
 from hiremate_ai.agents.analysis.application.extract import extract_documents, extraction_recipe, merge, summarize
 from hiremate_ai.agents.analysis.application.highlight import TEAM_ROLE_CHECK, highlight
 from hiremate_ai.agents.analysis.application.job_career import JobFit, job_notes, job_periods, job_related
@@ -39,6 +40,7 @@ from hiremate_ai.agents.analysis.application.types import (
     ApplicationReview,
     Criterion,
     CriterionResult,
+    DocumentDigest,
     DocumentSection,
     Fact,
     Note,
@@ -50,7 +52,7 @@ from hiremate_ai.contract import ApplicantDetail, CriterionCategory, PostingCont
 from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.llm.client import LlmClient
 
-REVIEW_VERSION = "2026-11-06.9"
+REVIEW_VERSION = "2026-11-09.1"
 # 카드의 '눈여겨볼 점' 후보로 검토하는 사실 수
 NOTABLE_CANDIDATES = 6
 NOTABLE_KINDS = ("ACHIEVEMENT", "PROJECT", "EXPERIENCE")
@@ -83,6 +85,7 @@ class ReviewState(TypedDict, total=False):
     facts: list[Fact]
     periods: list[Period]
     sections: list[DocumentSection]
+    digests: list[DocumentDigest]
     results: list[CriterionResult]
     notable: list[Note]
     warnings: list[Note]
@@ -113,11 +116,12 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
                 )
                 for document in documents
             ]
-        extracted, sections = await asyncio.gather(
+        extracted, sections, digests = await asyncio.gather(
             extract_documents(
                 llm, documents, settings.application_concurrency, cached=cached, review=context.review_extraction
             ),
             summarize(llm, documents, blind=context.posting.blind),
+            digest(llm, documents, blind=context.posting.blind),
         )
         if artifacts is not None and recipe is not None and context.company_id is not None:
             for document, result in zip(documents, extracted, strict=True):
@@ -130,7 +134,7 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
                     extracted=result,
                 )
         facts, periods = merge(documents, extracted, context.today, blind=context.posting.blind)
-        return {"facts": facts, "periods": periods, "sections": sections}
+        return {"facts": facts, "periods": periods, "sections": sections, "digests": digests}
 
     async def judge(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
         context = runtime.context
@@ -317,6 +321,7 @@ def _finalize(state: ReviewState, context: ReviewInput) -> ApplicationReview:
         facts=state.get("facts") or [],
         periods=periods,
         sections=state.get("sections") or [],
+        digests=state.get("digests") or [],
         career_years=career_years(job_periods(periods, job_fit), context.today) if periods else None,
         last_company=last_company(periods),
         criteria=results,
