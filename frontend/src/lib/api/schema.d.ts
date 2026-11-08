@@ -820,6 +820,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/posting/poster/templated-register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["registerTemplated"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/posting/poster/template-layout": {
         parameters: {
             query?: never;
@@ -2117,22 +2133,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/recruitments/{recruitmentId}/posting/poster/templated-register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["registerTemplated"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2821,6 +2821,17 @@ export interface components {
             /** Format: date-time */
             closeAt: string;
         };
+        TemplatedRegisterRequest: {
+            sourceId: string;
+            name: string;
+            svg: string;
+            /** Format: int32 */
+            height: number;
+        };
+        RegisteredTemplate: {
+            id: string;
+            name: string;
+        };
         TemplateLayoutRegion: {
             id: string;
             text: string;
@@ -3405,6 +3416,9 @@ export interface components {
             size: number;
             text: string;
         };
+        Block: {
+            type: string;
+        };
         CandidateDetail: {
             row: components["schemas"]["CandidateRow"];
             email: string;
@@ -3417,7 +3431,73 @@ export interface components {
             schoolMentions: string[];
             schoolCleared: boolean;
             originalsWithName: ("RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE")[];
+            normalized: components["schemas"]["NormalizedDocumentView"][];
         };
+        ListItem: {
+            id: string;
+            text: string;
+            pages: number[];
+            items: components["schemas"]["ListItem"][];
+        };
+        Listing: {
+            type: "Listing";
+        } & (Omit<components["schemas"]["Block"], "type"> & {
+            id?: string;
+            pages?: number[];
+            items?: components["schemas"]["ListItem"][];
+        });
+        Metadata: {
+            /** Format: uuid */
+            id: string;
+            type: string;
+            title: string;
+            /** Format: int32 */
+            pageCount: number;
+        };
+        NormalizedDocument: {
+            schemaVersion: string;
+            document: components["schemas"]["Metadata"];
+            blocks: (components["schemas"]["Listing"] | components["schemas"]["Paragraph"] | components["schemas"]["Section"] | components["schemas"]["Table"] | components["schemas"]["VisualNotice"])[];
+        };
+        NormalizedDocumentView: {
+            /** @enum {string} */
+            type: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            document: components["schemas"]["NormalizedDocument"];
+        };
+        Paragraph: {
+            type: "Paragraph";
+        } & (Omit<components["schemas"]["Block"], "type"> & {
+            id?: string;
+            pages?: number[];
+            text?: string;
+        });
+        Section: {
+            type: "Section";
+        } & (Omit<components["schemas"]["Block"], "type"> & {
+            id?: string;
+            pages?: number[];
+            title?: string;
+            blocks?: (components["schemas"]["Listing"] | components["schemas"]["Paragraph"] | components["schemas"]["Section"] | components["schemas"]["Table"] | components["schemas"]["VisualNotice"])[];
+        });
+        Table: {
+            type: "Table";
+        } & (Omit<components["schemas"]["Block"], "type"> & {
+            id?: string;
+            pages?: number[];
+            title?: string;
+            headers?: string[];
+            rows?: string[][];
+            reconstruction?: string;
+        });
+        VisualNotice: {
+            type: "VisualNotice";
+        } & (Omit<components["schemas"]["Block"], "type"> & {
+            id?: string;
+            pages?: number[];
+            visualType?: string;
+            detection?: string;
+            message?: string;
+        });
         Match: {
             title: string;
             /** @enum {string} */
@@ -3478,6 +3558,7 @@ export interface components {
             highlights: components["schemas"]["Evidence"][];
             agent: string;
             stub: boolean;
+            digests: components["schemas"]["DocumentDigest"][];
         };
         Condition: {
             label: string;
@@ -3509,6 +3590,25 @@ export interface components {
             noRecord: boolean;
             brief: string;
             settingNote: string;
+        };
+        DigestRow: {
+            title: string;
+            cells: string[];
+            tags: string[];
+            evidence: components["schemas"]["Evidence"][];
+        };
+        DigestSection: {
+            title: string;
+            layout: string;
+            columns: string[];
+            rows: components["schemas"]["DigestRow"][];
+            tags: string[];
+            items: string[];
+        };
+        DocumentDigest: {
+            /** @enum {string} */
+            document: "RESUME" | "COVER_LETTER" | "PORTFOLIO" | "CERTIFICATE";
+            sections: components["schemas"]["DigestSection"][];
         };
         Evidence: {
             /** @enum {string} */
@@ -3674,17 +3774,6 @@ export interface components {
             token: string;
             headerName: string;
             parameterName: string;
-        };
-        TemplatedRegisterRequest: {
-            sourceId: string;
-            name: string;
-            svg: string;
-            /** Format: int32 */
-            height?: number;
-        };
-        RegisteredTemplate: {
-            id?: string;
-            name?: string;
         };
     };
     responses: never;
@@ -5262,6 +5351,32 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PostingView"];
+                };
+            };
+        };
+    };
+    registerTemplated: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplatedRegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["RegisteredTemplate"];
                 };
             };
         };
@@ -7379,32 +7494,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    registerTemplated: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                recruitmentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TemplatedRegisterRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegisteredTemplate"];
-                };
             };
         };
     };
