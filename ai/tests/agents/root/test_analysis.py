@@ -1,6 +1,7 @@
 from typing import Any
 from uuid import UUID
 
+from ncs_context import UNIT, FakeNcs
 from root_context import Recorder, make_context
 
 from hiremate_ai.agents.guardrails import BLOCKED_REPLY
@@ -22,6 +23,7 @@ from hiremate_ai.agents.root.types import ChatContext
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, InterviewerMemo, PostingContent, StageType
 from hiremate_ai.llm.chat import model_call_budget
 from hiremate_ai.llm.fake import FakeLlm, ToolCall
+from hiremate_ai.ncs_search.cite import NcsQuery
 
 type Applicants = dict[str, ApplicantDetail]
 
@@ -54,6 +56,57 @@ def answer(*refs: str, candidate: str | None = "C1") -> ToolCall:
 def run_of(context: ChatContext, *names: str) -> AnalysisRun:
     rows = [row for name in names for row in context.candidates if row.name == name]
     return analysis_run(context, rows)
+
+
+async def test_ncs_question_returns_source_as_common_evidence(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, message="NCS에 서버 개발은 어떻게 나와?")
+    ncs = FakeNcs()
+    toolkit = RootToolkit(search=keyword_search, ncs=ncs)
+    run = run_of(context)
+
+    def cite_ncs(call: Any) -> ToolCall:
+        evidence = next(value for value in run.ledger._items.values() if value.source.startswith("NCS "))
+        return answer(evidence.ref, candidate=None)
+
+    llm = FakeLlm(
+        ToolCall("search_ncs", {"query": "서버 프로그램 구현"}),
+        NcsQuery(tasks=["서버 프로그램을 구현 한다"], units=[UNIT]),
+        cite_ncs,
+    )
+    reply = await run_analysis(llm, toolkit, run, task="answer", checks="none", progress=Recorder())
+
+    assert isinstance(reply.form, AnswerOutput)
+    evidence = run.ledger.get(reply.form.items[0].refs[0])
+    assert evidence is not None and evidence.application_id is None
+    assert evidence.quote == "서버 프로그램을 구현 한다"
+    assert "서버프로그램 구현" in evidence.source
+    assert "서버 프로그램을 구현 한다" in evidence.source
+    assert ncs.searches == [("서버 프로그램 구현", ["서버 프로그램을 구현 한다"], [UNIT])]
+
+
+async def test_ordinary_answer_does_not_search_ncs(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, mentions=["정유민"])
+    ncs = FakeNcs()
+    toolkit = RootToolkit(search=keyword_search, ncs=ncs)
+    run = run_of(context, "정유민")
+    await run_analysis(FakeLlm(answer("E1")), toolkit, run, task="answer", checks="none", progress=Recorder())
+    assert ncs.searches == []
+
+
+async def test_question_analysis_does_not_offer_ncs_search(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, message="NCS를 참고해 면접 질문을 만들어줘")
+    toolkit = RootToolkit(search=keyword_search, ncs=FakeNcs())
+    llm = FakeLlm(ToolCall("clarify", {"message": "누구의 질문을 만들까요?"}))
+
+    await run_analysis(llm, toolkit, run_of(context), task="questions", checks="documents", progress=Recorder())
+
+    assert "search_ncs" not in llm.calls[0].system
 
 
 async def test_few_targets_get_profiles_preloaded(

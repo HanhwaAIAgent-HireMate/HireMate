@@ -1,12 +1,11 @@
 """공고 수정의 NCS 참고. NCS는 HR이 보고 판단하는 참고자료라 출처는 Chat 답의 출처 목록에만 두고 공고에는 넣지 않는다.
 
 1. 검색어 만들기: 모델 한 번으로 요청을 NCS식 업무 문장으로 바꾸고 능력단위 목록에서 최대 5개를 고른다.
-2. 검색: 원문 요청, 바꾼 문장, 고른 단위로 '책임 및 역할' 묶음을 찾는다(ncs_search).
+2. 검색: 원문 요청, 바꾼 문장, 고른 단위로 직무 자료 묶음을 찾는다(ncs_search).
 3. 본문 쓰기: 찾은 문장에 번호를 붙여 넣고, 모델은 참고한 목록 줄마다 번호를 적는다.
 4. 출처 확인: 줄과 번호를 공고에 들어간 줄과 맞추고, 모델 한 번으로 원문이 줄을 받쳐 주는지 판정한다.
 """
 
-import asyncio
 import json
 import logging
 from collections.abc import Callable
@@ -16,12 +15,14 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.generation.posting.types import NcsSource
-from hiremate_ai.config import settings
 from hiremate_ai.contract import PostingContent
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
-from hiremate_ai.ncs_search.reference import NcsReference, NcsUnavailable
-from hiremate_ai.ncs_search.types import NcsTask, NcsUnit
+from hiremate_ai.ncs_search.cite import NcsQuery as NcsQuery
+from hiremate_ai.ncs_search.cite import NcsSources, source_path
+from hiremate_ai.ncs_search.cite import find_sources as lookup_sources
+from hiremate_ai.ncs_search.reference import NcsReference
+from hiremate_ai.ncs_search.types import NcsTask
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,6 @@ NCS_UNAVAILABLE = "NCS 검색에 문제가 생겨 NCS 없이 수정안을 만들
 NCS_SOURCES_DROPPED = "일부 줄은 NCS 원문과 맞지 않아 출처에서 뺐어요."
 NCS_REVIEW_FAILED = "출처 확인을 마치지 못해 NCS 출처를 표시하지 않았어요."
 
-MAX_UNITS = 5
-
 NcsUse = Literal["SKIP", "REQUESTED", "HELPFUL"]
 """NCS 참고 여부. REQUESTED는 HR이 NCS를 참고하라고 한 요청이라, 찾지 못하면 알린다."""
 CitedLabel = Literal["주요 업무", "자격 요건", "우대 사항"]
@@ -41,24 +40,23 @@ _CITED_FIELDS: dict[CitedLabel, str] = {"주요 업무": "duties", "자격 요�
 
 QUERY_SYSTEM = (
     """너는 채용 담당자의 공고 수정 요청을 NCS 직무 기준 검색어로 바꾸는 도구다.
-검색 대상은 정보기술 직무의 '책임 및 역할' 문장이다. 이 문장들은 '…를 기반으로 …을 작성 한다'처럼 특정 회사나
-서비스 이름 없이 일반적인 소프트웨어 개발 용어로 수행 업무를 적는다.
+검색 대상은 여러 직무의 업무, 지식, 기술, 태도 등 NCS 직무 자료다.
 
 규칙:
 - 요청에서 담당자가 찾으려는 실제 수행 업무만 뽑는다. 공고, 평가 기준, 면접 질문 같은 산출물 형식은 업무가 아니다.
-- 회원, 주문, 배송사, 결제처럼 회사 서비스의 업무 영역 이름은 그 업무를 가리키는 일반적인 소프트웨어 개발 용어로 바꾼다.
-- '백엔드', '개발자' 같은 직무명이나 'NCS'라는 낱말은 쓰지 않는다.
+- 회사 고유의 서비스 이름은 일반적인 업무 용어로 바꾸되, 직무와 산업을 구별하는 말은 남긴다.
 - 요청에 없는 업무, 특정 제품, 수치를 덧붙이지 않는다.
 - tasks에는 '… 한다'로 끝나는 한 가지 업무 문장을 1개에서 3개 쓴다.
 - units에는 그 업무를 주요 업무로 직접 다루는 능력단위를 능력단위 목록에서 관련도가 높은 순으로 최대 5개 고른다.
   각 줄은 '능력단위코드 능력단위명: 주요 업무들'이다. 직무명이나 서비스 이름이 능력단위명에 들어 있다는 이유만으로
-  고르지 않는다. 목록에 있는 코드만 그대로 쓰고, 맞는 단위가 없으면 빈 목록으로 둔다.
+  고르지 않는다. 낱말만 같고 직무나 산업이 다른 단위는 고르지 않는다. 목록에 있는 코드만 그대로 쓰고,
+  맞는 단위가 없으면 빈 목록으로 둔다.
 """
     + UNTRUSTED_RULE
 )
 
 SOURCES_STEP = (
-    "NCS 참고자료: 아래 <data kind=\"ncs\">는 NCS 직무기술서의 '책임 및 역할' 문장이다. 직무에 맞을 때만 참고하고, "
+    'NCS 참고자료: 아래 <data kind="ncs">는 NCS 직무기술서의 유형별 문장이다. 직무에 맞을 때만 참고하고, '
     "맞지 않으면 쓰지 않는다. 문장을 그대로 옮기지 말고 공고 문장으로 쓴다. 자료에 없는 수치, 필수 자격증, 경력 연수를 "
     "만들지 않고, 관련 자격이나 숙련기간을 필수 조건으로 바꾸지 않는다. NCS를 참고해 쓴 주요 업무 · 자격 요건 · "
     "우대 사항 줄마다 citations에 칸 이름(field), 공고에 쓴 그 줄 그대로(line), 참고한 문장 번호(sources, 예: S2)를 "
@@ -75,15 +73,6 @@ SUPPORT_SYSTEM = (
 """
     + UNTRUSTED_RULE
 )
-
-
-class NcsQuery(BaseModel):
-    """검색어 만들기 답."""
-
-    tasks: list[str] = Field(max_length=3, description="요청의 수행 업무를 '… 한다'로 끝나게 쓴 문장 1~3개")
-    units: list[str] = Field(
-        description="능력단위 목록에 있는 코드만, 관련도 순으로 최대 5개. 맞는 단위가 없으면 빈 목록"
-    )
 
 
 class LineCitation(BaseModel):
@@ -106,13 +95,6 @@ class SupportReview(BaseModel):
 
 
 @dataclass(frozen=True)
-class NcsSources:
-    """이번 요청에서 찾은 NCS 문장. 번호(S1부터, 검색 순서 · 문장 순서) → (묶음, 문장)."""
-
-    items: dict[str, tuple[NcsTask, str]]
-
-
-@dataclass(frozen=True)
 class Cited:
     """공고에 들어간 목록 줄 하나와 그 줄이 참고한 문장 번호 하나. number는 칸 안의 몇 번째 줄인지(1부터)다."""
 
@@ -125,59 +107,11 @@ class Cited:
 async def find_sources(
     llm: LlmClient, ncs: NcsReference, request: str, job: str
 ) -> tuple[NcsSources | None, str | None]:
-    """요청에 맞는 NCS 문장과, 찾지 못했을 때의 안내. 안내를 HR에게 보일지는 부르는 쪽이 정한다.
-
-    표가 비어 있으면 모델을 부르지 않는다. DB, 검색어 만들기, 임베딩이 실패하거나 settings.ncs_reference_timeout_seconds
-    안에 끝나지 않아도 예외를 내지 않는다. backend가 공고 수정을 기다리는 시간(60초) 안에 본문 쓰기를 남기기 위해서다.
-    """
-    try:
-        async with asyncio.timeout(settings.ncs_reference_timeout_seconds):
-            return await _find(llm, ncs, request, job)
-    except TimeoutError:
-        logger.warning("NCS 참고가 %s초 안에 끝나지 않았습니다.", settings.ncs_reference_timeout_seconds)
-        return None, NCS_UNAVAILABLE
-
-
-async def _find(llm: LlmClient, ncs: NcsReference, request: str, job: str) -> tuple[NcsSources | None, str | None]:
-    try:
-        units = await ncs.units()
-    except NcsUnavailable as error:
-        logger.warning("NCS 능력단위 목록 조회 실패: %s", error)
-        return None, NCS_UNAVAILABLE
-    if not units:
-        return None, NCS_NOT_FOUND
-    user = "\n\n".join(
-        [data_block("ncs_units", _unit_list(units)), f"직무: {job or '(비어 있음)'}\nHR 요청: {request}"]
+    """공통 검색 결과를 공고 수정의 안내 문구로 바꾼다."""
+    sources, miss = await lookup_sources(
+        llm, ncs, request, job, agent=AGENT, system=QUERY_SYSTEM, request_label="HR 요청", strict_units=True
     )
-    try:
-        query = await llm.structured(NcsQuery, agent=AGENT, system=QUERY_SYSTEM, user=user)
-    except Exception as error:
-        logger.warning("NCS 검색어 만들기 실패: %s", type(error).__name__)
-        return None, NCS_UNAVAILABLE
-    known = {unit.code for unit in units}
-    # 모델이 '코드 단위명: 주요 업무' 줄을 통째로 적기도 해서 앞의 코드만 본다
-    codes = (unit.split(maxsplit=1)[0] if unit.strip() else "" for unit in query.units)
-    chosen = list(dict.fromkeys(code for code in codes if code in known))[:MAX_UNITS]
-    try:
-        found = await ncs.search(request, query.tasks, chosen)
-    except NcsUnavailable as error:
-        logger.warning("NCS 검색 실패: %s", error)
-        return None, NCS_UNAVAILABLE
-    items: dict[str, tuple[NcsTask, str]] = {}
-    for task in found:
-        for sentence in task.sentences:
-            items[f"S{len(items) + 1}"] = (task, sentence)
-    return (NcsSources(items=items), None) if items else (None, NCS_NOT_FOUND)
-
-
-def _unit_list(units: list[NcsUnit]) -> str:
-    lines: list[str] = []
-    for unit in units:
-        heading = f"## {unit.duty_name}"
-        if heading not in lines:
-            lines.append(heading)
-        lines.append(f"{unit.code} {unit.name}: {', '.join(unit.task_names)}")
-    return "\n".join(lines)
+    return sources, NCS_NOT_FOUND if miss == "NOT_FOUND" else NCS_UNAVAILABLE if miss else None
 
 
 def sources_block(sources: NcsSources) -> str:
@@ -188,7 +122,7 @@ def sources_block(sources: NcsSources) -> str:
 
 
 def _path(task: NcsTask) -> str:
-    return f"{task.duty_name} › {task.unit_name} › {task.task_name}"
+    return source_path(task)
 
 
 def cite_lines(
@@ -253,7 +187,7 @@ def ncs_sources(cited: list[Cited], sources: NcsSources) -> list[NcsSource]:
                     "duty_name": task.duty_name,
                     "unit_code": task.unit_code,
                     "unit_name": task.unit_name,
-                    "task_name": task.task_name,
+                    "task_name": task.task_name or task.kind_name,
                     "sentence": sentence,
                 }
             )

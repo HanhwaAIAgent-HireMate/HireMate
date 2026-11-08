@@ -36,6 +36,7 @@ from hiremate_ai.db.analysis_store import AnalysisArtifactReader, DbAnalysisArti
 from hiremate_ai.db.profile import ItemAgent, ItemCategory, Verification
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.prompt import data_block
+from hiremate_ai.ncs_search.reference import NcsReference, get_ncs
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch, SearchResults, SourcedSentence
 from hiremate_ai.tools.document_search import document_embedding_search
 from hiremate_ai.tools.embedding import Embedder, get_embedder
@@ -703,6 +704,7 @@ class RootToolkit:
     """
 
     search: CandidateSearch
+    ncs: NcsReference | None = None
     evidence: ProfileEvidence = no_profile_evidence
     judged: dict[str, dict[str, Any]] = field(default_factory=dict, compare=False)
     judged_candidates: dict[str, dict[str, Any]] = field(default_factory=dict, compare=False)
@@ -742,7 +744,9 @@ def get_toolkit() -> RootToolkit:
     프로세스에 하나만 만들어 찾기 재확인의 판정 기억을 요청끼리 같이 쓴다.
     DB 없이 찾기 · 분석을 거치는 테스트는 default_toolkit으로 바꿔 넣는다.
     """
-    return profile_toolkit(session_factory(), embedder=get_embedder())
+    from dataclasses import replace
+
+    return replace(profile_toolkit(session_factory(), embedder=get_embedder()), ncs=get_ncs())
 
 
 ToolkitDep = Annotated[RootToolkit, Depends(get_toolkit)]

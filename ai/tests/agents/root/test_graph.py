@@ -1,8 +1,10 @@
+import re
 from typing import Any
 from uuid import uuid4
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
+from ncs_context import UNIT, FakeNcs
 from root_context import extra_row, form_call, make_context
 
 from hiremate_ai.agents.guardrails import BLIND_BLOCKED_REPLY, BLOCKED_REPLY
@@ -21,6 +23,7 @@ from hiremate_ai.agents.root.graph import (
 )
 from hiremate_ai.agents.root.handlers import DECISION_REPLY
 from hiremate_ai.agents.root.review import ClaimJudgement, ClaimVerdict
+from hiremate_ai.agents.root.toolkit import RootToolkit, keyword_search
 from hiremate_ai.agents.root.types import (
     ChatContext,
     ChatItem,
@@ -34,6 +37,7 @@ from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent, StageType
 from hiremate_ai.llm.chat import LAST_CALL, LlmOutputError
 from hiremate_ai.llm.fake import FakeLlm, LlmCall, ToolCall
+from hiremate_ai.ncs_search.cite import NcsQuery
 
 type Applicants = dict[str, ApplicantDetail]
 
@@ -228,6 +232,38 @@ async def test_answer_path_runs_review(
     assert [call.output.__name__ for call in llm.calls] == ["RootPlan", "AnalysisReply", "ClaimJudgement"]
     assert plan.intent is Intent.ANSWER and plan.items[0].application_id == context.mentions[0]
     assert plan.sources == ["전형 결과"]
+
+
+async def test_ncs_answer_shows_the_checked_original_source(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting, message="NCS에서 서버 개발은 어떻게 나와?")
+    ncs = FakeNcs()
+
+    def answer_ncs(call: LlmCall) -> ToolCall:
+        match = re.search(r"(E\d+) \[근거 확인\] 서버 프로그램을 구현 한다", call.user)
+        assert match is not None
+        item = {
+            "candidate": None,
+            "label": "NCS",
+            "text": "서버 프로그램 구현을 다뤄요",
+            "status": "OK",
+            "refs": [match[1]],
+        }
+        return form_call("answer", message="NCS 자료를 확인했어요.", items=[item])
+
+    llm = FakeLlm(
+        form_call("answer", scope={}),
+        ToolCall("search_ncs", {"query": "서버 개발"}),
+        NcsQuery(tasks=["서버 프로그램을 구현 한다"], units=[UNIT]),
+        answer_ncs,
+        supported("I1", "M"),
+    )
+    plan = await run_plan(llm, context, RootToolkit(search=keyword_search, ncs=ncs))
+
+    assert plan.intent is Intent.ANSWER
+    assert plan.items[0].text == "서버 프로그램 구현을 다뤄요"
+    assert any("NCS" in source and "서버 프로그램을 구현 한다" in source for source in plan.sources)
 
 
 async def test_questions_with_checks_go_through_analysis(

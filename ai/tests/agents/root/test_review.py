@@ -222,6 +222,21 @@ async def test_candidate_item_needs_own_evidence_to_be_ok(
     assert checked[0].item.status == "CHECK"
 
 
+async def test_common_ncs_claim_is_checked_against_its_source(
+    sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
+) -> None:
+    context = context_of(sample_applicants, sample_company, sample_posting)
+    ledger = Ledger()
+    ref = ledger.add(None, "배치 프로그램을 구현한다", source="NCS 개발 직무 원문", cap="OK")
+    claim = ItemDraft(candidate=None, label="NCS", text="보안 감사를 수행한다", status="OK", refs=[ref])
+
+    _, checked = await review_items(
+        FakeLlm(judged(("I1", "UNRELATED"), ("M", "SUPPORTED"))), context, ledger, "정리했어요.", [claim]
+    )
+
+    assert checked == []
+
+
 def test_nothing_left_is_none(
     sample_applicants: Applicants, sample_company: CompanyProfile, sample_posting: PostingContent
 ) -> None:
