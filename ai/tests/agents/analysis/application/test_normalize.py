@@ -143,16 +143,15 @@ async def test_rejects_failed_page_extraction_instead_of_returning_partial_json(
 
 
 async def test_uses_previously_tested_prompt_policy_and_page_input() -> None:
-    import asyncio
-    from pathlib import Path
-
     proposal = layout({"title": None, "blocks": [{"type": "paragraph", "pages": [1], "text": "내용"}]})
     llm = FakeLlm(proposal)
     req = request()
     await normalize_document(llm, req)
-    policy_path = Path(__file__).parents[5] / "contract" / "DOCUMENT_JSON_README.md"
-    policy = await asyncio.to_thread(policy_path.read_text)
-    assert policy in llm.calls[0].system
+    assert "## 이후 확인할 자료와 결정" not in llm.calls[0].system
+    assert "# 텍스트 정리" in llm.calls[0].system
+    assert "P O R T F O L I O" in llm.calls[0].system
+    assert "값 없이 단위와 항목명만" in llm.calls[0].system
+    assert "원문" in llm.calls[0].system
     assert "서로 멀리 떨어진 항목을 같은 줄이라는 이유로 합치지 말고" in llm.calls[0].system
     assert '"document_id"' in llm.calls[0].user
     assert '"document_type"' in llm.calls[0].user
