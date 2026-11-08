@@ -10,8 +10,11 @@ import {
   type CriterionLine,
   type SummarySection,
 } from '@/features/screening/api'
+import { DigestView } from '@/features/screening/DigestView'
 import { EvidenceDialog } from '@/features/screening/EvidenceDialog'
 import type { EvidenceQuote } from '@/features/screening/evidence'
+import { matchEvidence, normalizedOf } from '@/features/screening/normalized'
+import { NormalizedDocumentView } from '@/features/screening/NormalizedDocumentView'
 import {
   checkPoints,
   criterionMark,
@@ -39,8 +42,10 @@ const TABS: { key: Tab; label: string }[] = [
 ]
 
 /**
- * 서류 전형의 문서 Viewer (STG-06). 제출 문서를 탭으로 보고, AI 분석의 근거 문장에 밑줄을 친다.
- * AI 분석 탭(첫 탭)은 서류 분석 결과를 보여 준다.
+ * 서류 전형의 문서 Viewer (STG-06). 서류 분석 결과는 AI 분석 탭(첫 탭)에서만 보여 준다.
+ * 이력서 · 포트폴리오는 원문 글 없이 AI 정리(표 · 카드)만 보여 준다. 자기소개서는 문항별 요약을 먼저 보여 주고, 원문
+ * 보기에서는 정제 문서(서류 원문)를 그대로 그려 근거 문장에 밑줄을 친다 (정제 전이면 PDF 본문). 원본은 PDF로 연다.
+ * 칸 높이를 묶지 않아 스크롤은 바깥(지원자 카드)에서 한다.
  */
 export function DocumentViewer({
   stageId,
@@ -67,6 +72,12 @@ export function DocumentViewer({
   const highlights = (analysis.data?.highlights ?? [])
     .filter((item) => item.document === tab)
     .map((item) => item.sentence)
+  // 이력서 · 포트폴리오는 원문 글 없이 AI 정리만 보여 준다
+  const digestOnly = tab === 'RESUME' || tab === 'PORTFOLIO'
+  const digest = (analysis.data?.digests ?? []).find(
+    (item) => item.document === tab && item.sections.length > 0,
+  )
+  const normalized = normalizedOf(detail.normalized, tab)
 
   return (
     <div className="space-y-4">
@@ -99,55 +110,62 @@ export function DocumentViewer({
           loading={analysis.isPending}
           analysis={analysis.data}
           documents={detail.documents}
+          normalized={detail.normalized}
         />
       ) : (
-        <>
-          <div className="max-h-[360px] overflow-auto rounded-xl border p-4 text-sm leading-6">
-            {tab === 'CERTIFICATE' ? (
-              <p className={cn(!detail.certificates && 'text-muted-foreground')}>
-                {detail.certificates ?? '자격증 정보가 없어요.'}
-              </p>
-            ) : !document ? (
-              <p className="text-muted-foreground">제출하지 않은 서류예요.</p>
-            ) : (
-              <>
-                <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{document.fileName}</span>
-                  {sections.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setFullText((value) => !value)}
-                      className="mr-3 ml-auto hover:text-foreground"
-                    >
-                      {fullText ? '문항별 요약 보기' : '원문 보기'}
-                    </button>
-                  )}
-                  <OriginalPdfLink
-                    href={`/api/recruitments/${recruitmentId}/applications/${detail.row.applicationId}/documents/${tab}`}
-                    showsName={originalShowsName}
-                  />
-                </div>
-                {showSummary ? (
-                  <SectionSummaries sections={sections} />
-                ) : document.text ? (
-                  <p className="whitespace-pre-wrap">{highlight(document.text, highlights)}</p>
+        // 높이를 묶지 않고 AI 분석 탭처럼 칸 전체를 쓴다. 스크롤은 바깥(지원자 카드)에서 한다
+        <div className="rounded-xl border p-4 text-sm leading-6">
+          {tab === 'CERTIFICATE' ? (
+            <p className={cn(!detail.certificates && 'text-muted-foreground')}>
+              {detail.certificates ?? '자격증 정보가 없어요.'}
+            </p>
+          ) : !document ? (
+            <p className="text-muted-foreground">제출하지 않은 서류예요.</p>
+          ) : (
+            <>
+              <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+                <span>{document.fileName}</span>
+                {!digestOnly && sections.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setFullText((value) => !value)}
+                    className="mr-3 ml-auto hover:text-foreground"
+                  >
+                    {fullText ? '문항별 요약 보기' : '원문 보기'}
+                  </button>
+                )}
+                <OriginalPdfLink
+                  href={`/api/recruitments/${recruitmentId}/applications/${detail.row.applicationId}/documents/${tab}`}
+                  showsName={originalShowsName}
+                />
+              </div>
+              {digestOnly ? (
+                digest ? (
+                  <DigestView digest={digest} />
+                ) : analysis.isPending || detail.row.analysisStatus === 'PENDING' ? (
+                  <p className="text-muted-foreground">서류를 정리하고 있어요.</p>
                 ) : (
                   <p className="text-muted-foreground">
-                    PDF에서 글자를 읽지 못했어요. 원본 PDF를 확인해 주세요.
+                    정리한 내용이 없어요. 원본 PDF로 확인해 주세요.
                   </p>
-                )}
-              </>
-            )}
-          </div>
-          <AnalysisBox
-            stageId={stageId}
-            applicationId={detail.row.applicationId}
-            status={detail.row.analysisStatus}
-            loading={analysis.isPending}
-            analysis={analysis.data}
-            documents={detail.documents}
-          />
-        </>
+                )
+              ) : showSummary ? (
+                <SectionSummaries sections={sections} />
+              ) : normalized ? (
+                <NormalizedDocumentView
+                  document={normalized}
+                  spans={matchEvidence(normalized, highlights).spans}
+                />
+              ) : document.text ? (
+                <p className="whitespace-pre-wrap">{highlight(document.text, highlights)}</p>
+              ) : (
+                <p className="text-muted-foreground">
+                  PDF에서 글자를 읽지 못했어요. 원본 PDF를 확인해 주세요.
+                </p>
+              )}
+            </>
+          )}
+        </div>
       )}
     </div>
   )
@@ -241,6 +259,7 @@ function AnalysisBox({
   loading,
   analysis,
   documents,
+  normalized,
 }: {
   stageId: string
   applicationId: string
@@ -248,6 +267,7 @@ function AnalysisBox({
   loading: boolean
   analysis?: ReturnType<typeof useCandidateAnalysis>['data']
   documents: CandidateDetail['documents']
+  normalized: CandidateDetail['normalized']
 }) {
   const [view, setView] = useState<AnalysisView>('DETAIL')
   const talents = useTalentFit(stageId, applicationId, status)
@@ -312,6 +332,7 @@ function AnalysisBox({
               talents={talents.data}
               talentsLoading={talents.isPending}
               documents={documents}
+              normalized={normalized}
             />
           </section>
         </div>
@@ -443,12 +464,14 @@ function AbilityAnalysis({
   talents,
   talentsLoading,
   documents,
+  normalized,
 }: {
   analysis: CandidateAnalysis
   labels: Map<string, string>
   talents: TalentFit | undefined
   talentsLoading: boolean
   documents: CandidateDetail['documents']
+  normalized: CandidateDetail['normalized']
 }) {
   const [filter, setFilter] = useState<LevelFilter>('ALL')
   // 항목을 누르면 근거를 원문 문맥과 함께 모달로 본다
@@ -572,6 +595,7 @@ function AbilityAnalysis({
           metric={opened.metric}
           quotes={opened.evidence}
           documents={documents}
+          normalized={normalized}
         />
       )}
       {filter === 'ALL' && (analysis.notable.length > 0 || checks.length > 0) && (

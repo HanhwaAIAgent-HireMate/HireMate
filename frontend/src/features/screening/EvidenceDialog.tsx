@@ -9,6 +9,8 @@ import {
   type DocumentType,
   type EvidenceQuote,
 } from '@/features/screening/evidence'
+import { matchEvidence, normalizedOf } from '@/features/screening/normalized'
+import { NormalizedDocumentView } from '@/features/screening/NormalizedDocumentView'
 import { cn } from '@/lib/utils'
 
 const DOCUMENT_LABELS: Partial<Record<DocumentType, string>> = {
@@ -21,7 +23,8 @@ const DOCUMENT_LABELS: Partial<Record<DocumentType, string>> = {
 /**
  * 판정 근거를 원문 문맥과 함께 본다. 근거가 나온 서류를 탭으로 보여 주고, 서류 전체에서 근거 문장에만 밑줄을 친다.
  * 열면 첫 밑줄로 옮겨 가서 관련 프로젝트 · 내용을 앞뒤 문맥과 함께 읽을 수 있다. 판정이 이상해도 담당자가 근거를
- * 직접 확인하게 하려는 것이다.
+ * 직접 확인하게 하려는 것이다. 정제를 마친 서류는 정제 문서(서류 원문)를 표 · 목록 그대로 그리고, 아니면 PDF 본문을 보인다.
+ * 정제 문서에서 자리를 찾지 못한 근거는 위에 따로 적어 빠뜨리지 않는다.
  */
 export function EvidenceDialog({
   open,
@@ -32,6 +35,7 @@ export function EvidenceDialog({
   metric,
   quotes,
   documents,
+  normalized,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -41,10 +45,13 @@ export function EvidenceDialog({
   metric: string
   quotes: EvidenceQuote[]
   documents: CandidateDetail['documents']
+  normalized?: CandidateDetail['normalized']
 }) {
   const groups = groupByDocument(quotes, documents)
   const [tab, setTab] = useState<DocumentType | null>(null)
   const current = groups.find((group) => group.type === tab) ?? groups[0]
+  const layout = current ? normalizedOf(normalized, current.type) : undefined
+  const matched = layout && current ? matchEvidence(layout, current.sentences) : null
   const scroller = useRef<HTMLDivElement>(null)
 
   // 탭을 바꾸거나 열 때마다 첫 밑줄로 옮긴다
@@ -121,9 +128,29 @@ export function EvidenceDialog({
                 <p className="mb-2 text-xs text-muted-foreground">
                   {DOCUMENT_LABELS[current.type] ?? current.type} 원문 · 밑줄이 판정 근거예요
                 </p>
-                <p className="whitespace-pre-wrap">
-                  {underline(current.text, current.sentences, metric)}
-                </p>
+                {layout && matched ? (
+                  <div className="space-y-3">
+                    {matched.unmatched.length > 0 && (
+                      <div className="space-y-1 rounded-md bg-muted/60 px-3 py-2 text-xs">
+                        <p className="text-muted-foreground">원문에서 자리를 찾지 못한 근거</p>
+                        {matched.unmatched.map((sentence) => (
+                          <p key={sentence} className="border-l-2 border-ai/60 pl-2">
+                            “{sentence}”
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    <NormalizedDocumentView
+                      document={layout}
+                      spans={matched.spans}
+                      metric={metric}
+                    />
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap">
+                    {underline(current.text, current.sentences, metric)}
+                  </p>
+                )}
               </div>
             )}
           </>
