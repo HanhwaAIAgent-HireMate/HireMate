@@ -39,14 +39,14 @@ from hiremate_ai.contract import (
 from hiremate_ai.db.analysis_store import DbAnalysisArtifacts
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.llm.chat import LlmOutputError
-from hiremate_ai.llm.client import LlmDep
+from hiremate_ai.llm.client import DocumentNormalizationLlmDep, LlmDep
 from hiremate_ai.tools.profile_search import ProfileIndexer, get_profile_embedder, index_profile_safely, profile_indexer
 
 router = APIRouter(tags=["application"])
 
 
 @router.post("/agents/application/normalize")
-async def normalize(request: DocumentNormalizationRequest, llm: LlmDep) -> NormalizedDocument:
+async def normalize(request: DocumentNormalizationRequest, llm: DocumentNormalizationLlmDep) -> NormalizedDocument:
     try:
         return await normalize_document(llm, request)
     except LlmOutputError as error:

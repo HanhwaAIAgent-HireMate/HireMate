@@ -44,6 +44,7 @@ def job_handlers(
     *,
     application_llm: LlmClient | None = None,
     profile_indexer: ProfileIndexer | None = None,
+    normalization_llm_factory: Callable[[], LlmClient] | None = None,
 ) -> Mapping[str, Handler]:
     """워커가 처리하는 작업 유형. 자료가 들어오거나 전형이 시작될 때 미리 돌리는 분석 · 생성과 리포트를 둔다.
 
@@ -144,7 +145,8 @@ def job_handlers(
 
     async def application_normalize(payload: dict[str, Any]) -> dict[str, Any]:
         request = DocumentNormalizationRequest.model_validate(payload)
-        result = await normalize_document(llm, request)
+        normalizer = normalization_llm_factory() if normalization_llm_factory is not None else llm
+        result = await normalize_document(normalizer, request)
         return result.model_dump(mode="json", by_alias=True)
 
     handlers: dict[str, Handler] = {

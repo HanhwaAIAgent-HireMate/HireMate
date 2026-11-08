@@ -156,12 +156,18 @@ class ChatLlm:
         model_name: str,
         method: StructuredMethod,
         agent_max_calls: int,
+        structured_max_tokens: Mapping[str, int] | None = None,
+        structured_parse_attempts: int = PARSE_ATTEMPTS,
+        structured_shorten_on_cut: bool = True,
     ) -> None:
         self._model = model
         self._call_log = call_log
         self._model_name = model_name
         self._method = method
         self._agent_max_calls = agent_max_calls
+        self._structured_max_tokens = dict(structured_max_tokens or {})
+        self._structured_parse_attempts = structured_parse_attempts
+        self._structured_shorten_on_cut = structured_shorten_on_cut
 
     def analysis_recipe(self) -> dict[str, Any] | None:
         return model_recipe(self._model, method=self._method)
@@ -179,12 +185,14 @@ class ChatLlm:
             return [SystemMessage(system), HumanMessage(content)]
 
         messages = input_messages(user)
-        runnable = self._model.with_structured_output(output, method=self._method, include_raw=True)
+        limit = self._structured_max_tokens.get(agent)
+        model = self._model.model_copy(update={"max_tokens": limit}) if limit is not None else self._model
+        runnable = model.with_structured_output(output, method=self._method, include_raw=True)
         recorder = _Recorder(self._call_log, agent=agent, model=self._model_name)
         started = time.perf_counter()
         tokens = _Tokens()
         try:
-            for _ in range(PARSE_ATTEMPTS):
+            for _ in range(self._structured_parse_attempts):
                 try:
                     consume_model_call()
                     result = cast(dict[str, Any], await runnable.ainvoke(messages))
@@ -194,12 +202,14 @@ class ChatLlm:
                     continue
                 except LengthFinishReasonError:
                     failure = CUT
-                    messages = input_messages(f"{user}\n\n{SHORTER}")
+                    if self._structured_shorten_on_cut:
+                        messages = input_messages(f"{user}\n\n{SHORTER}")
                     continue
                 tokens.add(result["raw"])
-                if _at_limit(result["raw"], _max_tokens(self._model)):
+                if _at_limit(result["raw"], _max_tokens(model)):
                     failure = CUT
-                    messages = input_messages(f"{user}\n\n{SHORTER}")
+                    if self._structured_shorten_on_cut:
+                        messages = input_messages(f"{user}\n\n{SHORTER}")
                     continue
                 parsed = result["parsed"]
                 if result["parsing_error"] is None and isinstance(parsed, output):

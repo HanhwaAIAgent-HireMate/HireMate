@@ -5,6 +5,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 COPY ai/pyproject.toml ai/uv.lock ai/.python-version ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-install-project
 COPY ai/src ./src
+COPY contract/DOCUMENT_JSON_README.md ./contract/DOCUMENT_JSON_README.md
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev
 
 FROM build AS embedding-build
