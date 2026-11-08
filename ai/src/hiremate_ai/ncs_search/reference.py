@@ -6,12 +6,14 @@ from typing import Annotated, Protocol
 import httpx
 from fastapi import Depends
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import exists, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from hiremate_ai.config import settings
+from hiremate_ai.db.ncs import NcsReferenceRow
 from hiremate_ai.db.session import session_factory
-from hiremate_ai.ncs_search.search import search_tasks
+from hiremate_ai.ncs_search.search import search_reference, search_tasks
 from hiremate_ai.ncs_search.store import load_units
 from hiremate_ai.ncs_search.types import NcsTask, NcsUnit, QueryVectors
 
@@ -70,11 +72,38 @@ class DbNcsReference:
                 raise NcsUnavailable(type(error).__name__) from error
         return self._units
 
+    async def units_for(self, request: str, job: str) -> list[NcsUnit]:
+        """전체 자료가 있으면 관련 능력단위만 골라 모델에 전달한다."""
+        try:
+            async with self._sessions() as session:
+                if not await session.scalar(select(exists().select_from(NcsReferenceRow))):
+                    return await self.units()
+                query = (await self._embed.embed([f"{job} {request}".strip()]))[0]
+                found = await search_reference(session, query, top_k=50)
+        except SQLAlchemyError as error:
+            raise NcsUnavailable(type(error).__name__) from error
+        result: dict[str, NcsUnit] = {}
+        for task in found:
+            if task.unit_code not in result:
+                result[task.unit_code] = NcsUnit(
+                    code=task.unit_code, name=task.unit_name, duty_name=task.duty_name, task_names=[]
+                )
+            if task.task_name and task.task_name not in result[task.unit_code].task_names:
+                result[task.unit_code].task_names.append(task.task_name)
+        return list(result.values())
+
     async def search(self, request: str, tasks: list[str], units: list[str]) -> list[NcsTask]:
-        original, converted = await self._embed.embed([request, " ".join(tasks) or request])
+        converted_text = " ".join(tasks) or request
+        if converted_text == request:
+            original = (await self._embed.embed([request]))[0]
+            converted = original
+        else:
+            original, converted = await self._embed.embed([request, converted_text])
         # DB 오류와, 거리 조회와 행 조회 사이에 표를 다시 적재해 행이 사라진 경우(KeyError)는 NCS 없이 진행한다
         try:
             async with self._sessions() as session:
+                if await session.scalar(select(exists().select_from(NcsReferenceRow))):
+                    return await search_reference(session, original, converted, units)
                 return await search_tasks(session, original, converted, units)
         except (SQLAlchemyError, KeyError) as error:
             raise NcsUnavailable(type(error).__name__) from error

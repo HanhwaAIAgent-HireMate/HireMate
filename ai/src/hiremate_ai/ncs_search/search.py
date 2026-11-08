@@ -1,6 +1,6 @@
 """NCS 묶음 검색. T08에서 가장 잘 동작한 설정(원문과 변환 문장의 Dense+Sparse RRF, 고른 능력단위 결합)이다.
 
-같은 질의와 자료에는 같은 결과를 낸다. 점수가 같으면 묶음 id 순이다. 2,301행뿐이라 근사 인덱스 없이 모두 비교한다.
+기존 업무 자료는 전체를 비교한다. 전체 직무 자료는 Dense와 Sparse 인덱스로 각각 후보를 찾아 결합한다.
 """
 
 from collections.abc import Collection, Sequence
@@ -10,7 +10,7 @@ from pgvector.sqlalchemy import SPARSEVEC, Vector
 from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hiremate_ai.db.ncs import NcsTaskRow
+from hiremate_ai.db.ncs import NcsReferenceRow, NcsTaskRow
 from hiremate_ai.ncs_search.types import DENSE_DIM, SPARSE_DIM, NcsTask, QueryVectors
 
 RRF_K = 60
@@ -31,6 +31,61 @@ def fuse(lists: Sequence[Sequence[str]], *, k: int = RRF_K, depth: int = CANDIDA
         for rank, chunk in enumerate(ranked[:depth], 1):
             scores[chunk] = scores.get(chunk, 0.0) + 1 / (k + rank)
     return [chunk for chunk, _ in sorted(scores.items(), key=lambda item: (-item[1], item[0]))]
+
+
+async def search_reference(
+    session: AsyncSession,
+    query: QueryVectors,
+    converted: QueryVectors | None = None,
+    units: Collection[str] = (),
+    *,
+    top_k: int = TOP_K,
+) -> list[NcsTask]:
+    """전체 자료에서 벡터 후보를 찾고 원문, 변환문, 능력단위와 희소 점수를 결합한다."""
+    # pgvector 기본 탐색 폭은 40이라 limit 100을 요청해도 후보가 그보다 적을 수 있다.
+    await session.execute(text("SET LOCAL hnsw.ef_search = 100"))
+    rankings: list[list[str]] = []
+    candidates: dict[str, NcsReferenceRow] = {}
+    queries = (query,) if converted is None or converted == query else (query, converted)
+    for vector in queries:
+        distance = NcsReferenceRow.dense.cosine_distance(vector.dense)
+        statement = select(NcsReferenceRow)
+        if units:
+            # 능력단위를 먼저 제한한 뒤 정확히 정렬한다. HNSW의 사후 필터로 후보를 잃지 않는다.
+            statement = statement.where(NcsReferenceRow.unit_code.in_(units)).order_by(
+                distance + 0.0, NcsReferenceRow.chunk_id
+            )
+        else:
+            statement = statement.order_by(distance)
+        rows = (await session.scalars(statement.limit(100))).all()
+        rankings.append([row.chunk_id for row in rows])
+        candidates.update((row.chunk_id, row) for row in rows)
+        sparse = SparseVector(vector.sparse, SPARSE_DIM)
+        score = NcsReferenceRow.sparse.max_inner_product(sparse).label("score")
+        sparse_statement = select(NcsReferenceRow, score)
+        if units:
+            sparse_statement = sparse_statement.where(NcsReferenceRow.unit_code.in_(units)).order_by(
+                score + 0.0, NcsReferenceRow.chunk_id
+            )
+        else:
+            sparse_statement = sparse_statement.order_by(score)
+        sparse_rows = (await session.execute(sparse_statement.limit(100))).all()
+        rankings.append([row.chunk_id for row, value in sparse_rows if value < 0])
+        candidates.update((row.chunk_id, row) for row, value in sparse_rows if value < 0)
+    chosen = fuse(rankings)[:top_k]
+    return [
+        NcsTask(
+            chunk_id=row.chunk_id,
+            duty_name=row.duty_name,
+            unit_code=row.unit_code,
+            unit_name=row.unit_name,
+            task_name=row.task_name,
+            kind_code=row.kind_code,
+            kind_name=row.kind_name,
+            sentences=list(row.sentences),
+        )
+        for row in (candidates[chunk] for chunk in chosen)
+    ]
 
 
 async def search_tasks(

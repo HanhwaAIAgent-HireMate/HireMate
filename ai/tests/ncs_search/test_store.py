@@ -1,5 +1,7 @@
 import gzip
 import json
+import sqlite3
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +11,92 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from hiremate_ai.ncs_search.store import load_units, read_export, replace_tasks
 from hiremate_ai.ncs_search.types import DENSE_DIM, NcsTaskRecord, QueryVectors
+
+
+def test_reference_record_preserves_ncs_kind_and_original_sentences() -> None:
+    from hiremate_ai.ncs_search.types import NcsReferenceRecord
+
+    value = NcsReferenceRecord(
+        chunk_id="knowledge:1",
+        duty_code="20010202",
+        duty_name="응용SW엔지니어링",
+        unit_code="2001020211_23v6",
+        unit_name="서버프로그램 구현",
+        kind_code="report_knowledge",
+        kind_name="지식",
+        task_name="",
+        sentences=["자료구조 특성", "SQL 작성 방법"],
+        vectors=vectors(),
+    )
+    assert value.kind_code == "report_knowledge"
+    assert value.sentences == ["자료구조 특성", "SQL 작성 방법"]
+
+
+def test_read_reference_source_preserves_vectors_and_kind(tmp_path: Path) -> None:
+    from hiremate_ai.ncs_search.store import read_reference_source
+
+    path = tmp_path / "source.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.executescript(
+            "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+            "CREATE TABLE run_state (status TEXT, expected_count INTEGER);"
+            "CREATE TABLE embeddings (chunk_id TEXT, embedding_text TEXT, context_json TEXT, "
+            "dense_f32_le BLOB, sparse_json TEXT);"
+        )
+        db.executemany(
+            "INSERT INTO metadata VALUES (?, ?)",
+            [
+                ("format", '"ncs-bge-m3-v1"'),
+                ("dimension", "1024"),
+                ("model_revision", '"5617a9f61b028005a4858fdac845db406aefb181"'),
+            ],
+        )
+        db.execute("INSERT INTO run_state VALUES ('completed', 1)")
+        context = {
+            "duty_code": "20010202",
+            "duty_name": "응용SW",
+            "unit_code": "2001020211_23v6",
+            "unit_name": "서버 구현",
+            "kind_code": "report_knowledge",
+            "kind_name": "지식",
+        }
+        dense = [1.0] + [0.0] * (DENSE_DIM - 1)
+        db.execute(
+            "INSERT INTO embeddings VALUES (?, ?, ?, ?, ?)",
+            (
+                "one",
+                "제목\n\n자료구조 특성\nSQL 작성 방법",
+                json.dumps(context, ensure_ascii=False),
+                struct.pack("<1024f", *dense),
+                '{"7": 0.5}',
+            ),
+        )
+
+    rows = list(read_reference_source(path))
+    assert len(rows) == 1
+    assert rows[0].kind_name == "지식"
+    assert rows[0].sentences == ["자료구조 특성", "SQL 작성 방법"]
+    assert rows[0].vectors.dense == dense
+    assert rows[0].vectors.sparse == {7: 0.5}
+
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE metadata SET value = ? WHERE key = 'model_revision'", ('"different"',))
+    with pytest.raises(ValueError, match="모델 버전"):
+        list(read_reference_source(path))
+
+
+async def test_reference_import_stores_original_kind_and_vectors(db_session: AsyncSession) -> None:
+    from hiremate_ai.ncs_search.store import replace_reference_chunks
+    from hiremate_ai.ncs_search.types import NcsReferenceRecord
+
+    item = NcsReferenceRecord(**{**record().model_dump(), "kind_code": "report_knowledge", "kind_name": "지식"})
+    assert await replace_reference_chunks(db_session, iter([item])) == 1
+    row = (
+        await db_session.execute(
+            text("SELECT chunk_id, kind_code, kind_name, sentences, vector_dims(dense) FROM ai.ncs_reference_chunks")
+        )
+    ).one()
+    assert row == ("chunk:1", "report_knowledge", "지식", ["서버 프로그램을 구현 한다"], 1024)
 
 
 def vectors(index: int = 0) -> QueryVectors:

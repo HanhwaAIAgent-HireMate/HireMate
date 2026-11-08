@@ -32,7 +32,7 @@ class QueryVectors(BaseModel):
 
 
 class NcsTask(BaseModel):
-    """주요 업무 묶음 하나. 직무 › 능력단위 › 주요 업무 아래 '책임 및 역할' 문장들이다."""
+    """직무와 능력단위에 속한 NCS 문장 묶음 하나."""
 
     chunk_id: str
     duty_name: str
@@ -40,6 +40,8 @@ class NcsTask(BaseModel):
     unit_name: str
     task_name: str
     sentences: list[str]
+    kind_code: str = "report_responsibility"
+    kind_name: str = "책임 및 역할"
 
 
 class NcsTaskRecord(NcsTask):
@@ -56,6 +58,13 @@ class NcsTaskRecord(NcsTask):
         if any(not sentence.strip() for sentence in value):
             raise ValueError("빈 문장이 있습니다.")
         return value
+
+
+class NcsReferenceRecord(NcsTaskRecord):
+    """NCS 직무기술서의 내용 유형을 보존한 검색 묶음."""
+
+    kind_code: str
+    kind_name: str
 
 
 class NcsUnit(BaseModel):
