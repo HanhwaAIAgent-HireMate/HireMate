@@ -51,6 +51,7 @@ services:
       PGSSLROOTCERT: /etc/ssl/certs/rds-ca-bundle.pem
     volumes:
       - /opt/hiremate/rds-ca-bundle.pem:/etc/ssl/certs/rds-ca-bundle.pem:ro
+      - /opt/hiremate/poster-reference-data:/app/poster-reference-data:ro
     depends_on:
       - redis
       - embedding
