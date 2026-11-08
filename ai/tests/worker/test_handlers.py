@@ -277,47 +277,6 @@ async def test_application_worker_reviews_each_extracted_document(
     assert len(reviewed) == len([document for document in applicant.documents if document.text.strip()])
 
 
-async def test_worker_indexes_profile_after_analysis(
-    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
-) -> None:
-    indexed: list[tuple[UUID, UUID, UUID]] = []
-
-    async def index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
-        indexed.append((company_id, recruitment_id, application_id))
-
-    applicant = sample_applicants["정유민"]
-    rubric = make_rubric()
-    handle = job_handlers(scripted(yumin_script()), MemoryStore(), SESSIONS, profile_indexer=index)[
-        "application/analyze"
-    ]
-
-    await handle(payload(applicant, sample_posting, rubric))
-
-    assert indexed == [(rubric.company_id, rubric.recruitment_id, applicant.info.application_id)]
-
-
-async def test_assessment_worker_indexes_updated_profile(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def analyze_and_save(data: AssessmentInput, llm: LlmClient, session: AsyncSession) -> AnalyzeResult:
-        return AnalyzeResult(status=ProfileStatus.DONE, saved=1, dropped=0)
-
-    indexed: list[tuple[UUID, UUID, UUID]] = []
-
-    async def index(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
-        indexed.append((company_id, recruitment_id, application_id))
-
-    monkeypatch.setattr(worker_handlers.assessment, "analyze_and_save", analyze_and_save)
-    handle = job_handlers(FakeLlm(), MemoryStore(), SESSIONS, profile_indexer=index)["assessment/analyze"]
-    await handle({"input": ASSESSMENT_JSON})
-
-    assert indexed == [
-        (
-            UUID(ASSESSMENT_JSON["companyId"]),
-            UUID(ASSESSMENT_JSON["recruitmentId"]),
-            UUID(ASSESSMENT_JSON["applicationId"]),
-        )
-    ]
-
-
 async def test_normalization_job_returns_policy_json_without_indexing() -> None:
     from hiremate_ai.agents.analysis.application.normalize import LayoutProposal
 
@@ -345,6 +304,6 @@ async def test_normalization_job_returns_policy_json_without_indexing() -> None:
     )
     assert result["document"]["id"] == document_id
     assert result["blocks"][0]["text"] == "정리된 내용"
-    assert "application/index-document" not in handlers
+    assert "application/index-document" in handlers
     assert len(normalizer.calls) == 1
     assert not general.calls

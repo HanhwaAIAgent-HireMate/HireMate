@@ -25,6 +25,8 @@ import com.hiremate.ai.application.TalentFit;
 import com.hiremate.ai.application.TalentFitRequest;
 import com.hiremate.apply.ApplicantDetail;
 import com.hiremate.apply.ApplicationAnalysis;
+import com.hiremate.apply.DocumentIndexRequest;
+import com.hiremate.apply.DocumentIndexResult;
 import com.hiremate.apply.DocumentNormalizationRequest;
 import com.hiremate.apply.NormalizedDocument;
 import com.hiremate.company.CompanyProfile;
@@ -68,6 +70,8 @@ class ContractSampleTests {
     private static final Map<String, Class<?>> SAMPLES = Map.ofEntries(
             Map.entry("ApplicantDetail", ApplicantDetail.class),
             Map.entry("ApplicationAnalysis", ApplicationAnalysis.class),
+            Map.entry("DocumentIndexRequest", DocumentIndexRequest.class),
+            Map.entry("DocumentIndexResult", DocumentIndexResult.class),
             Map.entry("DocumentNormalizationRequest", DocumentNormalizationRequest.class),
             Map.entry("NormalizedDocument", NormalizedDocument.class),
             Map.entry("CandidateAnalysis", CandidateAnalysis.class),

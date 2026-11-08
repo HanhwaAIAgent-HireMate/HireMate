@@ -27,6 +27,10 @@ public interface ApplicationDocumentRepository extends JpaRepository<Application
             + " and d.normalizationUpdatedAt < ?1")
     List<UUID> findPendingNormalizationIds(Instant before);
 
+    @Query("select d.id from ApplicationDocument d where d.indexStatus = 'PENDING'"
+            + " and d.indexUpdatedAt < ?1 and d.normalizedDocument is not null")
+    List<UUID> findPendingIndexIds(Instant before);
+
     @Query("select distinct d.applicationId from ApplicationDocument d, JobApplication a where a.id = d.applicationId"
             + " and a.recruitmentId = ?1 and a.companyId = ?2 and lower(d.text) like lower(concat('%', ?3, '%'))")
     List<UUID> searchText(UUID recruitmentId, UUID companyId, String keyword);

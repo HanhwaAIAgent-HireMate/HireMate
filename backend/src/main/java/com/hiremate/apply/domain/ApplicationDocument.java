@@ -50,6 +50,18 @@ public class ApplicationDocument {
     @Column(columnDefinition = "jsonb")
     private NormalizedDocument normalizedDocument;
 
+    @Column(nullable = false)
+    private int revision = 1;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private DocumentNormalizationStatus indexStatus;
+
+    private UUID indexJobId;
+
+    @Column(nullable = false)
+    private Instant indexUpdatedAt = Instant.now();
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private DocumentNormalizationStatus normalizationStatus = DocumentNormalizationStatus.PENDING;
@@ -76,6 +88,9 @@ public class ApplicationDocument {
         normalizedDocument = result;
         normalizationStatus = DocumentNormalizationStatus.COMPLETED;
         normalizationUpdatedAt = Instant.now();
+        indexStatus = DocumentNormalizationStatus.PENDING;
+        indexJobId = null;
+        indexUpdatedAt = Instant.now();
     }
 
     public boolean awaitsNormalization(UUID jobId) {
@@ -94,6 +109,18 @@ public class ApplicationDocument {
         if (normalizationStatus == DocumentNormalizationStatus.PENDING) {
             normalizationStatus = DocumentNormalizationStatus.FAILED;
             normalizationUpdatedAt = Instant.now();
+        }
+    }
+
+    public void queueIndex(UUID jobId) {
+        indexJobId = jobId;
+        indexUpdatedAt = Instant.now();
+    }
+
+    public void finishIndex(UUID jobId, boolean success) {
+        if (indexStatus == DocumentNormalizationStatus.PENDING && jobId != null && jobId.equals(indexJobId)) {
+            indexStatus = success ? DocumentNormalizationStatus.COMPLETED : DocumentNormalizationStatus.FAILED;
+            indexUpdatedAt = Instant.now();
         }
     }
 

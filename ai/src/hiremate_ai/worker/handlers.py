@@ -7,11 +7,10 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
-from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hiremate_ai.agents.analysis.application import analyze_application, normalize_document
+from hiremate_ai.agents.analysis.application import analyze_application, index_document, normalize_document
 from hiremate_ai.agents.analysis.application.present import to_analysis
 from hiremate_ai.agents.analysis.application.service import RubricScopeError
 from hiremate_ai.agents.analysis.application.store import ReviewStore
@@ -23,12 +22,12 @@ from hiremate_ai.agents.generation.report import compose_report, enrich
 from hiremate_ai.agents.generation.report.enrich import DbStageItems
 from hiremate_ai.api import assessment, interview, report
 from hiremate_ai.config import settings
-from hiremate_ai.contract import DocumentNormalizationRequest
+from hiremate_ai.contract import DocumentIndexRequest, DocumentNormalizationRequest
 from hiremate_ai.db.profile_store import ProfileScopeError
 from hiremate_ai.llm.batch_state import current_batch_job
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.tracing import traced
-from hiremate_ai.tools.profile_search import ProfileIndexer, index_profile_safely
+from hiremate_ai.tools.embedding import Embedder, get_embedder
 
 Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -43,8 +42,8 @@ def job_handlers(
     sessions: async_sessionmaker[AsyncSession],
     *,
     application_llm: LlmClient | None = None,
-    profile_indexer: ProfileIndexer | None = None,
     normalization_llm_factory: Callable[[], LlmClient] | None = None,
+    document_embedder: Embedder | None = None,
 ) -> Mapping[str, Handler]:
     """워커가 처리하는 작업 유형. 자료가 들어오거나 전형이 시작될 때 미리 돌리는 분석 · 생성과 리포트를 둔다.
 
@@ -53,10 +52,6 @@ def job_handlers(
 
     # 지원서 하나의 분석 시간 한도는 기술 오류로 다시 시도한 시간까지 합친다 (시도마다 새로 주지 않는다)
     started: dict[str, float] = {}
-
-    async def index_profile(company_id: UUID, recruitment_id: UUID, application_id: UUID) -> None:
-        if profile_indexer is not None:
-            await index_profile_safely(profile_indexer, company_id, recruitment_id, application_id)
 
     async def application_analyze(payload: dict[str, Any]) -> dict[str, Any]:
         request = AnalyzeRequest.model_validate(payload)
@@ -81,11 +76,6 @@ def job_handlers(
                 today=batch.today if batch is not None else None,
                 review_extraction=True,
             )
-            await index_profile(
-                request.rubric.company_id,
-                request.rubric.recruitment_id,
-                request.applicant.info.application_id,
-            )
         except RubricScopeError as error:
             started.pop(key, None)
             raise PermanentError(str(error)) from error
@@ -102,7 +92,6 @@ def job_handlers(
                 result = await assessment.analyze_and_save(request.input, llm, session)
             except ProfileScopeError as error:
                 raise PermanentError(str(error)) from error
-        await index_profile(request.input.company_id, request.input.recruitment_id, request.input.application_id)
         return result.model_dump(mode="json")
 
     async def interview_analyze(payload: dict[str, Any]) -> dict[str, Any]:
@@ -112,7 +101,6 @@ def job_handlers(
                 result = await interview.analyze_and_save(request.input, llm, session)
             except ProfileScopeError as error:
                 raise PermanentError(str(error)) from error
-        await index_profile(request.input.company_id, request.input.recruitment_id, request.input.application_id)
         return result.model_dump(mode="json")
 
     async def report_compose(payload: dict[str, Any]) -> dict[str, Any]:
@@ -149,9 +137,18 @@ def job_handlers(
         result = await normalize_document(normalizer, request)
         return result.model_dump(mode="json", by_alias=True)
 
+    async def application_index_document(payload: dict[str, Any]) -> dict[str, Any]:
+        request = DocumentIndexRequest.model_validate(payload)
+        async with sessions() as session, session.begin():
+            result = await index_document(
+                session, document_embedder or get_embedder(), request, model=settings.ncs_model
+            )
+        return result.model_dump(mode="json", by_alias=True)
+
     handlers: dict[str, Handler] = {
         "application/analyze": application_analyze,
         "application/normalize": application_normalize,
+        "application/index-document": application_index_document,
         "interview/questions": interview_questions,
         "assessment/analyze": assessment_analyze,
         "interview-analyst/analyze": interview_analyze,

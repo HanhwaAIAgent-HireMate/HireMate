@@ -573,3 +573,21 @@ class DocumentNormalizationRequest(ContractModel):
     revision: int = Field(gt=0)
     document_type: NormalizedDocumentType
     pages: list[PdfPage] = Field(default_factory=list)
+
+
+class DocumentIndexRequest(ContractModel):
+    """backend가 저장한 정제 문서와 검색 범위."""
+
+    company_id: UUID
+    recruitment_id: UUID
+    application_id: UUID
+    revision: int = Field(gt=0)
+    blind: bool
+    applicant_name: str
+    document: NormalizedDocument
+
+
+class DocumentIndexResult(ContractModel):
+    document_id: UUID
+    revision: int = Field(gt=0)
+    status: Literal["DONE", "STALE"]

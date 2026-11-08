@@ -1,7 +1,9 @@
 package com.hiremate.ai.application;
 
 import com.hiremate.apply.ApplicationSubmitted;
+import com.hiremate.apply.DocumentIndexResult;
 import com.hiremate.apply.DocumentNormalizationService;
+import com.hiremate.apply.DocumentNormalized;
 import com.hiremate.apply.NormalizedDocument;
 import com.hiremate.job.JobFinished;
 import com.hiremate.job.JobResult;
@@ -44,7 +46,8 @@ class DocumentNormalizationListener {
     @ApplicationModuleListener
     void on(JobFinished event) {
         JobResult result = event.result();
-        if (!DocumentNormalizationService.JOB.equals(result.type())) {
+        boolean index = DocumentNormalizationService.INDEX_JOB.equals(result.type());
+        if (!index && !DocumentNormalizationService.JOB.equals(result.type())) {
             return;
         }
         UUID documentId;
@@ -52,6 +55,19 @@ class DocumentNormalizationListener {
             documentId = UUID.fromString(result.target());
         } catch (IllegalArgumentException | NullPointerException exception) {
             log.warn("Document normalization result has an invalid target");
+            return;
+        }
+        if (index) {
+            if (result.status() == JobStatus.DONE) {
+                try {
+                    documents.completeIndex(documentId, result.jobId(), json.treeToValue(result.result(),
+                            DocumentIndexResult.class));
+                } catch (RuntimeException exception) {
+                    documents.failIndex(documentId, result.jobId());
+                }
+            } else {
+                documents.failIndex(documentId, result.jobId());
+            }
             return;
         }
         if (result.status() != JobStatus.DONE) {
@@ -67,11 +83,19 @@ class DocumentNormalizationListener {
         }
     }
 
+    @ApplicationModuleListener
+    void on(DocumentNormalized event) {
+        if (!settings.isStub(AiAgent.APPLICATION)) {
+            documents.enqueueIndex(event.documentId());
+        }
+    }
+
     @Scheduled(fixedDelayString = "${hiremate.jobs.retry-interval}")
     void recover() {
         if (!settings.isStub(AiAgent.APPLICATION)) {
             try {
                 documents.recover(Instant.now().minus(recoverAfter));
+                documents.pendingIndexes(Instant.now().minus(recoverAfter)).forEach(documents::enqueueIndex);
             } catch (RuntimeException exception) {
                 log.warn("Document normalization recovery failed: {}", exception.getMessage());
             }

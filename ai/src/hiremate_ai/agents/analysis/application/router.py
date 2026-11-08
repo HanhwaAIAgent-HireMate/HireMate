@@ -10,8 +10,9 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from hiremate_ai.agents.analysis.application.index import index_document
 from hiremate_ai.agents.analysis.application.normalize import normalize_document
 from hiremate_ai.agents.analysis.application.present import to_analysis, to_candidate_analysis
 from hiremate_ai.agents.analysis.application.service import RubricScopeError, analyze_application
@@ -29,6 +30,8 @@ from hiremate_ai.contract import (
     CandidateAnalysis,
     CompanyFactors,
     CompanyFactorsRequest,
+    DocumentIndexRequest,
+    DocumentIndexResult,
     DocumentNormalizationRequest,
     FeatureLabels,
     FeatureLabelsRequest,
@@ -37,12 +40,23 @@ from hiremate_ai.contract import (
     TalentFitRequest,
 )
 from hiremate_ai.db.analysis_store import DbAnalysisArtifacts
-from hiremate_ai.db.session import session_factory
+from hiremate_ai.db.session import SessionDep, session_factory
 from hiremate_ai.llm.chat import LlmOutputError
 from hiremate_ai.llm.client import DocumentNormalizationLlmDep, LlmDep
-from hiremate_ai.tools.profile_search import ProfileIndexer, get_profile_embedder, index_profile_safely, profile_indexer
+from hiremate_ai.tools.embedding import Embedder, get_embedder
 
 router = APIRouter(tags=["application"])
+
+DocumentEmbedderDep = Annotated[Embedder, Depends(get_embedder)]
+
+
+@router.post("/agents/application/index-document")
+async def index_saved_document(
+    request: DocumentIndexRequest, session: SessionDep, embedder: DocumentEmbedderDep
+) -> DocumentIndexResult:
+    result = await index_document(session, embedder, request, model=settings.ncs_model)
+    await session.commit()
+    return result
 
 
 @router.post("/agents/application/normalize")
@@ -63,15 +77,8 @@ def get_store() -> ReviewStore:
 StoreDep = Annotated[ReviewStore, Depends(get_store)]
 
 
-def get_profile_indexer() -> ProfileIndexer:
-    return profile_indexer(session_factory(), get_profile_embedder())
-
-
-IndexerDep = Annotated[ProfileIndexer, Depends(get_profile_indexer)]
-
-
 @router.post("/agents/application/analyze")
-async def analyze(request: AnalyzeRequest, llm: LlmDep, store: StoreDep, indexer: IndexerDep) -> ApplicationAnalysis:
+async def analyze(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> ApplicationAnalysis:
     try:
         review = await analyze_application(
             llm,
@@ -84,21 +91,11 @@ async def analyze(request: AnalyzeRequest, llm: LlmDep, store: StoreDep, indexer
         )
     except RubricScopeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    await index_profile_safely(
-        indexer,
-        request.rubric.company_id,
-        request.rubric.recruitment_id,
-        review.application_id,
-        budget_seconds=settings.ncs_embed_timeout_seconds,
-    )
     return to_analysis(review)
 
 
 @router.post("/agents/candidate-analyst/analyze")
-async def candidate(
-    request: AnalyzeRequest, llm: LlmDep, store: StoreDep, indexer: IndexerDep, tasks: BackgroundTasks
-) -> CandidateAnalysis:
-    # 분석 캐시는 날짜별이라 어제 분석을 찾지 못한다. 다시 분석하면 프로필 임베딩이 지워지므로 저장 결과를 읽는다
+async def candidate(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> CandidateAnalysis:
     latest = await store.latest(
         request.applicant.info.application_id,
         company_id=request.rubric.company_id,
@@ -122,10 +119,6 @@ async def candidate(
         if latest is None:
             raise HTTPException(status_code=503, detail="분석이 아직 끝나지 않았다") from error
         return to_candidate_analysis(latest, request.applicant.documents)
-    # 임베딩은 CPU에서 오래 걸릴 수 있어 카드 응답을 붙잡지 않는다
-    tasks.add_task(
-        index_profile_safely, indexer, request.rubric.company_id, request.rubric.recruitment_id, review.application_id
-    )
     return to_candidate_analysis(review, request.applicant.documents)
 
 
