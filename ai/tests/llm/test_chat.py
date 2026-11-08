@@ -749,3 +749,92 @@ def test_shared_budget_continues_across_blocks() -> None:
         with pytest.raises(LlmOutputError) as raised:
             consume_model_call()
     assert raised.value.reason is LlmFailureReason.BUDGET
+
+
+async def test_normalization_uses_responses_json_object_and_per_call_token_limit() -> None:
+    requests: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "resp_test",
+                "object": "response",
+                "status": "completed",
+                "model": "gpt-6-luna",
+                "output": [
+                    {
+                        "id": "msg_test",
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": '{"text":"정리"}', "annotations": []}],
+                    }
+                ],
+                "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+            },
+        )
+
+    model = ChatOpenAI(
+        model="gpt-6-luna",
+        base_url="http://llm.test/v1",
+        api_key=SecretStr("test"),
+        max_retries=0,
+        max_tokens=32768,
+        reasoning_effort="medium",
+        store=False,
+        use_responses_api=True,
+        http_async_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    llm = ChatLlm(
+        model,
+        RecordingCallLog(),
+        model_name="gpt-6-luna",
+        method="json_mode",
+        agent_max_calls=8,
+        structured_max_tokens={"application.normalize.characters": 16384},
+    )
+    await llm.structured(Summary, agent="application.normalize", system="JSON", user="본문")
+    await llm.structured(Summary, agent="application.normalize.characters", system="JSON", user="본문")
+    assert [r["max_output_tokens"] for r in requests] == [32768, 16384]
+    assert all(r["model"] == "gpt-6-luna" and r["reasoning"] == {"effort": "medium"} for r in requests)
+    assert all(r["text"]["format"] == {"type": "json_object"} and r["store"] is False for r in requests)
+
+
+def test_document_normalization_model_has_its_own_previous_experiment_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+    actual_model = ChatOpenAI(model="test", api_key=SecretStr("test"))
+
+    def build_model(**kwargs: Any) -> ChatOpenAI:
+        captured.update(kwargs)
+        return actual_model
+
+    monkeypatch.setattr(client, "ChatOpenAI", build_model)
+    monkeypatch.setattr(client.settings, "document_normalization_api_key", SecretStr("key-for-test"), raising=False)
+    llm = client.build_document_normalization_llm(RecordingCallLog())
+    assert isinstance(llm, ChatLlm)
+    assert captured["model"] == "gpt-6-luna"
+    assert captured["base_url"] == "https://api.openai.com/v1"
+    assert captured["max_tokens"] == 32768
+    assert captured["reasoning_effort"] == "medium"
+    assert captured["use_responses_api"] is True
+    assert captured["store"] is False
+    assert captured["temperature"] is None
+
+
+async def test_normalization_never_requests_a_shorter_document_when_output_is_cut() -> None:
+    requests: list[dict[str, Any]] = []
+    ordinary = chat_llm([cut(completion('{"text":"잘림')), '{"text":"요약"}'], RecordingCallLog(), requests)
+    llm = ChatLlm(
+        ordinary._model,
+        RecordingCallLog(),
+        model_name="test-model",
+        method="json_mode",
+        agent_max_calls=8,
+        structured_parse_attempts=1,
+        structured_shorten_on_cut=False,
+    )
+    with pytest.raises(LlmOutputError):
+        await llm.structured(Summary, agent="application.normalize", system="보존", user="지원 문서")
+    assert len(requests) == 1

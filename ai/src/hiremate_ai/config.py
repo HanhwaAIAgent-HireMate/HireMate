@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:8000/v1"
     llm_model: str = ""
     llm_api_key: SecretStr = SecretStr("")
+    # 문서 정제 전용 OpenAI 키. 비어 있고 공통 주소가 OpenAI면 공통 키를 사용한다.
+    document_normalization_api_key: SecretStr = SecretStr("")
     # 모델 호출 한 번을 기다리는 시간. Root Chat은 전체 시간 제한이 없어 이 값과 도구 호출 상한이 끝을 정한다.
     # 다른 Agent의 동기 호출은 backend가 60초 기다린다 (hiremate.ai.timeout)
     llm_timeout_seconds: float = 50

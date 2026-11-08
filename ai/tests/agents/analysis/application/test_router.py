@@ -14,7 +14,7 @@ from hiremate_ai.agents.analysis.application.service import analyze_application
 from hiremate_ai.agents.analysis.application.types import AnalyzeRequest, ApplicationReview, ScreeningRubric
 from hiremate_ai.contract import ApplicantDetail, PostingContent
 from hiremate_ai.db.analysis_store import AnalysisArtifactStore
-from hiremate_ai.llm.client import get_llm
+from hiremate_ai.llm.client import get_document_normalization_llm, get_llm
 from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.main import app
 
@@ -255,9 +255,13 @@ def test_normalize_route_returns_json(store: MemoryStore) -> None:
     from hiremate_ai.agents.analysis.application.normalize import LayoutProposal
 
     proposal = LayoutProposal.model_validate(
-        {"title": None, "blocks": [{"type": "paragraph", "pages": [1], "text": "정돈된 본문"}]}
+        {
+            "schemaVersion": "1.0",
+            "document": {"id": "document", "type": "resume", "title": None, "pageCount": 1},
+            "blocks": [{"type": "paragraph", "pages": [1], "text": "정돈된 본문"}],
+        }
     )
-    app.dependency_overrides[get_llm] = lambda: FakeLlm(proposal)
+    app.dependency_overrides[get_document_normalization_llm] = lambda: FakeLlm(proposal)
     document_id = str(uuid4())
     response = TestClient(app).post(
         "/agents/application/normalize",

@@ -323,11 +323,14 @@ async def test_normalization_job_returns_policy_json_without_indexing() -> None:
 
     proposal = LayoutProposal.model_validate(
         {
-            "title": None,
+            "schemaVersion": "1.0",
+            "document": {"id": "document", "type": "resume", "title": None, "pageCount": 1},
             "blocks": [{"type": "paragraph", "pages": [1], "text": "정리된 내용"}],
         }
     )
-    handlers = job_handlers(FakeLlm(proposal), MemoryStore(), SESSIONS)
+    normalizer = FakeLlm(proposal)
+    general = FakeLlm()
+    handlers = job_handlers(general, MemoryStore(), SESSIONS, normalization_llm_factory=lambda: normalizer)
     document_id = str(uuid4())
     result = await handlers["application/normalize"](
         {
@@ -343,3 +346,5 @@ async def test_normalization_job_returns_policy_json_without_indexing() -> None:
     assert result["document"]["id"] == document_id
     assert result["blocks"][0]["text"] == "정리된 내용"
     assert "application/index-document" not in handlers
+    assert len(normalizer.calls) == 1
+    assert not general.calls

@@ -77,6 +77,45 @@ def get_worker_llm() -> LlmClient:
     return build_llm(DbCallLog(session_factory()), timeout=settings.worker_llm_timeout_seconds)
 
 
+@cache
+def get_document_normalization_llm() -> LlmClient:
+    return build_document_normalization_llm(DbCallLog(session_factory()))
+
+
+def build_document_normalization_llm(call_log: CallLog) -> LlmClient:
+    """실제 PDF 평가에서 사용한 OpenAI 모델과 출력 설정을 문서 정제에만 적용한다."""
+    key = settings.document_normalization_api_key
+    if not key.get_secret_value() and settings.llm_base_url.rstrip("/") == "https://api.openai.com/v1":
+        key = settings.llm_api_key
+    if not key.get_secret_value():
+        raise LlmNotConfiguredError("문서 정제에 사용할 OpenAI API 키가 설정되지 않았다")
+    model = ChatOpenAI(
+        model="gpt-6-luna",
+        base_url="https://api.openai.com/v1",
+        api_key=key,
+        timeout=600,
+        max_retries=2,
+        max_tokens=32768,
+        temperature=None,
+        reasoning_effort="medium",
+        use_responses_api=True,
+        store=False,
+    )
+    return ChatLlm(
+        model,
+        call_log,
+        model_name="gpt-6-luna",
+        method="json_mode",
+        agent_max_calls=settings.llm_agent_max_calls,
+        structured_max_tokens={
+            "application.normalize.characters": 16384,
+            "application.normalize.characters.retry": 8192,
+        },
+        structured_parse_attempts=1,
+        structured_shorten_on_cut=False,
+    )
+
+
 def build_llm(call_log: CallLog, *, timeout: float | None = None) -> LlmClient:
     """설정의 모델로 LlmClient를 만든다. 호출 로그를 DB가 아닌 곳에 남길 때(실제 모델 평가) 직접 부른다.
 
@@ -159,3 +198,13 @@ async def _traced_llm(request: Request, llm: Annotated[LlmClient, Depends(get_ll
 
 LlmDep = Annotated[LlmClient, Depends(_traced_llm)]
 """라우터 매개변수 타입. 예: async def plan(request: PlanRequest, llm: LlmDep) -> ChatPlan"""
+
+
+async def _traced_document_normalization_llm(
+    request: Request, llm: Annotated[LlmClient, Depends(get_document_normalization_llm)]
+) -> AsyncIterator[LlmClient]:
+    with traced(request.url.path):
+        yield llm
+
+
+DocumentNormalizationLlmDep = Annotated[LlmClient, Depends(_traced_document_normalization_llm)]
