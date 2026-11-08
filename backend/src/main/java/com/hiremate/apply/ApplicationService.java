@@ -287,6 +287,21 @@ public class ApplicationService {
                 .toList();
     }
 
+    /** 정제를 마친 서류의 정제 문서. 블라인드 채용이면 본문과 같이 지원자 이름을 가린다 (저장된 JSON은 바꾸지 않는다). */
+    @Transactional(readOnly = true)
+    public List<NormalizedDocumentView> normalizedDocuments(UUID companyId, UUID applicationId) {
+        JobApplication application = application(companyId, applicationId);
+        boolean hidden = new Identity(companyId).hides(application);
+        return documents.findByApplicationId(applicationId).stream()
+                .filter(document -> document.getNormalizationStatus() == DocumentNormalizationStatus.COMPLETED
+                        && document.getNormalizedDocument() != null)
+                .sorted(Comparator.comparing(ApplicationDocument::getType))
+                .map(document -> new NormalizedDocumentView(document.getType(), hidden
+                        ? document.getNormalizedDocument().forSearch(application.getName(), false)
+                        : document.getNormalizedDocument()))
+                .toList();
+    }
+
     /** 분석에 넘길 제출 자료. 이벤트로 받은 지원서라 기업 범위 확인 없이 읽는다. */
     @Transactional(readOnly = true)
     public ApplicantDetail detailForAnalysis(UUID applicationId) {
