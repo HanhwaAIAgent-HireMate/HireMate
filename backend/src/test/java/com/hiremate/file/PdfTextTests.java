@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -13,6 +16,9 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
+import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.pdfbox.text.TextPosition;
+import org.apache.pdfbox.util.Matrix;
 import org.junit.jupiter.api.Test;
 
 class PdfTextTests {
@@ -64,6 +70,35 @@ class PdfTextTests {
             });
             assertThat(parsed.imageCount()).isZero();
             assertThat(parsed.formCount()).isZero();
+        }
+    }
+
+    @Test
+    void layoutEndMatchesExperimentOnRotatedPages() throws Exception {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage();
+            page.setRotation(90);
+            document.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(document, page)) {
+                content.beginText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                content.setTextMatrix(Matrix.getRotateInstance(Math.PI / 2, 40, 700));
+                content.showText("Project experience");
+                content.endText();
+            }
+            var expected = new ArrayList<Float>();
+            var stripper = new PDFTextStripper() {
+                @Override
+                protected void writeString(String text, List<TextPosition> positions) throws IOException {
+                    if (!positions.isEmpty() && !text.isBlank()) {
+                        expected.add(positions.getLast().getEndX());
+                    }
+                }
+            };
+            stripper.setSortByPosition(true);
+            stripper.getText(document);
+            var actual = PdfText.parse(save(document)).pages().getFirst().spans();
+            assertThat(actual).extracting(PdfText.TextSpan::endX).containsExactlyElementsOf(expected);
         }
     }
 

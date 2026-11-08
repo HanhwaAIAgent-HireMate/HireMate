@@ -89,7 +89,7 @@ public final class PdfText {
                 TextPosition first = positions.getFirst();
                 TextPosition last = positions.getLast();
                 spans.add(new TextSpan(text, first.getXDirAdj(), first.getYDirAdj(),
-                        last.getXDirAdj() + last.getWidthDirAdj()));
+                        last.getEndX()));
             }
         }
     }
