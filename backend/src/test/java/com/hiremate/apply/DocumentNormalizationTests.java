@@ -1,231 +1,68 @@
 package com.hiremate.apply;
 
+import static com.hiremate.TestFixtures.pdf;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hiremate.apply.domain.ApplicationDocument;
 import com.hiremate.apply.domain.ApplicationDocumentRepository;
 import com.hiremate.apply.domain.JobApplication;
 import com.hiremate.apply.domain.JobApplicationRepository;
-import com.hiremate.file.PdfText;
-import com.hiremate.global.ApiException;
+import com.hiremate.file.FileContent;
+import com.hiremate.file.FileService;
 import com.hiremate.job.JobQueue;
 import com.hiremate.posting.DocumentType;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
+import org.mockito.ArgumentCaptor;
 
 class DocumentNormalizationTests {
-    private final JobApplication application = new JobApplication(UUID.randomUUID(), UUID.randomUUID(),
-            UUID.randomUUID(), 1, "가상지원자", "test@example.com", "010", "");
-    private final ApplicationDocument document = new ApplicationDocument(application.getId(), DocumentType.RESUME,
-            UUID.randomUUID(), "resume.pdf", 10, "원문");
-    private final ApplicationDocumentRepository documents = mock(ApplicationDocumentRepository.class);
-    private final JobApplicationRepository applications = mock(JobApplicationRepository.class);
-    private final ApplicationService applicationService = mock(ApplicationService.class);
-    private final JobQueue jobs = mock(JobQueue.class);
-    private final List<Object> events = new ArrayList<>();
-    private final ApplicationEventPublisher publisher = events::add;
-    private final DocumentNormalizationService service = new DocumentNormalizationService(applications, documents,
-            applicationService, jobs, publisher, mock(jakarta.persistence.EntityManager.class));
-
-    @BeforeEach
-    void setUp() {
-        document.recordParsedDocument(ParsedDocument.from(new PdfText.Result(1,
-                List.of(new PdfText.Page(1, "가상지원자 한빛대학교 경력", List.of())), List.of()), false));
-        when(documents.findLockedById(document.getId())).thenReturn(Optional.of(document));
-        when(documents.findByApplicationId(application.getId())).thenReturn(List.of(document));
-        when(applications.findById(application.getId())).thenReturn(Optional.of(application));
-        when(applications.findByIdAndCompanyId(application.getId(), application.getCompanyId()))
-                .thenReturn(Optional.of(application));
-        when(applicationService.blind(application.getCompanyId(), application.getRecruitmentId())).thenReturn(true);
-        when(applicationService.parseOriginal(application.getCompanyId(), document.getFileId(), true))
-                .thenReturn(document.getParsedDocument());
-        when(jobs.enqueue(anyString(), anyString(), any())).thenAnswer(ignored -> UUID.randomUUID());
-    }
-
     @Test
-    void backfillResumesPendingVersionsWithoutAdvancingRevision() {
-        when(applications.findByRecruitmentIdAndCompanyId(application.getRecruitmentId(), application.getCompanyId()))
-                .thenReturn(List.of(application));
-        service.backfill(application.getCompanyId(), application.getRecruitmentId());
-        assertThat(document.getRevision()).isEqualTo(1);
-        assertThat(events).containsExactly(new DocumentNormalizationRequested(application.getId(),
-                application.getRecruitmentId(), application.getCompanyId()));
-    }
-
-    @Test
-    void acceptsOnlyTheCurrentJobOnceAndEmitsTheSavedRequest() {
-        DocumentNormalizationRequest request = request();
-        service.enqueue(request);
-        UUID job = document.getNormalizationJobId();
-        NormalizedDocument result = result(request, "s1");
-        service.complete(document.getId(), job, result);
-        service.complete(document.getId(), job, result);
-        service.fail(document.getId(), job);
+    void acceptsOnlyTheCurrentJobsMatchingDocument() {
+        var document = new ApplicationDocument(UUID.randomUUID(), DocumentType.RESUME, UUID.randomUUID(),
+                "resume.pdf", 1, "existing text");
+        UUID job = UUID.randomUUID();
+        document.queueNormalization(job);
+        var result = new NormalizedDocument("1.0",
+                new NormalizedDocument.Metadata(document.getId(), "resume", null, 1),
+                List.of(new NormalizedDocument.Paragraph("block-0001", List.of(1), "정제 내용")));
+        document.completeNormalization(UUID.randomUUID(), result);
+        assertThat(document.getNormalizedDocument()).isNull();
+        document.completeNormalization(job, result);
         assertThat(document.getNormalizedDocument()).isEqualTo(result);
-        assertThat(document.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.COMPLETED);
-        assertThat(events).hasSize(1);
-        DocumentNormalized saved = (DocumentNormalized) events.getFirst();
-        assertThat(saved.index().request()).isEqualTo(request);
-        assertThat(saved.index().document()).isEqualTo(result);
-        assertThat(request.sources().getFirst().text()).doesNotContain("가상지원자", "한빛대학교");
+        assertThat(document.getText()).isEqualTo("existing text");
     }
 
     @Test
-    void retryAndNewRevisionKeepPreviousSuccessAndRejectOldResultsAndFailures() {
-        DocumentNormalizationRequest first = request();
-        service.enqueue(first);
-        UUID oldJob = document.getNormalizationJobId();
-        NormalizedDocument previous = result(first, "s1");
-        service.complete(document.getId(), oldJob, previous);
-        service.retry(application.getCompanyId(), application.getRecruitmentId(), application.getId(),
-                document.getId());
-        assertThat(document.getRevision()).isEqualTo(2);
-        assertThat(document.getNormalizedDocument()).isEqualTo(previous);
-        service.enqueue(request());
-        UUID nextJob = document.getNormalizationJobId();
-        service.complete(document.getId(), oldJob, previous);
-        service.fail(document.getId(), oldJob);
-        assertThat(document.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.PENDING);
-        service.fail(document.getId(), nextJob);
-        assertThat(document.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
-        assertThat(document.getNormalizedDocument()).isEqualTo(previous);
-        service.retry(application.getCompanyId(), application.getRecruitmentId(), application.getId(),
-                document.getId());
-        service.enqueue(request());
-        service.complete(document.getId(), nextJob, result(request(), "s1"));
-        assertThat(document.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.PENDING);
-        service.complete(document.getId(), document.getNormalizationJobId(), result(request(), "s1"));
-        assertThat(document.getNormalizedDocument().revision()).isEqualTo(3);
+    void queuesPageBasedInputFromOriginalPdfWithoutChangingExistingText() throws Exception {
+        var applications = mock(JobApplicationRepository.class);
+        var documents = mock(ApplicationDocumentRepository.class);
+        var files = mock(FileService.class);
+        var jobs = mock(JobQueue.class);
+        UUID companyId = UUID.randomUUID();
+        UUID recruitmentId = UUID.randomUUID();
+        var application = new JobApplication(recruitmentId, companyId, UUID.randomUUID(), 1,
+                "Name", "user@example.com", "010", "");
+        var document = new ApplicationDocument(application.getId(), DocumentType.RESUME, UUID.randomUUID(),
+                "resume.pdf", 1, "masked existing text");
+        when(applications.findByIdAndCompanyId(application.getId(), companyId)).thenReturn(Optional.of(application));
+        when(documents.findIdsByApplicationId(application.getId())).thenReturn(List.of(document.getId()));
+        when(documents.findLockedById(document.getId())).thenReturn(Optional.of(document));
+        when(files.read(companyId, document.getFileId())).thenReturn(new FileContent(null, pdf("Original text")));
+        when(jobs.enqueue(eq("application/normalize"), eq(document.getId().toString()), any()))
+                .thenReturn(UUID.randomUUID());
+        var service = new DocumentNormalizationService(applications, documents, files, jobs);
+        service.submit(companyId, recruitmentId, application.getId());
+        var payload = ArgumentCaptor.forClass(DocumentNormalizationRequest.class);
+        verify(jobs).enqueue(eq("application/normalize"), eq(document.getId().toString()), payload.capture());
+        assertThat(payload.getValue().pages().getFirst().text()).contains("Original text");
+        assertThat(document.getText()).isEqualTo("masked existing text");
     }
 
-    @Test
-    void rejectsWrongDocumentAndUnknownSourcesWithoutReplacingPriorData() {
-        service.enqueue(request());
-        UUID job = document.getNormalizationJobId();
-        service.complete(UUID.randomUUID(), job, result(request(), "s1"));
-        service.complete(document.getId(), UUID.randomUUID(), result(request(), "s1"));
-        assertThat(document.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.PENDING);
-        service.complete(document.getId(), job, result(request(), "unknown"));
-        assertThat(document.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
-        assertThat(document.getNormalizedDocument()).isNull();
-        assertThat(events).isEmpty();
-    }
-
-    @Test
-    void rejectsForgedCompanyAndMetadataBeforeQueueing() {
-        DocumentNormalizationRequest request = request();
-        DocumentNormalizationRequest forged = new DocumentNormalizationRequest(UUID.randomUUID(),
-                request.recruitmentId(), request.applicationId(), request.documentId(), request.revision(),
-                request.documentType(), request.sources());
-        assertThatThrownBy(() -> service.enqueue(forged)).isInstanceOf(IllegalArgumentException.class);
-        assertThat(document.getNormalizationJobId()).isNull();
-        assertThatThrownBy(() -> service.retry(UUID.randomUUID(), application.getRecruitmentId(),
-                application.getId(), document.getId())).isInstanceOf(ApiException.class);
-        service.enqueue(request);
-        NormalizedDocument wrongType = new NormalizedDocument(1, document.getId(), 1,
-                DocumentType.PORTFOLIO, List.of());
-        service.complete(document.getId(), document.getNormalizationJobId(), wrongType);
-        assertThat(document.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
-    }
-
-    @Test
-    void queueFailureIsRetryableAndDoesNotClearSources() {
-        when(jobs.enqueue(anyString(), anyString(), any())).thenThrow(new IllegalStateException("Redis down"));
-        service.enqueue(request());
-        assertThat(document.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
-        assertThat(document.getParsedDocument().sources()).hasSize(1);
-        assertThat(document.getText()).isEqualTo("원문");
-    }
-
-    @Test
-    void recoversLostJobWithNewIdAndRejectsItsDelayedResult() {
-        service.enqueue(request());
-        UUID lostJob = document.getNormalizationJobId();
-        service.enqueue(request());
-        UUID recoveredJob = document.getNormalizationJobId();
-        assertThat(recoveredJob).isNotEqualTo(lostJob);
-        service.complete(document.getId(), lostJob, result(request(), "s1"));
-        assertThat(document.getNormalizedDocument()).isNull();
-        service.complete(document.getId(), recoveredJob, result(request(), "s1"));
-        assertThat(document.getNormalizationStatus()).isEqualTo(DocumentNormalizationStatus.COMPLETED);
-    }
-
-    @Test
-    void doesNotDuplicateAnOpenJob() {
-        service.enqueue(request());
-        UUID currentJob = document.getNormalizationJobId();
-        when(jobs.isOpen(DocumentNormalizationService.NORMALIZE_JOB, document.getId().toString())).thenReturn(true);
-        service.enqueue(request());
-        assertThat(document.getNormalizationJobId()).isEqualTo(currentJob);
-    }
-
-    @Test
-    void indexRecoveryKeepsAcceptedJsonAndCorrelatesEveryAttempt() {
-        service.enqueue(request());
-        service.complete(document.getId(), document.getNormalizationJobId(), result(request(), "s1"));
-        DocumentIndexRequest accepted = new DocumentIndexRequest(document.getNormalizedRequest(),
-                document.getNormalizedDocument());
-        service.enqueueIndex(accepted);
-        UUID lost = document.getIndexJobId();
-        service.enqueueIndex(accepted);
-        UUID recovered = document.getIndexJobId();
-        assertThat(recovered).isNotEqualTo(lost);
-        service.completeIndex(document.getId(), lost, new DocumentIndexResult(document.getId(), 1, "INDEXED"));
-        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.PENDING);
-        service.failIndex(document.getId(), recovered);
-        assertThat(document.getNormalizedDocument()).isEqualTo(accepted.document());
-        service.enqueueIndex(accepted);
-        UUID retry = document.getIndexJobId();
-        service.completeIndex(document.getId(), retry, new DocumentIndexResult(document.getId(), 1, "UNCHANGED"));
-        service.enqueueIndex(accepted);
-        assertThat(document.getIndexJobId()).isEqualTo(retry);
-        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.COMPLETED);
-    }
-
-    @Test
-    void indexQueueFailureAndInvalidAcknowledgementsKeepAcceptedJson() {
-        service.enqueue(request());
-        service.complete(document.getId(), document.getNormalizationJobId(), result(request(), "s1"));
-        DocumentIndexRequest accepted = new DocumentIndexRequest(document.getNormalizedRequest(),
-                document.getNormalizedDocument());
-        when(jobs.enqueue(anyString(), anyString(), any())).thenThrow(new IllegalStateException("Redis down"));
-        service.enqueueIndex(accepted);
-        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
-        assertThat(document.getNormalizedDocument()).isEqualTo(accepted.document());
-        org.mockito.Mockito.doAnswer(ignored -> UUID.randomUUID()).when(jobs)
-                .enqueue(anyString(), anyString(), any());
-        service.enqueueIndex(accepted);
-        service.completeIndex(document.getId(), document.getIndexJobId(),
-                new DocumentIndexResult(UUID.randomUUID(), 1, "INDEXED"));
-        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
-        service.enqueueIndex(accepted);
-        service.completeIndex(document.getId(), document.getIndexJobId(),
-                new DocumentIndexResult(document.getId(), 2, "INDEXED"));
-        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
-        service.enqueueIndex(accepted);
-        service.completeIndex(document.getId(), document.getIndexJobId(),
-                new DocumentIndexResult(document.getId(), 1, "STALE"));
-        assertThat(document.getIndexStatus()).isEqualTo(DocumentNormalizationStatus.FAILED);
-        assertThat(document.getNormalizedDocument()).isEqualTo(accepted.document());
-    }
-
-    private DocumentNormalizationRequest request() {
-        return service.requests(application.getCompanyId(), application.getRecruitmentId(), application.getId())
-                .getFirst();
-    }
-
-    private static NormalizedDocument result(DocumentNormalizationRequest request, String source) {
-        return new NormalizedDocument(1, request.documentId(), request.revision(), request.documentType(),
-                List.of(new NormalizedDocument.Paragraph("b1", List.of(source), "body", "정리된 원문")));
-    }
 }

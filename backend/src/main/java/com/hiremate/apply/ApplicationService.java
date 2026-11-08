@@ -35,7 +35,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 지원 접수와 지원서 조회 (FR-06 ~ FR-08). */
@@ -315,22 +314,13 @@ public class ApplicationService {
                 info.size()), content.bytes());
     }
 
-    /** 원본 읽기 실패가 정리 시도의 실패 기록까지 되돌리지 않도록 별도 읽기 트랜잭션을 쓴다. */
-    @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
-    public ParsedDocument parseOriginal(UUID companyId, UUID fileId, boolean blind) {
-        return ParsedDocument.from(PdfText.parse(files.read(companyId, fileId).bytes()), blind);
-    }
-
     /** 블라인드 채용이면 본문의 학교 이름과 학점을 가려 저장한다. AI는 이 본문만 읽는다. 원본 PDF는 그대로 둔다. */
     private void saveDocument(JobApplication application, DocumentType type, ApplicationForm.Upload upload,
             boolean blind) {
         StoredFileInfo stored = files.storePdf(application.getCompanyId(), upload.fileName(), upload.content());
-        PdfText.Result extracted = PdfText.parse(upload.content());
-        String text = extracted.text();
-        ApplicationDocument document = new ApplicationDocument(application.getId(), type, stored.fileId(),
-                stored.originalName(), stored.size(), blind ? BlindMask.mask(text) : text);
-        document.recordParsedDocument(ParsedDocument.from(extracted, blind));
-        documents.save(document);
+        String text = PdfText.extract(upload.content());
+        documents.save(new ApplicationDocument(application.getId(), type, stored.fileId(), stored.originalName(),
+                stored.size(), blind ? BlindMask.mask(text) : text));
     }
 
     private JobApplication application(UUID companyId, UUID applicationId) {

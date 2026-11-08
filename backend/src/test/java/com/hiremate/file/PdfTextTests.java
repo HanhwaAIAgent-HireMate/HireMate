@@ -2,12 +2,17 @@ package com.hiremate.file;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
+import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.junit.jupiter.api.Test;
 
 class PdfTextTests {
@@ -34,6 +39,47 @@ class PdfTextTests {
             assertThat(result.text()).hasSizeGreaterThan(50_000).contains("Page 119");
             assertThat(PdfText.extract(bytes)).isEqualTo(result.text());
             assertThat(result.reviewRequired()).isFalse();
+        }
+    }
+
+    @Test
+    void extractsPositionedTextAsLayoutHints() throws Exception {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+            try (PDPageContentStream content = new PDPageContentStream(document, page)) {
+                content.beginText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                content.newLineAtOffset(40, 700);
+                content.showText("Project experience");
+                content.endText();
+            }
+            PdfText.Page parsed = PdfText.parse(save(document)).pages().getFirst();
+            assertThat(parsed.spans()).isNotEmpty();
+            assertThat(parsed.spans().stream().map(PdfText.TextSpan::text))
+                    .anyMatch(text -> text.contains("Project"));
+            assertThat(parsed.spans()).allSatisfy(span -> {
+                assertThat(span.x()).isGreaterThanOrEqualTo(0);
+                assertThat(span.endX()).isGreaterThan(span.x());
+            });
+            assertThat(parsed.imageCount()).isZero();
+            assertThat(parsed.formCount()).isZero();
+        }
+    }
+
+    @Test
+    void distinguishesImageAndFormResources() throws Exception {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+            PDResources resources = new PDResources();
+            resources.put(COSName.getPDFName("Image1"), LosslessFactory.createFromImage(document,
+                    new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB)));
+            resources.put(COSName.getPDFName("Form1"), new PDFormXObject(document));
+            page.setResources(resources);
+            PdfText.Page parsed = PdfText.parse(save(document)).pages().getFirst();
+            assertThat(parsed.imageCount()).isEqualTo(1);
+            assertThat(parsed.formCount()).isEqualTo(1);
         }
     }
 

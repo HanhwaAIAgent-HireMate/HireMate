@@ -1,9 +1,7 @@
 package com.hiremate.apply.domain;
 
-import com.hiremate.apply.DocumentNormalizationRequest;
 import com.hiremate.apply.DocumentNormalizationStatus;
 import com.hiremate.apply.NormalizedDocument;
-import com.hiremate.apply.ParsedDocument;
 import com.hiremate.posting.DocumentType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -50,14 +48,7 @@ public class ApplicationDocument {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
-    private ParsedDocument parsedDocument;
-
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
     private NormalizedDocument normalizedDocument;
-
-    @Column(nullable = false)
-    private int revision = 1;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -68,46 +59,23 @@ public class ApplicationDocument {
     @Column(nullable = false)
     private Instant normalizationUpdatedAt = Instant.now();
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
-    private DocumentNormalizationRequest normalizationRequest;
-
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
-    private DocumentNormalizationRequest normalizedRequest;
-
-    private UUID indexJobId;
-
-    private Integer indexRevision;
-
-    @Enumerated(EnumType.STRING)
-    @Column(length = 20)
-    private DocumentNormalizationStatus indexStatus;
-
-    public void queueIndex(UUID jobId, int acceptedRevision) {
-        this.indexJobId = jobId;
-        this.indexRevision = acceptedRevision;
-        this.indexStatus = DocumentNormalizationStatus.PENDING;
+    public void queueNormalization(UUID jobId) {
+        normalizationJobId = jobId;
+        normalizationUpdatedAt = Instant.now();
     }
 
-    public boolean awaitsIndex(UUID jobId) {
-        return indexStatus == DocumentNormalizationStatus.PENDING && jobId != null && jobId.equals(indexJobId)
-                && normalizedDocument != null && indexRevision != null
-                && indexRevision == normalizedDocument.revision();
-    }
-
-    public void completeIndex() {
-        this.indexStatus = DocumentNormalizationStatus.COMPLETED;
-    }
-
-    public void failIndex() {
-        this.indexStatus = DocumentNormalizationStatus.FAILED;
-    }
-
-    public void queueNormalization(UUID jobId, DocumentNormalizationRequest request) {
-        this.normalizationJobId = jobId;
-        this.normalizationRequest = request;
-        this.normalizationUpdatedAt = Instant.now();
+    public void completeNormalization(UUID jobId, NormalizedDocument result) {
+        if (!awaitsNormalization(jobId)) {
+            return;
+        }
+        if (result == null || !id.equals(result.document().id())
+                || !type.name().equalsIgnoreCase(result.document().type())) {
+            failNormalization(jobId);
+            return;
+        }
+        normalizedDocument = result;
+        normalizationStatus = DocumentNormalizationStatus.COMPLETED;
+        normalizationUpdatedAt = Instant.now();
     }
 
     public boolean awaitsNormalization(UUID jobId) {
@@ -115,28 +83,18 @@ public class ApplicationDocument {
                 && jobId != null && jobId.equals(normalizationJobId);
     }
 
-    public void completeNormalization(NormalizedDocument document) {
-        this.normalizedDocument = document;
-        this.normalizedRequest = normalizationRequest;
-        this.normalizationStatus = DocumentNormalizationStatus.COMPLETED;
-        this.normalizationUpdatedAt = Instant.now();
+    public void failNormalization(UUID jobId) {
+        if (awaitsNormalization(jobId)) {
+            normalizationStatus = DocumentNormalizationStatus.FAILED;
+            normalizationUpdatedAt = Instant.now();
+        }
     }
 
-    public void failNormalization() {
-        this.normalizationStatus = DocumentNormalizationStatus.FAILED;
-        this.normalizationUpdatedAt = Instant.now();
-    }
-
-    public void requestNormalization() {
-        this.revision++;
-        this.normalizationStatus = DocumentNormalizationStatus.PENDING;
-        this.normalizationJobId = null;
-        this.normalizationRequest = null;
-        this.normalizationUpdatedAt = Instant.now();
-    }
-
-    public void recordParsedDocument(ParsedDocument parsed) {
-        this.parsedDocument = parsed;
+    public void failUnqueuedNormalization() {
+        if (normalizationStatus == DocumentNormalizationStatus.PENDING) {
+            normalizationStatus = DocumentNormalizationStatus.FAILED;
+            normalizationUpdatedAt = Instant.now();
+        }
     }
 
     public ApplicationDocument(UUID applicationId, DocumentType type, UUID fileId, String fileName, long sizeBytes,

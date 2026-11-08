@@ -3,7 +3,6 @@ package com.hiremate.apply.api;
 import com.hiremate.apply.ApplicationForm;
 import com.hiremate.apply.ApplicationPage;
 import com.hiremate.apply.ApplicationService;
-import com.hiremate.apply.DocumentNormalizationService;
 import com.hiremate.apply.SchoolCheck;
 import com.hiremate.apply.SubmittedApplication;
 import com.hiremate.file.FileContent;
@@ -31,11 +30,8 @@ public class ApplyController {
 
     private final ApplicationService applications;
 
-    private final DocumentNormalizationService normalization;
-
-    public ApplyController(ApplicationService applications, DocumentNormalizationService normalization) {
+    public ApplyController(ApplicationService applications) {
         this.applications = applications;
-        this.normalization = normalization;
     }
 
     /** 지원서 제출 (APL-02). 로그인 없이 쓰는 공개 API다. */
@@ -73,20 +69,6 @@ public class ApplyController {
     public void retryAnalysis(AuthenticatedMember member, @PathVariable UUID recruitmentId,
             @PathVariable UUID applicationId) {
         applications.retryAnalysis(member.companyId(), recruitmentId, applicationId);
-    }
-
-    @PostMapping("/api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{documentId}/normalization")
-    @ResponseStatus(HttpStatus.ACCEPTED)
-    public void retryNormalization(AuthenticatedMember member, @PathVariable UUID recruitmentId,
-            @PathVariable UUID applicationId, @PathVariable UUID documentId) {
-        normalization.retry(member.companyId(), recruitmentId, applicationId, documentId);
-    }
-
-    /** 기존 지원 문서를 원본 PDF로 다시 읽는다. 반복 호출은 완료한 버전을 유지한다. */
-    @PostMapping("/api/recruitments/{recruitmentId}/documents/normalization")
-    @ResponseStatus(HttpStatus.ACCEPTED)
-    public void backfillDocuments(AuthenticatedMember member, @PathVariable UUID recruitmentId) {
-        normalization.backfill(member.companyId(), recruitmentId);
     }
 
     @GetMapping("/api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}")
