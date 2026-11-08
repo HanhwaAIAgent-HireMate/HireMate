@@ -1,10 +1,11 @@
 package com.hiremate.ai.application;
 
 import com.hiremate.apply.ApplicationSubmitted;
-import com.hiremate.apply.DocumentNormalizationRequest;
-import com.hiremate.apply.DocumentNormalizationRequested;
 import com.hiremate.apply.DocumentNormalizationService;
-import com.hiremate.apply.DocumentNormalized;
+import com.hiremate.apply.NormalizedDocument;
+import com.hiremate.job.JobFinished;
+import com.hiremate.job.JobResult;
+import com.hiremate.job.JobStatus;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -14,59 +15,66 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.json.JsonMapper;
 
-/** 접수, 재시도, 유실 복구를 문서별 정리 작업으로 연결한다. */
+/** 제출 문서의 정제 요청과 워커 결과를 연결한다. */
 @Component
 class DocumentNormalizationListener {
     private static final Logger log = LoggerFactory.getLogger(DocumentNormalizationListener.class);
     private final DocumentNormalizationService documents;
-    private final DocumentNormalizationAgent agent;
     private final AiSettings settings;
     private final Duration recoverAfter;
+    private final JsonMapper json;
 
-    DocumentNormalizationListener(DocumentNormalizationService documents, DocumentNormalizationAgent agent,
-            AiSettings settings, @Value("${hiremate.jobs.recover-after}") Duration recoverAfter) {
+    DocumentNormalizationListener(DocumentNormalizationService documents, AiSettings settings,
+            @Value("${hiremate.jobs.recover-after}") Duration recoverAfter, JsonMapper json) {
         this.documents = documents;
-        this.agent = agent;
         this.settings = settings;
         this.recoverAfter = recoverAfter;
+        this.json = json;
     }
 
     @ApplicationModuleListener
     void on(ApplicationSubmitted event) {
-        submit(event.companyId(), event.recruitmentId(), event.applicationId());
-    }
-
-    @ApplicationModuleListener
-    void on(DocumentNormalizationRequested event) {
-        submit(event.companyId(), event.recruitmentId(), event.applicationId());
-    }
-
-    @ApplicationModuleListener
-    void on(DocumentNormalized event) {
         if (!settings.isStub(AiAgent.APPLICATION)) {
-            documents.enqueueIndex(event.index());
+            documents.submit(event.companyId(), event.recruitmentId(), event.applicationId());
+        }
+    }
+
+    @ApplicationModuleListener
+    void on(JobFinished event) {
+        JobResult result = event.result();
+        if (!DocumentNormalizationService.JOB.equals(result.type())) {
+            return;
+        }
+        UUID documentId;
+        try {
+            documentId = UUID.fromString(result.target());
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            log.warn("Document normalization result has an invalid target");
+            return;
+        }
+        if (result.status() != JobStatus.DONE) {
+            documents.fail(documentId, result.jobId());
+            return;
+        }
+        try {
+            NormalizedDocument document = json.treeToValue(result.result(), NormalizedDocument.class);
+            documents.complete(documentId, result.jobId(), document);
+        } catch (RuntimeException exception) {
+            log.warn("Document normalization result for {} is invalid", documentId);
+            documents.fail(documentId, result.jobId());
         }
     }
 
     @Scheduled(fixedDelayString = "${hiremate.jobs.retry-interval}")
     void recover() {
-        if (settings.isStub(AiAgent.APPLICATION)) {
-            return;
-        }
-        try {
-            documents.indexRequests().forEach(documents::enqueueIndex);
-            for (DocumentNormalizationRequest request : documents.pending(Instant.now().minus(recoverAfter))) {
-                agent.normalize(request);
-            }
-        } catch (RuntimeException exception) {
-            log.warn("Document normalization recovery failed: {}", exception.getMessage());
-        }
-    }
-
-    private void submit(UUID companyId, UUID recruitmentId, UUID applicationId) {
         if (!settings.isStub(AiAgent.APPLICATION)) {
-            documents.requests(companyId, recruitmentId, applicationId).forEach(agent::normalize);
+            try {
+                documents.recover(Instant.now().minus(recoverAfter));
+            } catch (RuntimeException exception) {
+                log.warn("Document normalization recovery failed: {}", exception.getMessage());
+            }
         }
     }
 }
