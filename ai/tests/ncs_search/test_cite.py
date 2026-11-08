@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.ncs_search.cite import NcsQuery, find_sources, source_path, sources_block
+from hiremate_ai.ncs_search.types import NcsUnit
 
 SYSTEM = "면접 확인할 점을 NCS 업무 문장으로 바꾼다."
 
@@ -68,6 +69,28 @@ async def test_without_units_skips_model() -> None:
     result = await find_sources(llm, FakeNcs(unit_list=[]), "배치", "백엔드", agent="interview", system=SYSTEM)
     assert result == (None, "NOT_FOUND")
     assert llm.calls == []
+
+
+async def test_search_preselects_relevant_units_when_supported() -> None:
+    class RelevantNcs(FakeNcs):
+        async def units_for(self, request: str, job: str) -> list[NcsUnit]:
+            assert request == "배치"
+            assert job == "백엔드"
+            return self.unit_list[:1]
+
+        async def units(self) -> list[NcsUnit]:
+            raise AssertionError("전체 목록을 모델에 전달하지 않는다")
+
+    llm = FakeLlm(query())
+    sources, miss = await find_sources(llm, RelevantNcs(), "배치", "백엔드", agent="interview", system=SYSTEM)
+    assert miss is None and sources is not None
+    assert UNIT in llm.calls[0].user
+
+
+async def test_strict_units_drop_results_from_other_domains() -> None:
+    ncs = FakeNcs(found=[task(unit="2001020212_23v6")])
+    result = await find_sources(FakeLlm(query()), ncs, "배치", "백엔드", agent="root", system=SYSTEM, strict_units=True)
+    assert result == (None, "NOT_FOUND")
 
 
 async def test_sources_block_and_path() -> None:

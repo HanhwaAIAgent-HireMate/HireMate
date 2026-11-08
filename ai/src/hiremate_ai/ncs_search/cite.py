@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from hiremate_ai.config import settings
+from hiremate_ai.llm.chat import LlmFailureReason, LlmOutputError, record_interrupted_model_tool
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import data_block
 from hiremate_ai.ncs_search.reference import NcsReference, NcsUnavailable
@@ -28,7 +29,7 @@ NcsMiss = Literal["NOT_FOUND", "UNAVAILABLE"]
 class NcsQuery(BaseModel):
     """검색어 만들기 답."""
 
-    tasks: list[str] = Field(max_length=3, description="요청의 수행 업무를 '… 한다'로 끝나게 쓴 문장 1~3개")
+    tasks: list[str] = Field(max_length=3, description="요청과 관련된 직무 업무나 기준을 설명하는 검색 문장 1~3개")
     units: list[str] = Field(
         description="능력단위 목록에 있는 코드만, 관련도 순으로 최대 5개. 맞는 단위가 없으면 빈 목록"
     )
@@ -50,6 +51,8 @@ async def find_sources(
     agent: str,
     system: str,
     prefix: str = "S",
+    request_label: str = "요청",
+    strict_units: bool = False,
 ) -> tuple[NcsSources | None, NcsMiss | None]:
     """요청에 맞는 NCS 문장과, 찾지 못한 이유.
 
@@ -58,25 +61,41 @@ async def find_sources(
     """
     try:
         async with asyncio.timeout(settings.ncs_reference_timeout_seconds):
-            return await _find(llm, ncs, request, job, agent, system, prefix)
+            return await _find(llm, ncs, request, job, agent, system, prefix, request_label, strict_units)
     except TimeoutError:
         logger.warning("NCS 참고가 %s초 안에 끝나지 않았습니다.", settings.ncs_reference_timeout_seconds)
         return None, "UNAVAILABLE"
 
 
 async def _find(
-    llm: LlmClient, ncs: NcsReference, request: str, job: str, agent: str, system: str, prefix: str
+    llm: LlmClient,
+    ncs: NcsReference,
+    request: str,
+    job: str,
+    agent: str,
+    system: str,
+    prefix: str,
+    request_label: str,
+    strict_units: bool,
 ) -> tuple[NcsSources | None, NcsMiss | None]:
     try:
-        units = await ncs.units()
+        shortlist = getattr(ncs, "units_for", None)
+        units = await shortlist(request, job) if shortlist is not None else await ncs.units()
     except NcsUnavailable as error:
         logger.warning("NCS 능력단위 목록 조회 실패: %s", error)
         return None, "UNAVAILABLE"
     if not units:
         return None, "NOT_FOUND"
-    user = "\n\n".join([data_block("ncs_units", _unit_list(units)), f"직무: {job or '(비어 있음)'}\n요청: {request}"])
+    user = "\n\n".join(
+        [data_block("ncs_units", _unit_list(units)), f"직무: {job or '(비어 있음)'}\n{request_label}: {request}"]
+    )
     try:
         query = await llm.structured(NcsQuery, agent=agent, system=system, user=user)
+    except LlmOutputError as error:
+        if error.reason is LlmFailureReason.BUDGET:
+            record_interrupted_model_tool("search_ncs")
+        logger.warning("NCS 검색어 만들기 실패: %s", error.reason.value)
+        return None, "UNAVAILABLE"
     except Exception as error:
         logger.warning("NCS 검색어 만들기 실패: %s", type(error).__name__)
         return None, "UNAVAILABLE"
@@ -84,11 +103,15 @@ async def _find(
     # 모델이 '코드 단위명: 주요 업무' 줄을 통째로 적기도 해서 앞의 코드만 본다
     codes = (unit.split(maxsplit=1)[0] if unit.strip() else "" for unit in query.units)
     chosen = list(dict.fromkeys(code for code in codes if code in known))[:MAX_UNITS]
+    if strict_units and not chosen:
+        return None, "NOT_FOUND"
     try:
         found = await ncs.search(request, query.tasks, chosen)
     except NcsUnavailable as error:
         logger.warning("NCS 검색 실패: %s", error)
         return None, "UNAVAILABLE"
+    if strict_units:
+        found = [task for task in found if task.unit_code in chosen]
     items: dict[str, tuple[NcsTask, str]] = {}
     for task in found:
         for sentence in task.sentences:
@@ -107,7 +130,8 @@ def _unit_list(units: list[NcsUnit]) -> str:
 
 
 def source_path(task: NcsTask) -> str:
-    return f"{task.duty_name} › {task.unit_name} › {task.task_name}"
+    detail = task.task_name or task.kind_name
+    return f"{task.duty_name} › {task.unit_name} › {detail}"
 
 
 def sources_block(sources: NcsSources) -> str:

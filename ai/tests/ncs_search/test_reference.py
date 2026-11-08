@@ -7,8 +7,8 @@ from sqlalchemy import text
 
 from hiremate_ai.db.session import session_factory
 from hiremate_ai.ncs_search.reference import DbNcsReference, EmbedClient, NcsUnavailable
-from hiremate_ai.ncs_search.store import replace_tasks
-from hiremate_ai.ncs_search.types import DENSE_DIM, NcsTaskRecord, QueryVectors
+from hiremate_ai.ncs_search.store import replace_reference_chunks, replace_tasks
+from hiremate_ai.ncs_search.types import DENSE_DIM, NcsReferenceRecord, NcsTaskRecord, QueryVectors
 
 URL = "http://ncs-embed.test"
 
@@ -101,13 +101,31 @@ async def test_search_embeds_request_and_joined_tasks_once(loaded: str) -> None:
     assert {task.chunk_id for task in found} == {"a", "b"}
 
 
-async def test_search_without_tasks_embeds_request_twice(loaded: str) -> None:
+async def test_search_without_tasks_embeds_request_once(loaded: str) -> None:
     requests: list[dict[str, list[str]]] = []
     reference = DbNcsReference(session_factory(loaded), embed_client(answering(requests)))
 
     await reference.search("주문 API", [], [])
 
-    assert requests == [{"texts": ["주문 API", "주문 API"]}]
+    assert requests == [{"texts": ["주문 API"]}]
+
+
+async def test_search_and_unit_shortlist_use_full_reference(loaded: str) -> None:
+    item = NcsReferenceRecord(**{**record("full").model_dump(), "kind_code": "knowledge", "kind_name": "지식"})
+    sessions = session_factory(loaded)
+    async with sessions() as session:
+        await replace_reference_chunks(session, iter([item]))
+        await session.commit()
+    try:
+        reference = DbNcsReference(sessions, embed_client(answering([])))
+        units = await reference.units_for("배치", "개발자")
+        found = await reference.search("배치", [], [item.unit_code])
+        assert [unit.code for unit in units] == [item.unit_code]
+        assert [result.kind_name for result in found] == ["지식"]
+    finally:
+        async with sessions() as session:
+            await session.execute(text("DELETE FROM ai.ncs_reference_chunks"))
+            await session.commit()
 
 
 async def test_units_cached_after_first_nonempty_load(loaded: str) -> None:

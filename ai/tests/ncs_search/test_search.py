@@ -107,3 +107,53 @@ async def test_search_on_empty_table_returns_empty(db_session: AsyncSession) -> 
     query = vectors({0: 1.0})
 
     assert await search_tasks(db_session, query, query, [U1]) == []
+
+
+async def test_reference_search_preserves_kind_and_original_source(db_session: AsyncSession) -> None:
+    from hiremate_ai.ncs_search.search import search_reference
+    from hiremate_ai.ncs_search.store import replace_reference_chunks
+    from hiremate_ai.ncs_search.types import NcsReferenceRecord
+
+    first = NcsReferenceRecord(
+        **{**record("a", U1, {0: 1.0}).model_dump(), "kind_code": "report_knowledge", "kind_name": "지식"}
+    )
+    second = NcsReferenceRecord(
+        **{**record("b", U2, {1: 1.0}).model_dump(), "kind_code": "report_skill", "kind_name": "기술"}
+    )
+    await replace_reference_chunks(db_session, iter([first, second]))
+    result = await search_reference(db_session, vectors({0: 1.0}), top_k=1)
+    assert len(result) == 1
+    assert result[0].chunk_id == "a"
+    assert result[0].kind_name == "지식"
+    assert result[0].sentences == ["a 문장을 수행 한다"]
+
+
+async def test_reference_search_finds_sparse_match_outside_dense_candidates(db_session: AsyncSession) -> None:
+    from hiremate_ai.ncs_search.search import search_reference
+    from hiremate_ai.ncs_search.store import replace_reference_chunks
+    from hiremate_ai.ncs_search.types import NcsReferenceRecord
+
+    common = [record(f"item:{index:03}", U1, {0: 1.0}, {1: 1.0}) for index in range(110)]
+    rare = record("a:rare", U2, {1: 1.0}, {5: 1.0})
+    items = (NcsReferenceRecord(**item.model_dump()) for item in [*common, rare])
+    await replace_reference_chunks(db_session, items)
+
+    found = await search_reference(db_session, vectors({0: 1.0}, {5: 1.0}))
+
+    assert "a:rare" in [item.chunk_id for item in found]
+
+
+async def test_reference_search_returns_selected_unit_when_global_matches_dominate(db_session: AsyncSession) -> None:
+    from hiremate_ai.ncs_search.search import search_reference
+    from hiremate_ai.ncs_search.store import replace_reference_chunks
+    from hiremate_ai.ncs_search.types import NcsReferenceRecord
+
+    common = [record(f"common:{index:03}", U1, {0: 1.0}, {1: 1.0}) for index in range(20)]
+    selected = record("selected", U2, {0: 0.1, 1: 0.9}, {2: 1.0})
+    await replace_reference_chunks(
+        db_session, (NcsReferenceRecord(**item.model_dump()) for item in [*common, selected])
+    )
+
+    found = await search_reference(db_session, vectors({0: 1.0}, {1: 1.0}), units=[U2], top_k=5)
+
+    assert [item.chunk_id for item in found] == ["selected"]
