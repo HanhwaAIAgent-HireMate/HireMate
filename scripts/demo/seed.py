@@ -53,6 +53,12 @@ POSTING = {
         "클래스 · 데이터 모델 등 정적 모델을 설계한 경험",
     ],
     "benefits": ["유연 근무", "자기계발비 지원"],
+    # 공고 작성 화면의 [필수] 표시. 서류 전형 기준선은 이 줄들을 모두 충족했는지로 가른다.
+    # 다른 공고가 이 사전을 이어 써도 그 공고 본문에 없는 줄의 표시는 backend가 버린다
+    "requiredQualifications": [
+        "Java 또는 Kotlin 기반 서버 개발 경력 3년 이상",
+        "Spring Boot로 REST API를 개발 · 운영한 경험",
+    ],
 }
 # 서류 평가 데이터셋(fixtures/)의 공고. 자격요건 · 우대사항 글은 application-fixtures.yml의 평가 기준과 같다
 FIXTURES_POSTING = {
