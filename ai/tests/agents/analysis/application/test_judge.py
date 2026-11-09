@@ -228,6 +228,28 @@ def test_every_required_part_must_be_found(
 
 
 @pytest.mark.parametrize(
+    ("met", "expected"),
+    [
+        # 충족 기준이 하나만 요구하면, 모델이 '개발'과 '운영'으로 나눠도 하나만 확인되면 충족이다
+        ("Spring Boot로 REST API를 본인이 개발하거나 운영했다.", Verdict.MET),
+        ("A나 B 가운데 하나를 본인이 활용했다.", Verdict.MET),
+        # 함께 요구하면 나눈 부분이 모두 확인돼야 한다
+        ("Spring Boot로 REST API를 본인이 개발하고 운영했다.", Verdict.NOT_MET),
+    ],
+)
+def test_parts_of_an_either_requirement_need_only_one(
+    criterion: Criterion, evidence: Evidence, met: str, expected: Verdict
+) -> None:
+    either = criterion.model_copy(update={"evaluation_rules": EvaluationRules(met=met, unmet="확인되지 않는다")})
+    parts = [RequirementPart(part="REST API 개발", found=True), RequirementPart(part="REST API 운영", found=False)]
+    answer = verdict("Q-01", "MET", YUMIN_API).model_copy(update={"parts": parts})
+
+    [result] = judge_answers([either], [answer], evidence)
+
+    assert result.verdict == expected
+
+
+@pytest.mark.parametrize(
     ("text", "baseless"),
     [
         ("검색 API 응답 속도 300% 개선", True),
