@@ -124,7 +124,7 @@ describe('ChatPanel', () => {
     const server = mockServer()
     renderPanel()
     const input = screen.getByRole('textbox', { name: 'AI Chat 입력' })
-    expect(input).toHaveAttribute('placeholder', '@이름으로 지원자를 멘션해 물어보세요')
+    expect(input).toHaveAttribute('placeholder', '@ 이름으로 지원자를 멘션해 물어보세요')
     await waitFor(() => expect(screen.getByRole('button', { name: '보내기' })).toBeInTheDocument())
     act(() => useStageUi.getState().addMention({ applicationId: 'a1', name: '김지현' }))
 

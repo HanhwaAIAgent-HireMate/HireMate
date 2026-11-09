@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-/** @ 없이 이름만 쓴 지원자도 멘션처럼 넘긴다. */
+/** 이름만 쓴 지원자도 멘션처럼 넘긴다. */
 class ChatNamedMentionTests {
 
     private final UUID shin = UUID.randomUUID();

@@ -339,7 +339,7 @@ export function ChatPanel({
                     ? ''
                     : checked.length
                       ? `체크한 ${checked.length}명에 대해 물어보기`
-                      : '@이름으로 지원자를 멘션해 물어보세요'
+                      : '@ 이름으로 지원자를 멘션해 물어보세요'
               }
               className="min-w-16 flex-1 resize-none bg-transparent py-1 text-sm leading-5 outline-none placeholder:text-muted-foreground"
             />
