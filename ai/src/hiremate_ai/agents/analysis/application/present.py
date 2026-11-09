@@ -82,6 +82,7 @@ def to_candidate_analysis(review: ApplicationReview, documents: Sequence[Applica
         checks=[
             Finding(text=note.text, source=note.source, title=note.title, warning=note.warning)
             for note in review.checks
+            if not (note.title == "회사명 불일치" and re.search(r"불일치\s*(?:가\s*)?(?:없|아니|않)", note.text))
         ],
         holds=[Finding(text=note.text, source=note.source) for note in review.holds],
         criteria_version=review.criteria_version or None,

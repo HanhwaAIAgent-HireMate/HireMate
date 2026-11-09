@@ -11,7 +11,7 @@
 import re
 from collections.abc import Sequence
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from hiremate_ai.agents.analysis.application.ask import ask
 from hiremate_ai.agents.analysis.application.extract import quotes_in
@@ -32,15 +32,15 @@ RESUME_RULES = f"""- careers: 재직 · 인턴 · 프리랜서 경력. 회사마
   period는 '2022.03 ~ 2025.02'처럼 원문 표기 그대로, organization은 회사 이름,
   role은 부서 · 직무 · 직급, duties는 맡은 일 한 줄이다.
 - experiences: 프로젝트 · 주요 업무 경험. 경험마다 한 행. project는 이름, actions는 본인이 한 일(팀이 한 일은 빼고 본인
-  역할만), result는 원문에 적힌 성과(수치가 있으면 '무엇 전 → 후' 그대로).
-  성과가 없으면 비운다.
+  역할만), result는 원문에 적힌 성과 목록이다. 성과마다 별도 항목으로 쓰고 수치는 원문 그대로 둔다.
+  성과가 없으면 빈 목록으로 둔다.
 - skills: 기술 · 도구 이름. certificates: 자격증 · 어학 · 수상 한 줄씩 (이름과 연월).
 {_COMMON}"""
 
 PORTFOLIO_RULES = f"""- projects: 프로젝트마다 하나, 원문 순서대로. title은 프로젝트 이름(없으면 다룬 주제),
   problem은 해결하려던 문제, solution은 본인이 한 해결(팀이 한 일은 빼고 본인 역할만),
   skills는 그 프로젝트에 쓴 기술 · 도구 이름(원문 표기 그대로),
-  result는 원문에 적힌 성과(수치가 있으면 '무엇 전 → 후' 그대로).
+  result는 원문에 적힌 성과 목록이다. 성과마다 별도 항목으로 쓰고 수치는 원문 그대로 둔다.
 {_COMMON}"""
 
 RESUME_SYSTEM = f"""너는 이력서 한 건을 담당자가 훑어보기 좋은 표로 정리한다.
@@ -64,10 +64,20 @@ class _Career(BaseModel):
     evidence: list[str] = Field(default=[], description="원문 문장 1~2개 (글자 그대로)")
 
 
-class _Experience(BaseModel):
+class _Results(BaseModel):
+    result: list[str] = Field(default_factory=list)
+
+    @field_validator("result", mode="before")
+    @classmethod
+    def legacy_result(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [value] if value.strip() else []
+        return value
+
+
+class _Experience(_Results):
     project: str = ""
     actions: str = ""
-    result: str = ""
     evidence: list[str] = Field(default=[], description="원문 문장 1~2개 (글자 그대로)")
 
 
@@ -78,12 +88,11 @@ class ResumeDigest(BaseModel):
     certificates: list[str] = []
 
 
-class _Project(BaseModel):
+class _Project(_Results):
     title: str = ""
     problem: str = ""
     solution: str = ""
     skills: list[str] = []
-    result: str = ""
     evidence: list[str] = Field(default=[], description="원문 문장 1~2개 (글자 그대로)")
 
 
@@ -139,7 +148,11 @@ def resume_digest(document: ApplicantDocument, resume: ResumeDigest, *, blind: b
         for experience in resume.experiences
         if (
             row := _row(
-                document, "", [experience.project, experience.actions, experience.result], experience.evidence, blind
+                document,
+                "",
+                [experience.project, experience.actions, "\n".join(experience.result)],
+                experience.evidence,
+                blind,
             )
         )
     ]
@@ -167,7 +180,7 @@ def portfolio_digest(document: ApplicantDocument, portfolio: PortfolioDigest, *,
             row := _row(
                 document,
                 project.title,
-                [project.problem, project.solution, project.result],
+                [project.problem, project.solution, "\n".join(project.result)],
                 project.evidence,
                 blind,
                 tags=[skill for skill in project.skills if _written(skill, document)],
@@ -199,7 +212,10 @@ def _row(
     if blind and (education_term(text) or any(education_term(quote.sentence) for quote in quotes)):
         return None
     source = _compact(document.text)
-    cleaned = [" ".join(cell.split()) if _numbers_written(cell, source) else "" for cell in cells]
+    cleaned = [
+        "\n".join(" ".join(line.split()) for line in cell.splitlines() if _numbers_written(line, source))
+        for cell in cells
+    ]
     title = " ".join(title.split()) if _numbers_written(title, source) else ""
     if not title and not any(cleaned):
         return None
