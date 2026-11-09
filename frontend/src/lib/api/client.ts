@@ -128,6 +128,7 @@ const MESSAGES: Record<string, string> = {
   EMAIL_ALREADY_EXISTS: '이미 가입한 이메일이에요.',
   INVALID_INPUT: '입력한 내용을 다시 확인해 주세요.',
   INVALID_FILE: 'PDF 파일만 올릴 수 있어요.',
+  INVALID_PHOTO: '5MB 이하의 JPG, PNG, WEBP 사진을 올려 주세요.',
   POSTER_TEMPLATE_CONFLICT: '같은 이름의 템플릿이 있거나 저장 가능한 12개를 채웠어요.',
   CANVA_NOT_CONNECTED: '설정 → 채용 공고에서 Canva 계정을 먼저 연결해 주세요.',
   CANVA_UNAVAILABLE: 'Canva 작업을 완료하지 못했어요. 계정 권한과 연결 상태를 확인해 주세요.',

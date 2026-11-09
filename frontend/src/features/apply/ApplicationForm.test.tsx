@@ -56,7 +56,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 /** 지원서를 채우고 제출을 누른다. 학교 이름 확인 응답과 보낸 요청 경로를 돌려준다 */
-function fillAndSubmit(blind: boolean, names: string[]) {
+function fillAndSubmit(blind: boolean, names: string[], photo?: File) {
   const requests: string[] = []
   vi.stubGlobal('fetch', (input: Request | string) => {
     const url = typeof input === 'string' ? input : input.url
@@ -96,6 +96,8 @@ function fillAndSubmit(blind: boolean, names: string[]) {
   }
   fireEvent.click(screen.getByRole('checkbox', { name: '개인정보 수집·이용에 동의합니다.' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'AI 활용 안내를 확인했습니다.' }))
+  if (photo)
+    fireEvent.change(screen.getByLabelText('증명사진 파일'), { target: { files: [photo] } })
   fireEvent.click(screen.getByRole('button', { name: '제출하기' }))
   return { requests, onSubmitted }
 }
@@ -132,5 +134,20 @@ describe('블라인드 채용 학교 이름 알림', () => {
     const open = fillAndSubmit(false, ['한빛대학교'])
     await waitFor(() => expect(open.onSubmitted).toHaveBeenCalled())
     expect(open.requests).toEqual(['/api/public/postings/posting-1/applications'])
+  })
+})
+
+describe('증명사진 제출', () => {
+  it('선택한 사진을 지원서와 함께 보낸다', async () => {
+    vi.stubGlobal(
+      'URL',
+      Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:photo'), revokeObjectURL: vi.fn() }),
+    )
+    const append = vi.spyOn(FormData.prototype, 'append')
+    const photo = new File(['image'], 'photo.png', { type: 'image/png' })
+    const result = fillAndSubmit(false, [], photo)
+    await waitFor(() => expect(result.onSubmitted).toHaveBeenCalled())
+    expect(append).toHaveBeenCalledWith('photo', photo)
+    append.mockRestore()
   })
 })

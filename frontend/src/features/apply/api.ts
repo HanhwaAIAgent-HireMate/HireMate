@@ -14,6 +14,7 @@ export type ApplicationInput = {
   resume: File
   coverLetter: File
   portfolio: File | null
+  photo: File | null
 }
 
 export function useSubmitApplication(postingId: string) {
@@ -29,6 +30,7 @@ export function useSubmitApplication(postingId: string) {
       form.append('resume', input.resume)
       form.append('coverLetter', input.coverLetter)
       if (input.portfolio) form.append('portfolio', input.portfolio)
+      if (input.photo) form.append('photo', input.photo)
       return unwrap(
         api.POST('/api/public/postings/{postingId}/applications', {
           params: {

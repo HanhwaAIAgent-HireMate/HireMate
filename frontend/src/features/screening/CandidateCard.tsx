@@ -74,8 +74,12 @@ export function CandidateCard({
                   onCheckedChange={(value) => toggleChecked(applicationId, value === true)}
                 />
               )}
-              {/* 이름 옆 원형 사진 (예시 사진). 블라인드 · 성별을 모르는 이름은 아이콘 */}
-              <ApplicantAvatar applicationId={applicationId} name={detail.data.row.name} />
+              {/* 저장된 사진이 없으면 지원자 아이콘을 보인다 */}
+              <ApplicantAvatar
+                recruitmentId={overview.recruitmentId}
+                applicationId={applicationId}
+                name={detail.data.row.name}
+              />
               {overview.type === 'INTERVIEW' ? (
                 <div>
                   <h3 className="text-lg font-bold">{detail.data.row.name}</h3>

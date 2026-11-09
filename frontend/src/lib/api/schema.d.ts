@@ -1732,6 +1732,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recruitments/{recruitmentId}/applications/{applicationId}/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["photo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}": {
         parameters: {
             query?: never;
@@ -3211,31 +3227,31 @@ export interface components {
             steps: string[];
         };
         JsonNode: {
-            empty: boolean;
-            array: boolean;
-            null: boolean;
-            object: boolean;
-            float: boolean;
-            number: boolean;
             valueNode: boolean;
             container: boolean;
             missingNode: boolean;
             /** @enum {string} */
             nodeType: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
+            string: boolean;
             integralNumber: boolean;
+            pojo: boolean;
             floatingPointNumber: boolean;
-            bigInteger: boolean;
-            bigDecimal: boolean;
+            short: boolean;
+            int: boolean;
             long: boolean;
+            double: boolean;
+            bigDecimal: boolean;
+            bigInteger: boolean;
             /** @deprecated */
             textual: boolean;
-            binary: boolean;
-            int: boolean;
-            short: boolean;
-            string: boolean;
-            pojo: boolean;
-            double: boolean;
             boolean: boolean;
+            binary: boolean;
+            number: boolean;
+            empty: boolean;
+            array: boolean;
+            null: boolean;
+            object: boolean;
+            float: boolean;
             embeddedValue: boolean;
         };
         ReportPayload: {
@@ -3766,9 +3782,9 @@ export interface components {
             accountRole: "HR" | "INTERVIEWER";
         };
         CsrfToken: {
-            parameterName: string;
             token: string;
             headerName: string;
+            parameterName: string;
         };
         CsrfResponse: {
             token: string;
@@ -5605,6 +5621,8 @@ export interface operations {
                     coverLetter: string;
                     /** Format: binary */
                     portfolio?: string;
+                    /** Format: binary */
+                    photo?: string;
                 };
             };
         };
@@ -6921,6 +6939,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApplicationPage"];
+                };
+            };
+        };
+    };
+    photo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recruitmentId: string;
+                applicationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
                 };
             };
         };
