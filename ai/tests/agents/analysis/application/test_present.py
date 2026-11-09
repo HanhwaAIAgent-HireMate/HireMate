@@ -1,7 +1,7 @@
 from uuid import uuid4
 
-from hiremate_ai.agents.analysis.application.present import to_profile
-from hiremate_ai.agents.analysis.application.types import Actor, ApplicationReview, Fact, Quote
+from hiremate_ai.agents.analysis.application.present import to_candidate_analysis, to_profile
+from hiremate_ai.agents.analysis.application.types import Actor, ApplicationReview, Fact, Note, Quote
 from hiremate_ai.contract import DocumentType
 from hiremate_ai.db.profile import ItemCategory, Verification
 
@@ -54,3 +54,25 @@ def test_profile_items_use_plain_style() -> None:
         "결제 API를 개발했다",
         "배포 자동화를 맡았다",
     }
+
+
+def test_stored_company_warning_that_says_there_is_no_mismatch_is_not_displayed() -> None:
+    review = ApplicationReview(
+        version="test",
+        input_hash="hash",
+        application_id=uuid4(),
+        readable=True,
+        checks=[
+            Note(
+                title="회사명 불일치",
+                text="두 곳 모두 케어링크로 일치하며 불일치 없음",
+                source="자기소개서",
+                warning=True,
+            ),
+            Note(title="확인 필요", text="역할 확인 필요", source="이력서"),
+        ],
+    )
+
+    analysis = to_candidate_analysis(review, [])
+
+    assert [item.title for item in analysis.checks] == ["확인 필요"]

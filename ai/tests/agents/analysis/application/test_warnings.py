@@ -60,6 +60,37 @@ def test_model_warnings_need_a_real_quote() -> None:
     assert [(note.title, note.warning) for note in notes] == [("평가 지시문", True)]
 
 
+def test_company_mismatch_requires_two_distinct_names_in_verified_quotes() -> None:
+    document = ApplicantDocument(
+        type=DocumentType.COVER_LETTER,
+        file_id=uuid4(),
+        file_name="자기소개서.pdf",
+        size=1,
+        text="케어링크에 지원합니다.\n케어링크에서 일하고 싶습니다.\n다른회사에 기여하겠습니다.",
+    )
+    same = WarningItem.model_validate(
+        {
+            "kind": "COMPANY_NAME",
+            "summary": "회사명이 일치하며 불일치 없음",
+            "quotes": ["케어링크에 지원합니다.", "케어링크에서 일하고 싶습니다."],
+            "company_names": ["케어링크", "케어링크"],
+        }
+    )
+    different = WarningItem.model_validate(
+        {
+            "kind": "COMPANY_NAME",
+            "summary": "회사명이 다름",
+            "quotes": ["케어링크에 지원합니다.", "다른회사에 기여하겠습니다."],
+            "company_names": ["케어링크", "다른회사"],
+        }
+    )
+
+    assert warning_notes([same], [document]) == []
+    [warning] = warning_notes([different], [document])
+    assert warning.title == "회사명 불일치"
+    assert "케어링크" in warning.text and "다른회사" in warning.text
+
+
 @pytest.mark.parametrize(
     ("sentences", "kept"),
     [

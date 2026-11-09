@@ -119,3 +119,32 @@ def test_portfolio_projects_become_cards() -> None:
     assert section.rows[0].cells[2] == "중복 예매 37건 → 0건"
     # 기술은 원문에 적힌 이름만 남는다
     assert section.rows[0].tags == ["Redis"]
+
+
+def test_separate_results_are_preserved_without_splitting_legacy_text() -> None:
+    resume = ResumeDigest.model_validate(
+        {
+            "experiences": [
+                {
+                    "project": "결제 오류 개선",
+                    "actions": "API 개발",
+                    "result": ["오류율 2% → 0.3%", "Java 기반 개선"],
+                    "evidence": ["오류율을 2%에서 0.3%로 줄였습니다."],
+                }
+            ]
+        }
+    )
+    legacy = ResumeDigest.model_validate(
+        {
+            "experiences": [
+                {
+                    "project": "결제 오류 개선",
+                    "result": "오류율 2%; 확인 필요",
+                    "evidence": ["오류율을 2%에서 0.3%로 줄였습니다."],
+                }
+            ]
+        }
+    )
+
+    assert resume_digest(RESUME, resume).sections[0].rows[0].cells[2] == "오류율 2% → 0.3%\nJava 기반 개선"
+    assert resume_digest(RESUME, legacy).sections[0].rows[0].cells[2] == "오류율 2%; 확인 필요"
