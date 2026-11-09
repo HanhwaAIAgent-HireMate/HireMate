@@ -10,6 +10,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /** 제출 PDF를 정책에 따라 정리한 페이지 기반 문서. */
 public record NormalizedDocument(String schemaVersion, Metadata document, List<Block> blocks) {
@@ -61,6 +63,35 @@ public record NormalizedDocument(String schemaVersion, Metadata document, List<B
     private static ListItem maskItem(ListItem item, UnaryOperator<String> mask) {
         return new ListItem(item.id(), mask.apply(item.text()), item.pages(),
                 item.items().stream().map(child -> maskItem(child, mask)).toList());
+    }
+
+    /**
+     * 읽는 순서대로 펼친 글. 정제를 마친 서류는 PDF에서 뽑은 글 대신 이 글을 AI에 보낸다 (ApplicantDocument.text).
+     * 순서는 화면이 근거 밑줄 자리를 찾는 칸 순서(문서 제목, 소제목, 문단, 목록 항목, 표 제목 · 머리글 · 칸)와 같아, 이 글에서
+     * 뽑은 근거 문장을 화면도 찾는다. 시각 자료 안내(visual_notice)는 지원자가 쓴 글이 아니라 넣지 않는다.
+     */
+    public String readingText() {
+        return Stream.concat(Stream.of(document.title()), blocks.stream().flatMap(NormalizedDocument::lines))
+                .filter(line -> line != null && !line.isBlank())
+                .collect(Collectors.joining("\n"));
+    }
+
+    private static Stream<String> lines(Block block) {
+        return switch (block) {
+            case Section section -> Stream.concat(Stream.of(section.title()),
+                    section.blocks().stream().flatMap(NormalizedDocument::lines));
+            case Paragraph paragraph -> Stream.of(paragraph.text());
+            case Listing listing -> items(listing.items(), 0);
+            case Table table -> Stream.concat(Stream.of(table.title(), String.join(" | ", table.headers())),
+                    table.rows().stream().map(row -> String.join(" | ", row)));
+            case VisualNotice notice -> Stream.empty();
+        };
+    }
+
+    /** 목록 항목은 '- '를 붙이고, 아래 항목은 두 칸씩 들여 쓴다. */
+    private static Stream<String> items(List<ListItem> items, int depth) {
+        return items.stream().flatMap(item -> Stream.concat(Stream.of("  ".repeat(depth) + "- " + item.text()),
+                items(item.items(), depth + 1)));
     }
 
     private static void checkText(String text) {
