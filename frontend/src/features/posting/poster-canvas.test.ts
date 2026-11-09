@@ -1,3 +1,5 @@
+// @vitest-environment-options {"resources":"usable"}
+import { assertTemplatedPreview } from './templated-poster-check'
 import { describe, expect, it, vi } from 'vitest'
 import {
   importPosterTemplate,
@@ -317,6 +319,74 @@ describe('외부 포스터 데이터', () => {
         imported.objects.filter((item) => item.binding).every((item) => item.text === ''),
       ).toBe(true)
       expect(encoded).not.toContain('다른 회사 기밀 문구')
+      const jpeg = bitmap.toDataURL('image/jpeg').split(',')[1]
+      const templatedSource = {
+        id: 'templated:example',
+        name: '기술 디자인',
+        sourceUrl: 'https://templated.io/templates/',
+        license: 'Templated 테마',
+        thumbnailUrl: '',
+        svg: `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" data-templated-artwork="true">
+              <rect width="1200" height="720" fill="#f7f5ef"/>
+              <g data-templated-photo="${jpeg}" data-x="600" data-y="0" data-width="600" data-height="720"/>
+              <rect x="0" y="0" width="100" height="80" fill="#d51324"/>
+              <g data-kind="TEXT" data-x="250" data-y="190" data-width="500"><text font-size="70">Sample only</text></g>
+            </svg>`,
+      }
+      const templated = readPosterCanvas(
+        await importPosterTemplate(templatedSource, posting, '#082858'),
+      )
+      expect(templated.source.id).toBe('templated:example')
+      expect(templated.nativeLayout?.headerBottom).toBeGreaterThanOrEqual(360)
+      expect(templated.objects.find((item) => item.binding === 'title')).toMatchObject({
+        left: 125,
+        top: 95,
+        text: '',
+      })
+      expect(templated.objects.some((item) => item.hmId === 'templated-caption')).toBe(false)
+      expect(JSON.stringify(templated)).not.toContain('Sample only')
+      await expect(
+        assertTemplatedPreview(posting, {
+          ...initialPoster(),
+          canvasJson: JSON.stringify(templated),
+        }),
+      ).resolves.toBeUndefined()
+      expect(templated.nativeLayout?.appearance).toMatchObject({
+        body: 'EDITORIAL',
+        process: 'TIMELINE',
+        documents: 'ROWS',
+      })
+      const square = readPosterCanvas(
+        await importPosterTemplate(
+          { ...templatedSource, svg: templatedSource.svg.replace('height="720"', 'height="1200"') },
+          posting,
+          '#082858',
+        ),
+      )
+      expect(square.nativeLayout?.appearance).toMatchObject({
+        body: 'PANELS',
+        process: 'RAIL',
+        documents: 'TICKETS',
+      })
+      expect(
+        square.nativeLayout?.sections.find((item) => item.binding === 'benefits'),
+      ).toMatchObject({
+        variant: 'TILE',
+        accent: '#D51324',
+      })
+      await expect(
+        importPosterTemplate(
+          {
+            ...templatedSource,
+            svg: templatedSource.svg.replace(
+              '</svg>',
+              '<rect x="0" y="0" width="1200" height="720" fill="#000000"/></svg>',
+            ),
+          },
+          posting,
+          '#082858',
+        ),
+      ).rejects.toThrow('배너 사진이 보이지 않아요')
       expect(encoded).not.toContain('private-link')
       expect(
         posterCanvasObjects(imported, posterBindings(posting), '#082858').find(

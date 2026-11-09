@@ -49,6 +49,7 @@ import type { Schemas } from '@/lib/api/client'
 import { api, unwrap, errorMessage, ApiError } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 import { nativeRegions, importNativePoster } from '@/features/posting/poster-layout'
+import { assertTemplatedPreview } from '@/features/posting/templated-poster-check'
 
 type PosterChatTurn = Schemas['PosterTurn'] & Pick<AiMessage, 'steps' | 'seconds' | 'admin'>
 
@@ -350,6 +351,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
       canvasJson = await importPosterTemplate(template, posting, design.color)
     }
     const canvas = readPosterCanvas(canvasJson)
+    await assertTemplatedPreview(posting, { ...design, canvasJson })
     return {
       ...design,
       enabled: true,
@@ -647,6 +649,7 @@ function PosterEditor({ posting }: { posting: Posting }) {
       } else {
         canvasJson = await importPosterTemplate(template, posting, design.color)
       }
+      await assertTemplatedPreview(posting, { ...design, canvasJson })
       const source = readPosterCanvas(canvasJson).source
       const existing = brand.data?.templates.find((item) => {
         if (!item.canvasJson) return false
