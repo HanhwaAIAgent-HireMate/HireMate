@@ -51,6 +51,8 @@ management:
       enabled: false
 
 hiremate:
+  demo:
+    photo-recruitments: ${HIREMATE_DEMO_PHOTO_RECRUITMENTS:}
   mail:
     from: ${MAIL_FROM:no-reply@hiremate.local}
   ai:

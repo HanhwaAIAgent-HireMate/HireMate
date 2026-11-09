@@ -77,6 +77,14 @@ public class FileService {
         return new FileContent(toInfo(file), storage.load(file.getStorageKey()));
     }
 
+    /** 지원자와 무관한 시연용 사진을 비공개 저장소에서 읽는다. */
+    public byte[] exampleApplicantPhoto(int index) {
+        if (index < 0 || index >= 8) {
+            throw new IllegalArgumentException("Invalid example photo index.");
+        }
+        return storage.load("example-applicants/" + index + ".png");
+    }
+
     private StoredFile find(UUID companyId, UUID fileId) {
         return files.findByIdAndCompanyId(fileId, companyId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "FILE_NOT_FOUND", "File not found."));

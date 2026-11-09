@@ -44,6 +44,7 @@ public class SecurityConfig {
         "/api/stages/{stageId}/candidates/{applicationId}/analysis",
         "/api/stages/{stageId}/candidates/{applicationId}/profile",
         "/api/recruitments/{recruitmentId}/applications/{applicationId}/documents/{type}",
+        "/api/recruitments/{recruitmentId}/applications/{applicationId}/photo",
     };
 
     /** 면접관의 자기 AI Chat 탭. 탭이 자기 것인지는 StageTabService가 확인한다 (HR 공유 탭은 열 수 없다). */
