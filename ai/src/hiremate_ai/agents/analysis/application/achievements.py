@@ -16,7 +16,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.analysis.application.extract import quotes_in
-from hiremate_ai.agents.analysis.application.judge import paragraphs
+from hiremate_ai.agents.analysis.application.judge import paragraph_parts
 from hiremate_ai.agents.analysis.application.review import Claim, ClaimReview
 from hiremate_ai.agents.analysis.application.types import Achievement, Criterion, CriterionResult
 from hiremate_ai.contract import ApplicantDocument, CriterionType, Verdict
@@ -144,7 +144,8 @@ def achievement_claims(achievements: Sequence[Achievement], documents: Sequence[
             f"본인 조치 밖의 효과가 섞였다고 밝히지 않았다): {display(achievement)}"
             + (f". 본인 조치: {achievement.action}" if achievement.action else ""),
             [*achievement.quotes, *achievement.action_quotes],
-            paragraphs([*achievement.quotes, *achievement.action_quotes], documents),
+            context=" / ".join(parts := paragraph_parts([*achievement.quotes, *achievement.action_quotes], documents)),
+            context_parts=tuple(parts),
         )
         for achievement in achievements
     ]
