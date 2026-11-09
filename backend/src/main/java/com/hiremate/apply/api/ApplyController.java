@@ -42,9 +42,10 @@ public class ApplyController {
             @RequestParam String email, @RequestParam String phone,
             @RequestParam(required = false) String certificates, @RequestParam boolean consentPrivacy,
             @RequestParam boolean consentAi, @RequestPart MultipartFile resume, @RequestPart MultipartFile coverLetter,
-            @RequestPart(required = false) MultipartFile portfolio) throws IOException {
+            @RequestPart(required = false) MultipartFile portfolio, @RequestPart(required = false) MultipartFile photo)
+            throws IOException {
         return applications.submit(postingId, new ApplicationForm(name, email, phone, certificates, consentPrivacy,
-                consentAi, upload(resume), upload(coverLetter), upload(portfolio)));
+                consentAi, upload(resume), upload(coverLetter), upload(portfolio), upload(photo)));
     }
 
     /** 블라인드 채용 지원서의 학교 이름 확인. 제출 전에 지원자에게 알리고, 제출을 막지는 않는다. 로그인 없이 쓴다. */
@@ -80,6 +81,15 @@ public class ApplyController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()
                         .filename(content.info().originalName(), StandardCharsets.UTF_8).build().toString())
                 .body(content.bytes());
+    }
+
+    @GetMapping("/api/recruitments/{recruitmentId}/applications/{applicationId}/photo")
+    public ResponseEntity<byte[]> photo(AuthenticatedMember member, @PathVariable UUID recruitmentId,
+            @PathVariable UUID applicationId) {
+        FileContent content = applications.photoContent(member.companyId(), recruitmentId, applicationId);
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(content.info().contentType()))
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .header("X-Content-Type-Options", "nosniff").body(content.bytes());
     }
 
     private static ApplicationForm.Upload upload(MultipartFile file) throws IOException {

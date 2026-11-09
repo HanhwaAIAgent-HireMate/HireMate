@@ -67,6 +67,11 @@ class S3FileStorage implements FileStorage {
         }
     }
 
+    @Override
+    public void delete(String key) {
+        client.deleteObject(request -> request.bucket(bucket).key(key));
+    }
+
     @PreDestroy
     void close() {
         presigner.close();
