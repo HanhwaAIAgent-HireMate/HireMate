@@ -52,6 +52,8 @@ public class JobApplication {
 
     private String certificates;
 
+    private UUID photoFileId;
+
     @Column(nullable = false)
     private boolean consentPrivacy;
 
@@ -105,6 +107,10 @@ public class JobApplication {
         this.consentAi = true;
         this.submittedAt = Instant.now();
         this.analysisStatus = AnalysisStatus.PENDING;
+    }
+
+    public void setPhotoFileId(UUID photoFileId) {
+        this.photoFileId = photoFileId;
     }
 
     public void recordAnalysis(ApplicationAnalysis analysis) {

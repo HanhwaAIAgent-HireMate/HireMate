@@ -31,6 +31,7 @@ import {
   type ApplicationInput,
   type SchoolCheck,
 } from '@/features/apply/api'
+import { PhotoField } from '@/features/apply/PhotoField'
 import type { PublicPosting } from '@/features/posting/api'
 import { ApiError, errorMessage } from '@/lib/api/client'
 import { formatDateTime } from '@/lib/format'
@@ -88,6 +89,7 @@ export function ApplicationForm({
     documents: SchoolCheck['documents']
   } | null>(null)
   const [serverError, setServerError] = useState('')
+  const [photo, setPhoto] = useState<File | null>(null)
   const form = useForm<Values>({
     resolver: zodResolver(schema(requirePortfolio, requireCertificate)),
     defaultValues: {
@@ -130,7 +132,12 @@ export function ApplicationForm({
 
   const onValid = (data: Values) => {
     setServerError('')
-    const input = { ...data, name: data.name.trim(), email: data.email.trim() } as ApplicationInput
+    const input = {
+      ...data,
+      name: data.name.trim(),
+      email: data.email.trim(),
+      photo: posting.content.blind ? null : photo,
+    } as ApplicationInput
     if (!posting.content.blind) {
       send(input)
       return
@@ -194,6 +201,12 @@ export function ApplicationForm({
             {posting.content.title} · 마감 {formatDateTime(posting.closeAt)}
           </p>
         </div>
+        {/* 증명사진은 선택이고, 블라인드 채용이면 받지 않는다 */}
+        {!posting.content.blind && (
+          <Field id="photo" label="증명사진" required={false}>
+            <PhotoField onChange={setPhoto} />
+          </Field>
+        )}
         <Field id="basic" label="기본 정보" required error={hasError(sections[0])}>
           <div className="grid grid-cols-3 gap-2">
             <Input
@@ -261,7 +274,7 @@ export function ApplicationForm({
               }
               label="개인정보 수집·이용에 동의합니다."
               title="개인정보 수집·이용 안내"
-              body={`수집 항목: 이름, 이메일, 연락처, 제출 서류\n이용 목적: ${posting.companyName} 채용 전형 진행과 결과 안내\n보관 기간: 채용 종료 후 회사가 정한 기간까지 보관한 뒤 파기합니다.\n동의하지 않으면 지원할 수 없어요.`}
+              body={`수집 항목: 이름, 이메일, 연락처, 제출 서류, 선택한 증명사진\n이용 목적: ${posting.companyName} 채용 전형 진행과 결과 안내\n보관 기간: 채용 종료 후 회사가 정한 기간까지 보관한 뒤 파기합니다.\n동의하지 않으면 지원할 수 없어요.`}
             />
             <Consent
               checked={Boolean(values.consentAi)}

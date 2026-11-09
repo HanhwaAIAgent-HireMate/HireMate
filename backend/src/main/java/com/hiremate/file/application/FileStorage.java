@@ -6,4 +6,6 @@ public interface FileStorage {
     void save(String key, byte[] content);
 
     byte[] load(String key);
+
+    void delete(String key);
 }

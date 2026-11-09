@@ -7,11 +7,15 @@ import static com.hiremate.TestFixtures.pdf;
 import static com.hiremate.TestFixtures.publish;
 import static com.hiremate.TestFixtures.publishBlind;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 
 import com.hiremate.IntegrationTest;
 import com.hiremate.TestApi;
 import com.hiremate.TestFixtures.Posting;
 import com.hiremate.TestMailConfiguration;
+import com.hiremate.file.application.FileStorage;
 import com.hiremate.posting.DocumentType;
 import java.time.Duration;
 import java.time.Instant;
@@ -20,16 +24,62 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 
 class ApplyTests extends IntegrationTest {
+
+    @MockitoSpyBean
+    private FileStorage storage;
 
     @Autowired
     private ApplicationService applications;
 
     @Autowired
     private TestMailConfiguration.RecordingMailClient mail;
+
+    @Test
+    void storesPhotoAndRestrictsAccessToItsCompany() throws Exception {
+        TestApi hr = newHr();
+        Posting posting = publish(hr, false);
+        byte[] photo = new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1};
+        Map<String, Object> input = form("photo@example.com", false);
+        input.put("photo", new TestApi.FilePart("photo.png", "image/png", photo));
+        expect(anonymous().multipart(posting.applyPath(), input), 201);
+        String applicationId = json(expect(hr.get("/api/recruitments/" + posting.recruitmentId() + "/applications"),
+                200)).path("items").get(0).path("applicationId").asString();
+        String path = "/api/recruitments/" + posting.recruitmentId() + "/applications/" + applicationId + "/photo";
+        assertThat(hr.getBytes(path).body()).isEqualTo(photo);
+        expect(newHr().get(path), 404);
+        expect(anonymous().get(path), 401);
+    }
+
+    @Test
+    void removesPhotoIfApplicationSubmissionRollsBack() throws Exception {
+        TestApi hr = newHr();
+        Posting posting = publish(hr, false);
+        Map<String, Object> input = form("rollback-photo@example.com", false);
+        input.put("photo", new TestApi.FilePart("photo.png", "image/png",
+                new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}));
+        input.put("resume", new TestApi.FilePart("resume.pdf", "application/pdf", new byte[] {1, 2, 3}));
+        expect(anonymous().multipart(posting.applyPath(), input), 400);
+        ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
+        verify(storage).save(key.capture(), any(byte[].class));
+        assertThatThrownBy(() -> storage.load(key.getValue())).isInstanceOf(java.io.UncheckedIOException.class);
+    }
+
+    @Test
+    void rejectsPhotosForBlindPostingsAndInvalidImages() throws Exception {
+        TestApi hr = newHr();
+        Map<String, Object> input = form("photo-invalid@example.com", false);
+        input.put("photo", new TestApi.FilePart("photo.png", "image/png", new byte[] {1, 2, 3}));
+        expect(anonymous().multipart(publish(hr, false).applyPath(), input), 400);
+        input.put("photo", new TestApi.FilePart("photo.png", "image/png",
+                new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}));
+        expect(anonymous().multipart(publishBlind(hr).applyPath(), input), 400);
+    }
 
     @Test
     @DisplayName("블라인드 채용은 마지막 전형 결과를 확정하기 전까지 이름을 가리고(영문 이력서의 이름도), 이메일 · 연락처는 그대로 준다")
