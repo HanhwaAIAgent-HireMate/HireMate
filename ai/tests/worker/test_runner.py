@@ -11,7 +11,7 @@ from redis.exceptions import RedisError
 from hiremate_ai.contract import Job, JobResult, JobStatus
 from hiremate_ai.worker.batch import ApplicationBatchJobs
 from hiremate_ai.worker.batch_store import RedisBatchStore
-from hiremate_ai.worker.handlers import Handler, PermanentError
+from hiremate_ai.worker.handlers import INDEX_JOB, Handler, PermanentError
 from hiremate_ai.worker.runner import Worker, WorkerOptions, connect
 
 OPTIONS = WorkerOptions(
@@ -286,7 +286,7 @@ async def test_waiting_applications_do_not_block_other_job_types(redis: Redis) -
     ordinary = make_job()
     await put(redis, application)
     batch_options = replace(OPTIONS, job_stream="applications", group="batch-workers", consumer="batch-worker")
-    router = Worker(redis, {"echo/run": echo}, OPTIONS, application_stream=batch_options.job_stream)
+    router = Worker(redis, {"echo/run": echo}, OPTIONS, forward={"application/analyze": batch_options.job_stream})
     batch_worker = Worker(redis, {application.type: waiting}, batch_options, batch=batch_jobs(redis))
 
     async def submit_ordinary() -> None:
@@ -312,7 +312,7 @@ async def test_forwarded_application_returns_the_existing_backend_contract(redis
 
     [result] = await run_until(
         redis,
-        Worker(redis, {}, OPTIONS, application_stream=batch_options.job_stream),
+        Worker(redis, {}, OPTIONS, forward={"application/analyze": batch_options.job_stream}),
         Worker(redis, {job.type: echo}, batch_options, batch=batch_jobs(redis)),
     )
 
@@ -320,3 +320,33 @@ async def test_forwarded_application_returns_the_existing_backend_contract(redis
     assert result.type == job.type and result.result == {"echo": "지원서"}
     assert await redis.xlen(OPTIONS.job_stream) == 0
     assert await redis.xlen(batch_options.job_stream) == 0
+
+
+async def test_index_jobs_run_one_at_a_time_while_other_jobs_keep_going(redis: Redis) -> None:
+    running = 0
+    peak = 0
+
+    async def index(payload: dict[str, Any]) -> dict[str, Any]:
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.1)
+        running -= 1
+        return {}
+
+    indexes = [make_job(INDEX_JOB) for _ in range(3)]
+    ordinary = make_job()
+    for job in [*indexes, ordinary]:
+        await put(redis, job)
+    index_options = replace(OPTIONS, job_stream="indexes", group="index-workers", consumer="index-worker")
+    handlers: dict[str, Handler] = {INDEX_JOB: index, "echo/run": echo}
+    router = Worker(redis, handlers, replace(OPTIONS, concurrency=8), forward={INDEX_JOB: index_options.job_stream})
+
+    found = await run_until(redis, router, Worker(redis, handlers, index_options), count=4)
+
+    assert {result.job_id for result in found} == {job.job_id for job in [*indexes, ordinary]}
+    assert all(result.status is JobStatus.DONE for result in found)
+    assert found[0].job_id == ordinary.job_id
+    assert peak == 1
+    assert await redis.xlen(OPTIONS.job_stream) == 0
+    assert await redis.xlen(index_options.job_stream) == 0

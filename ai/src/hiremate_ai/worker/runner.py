@@ -5,6 +5,7 @@
   여러 번 맡겨도 끝나지 않은 작업은 FAILED로 끝낸다.
 - 처리 함수가 실패하면 정해진 횟수만큼 다시 하고, 그래도 안 되면 FAILED 결과를 보낸다. 결과는 backend가 기록한다.
 - 같은 입력의 분석은 Agent가 저장해 둔 결과를 다시 쓰므로, 같은 작업이 두 번 와도 모델을 다시 부르지 않는다.
+- 동시 처리 수를 따로 정하는 작업 유형(지원서 배치, 문서 임베딩)은 내부 스트림으로 옮겨 그 스트림의 워커가 처리한다.
 """
 
 import asyncio
@@ -31,8 +32,8 @@ RESULT_FIELD = "result"
 
 Entry = tuple[str, dict[str, str]]
 
-# 지원서만 내부 배치 스트림으로 옮긴다. 이동과 원본 확인을 한 번에 처리해 응답 유실 때도 중복되지 않는다.
-_FORWARD_APPLICATION = """
+# 정해진 작업 유형을 내부 스트림으로 옮긴다. 이동과 원본 확인을 한 번에 처리해 응답 유실 때도 중복되지 않는다.
+_FORWARD = """
 if #redis.call('XRANGE', KEYS[1], ARGV[1], ARGV[1], 'COUNT', 1) == 0 then
     return false
 end
@@ -75,8 +76,9 @@ class Worker:
         options: WorkerOptions,
         *,
         batch: ApplicationBatchJobs | None = None,
-        application_stream: str | None = None,
+        forward: Mapping[str, str] | None = None,
     ) -> None:
+        """forward: 작업 유형별로 옮길 내부 스트림. 옮긴 작업은 그 스트림의 워커가 처리한다."""
         self._redis = redis
         self._handlers = handlers
         self._options = options
@@ -84,7 +86,7 @@ class Worker:
         self._running: dict[str, asyncio.Task[None]] = {}
         self._batch = batch
         self._batch_messages: set[str] = set()
-        self._application_stream = application_stream
+        self._forward = dict(forward or {})
 
     async def run(self, stop: asyncio.Event) -> None:
         await self._ensure_group()
@@ -105,19 +107,21 @@ class Worker:
                     continue
                 message_id, fields = entry
                 job = _job(fields)
-                if self._application_stream is not None and job is not None and job.type == "application/analyze":
+                if job is not None and job.type in self._forward:
                     try:
                         await self._redis.eval(
-                            _FORWARD_APPLICATION,
+                            _FORWARD,
                             2,
                             self._options.job_stream,
-                            self._application_stream,
+                            self._forward[job.type],
                             message_id,
                             self._options.group,
                             fields[JOB_FIELD],
                         )
                     except RedisError:
-                        log.warning("지원서 작업을 배치 스트림으로 옮기지 못했다. 원본 작업을 유지한다", exc_info=True)
+                        log.warning(
+                            "%s 작업을 내부 스트림으로 옮기지 못했다. 원본 작업을 유지한다", job.type, exc_info=True
+                        )
                     finally:
                         self._slots.release()
                     continue
@@ -188,8 +192,7 @@ class Worker:
                     continue
                 job = _job(fields)
                 resumable = job is not None and (
-                    (self._batch is not None and self._batch.handles(job))
-                    or (self._application_stream is not None and job.type == "application/analyze")
+                    (self._batch is not None and self._batch.handles(job)) or job.type in self._forward
                 )
                 if entry["times_delivered"] >= self._options.attempts and not resumable:
                     log.error("여러 워커가 맡았지만 끝나지 않은 작업을 실패로 끝낸다: %s", message_id)

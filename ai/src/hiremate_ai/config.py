@@ -107,6 +107,8 @@ class Settings(BaseSettings):
     worker_group: str = "ai-worker"
     # 동시에 처리하는 작업 수. 요청을 하나씩 처리하는 로컬 모델(llama.cpp -np 1)은 1, vLLM은 모델 용량에 맞춘다
     worker_concurrency: int = 1
+    # 문서 임베딩 작업(application/index-document)의 동시 처리 수. CPU 임베딩 서비스가 감당할 만큼만 둔다
+    worker_index_concurrency: int = Field(default=1, ge=1)
     # 작업 하나를 처리하는 시도 횟수. 모두 실패하면 FAILED 결과를 보내고 담당자가 다시 요청한다
     worker_attempts: int = 2
     # 작업을 가진 워커가 이 시간 동안 소식이 없으면(멈췄으면) 다른 워커가 가져간다. 처리 중에는 주기적으로 알린다

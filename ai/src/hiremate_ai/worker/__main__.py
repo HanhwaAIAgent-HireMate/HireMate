@@ -21,7 +21,7 @@ from hiremate_ai.llm.call_log import DbCallLog
 from hiremate_ai.llm.client import get_document_normalization_llm, get_worker_llm
 from hiremate_ai.worker.batch import ApplicationBatchJobs
 from hiremate_ai.worker.batch_store import RedisBatchStore
-from hiremate_ai.worker.handlers import job_handlers
+from hiremate_ai.worker.handlers import INDEX_JOB, job_handlers
 from hiremate_ai.worker.runner import Worker, WorkerOptions, connect
 
 log = logging.getLogger("hiremate_ai.worker")
@@ -52,6 +52,8 @@ async def main() -> None:
             application_llm: BatchLlm | None = None
             cleanup: asyncio.Task[None] | None = None
             application_stream = f"{options.job_stream}:application-batch"
+            # 문서 임베딩은 CPU 임베딩 서비스를 쓰므로 다른 작업과 따로 동시 처리 수를 둔다
+            index_stream = f"{options.job_stream}:index-document"
             store = RedisBatchStore(redis, f"{settings.worker_job_stream}:batch")
             # 기능을 꺼도 이미 옮긴 작업과 제공자 배치는 같은 식별자로 마저 처리한다.
             pending_batches = await redis.xlen(application_stream) > 0 or bool(await store.batches())
@@ -94,16 +96,27 @@ async def main() -> None:
                 sessions,
                 normalization_llm_factory=get_document_normalization_llm,
             )
-            worker = Worker(
-                redis,
-                handlers,
+            forward = {INDEX_JOB: index_stream}
+            if settings.application_batch_enabled:
+                forward["application/analyze"] = application_stream
+            worker = Worker(redis, handlers, options, forward=forward)
+            index_options = replace(
                 options,
-                application_stream=application_stream if settings.application_batch_enabled else None,
+                job_stream=index_stream,
+                group=f"{options.group}:index-document",
+                consumer=f"{options.consumer}:index-document",
+                concurrency=settings.worker_index_concurrency,
             )
-            log.info("AI 워커 시작: %s (동시 처리 %d)", options.consumer, options.concurrency)
+            log.info(
+                "AI 워커 시작: %s (동시 처리 %d, 문서 임베딩 %d)",
+                options.consumer,
+                options.concurrency,
+                index_options.concurrency,
+            )
             try:
                 async with asyncio.TaskGroup() as tasks:
                     tasks.create_task(worker.run(stop))
+                    tasks.create_task(Worker(redis, handlers, index_options).run(stop))
                     if batch is not None:
                         batch_options = replace(
                             options,

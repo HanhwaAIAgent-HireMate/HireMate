@@ -31,6 +31,9 @@ from hiremate_ai.tools.embedding import Embedder, get_embedder
 
 Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
+# 문서 임베딩 작업. 워커가 따로 정한 동시 처리 수로 처리한다 (WORKER_INDEX_CONCURRENCY)
+INDEX_JOB = "application/index-document"
+
 
 class PermanentError(Exception):
     """다시 시도해도 같은 결과인 실패. 워커가 재시도하지 않고 바로 FAILED 결과를 보낸다."""
@@ -147,7 +150,7 @@ def job_handlers(
     handlers: dict[str, Handler] = {
         "application/analyze": application_analyze,
         "application/normalize": application_normalize,
-        "application/index-document": application_index_document,
+        INDEX_JOB: application_index_document,
         "interview/questions": interview_questions,
         "assessment/analyze": assessment_analyze,
         "interview-analyst/analyze": interview_analyze,
