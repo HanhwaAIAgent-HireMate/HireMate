@@ -71,6 +71,17 @@ public class ApplicationDocument {
     @Column(nullable = false)
     private Instant normalizationUpdatedAt = Instant.now();
 
+    /** AI가 읽는 본문. 정제를 마쳤으면 정제 문서를 펼친 글이고, 정제 전이거나 정제에 실패했으면 PDF에서 추출한 본문이다. */
+    public String readingText() {
+        return normalizationStatus == DocumentNormalizationStatus.COMPLETED && normalizedDocument != null
+                ? normalizedDocument.readingText() : text;
+    }
+
+    /** 정제가 끝나지 않은 서류인가 (완료도 실패도 아니다). 자격증은 정제하지 않는다. */
+    public boolean normalizing() {
+        return type != DocumentType.CERTIFICATE && normalizationStatus == DocumentNormalizationStatus.PENDING;
+    }
+
     public void queueNormalization(UUID jobId) {
         normalizationJobId = jobId;
         normalizationUpdatedAt = Instant.now();

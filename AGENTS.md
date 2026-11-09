@@ -184,8 +184,10 @@ src/hiremate_ai/
 - 일반 대화는 계획의 `conversation` 답을 `review_conversation`으로 검토하고, 통과하지 못하면 계획을 다시 쓰게 한다.
 - 요청 하나 동안의 값(모델 호출 예산, 계획, 대상, 근거 번호표, 검색 결과, 하위 Agent 결과)은 저장하지 않는
   상태 채널(`state.py`의 `run`, LangGraph `UntrackedValue`)로 노드 사이에 넘긴다.
-- 지원자 분석은 자료가 들어올 때 AI 워커의 분석 Agent가 미리 해 둔다. Root는 그 결과(지원자 프로필, 서류 분석
-  원본)를 읽어 조합하고 원문을 직접 해석하지 않는다. 분석 루프의 `review_documents`(서류 Agent
+- 지원자 분석은 자료가 들어와 서류 정제가 끝나면 AI 워커의 분석 Agent가 미리 해 둔다. Agent가 읽는 지원 문서
+  본문(`ApplicantDocument.text`)은 정제를 마친 서류면 backend가 정제 문서를 펼친 글, 정제 전이거나 실패한 서류면
+  PDF에서 추출한 글이다. Root는 그 결과(지원자 프로필, 서류 분석 원본)를 읽어 조합하고 원문을 직접 해석하지 않는다.
+  분석 루프의 `review_documents`(서류 Agent
   `review_application_documents`), `review_interview`(면접 Agent `analyze_interview`)는 저장된 분석이 없을 때,
   담당자가 다시 검토해 달라고 할 때, 사실 전체의 근거를 봐야 할 때만 부른다. `review_interview`에는 같은 지원자의
   이번 요청 결과 번호만 비교 자료로 넘긴다. Root가 채용 상태를 변경하거나 업무 API를 직접 실행하는 도구는 없다.

@@ -421,8 +421,8 @@ public class ApplicationService {
         }
 
         ApplicantDocument document(JobApplication application, ApplicationDocument document) {
-            String text = hides(application) ? BlindMask.maskApplicant(document.getText(), application.getName())
-                    : document.getText();
+            String text = hides(application) ? BlindMask.maskApplicant(document.readingText(), application.getName())
+                    : document.readingText();
             String fileName = hides(application) ? blindFileName(application, document.getType())
                     : document.getFileName();
             return new ApplicantDocument(document.getType(), document.getFileId(), fileName, document.getSizeBytes(),

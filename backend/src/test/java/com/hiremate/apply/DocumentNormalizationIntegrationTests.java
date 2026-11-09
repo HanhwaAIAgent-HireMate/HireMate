@@ -50,7 +50,7 @@ class DocumentNormalizationIntegrationTests extends IntegrationTest {
     }
 
     @Test
-    @DisplayName("지원자 카드는 정제를 마친 서류의 정제 문서를 주고, 블라인드 채용이면 이름을 가린다 (저장본은 그대로)")
+    @DisplayName("지원자 카드와 AI가 읽는 본문은 정제를 마친 서류의 정제 문서를 쓰고, 블라인드 채용이면 이름을 가린다 (저장본은 그대로)")
     void completedNormalizationIsShownWithTheApplicantNameMasked() throws Exception {
         TestApi hr = newHr();
         Posting posting = publishBlind(hr);
@@ -72,6 +72,10 @@ class DocumentNormalizationIntegrationTests extends IntegrationTest {
         assertThat(shown).extracting(NormalizedDocumentView::type).containsExactly(DocumentType.RESUME);
         var paragraph = (NormalizedDocument.Paragraph) shown.getFirst().document().blocks().getFirst();
         assertThat(paragraph.text()).doesNotContain("정유민").contains("결제 API를 만들었다");
+        // 서류 분석 · 면접 질문 · Chat이 받는 본문도 PDF 글 대신 정제 문서를 펼친 글이다
+        ApplicantDocument resume = applications.detailForAnalysis(applicationId).documents().stream()
+                .filter(document -> document.type() == DocumentType.RESUME).findFirst().orElseThrow();
+        assertThat(resume.text()).doesNotContain("정유민").contains("결제 API를 만들었다");
         assertThat(jdbc.queryForObject("select normalized_document::text from application_documents where id = ?",
                 String.class, documentId)).contains("정유민");
     }

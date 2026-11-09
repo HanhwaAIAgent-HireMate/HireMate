@@ -44,13 +44,38 @@ public class DocumentNormalizationService {
         for (UUID id : documents.findIdsByApplicationId(applicationId)) {
             documents.findLockedById(id).ifPresent(document -> enqueue(application, document));
         }
+        // 정제할 서류가 없거나 모두 바로 실패했으면(글이 없는 PDF 등) 기다릴 결과가 없다
+        announceIfNormalized(applicationId);
     }
 
     @Transactional
     public void recover(Instant before) {
         for (UUID id : documents.findPendingNormalizationIds(before)) {
             documents.findLockedById(id).ifPresent(document -> applications.findById(document.getApplicationId())
-                    .ifPresent(application -> enqueue(application, document)));
+                    .ifPresent(application -> {
+                        enqueue(application, document);
+                        if (!document.normalizing()) {
+                            announceIfNormalized(application.getId());
+                        }
+                    }));
+        }
+    }
+
+    /** 지원서의 서류가 모두 정제를 마쳤는가 (완료 또는 실패). 서류 분석은 이때 시작한다. 자격증은 정제하지 않아 보지 않는다. */
+    @Transactional(readOnly = true)
+    public boolean normalized(UUID applicationId) {
+        return documents.findByApplicationId(applicationId).stream().noneMatch(ApplicationDocument::normalizing);
+    }
+
+    /**
+     * 서류가 모두 정제를 마쳤으면 알린다. 서류 둘의 결과가 동시에 오면 둘 다 상대를 아직 정제 중으로 보아 알리지 못할 수 있는데,
+     * 그 지원서는 분석 복구(ApplicationAnalysisListener.recover)가 다시 맡긴다.
+     */
+    private void announceIfNormalized(UUID applicationId) {
+        if (normalized(applicationId)) {
+            applications.findById(applicationId).ifPresent(application -> events.publishEvent(
+                    new ApplicationDocumentsNormalized(application.getId(), application.getRecruitmentId(),
+                            application.getCompanyId())));
         }
     }
 
@@ -82,13 +107,19 @@ public class DocumentNormalizationService {
                 if (document.getNormalizationStatus() == DocumentNormalizationStatus.COMPLETED) {
                     events.publishEvent(new DocumentNormalized(documentId));
                 }
+                announceIfNormalized(document.getApplicationId());
             }
         });
     }
 
     @Transactional
     public void fail(UUID documentId, UUID jobId) {
-        documents.findLockedById(documentId).ifPresent(document -> document.failNormalization(jobId));
+        documents.findLockedById(documentId).ifPresent(document -> {
+            if (document.awaitsNormalization(jobId)) {
+                document.failNormalization(jobId);
+                announceIfNormalized(document.getApplicationId());
+            }
+        });
     }
 
     @Transactional
