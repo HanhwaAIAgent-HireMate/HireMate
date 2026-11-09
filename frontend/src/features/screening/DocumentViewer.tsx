@@ -29,6 +29,7 @@ import {
 } from '@/features/screening/table'
 import { OriginalPdfLink } from '@/features/screening/OriginalPdfLink'
 import { cn } from '@/lib/utils'
+import { AdminRequestButton } from '@/components/AdminRequestButton'
 
 type Tab = 'RESUME' | 'COVER_LETTER' | 'PORTFOLIO' | 'CERTIFICATE' | 'PROFILE'
 
@@ -308,11 +309,14 @@ function AnalysisBox({
           </div>
         )}
       </div>
-      {status !== 'DONE' ? (
+      {status === 'FAILED' ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-muted-foreground">AI 분석에 실패했어요.</p>
+          <AdminRequestButton />
+        </div>
+      ) : status !== 'DONE' ? (
         <p className="text-muted-foreground">
-          {status === 'FAILED'
-            ? 'AI 분석에 실패했어요.'
-            : 'AI가 서류를 분석하고 있어요. 끝나면 여기에 보여 드려요.'}
+          AI가 서류를 분석하고 있어요. 끝나면 여기에 보여 드려요.
         </p>
       ) : loading || !analysis ? (
         <Skeleton className="h-16 w-full" />

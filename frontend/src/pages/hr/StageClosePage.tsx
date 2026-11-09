@@ -29,6 +29,7 @@ import { useStageOverview, type StageOverview } from '@/features/screening/api'
 import { errorMessage } from '@/lib/api/client'
 import { formatShortDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { toastAiError } from '@/lib/admin-request'
 
 // STG-09 · FIN-01 전형 종료 4단계: 결과 확정 → 합격 · 불합격 안내 → 전형 결과 리포트 → 전형 종료
 // (마지막 전형은 채용 종료). 리포트는 안내를 모두 보낸 뒤 열리고, 전형 종료를 막지 않는다
@@ -337,7 +338,7 @@ function ReportStep({
         setModalId(opened.reportId)
         onRequested()
       },
-      onError: (error) => toast.error(errorMessage(error)),
+      onError: toastAiError,
     })
   const metrics = view
     ? REPORT_METRICS.map((id) => view.bundle.metrics.find((metric) => metric.id === id)).filter(

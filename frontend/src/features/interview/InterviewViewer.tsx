@@ -45,6 +45,7 @@ import { DocumentViewer } from '@/features/screening/DocumentViewer'
 import { errorMessage } from '@/lib/api/client'
 import { formatDateTime, formatMonthDay, toLocalInput } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { toastAiError } from '@/lib/admin-request'
 
 type Tab = 'questions' | 'documents' | 'results'
 
@@ -227,7 +228,7 @@ function Questions({
                   onSuccess: () => {
                     toast.success('질문 재생성을 시작했어요.')
                   },
-                  onError: fail,
+                  onError: toastAiError,
                 })
                 setRegenerating(false)
               }}
