@@ -426,7 +426,8 @@ def verification_claims(
             f"'{result.text}'을 {VERDICT_LABEL[result.verdict]}했다. 판정 이유: {result.reason}"
             + _rule_text(result, rules),
             result.quotes,
-            paragraphs(result.quotes, documents),
+            context=" / ".join(parts := paragraph_parts(result.quotes, documents)),
+            context_parts=tuple(parts),
         )
         for result in judged
     ]
@@ -477,8 +478,14 @@ PARAGRAPH_CHARS = 600
 def paragraphs(
     quotes: Sequence[Quote], documents: Sequence[ApplicantDocument], limit: int | None = PARAGRAPH_CHARS
 ) -> str:
-    """근거 문장이 들어 있는 문단들 (문서 안에서 빈 줄로 나뉜 덩어리). 검증 모델에 줄 때는 문단마다 잘라 쓰고,
-    코드가 찾을 때는(limit=None) 자르지 않는다 (PDF는 빈 줄이 없어 문단이 길다)."""
+    """근거가 나온 문단 또는 근거 주변 맥락을 하나의 문자열로 돌려준다."""
+    return " / ".join(paragraph_parts(quotes, documents, limit=limit))
+
+
+def paragraph_parts(
+    quotes: Sequence[Quote], documents: Sequence[ApplicantDocument], limit: int | None = PARAGRAPH_CHARS
+) -> list[str]:
+    """검증할 때 긴 문단은 인용이 포함된 범위만 주고, 코드에서 찾을 때는 문단 전체를 준다."""
     found: list[str] = []
     for quote in quotes:
         for document in readable(documents):
@@ -486,9 +493,34 @@ def paragraphs(
                 continue
             for paragraph in _PARAGRAPH.split(document.text):
                 text = " ".join(paragraph.split())
-                if _compact(quote.sentence) in _compact(paragraph) and text not in found:
-                    found.append(text[:limit] if limit else text)
-    return " / ".join(found)
+                needle = "".join(_context_character(char) for char in quote.sentence)
+                if not needle:
+                    continue
+                positions: list[int] = []
+                compact: list[str] = []
+                for index, char in enumerate(text):
+                    normalized = _context_character(char)
+                    compact.append(normalized)
+                    positions.extend([index] * len(normalized))
+                start = "".join(compact).find(needle)
+                if start < 0:
+                    continue
+                if limit is None or len(text) <= limit:
+                    part = text
+                else:
+                    quote_start, quote_end = positions[start], positions[start + len(needle) - 1] + 1
+                    step = max(1, limit // 2)
+                    window_start = max(0, (quote_start // step - 1) * step)
+                    window_end = min(len(text), max(window_start + limit, quote_end))
+                    part = text[window_start:window_end]
+                if part not in found:
+                    found.append(part)
+    return found
+
+
+def _context_character(char: str) -> str:
+    """원문 위치를 유지하면서 호환 문자와 분해된 글자를 같은 형태로 찾는다."""
+    return "" if char.isspace() else unicodedata.normalize("NFKD", char).lower()
 
 
 def short_label(text: str) -> str:

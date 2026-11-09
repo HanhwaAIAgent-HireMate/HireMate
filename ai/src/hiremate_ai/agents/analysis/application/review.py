@@ -45,6 +45,7 @@ REVIEW_RULES = """- SUPPORTED: 근거 문장이 주장을 그대로 받쳐 준�
   '○○은 확인, ○○은 미확인'). 그 밖에는 비운다."""
 
 REVIEW_SYSTEM = f"""너는 다른 판정이 원문 근거로 뒷받침되는지 검토한다. 새 판정을 만들지 않는다.
+주장에 적힌 맥락 C번호는 공통 맥락 목록에서 찾아 함께 본다.
 
 {REVIEW_RULES}
 
@@ -70,6 +71,7 @@ class Claim:
     claim: str
     quotes: Sequence[Quote]
     context: str = ""  # 근거 문장이 나온 문단. 판정 검증에만 넘긴다
+    context_parts: tuple[str, ...] = ()  # 여러 주장에 같은 문단이 있으면 한 번만 보낸다
 
 
 async def review_claims(llm: LlmClient, claims: Sequence[Claim]) -> dict[str, ClaimReview]:
@@ -83,12 +85,23 @@ async def review_claims(llm: LlmClient, claims: Sequence[Claim]) -> dict[str, Cl
 
 
 def claim_lines(claims: Sequence[Claim]) -> str:
-    return "\n".join(
-        f"{claim.id}. 주장: {claim.claim}\n   근거: "
-        + " / ".join(quote.sentence for quote in claim.quotes)
-        + (f"\n   맥락: {claim.context}" if claim.context else "")
-        for claim in claims
-    )
+    contexts: dict[str, str] = {}
+    lines: list[str] = []
+    for claim in claims:
+        parts = claim.context_parts or ((claim.context,) if claim.context else ())
+        refs = []
+        for part in parts:
+            if part not in contexts:
+                contexts[part] = f"C{len(contexts) + 1}"
+            refs.append(f"맥락 {contexts[part]}")
+        lines.append(
+            f"{claim.id}. 주장: {claim.claim}\n   근거: "
+            + " / ".join(quote.sentence for quote in claim.quotes)
+            + (f"\n   {', '.join(refs)}" if refs else "")
+        )
+    if contexts:
+        lines.append("\n# 공통 맥락\n" + "\n".join(f"{ref}: {text}" for text, ref in contexts.items()))
+    return "\n".join(lines)
 
 
 def fact_claims(facts: Sequence[Fact], numbers: Sequence[int] | None = None) -> list[Claim]:
