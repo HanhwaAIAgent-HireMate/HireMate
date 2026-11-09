@@ -57,7 +57,7 @@ async def test_rejected_fact_is_dropped_from_the_card_and_from_groups() -> None:
     checked = await verify(llm, facts, numbers, claims, [PORTFOLIO])
 
     [call] = llm.calls
-    assert UNTRUSTED_RULE in call.system and "[1. 주장 검토] reviews" in call.system
+    assert UNTRUSTED_RULE in call.system and "## 1. 주장 검토 (reviews)" in call.system
     # 검토할 주장과 묶을 경험이 같은 번호를 쓴다. 팀 경험은 묶을 후보로 넘기지 않는다
     assert "F4. 주장" in call.user and "F4. [본인]" in call.user and "F1. [" not in call.user
     assert [fact.supported for fact in checked.facts] == [True, True, True, False]

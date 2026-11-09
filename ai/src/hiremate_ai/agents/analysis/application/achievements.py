@@ -22,7 +22,7 @@ from hiremate_ai.agents.analysis.application.types import Achievement, Criterion
 from hiremate_ai.contract import ApplicantDocument, CriterionType, Verdict
 
 # 성과 장부 규칙. 지원자 종합 판정(assess)이 항목 판정과 함께 한 번에 묻는다
-LEDGER_RULES = """[성과]
+LEDGER_RULES = """### 성과
 - 지원자 본인의 행동 뒤에 바뀐 결과의 전후 값이다 (처리 · 소요 시간, 오류율, 건수, 정확도 · 재현율, 비용, 사용 비율 등).
   바뀌기 전 값과 바뀐 뒤 값이 모두 원문에 적힌 것만 뽑는다.
 - 운영 · 팀 규모, 사용량 · 질의 수, 만든 것의 개수, 기간, 버전, 바꾼 설정값(크기 · 개수 · 주기를 얼마에서 얼마로
@@ -45,7 +45,7 @@ LEDGER_RULES = """[성과]
 - condition: 측정 조건이 원문에 있으면 짧게 쓴다 (예: '120문항 기준', '2주 파일럿'). 없으면 비운다.
 - 같은 성과가 여러 문서에 나오면 한 번만 쓴다.
 
-[항목 연결]
+### 항목 연결
 - criteria에는 그 성과를 낸 본인의 일(조치 · 프로젝트)이 그 항목이 묻는 경험에 해당하면 항목 번호를 넣는다.
   한 성과가 여러 항목의 결과일 수 있다. 항목마다 빠짐없이 따져서 같은 성과는 같은 기준으로 연결한다.
 - 예: Python으로 하이브리드 검색을 구현해 정답률이 올랐다 → 검색 품질 개선 항목, Python 개발 항목. 직접 만든

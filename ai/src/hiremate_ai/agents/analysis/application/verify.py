@@ -27,12 +27,19 @@ from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 VERIFY_SYSTEM = f"""너는 다른 단계가 낸 주장을 원문 근거로 검토하고, 검토를 통과한 본인 경험을 묶는다.
 새 사실 · 새 판정을 만들지 않는다.
 
-[1. 주장 검토] reviews
-- claims의 주장마다 근거가 받쳐 주는지 검토한다.
+# 입력
+- claims: 검토할 주장. 사실(F1 …), 평가 항목 판정(Q-01, P-01 …), 수치 성과(R1 …)가 있고, 주장마다 근거와 맥락이 있다.
+- experiences: 묶을 본인 경험 목록. 번호(F1 …)는 claims의 사실 번호와 같다.
+
+# 출력 (이 순서로 쓴다)
+1. reviews: claims의 주장마다 검토. 빠짐없이 쓴다.
+2. highlights: 눈여겨볼 점 묶음. experiences가 없으면 비운다.
+
+## 1. 주장 검토 (reviews)
 {REVIEW_RULES}
 
-[2. 눈여겨볼 점] highlights
-- experiences의 본인 경험을 HR이 눈여겨볼 핵심 기여 1~2개로 묶는다. experiences가 없으면 비운다.
+## 2. 눈여겨볼 점 (highlights)
+- experiences의 본인 경험을 HR이 눈여겨볼 핵심 기여 1~2개로 묶는다.
 - 1번에서 SUPPORTED가 아니라고 본 F 주장은 묶음의 근거(sources)로 쓰지 않는다.
 {HIGHLIGHT_RULES}
 
@@ -68,9 +75,11 @@ async def verify(
     candidates = experiences(facts)
     if not claims and not candidates:
         return Verified({}, list(facts), [])
-    parts = [data_block("claims", claim_lines(claims) or "(없음)")]
-    parts.append(data_block("experiences", experience_lines(candidates) or "(없음)"))
-    parts.append("주장마다 근거가 받쳐 주는지 검토하고, 검토를 통과한 본인 경험을 묶어 줘.")
+    parts = [
+        "# claims\n" + data_block("claims", claim_lines(claims) or "(없음)"),
+        "# experiences\n" + data_block("experiences", experience_lines(candidates) or "(없음)"),
+        "# 요청\n주장마다 근거가 받쳐 주는지 검토하고(reviews), 검토를 통과한 본인 경험을 묶어 줘(highlights).",
+    ]
     answer = await ask(llm, Verification, system=VERIFY_SYSTEM, user="\n\n".join(parts))
     ids = {claim.id for claim in claims}
     reviews = {review.id: review for review in answer.reviews if review.id in ids}
