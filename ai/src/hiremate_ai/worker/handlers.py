@@ -74,7 +74,6 @@ def job_handlers(
                 request.rubric,
                 budget_seconds=remaining,
                 today=batch.today if batch is not None else None,
-                review_extraction=True,
             )
         except RubricScopeError as error:
             started.pop(key, None)

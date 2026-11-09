@@ -254,27 +254,25 @@ async def test_interview_of_another_company_is_permanent(monkeypatch: pytest.Mon
         await handle({"input": sample})
 
 
-async def test_application_worker_reviews_each_extracted_document(
+async def test_application_worker_reads_each_document_once_and_judges_once(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
-    from hiremate_ai.agents.analysis.application.extract import ExtractionCorrections
-    from hiremate_ai.llm.fake import LlmCall
+    from hiremate_ai.agents.analysis.application.assess import ApplicantAssessment
+    from hiremate_ai.agents.analysis.application.reading import DocumentReading
+    from hiremate_ai.agents.analysis.application.verify import Verification
 
-    script = yumin_script()
-
-    def response(call: LlmCall) -> Any:
-        if call.output is ExtractionCorrections:
-            return ExtractionCorrections()
-        return script(call)
-
-    llm = FakeLlm(*([response] * 60))
+    llm = FakeLlm(*([yumin_script()] * 20))
     handle = job_handlers(llm, MemoryStore(), SESSIONS)["application/analyze"]
     applicant = sample_applicants["정유민"]
 
     await handle(payload(applicant, sample_posting, make_rubric()))
 
-    reviewed = [call for call in llm.calls if call.output is ExtractionCorrections]
-    assert len(reviewed) == len([document for document in applicant.documents if document.text.strip()])
+    # 모델 호출은 서류마다 한 번(추출 + 정리) + 종합 판정 한 번 + 검증 한 번이다
+    readable = [document for document in applicant.documents if document.text.strip()]
+    assert sum(issubclass(call.output, DocumentReading) for call in llm.calls) == len(readable)
+    assert sum(call.output is ApplicantAssessment for call in llm.calls) == 1
+    assert sum(call.output is Verification for call in llm.calls) == 1
+    assert len(llm.calls) == len(readable) + 2
 
 
 async def test_normalization_job_returns_policy_json_without_indexing() -> None:

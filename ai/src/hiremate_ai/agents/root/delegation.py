@@ -9,7 +9,8 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
 from hiremate_ai.agents.analysis.application import review_application_documents
-from hiremate_ai.agents.analysis.application.extract import extraction_recipe
+from hiremate_ai.agents.analysis.application.extract import ExtractedFacts
+from hiremate_ai.agents.analysis.application.reading import DocumentReading, reading_recipe, reading_type
 from hiremate_ai.agents.analysis.application.types import Actor
 from hiremate_ai.agents.analysis.interview import (
     AnsweredQuestion,
@@ -150,15 +151,19 @@ class Delegation:
         documents = scope.chat.documents.get(row.application_id, [])
         readable = sum(1 for document in documents if document.text.strip())
         self.progress.status(REVIEWING_APPLICATION.format(name=row.name, count=readable))
-        recipe = extraction_recipe(self.llm)
+        # 서류 분석이 저장한 서류 읽기(추출 + 정리)가 있으면 그 추출을 다시 쓴다
+        recipe = reading_recipe(self.llm)
         extracted = (
             [
-                await self.artifacts.find_extraction(
-                    company_id=scope.company_id,
-                    recruitment_id=scope.recruitment_id,
-                    application_id=row.application_id,
-                    document=document,
-                    recipe_hash=recipe,
+                _extraction(
+                    await self.artifacts.find_reading(
+                        reading_type(document),
+                        company_id=scope.company_id,
+                        recruitment_id=scope.recruitment_id,
+                        application_id=row.application_id,
+                        document=document,
+                        recipe_hash=recipe,
+                    )
                 )
                 if document.text.strip()
                 else None
@@ -318,3 +323,7 @@ def _failure(error: LlmOutputError, agent: ItemAgent, tool_name: str) -> str:
 
 def _readable(scope: RootToolContext, row: CandidateRow) -> bool:
     return any(document.text.strip() for document in scope.chat.documents.get(row.application_id, []))
+
+
+def _extraction(reading: DocumentReading | None) -> ExtractedFacts | None:
+    return ExtractedFacts(facts=reading.facts, periods=reading.periods) if reading is not None else None

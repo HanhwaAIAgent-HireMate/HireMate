@@ -19,6 +19,7 @@ from hiremate_ai.llm.recipe import fingerprint
 
 if TYPE_CHECKING:
     from hiremate_ai.agents.analysis.application.extract import ExtractedFacts
+    from hiremate_ai.agents.analysis.application.reading import DocumentReading
     from hiremate_ai.agents.analysis.application.rubric_draft import RubricDraft
     from hiremate_ai.agents.analysis.interview.types import InterviewAnalysis, InterviewAnalysisInput
     from hiremate_ai.contract import ApplicantDocument, TalentFit
@@ -38,10 +39,32 @@ class AnalysisArtifactReader(Protocol):
         recipe_hash: str,
     ) -> ExtractedFacts | None: ...
 
+    async def find_reading[T: DocumentReading](
+        self,
+        output: type[T],
+        *,
+        company_id: UUID,
+        recruitment_id: UUID,
+        application_id: UUID,
+        document: ApplicantDocument,
+        recipe_hash: str,
+    ) -> T | None: ...
+
     async def find_interview(self, data: InterviewAnalysisInput, *, recipe_hash: str) -> InterviewAnalysis | None: ...
 
 
 class AnalysisArtifactStore(AnalysisArtifactReader, Protocol):
+    async def save_reading(
+        self,
+        reading: DocumentReading,
+        *,
+        company_id: UUID,
+        recruitment_id: UUID,
+        application_id: UUID,
+        document: ApplicantDocument,
+        recipe_hash: str,
+    ) -> None: ...
+
     async def save_extraction(
         self,
         *,
@@ -102,6 +125,49 @@ class DbAnalysisArtifacts:
             application_id,
             None,
             "document_extraction",
+            _document_hash(document),
+            recipe_hash,
+        )
+
+    async def find_reading[T: DocumentReading](
+        self,
+        output: type[T],
+        *,
+        company_id: UUID,
+        recruitment_id: UUID,
+        application_id: UUID,
+        document: ApplicantDocument,
+        recipe_hash: str,
+    ) -> T | None:
+        """서류 읽기(추출 + 정리) 답. 서류 종류마다 형식(output)이 다르다."""
+        return await self._find(
+            output,
+            company_id,
+            recruitment_id,
+            application_id,
+            None,
+            "document_reading",
+            _document_hash(document),
+            recipe_hash,
+        )
+
+    async def save_reading(
+        self,
+        reading: DocumentReading,
+        *,
+        company_id: UUID,
+        recruitment_id: UUID,
+        application_id: UUID,
+        document: ApplicantDocument,
+        recipe_hash: str,
+    ) -> None:
+        await self._save(
+            reading,
+            company_id,
+            recruitment_id,
+            application_id,
+            None,
+            "document_reading",
             _document_hash(document),
             recipe_hash,
         )

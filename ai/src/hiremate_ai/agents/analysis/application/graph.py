@@ -1,9 +1,12 @@
-"""Application Agent 흐름 (LangGraph). 준비 → 추출 · 합치기 → 판정 → 검증 → 재확인 → 정리.
+"""Application Agent 흐름 (LangGraph). 준비 → 서류 읽기 → 종합 판정 → 검증 → 재판정 → 정리.
 
-Application 부분(extract)은 사실 · 본인 역할 · 수행 범위 · 근거 · 경력 기간을 뽑고 점수를 매기지 않는다.
-Assessment 부분(judge)은 자격요건 · 우대사항을 같은 판정 체계로 판정한다. 검증은 인용이 있는 충족 · 부분 충족
-판정이 근거로 받쳐지는지 보고, 재확인은 확인 필요(UNKNOWN) 항목만 1차(주변 문맥 · 본인 역할) · 2차(다른 제출 문서)로
-다시 판정한다. 점수는 매기지 않고, 정리 단계에서 확인 필요로 남은 항목을 모은다.
+모델 호출은 지원자당 서류 수 + 2번(+ 재판정 1번)이다.
+- 서류 읽기(read): 서류마다 한 번, 사실 · 본인 역할 · 근거 · 경력 기간 추출과 그 서류의 정리(요약)를 함께 받는다.
+- 종합 판정(assess): 서류 전체를 한 번 보고 자격요건 · 우대사항 판정, 성과 장부, 주의 신호, 직무 관련 경력을 받는다.
+- 검증(verify): 종합 판정과 다른 호출로, 인용이 있는 충족 · 부분 충족 판정 · 눈여겨볼 사실 · 성과를 검토하고
+  검토를 통과한 본인 경험으로 눈여겨볼 점을 묶는다.
+- 재판정(recheck): 확인 필요(UNKNOWN)로 남은 항목만 모아 한 번 다시 판정한다.
+점수는 매기지 않고, 정리 단계에서 확인 필요로 남은 항목을 모은다.
 입력은 그래프 상태가 아니라 실행 context로 넘긴다. 체크포인터는 쓰지 않는다. 같은 입력이면 저장된 결과를 쓴다.
 """
 
@@ -21,23 +24,21 @@ from hiremate_ai.agents.analysis.application.achievements import (
     achievement_claims,
     apply_achievement_reviews,
     attach,
-    collect_achievements,
 )
+from hiremate_ai.agents.analysis.application.assess import assess
 from hiremate_ai.agents.analysis.application.career import career_years, last_company
 from hiremate_ai.agents.analysis.application.context import readable
-from hiremate_ai.agents.analysis.application.digest import digest
-from hiremate_ai.agents.analysis.application.extract import extract_documents, extraction_recipe, merge, summarize
-from hiremate_ai.agents.analysis.application.highlight import TEAM_ROLE_CHECK, highlight
-from hiremate_ai.agents.analysis.application.job_career import JobFit, job_notes, job_periods, job_related
+from hiremate_ai.agents.analysis.application.extract import merge
+from hiremate_ai.agents.analysis.application.highlight import TEAM_ROLE_CHECK
+from hiremate_ai.agents.analysis.application.job_career import JobFit, job_notes, job_periods
 from hiremate_ai.agents.analysis.application.judge import (
     Evidence,
     apply_verification,
-    asks_career_years,
-    judge_criteria,
-    recheck_criterion,
+    recheck_criteria,
     verification_claims,
 )
-from hiremate_ai.agents.analysis.application.review import apply_to_facts, fact_claims, review_claims
+from hiremate_ai.agents.analysis.application.reading import read_documents, reading_recipe, reading_type
+from hiremate_ai.agents.analysis.application.review import fact_claims
 from hiremate_ai.agents.analysis.application.types import (
     VERDICT_LABEL,
     Achievement,
@@ -51,13 +52,14 @@ from hiremate_ai.agents.analysis.application.types import (
     Note,
     Period,
 )
-from hiremate_ai.agents.analysis.application.warnings import code_warnings, detect_warnings
+from hiremate_ai.agents.analysis.application.verify import verify as verify_claims
+from hiremate_ai.agents.analysis.application.warnings import code_warnings
 from hiremate_ai.config import settings
 from hiremate_ai.contract import ApplicantDetail, CriterionCategory, PostingContent, Verdict
 from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.llm.client import LlmClient
 
-REVIEW_VERSION = "2026-11-09.3"
+REVIEW_VERSION = "2026-11-10.1"
 # 카드의 '눈여겨볼 점' 후보로 검토하는 사실 수
 NOTABLE_CANDIDATES = 6
 NOTABLE_KINDS = ("ACHIEVEMENT", "PROJECT", "EXPERIENCE")
@@ -82,7 +84,6 @@ class ReviewInput:
     deadline: float | None = None
     company_id: UUID | None = None
     artifacts: AnalysisArtifactStore | None = None
-    review_extraction: bool = False
 
 
 class ReviewState(TypedDict, total=False):
@@ -106,15 +107,18 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
     def prepare(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
         return {"readable": bool(readable(runtime.context.applicant.documents))}
 
-    async def extract(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
+    async def read(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
         context = runtime.context
         documents = readable(context.applicant.documents)
         artifacts = context.artifacts
-        recipe = extraction_recipe(llm, review=context.review_extraction)
+        recipe = reading_recipe(llm)
+        stored = artifacts is not None and recipe is not None and context.company_id is not None
         cached = None
-        if artifacts is not None and recipe is not None and context.company_id is not None:
+        if stored:
+            assert artifacts is not None and recipe is not None and context.company_id is not None
             cached = [
-                await artifacts.find_extraction(
+                await artifacts.find_reading(
+                    reading_type(document),
                     company_id=context.company_id,
                     recruitment_id=context.applicant.info.recruitment_id,
                     application_id=context.applicant.info.application_id,
@@ -123,109 +127,81 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
                 )
                 for document in documents
             ]
-        extracted, sections, digests, achievements = await asyncio.gather(
-            extract_documents(
-                llm, documents, settings.application_concurrency, cached=cached, review=context.review_extraction
-            ),
-            summarize(llm, documents, blind=context.posting.blind),
-            digest(llm, documents, blind=context.posting.blind),
-            collect_achievements(llm, documents, context.criteria),
+        readings, answers = await read_documents(
+            llm, documents, settings.application_concurrency, blind=context.posting.blind, cached=cached
         )
-        if artifacts is not None and recipe is not None and context.company_id is not None:
-            for document, result in zip(documents, extracted, strict=True):
-                await artifacts.save_extraction(
-                    company_id=context.company_id,
-                    recruitment_id=context.applicant.info.recruitment_id,
-                    application_id=context.applicant.info.application_id,
-                    document=document,
-                    recipe_hash=recipe,
-                    extracted=result,
-                )
-        facts, periods = merge(documents, extracted, context.today, blind=context.posting.blind)
+        if stored:
+            assert artifacts is not None and recipe is not None and context.company_id is not None
+            for document, answer, saved in zip(documents, answers, cached or [], strict=True):
+                if answer is not None and saved is None:
+                    await artifacts.save_reading(
+                        answer,
+                        company_id=context.company_id,
+                        recruitment_id=context.applicant.info.recruitment_id,
+                        application_id=context.applicant.info.application_id,
+                        document=document,
+                        recipe_hash=recipe,
+                    )
+        facts, periods = merge(
+            documents, [reading.extracted for reading in readings], context.today, blind=context.posting.blind
+        )
         return {
             "facts": facts,
             "periods": periods,
-            "sections": sections,
-            "digests": digests,
-            "achievements": achievements,
+            "sections": [section for reading in readings for section in reading.sections],
+            "digests": [reading.digest for reading in readings if reading.digest is not None],
         }
 
     async def judge(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
+        """항목 판정 · 성과 장부 · 주의 신호 · 직무 관련 경력을 한 번에 받는다."""
         context = runtime.context
-        documents = context.applicant.documents
-        periods = state.get("periods") or []
-        if any(asks_career_years(criterion) for criterion in context.criteria):
-            # 경력 기간 항목은 화면의 경력 연수와 같은 직무 관련 기간으로 센다. 그래서 직무 관련 경력을 먼저 고르고
-            # 판정의 경력표에는 그 기간만 준다
-            job_fit = await job_related(llm, periods, context.posting, documents)
-            evidence = _evidence({**state, "job_fit": job_fit}, context)
-            results, warnings = await asyncio.gather(
-                judge_criteria(llm, context.criteria, evidence, settings.application_full_text_chars),
-                detect_warnings(llm, documents),
-            )
-        else:
-            # 평가 항목 판정, 서류 주의 신호 찾기, 직무 관련 경력 고르기는 서로 기다리지 않아 함께 돌린다
-            results, warnings, job_fit = await asyncio.gather(
-                judge_criteria(llm, context.criteria, _evidence(state, context), settings.application_full_text_chars),
-                detect_warnings(llm, documents),
-                job_related(llm, periods, context.posting, documents),
-            )
-        return {"results": results, "warnings": warnings, "job_fit": job_fit}
+        found = await assess(llm, context.criteria, _evidence(state, context), context.posting)
+        return {
+            "results": found.results,
+            "achievements": found.achievements,
+            "warnings": found.warnings,
+            "job_fit": found.job_fit,
+        }
 
     async def verify(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
-        """카드에 보일 사실과, 인용이 있는 충족 · 부분 충족 판정을 한 번에 검증한다."""
+        """카드에 보일 사실, 인용이 있는 충족 · 부분 충족 판정, 성과를 한 번에 검토하고 눈여겨볼 점을 묶는다."""
         facts = state.get("facts") or []
         results = state.get("results") or []
-        notable = _notable_candidates(facts)
         documents = runtime.context.applicant.documents
         achievements = state.get("achievements") or []
+        # 눈여겨볼 점 후보 사실. 번호는 사실 목록 전체의 위치라 묶을 경험과 같은 번호를 쓴다
+        numbers = _notable_numbers(facts)
         # 판정 검증은 그 항목에 연결된 성과 문장까지 근거로 본다 (구현 문장만 보고 운영 · 성과를 과장이라 보지 않게).
         # 성과 자체는 항목마다가 아니라 성과마다 한 번 검증한다
-        claims = verification_claims(attach(results, achievements, metric=False), documents, runtime.context.criteria)
-        reviews = await review_claims(
-            llm, [*fact_claims(notable), *claims, *achievement_claims(achievements, documents)]
-        )
-        achievements = apply_achievement_reviews(achievements, reviews)
-        # notable은 facts의 같은 객체를 고른 것이라 객체 id로 짝을 짓는다 (리스트 필드가 있어 해시할 수 없다)
-        reviewed = {id(fact): new for fact, new in zip(notable, apply_to_facts(notable, reviews), strict=True)}
-        checked = [reviewed.get(id(fact), fact) for fact in facts]
-        checked_results = attach(apply_verification(results, reviews), achievements)
+        claims = [
+            *fact_claims([facts[number - 1] for number in numbers], numbers),
+            *verification_claims(attach(results, achievements, metric=False), documents, runtime.context.criteria),
+            *achievement_claims(achievements, documents),
+        ]
+        checked = await verify_claims(llm, facts, numbers, claims, readable(documents))
+        achievements = apply_achievement_reviews(achievements, checked.reviews)
         return {
-            "facts": checked,
+            "facts": checked.facts,
             "achievements": achievements,
-            "results": checked_results,
+            "results": attach(apply_verification(results, checked.reviews), achievements),
             # 검토를 통과한 본인 경험을 같은 일끼리 묶은 눈여겨볼 점
-            "notable": await highlight(llm, checked, readable(documents)),
+            "notable": checked.notable,
         }
 
     async def recheck(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
-        """확인 필요 항목만 1차 · 2차로 다시 판정한다. 항목마다 최대 settings.application_rechecks번, 시간 안에서."""
+        """확인 필요 항목만 모아 한 번 다시 판정한다 (분석 시간 안에서)."""
         context = runtime.context
-        evidence = _evidence(state, context)
-        criteria = {criterion.criterion_id: criterion for criterion in context.criteria}
         results = list(state.get("results") or [])
-        gate = asyncio.Semaphore(settings.application_concurrency)
-
-        async def one(result: CriterionResult, round_no: int) -> CriterionResult:
-            criterion = criteria.get(result.criterion_id)
-            if criterion is None or result.verdict != Verdict.UNKNOWN or result.certificate_status is not None:
-                return result
-            async with gate:
-                again = await recheck_criterion(llm, criterion, result, evidence, round_no)
-            return again or result
-
-        for round_no in range(1, settings.application_rechecks + 1):
-            if not any(result.verdict == Verdict.UNKNOWN for result in results) or not _has_time(context):
-                break
-            results = list(await asyncio.gather(*(one(result, round_no) for result in results)))
-        # 재확인으로 충족이 된 항목에도 같은 장부의 성과를 붙인다
+        if _has_time(context):
+            results = await recheck_criteria(llm, context.criteria, results, _evidence(state, context))
+        # 재판정으로 충족이 된 항목에도 같은 장부의 성과를 붙인다
         return {"results": attach(results, state.get("achievements") or [])}
 
     def finalize(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
         return {"review": _finalize(state, runtime.context)}
 
     def after_prepare(state: ReviewState) -> str:
-        return "extract" if state.get("readable") else "finalize"
+        return "read" if state.get("readable") else "finalize"
 
     def after_verify(state: ReviewState) -> str:
         unknown = any(result.verdict == Verdict.UNKNOWN for result in state.get("results") or [])
@@ -235,14 +211,14 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
         ReviewState, context_schema=ReviewInput
     )
     graph.add_node("prepare", prepare)
-    graph.add_node("extract", extract)
+    graph.add_node("read", read)
     graph.add_node("judge", judge)
     graph.add_node("verify", verify)
     graph.add_node("recheck", recheck)
     graph.add_node("finalize", finalize)
     graph.add_edge(START, "prepare")
     graph.add_conditional_edges("prepare", after_prepare)
-    graph.add_edge("extract", "judge")
+    graph.add_edge("read", "judge")
     graph.add_edge("judge", "verify")
     graph.add_conditional_edges("verify", after_verify)
     graph.add_edge("recheck", "finalize")
@@ -259,7 +235,8 @@ async def run_review(llm: LlmClient, context: ReviewInput) -> ApplicationReview:
 
 
 def _evidence(state: ReviewState, context: ReviewInput) -> Evidence:
-    """판정 자료. 직무 관련 경력을 골랐으면 경력표에는 그 기간만 둔다 (경력 기간 항목과 경력 연수의 기준을 맞춘다)."""
+    """판정 자료. 종합 판정 전에는 뽑은 기간 전체를, 직무 관련 경력을 고른 뒤(재판정)에는 그 기간만 경력표에 둔다
+    (경력 기간 항목과 경력 연수의 기준을 맞춘다)."""
     periods = state.get("periods") or []
     return Evidence(
         documents=readable(context.applicant.documents),
@@ -276,9 +253,13 @@ def _has_time(context: ReviewInput) -> bool:
     return context.deadline - asyncio.get_running_loop().time() > settings.application_recheck_reserve_seconds
 
 
-def _notable_candidates(facts: list[Fact]) -> list[Fact]:
-    chosen = [fact for fact in facts if fact.actor == Actor.SELF and fact.kind in NOTABLE_KINDS]
-    chosen.sort(key=lambda fact: NOTABLE_KINDS.index(fact.kind))
+def _notable_numbers(facts: list[Fact]) -> list[int]:
+    """카드의 '눈여겨볼 점' 후보로 검토할 사실 번호(facts 안의 위치, 1부터).
+    본인 경험을 성과 · 프로젝트 · 경험 순으로 고른다."""
+    chosen = [
+        number for number, fact in enumerate(facts, start=1) if fact.actor == Actor.SELF and fact.kind in NOTABLE_KINDS
+    ]
+    chosen.sort(key=lambda number: NOTABLE_KINDS.index(facts[number - 1].kind))
     return chosen[:NOTABLE_CANDIDATES]
 
 

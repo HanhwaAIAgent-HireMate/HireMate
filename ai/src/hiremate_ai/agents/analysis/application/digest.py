@@ -8,7 +8,6 @@
 - 블라인드 채용이면 학력 · 출신 학교가 나오는 행과 항목을 뺀다.
 """
 
-import asyncio
 import re
 from collections.abc import Sequence
 
@@ -28,25 +27,31 @@ _COMMON = """- 서류에 적힌 것만 옮긴다. 추측하거나 보태지 않�
 - evidence는 그 행을 받치는 원문 문장 1~2개다 (원문 글자 그대로).
 - 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 쓰지 않는다."""
 
-RESUME_SYSTEM = f"""너는 이력서 한 건을 담당자가 훑어보기 좋은 표로 정리한다.
-
-- careers: 재직 · 인턴 · 프리랜서 경력. 회사마다 한 행, 최근 것부터. period는 '2022.03 ~ 2025.02'처럼 원문 표기 그대로,
-  organization은 회사 이름, role은 부서 · 직무 · 직급, duties는 맡은 일 한 줄이다.
+# 이력서 · 포트폴리오 정리 규칙. 서류 읽기(reading)가 사실 추출 규칙과 함께 한 번에 묻는다
+RESUME_RULES = f"""- careers: 재직 · 인턴 · 프리랜서 경력. 회사마다 한 행, 최근 것부터.
+  period는 '2022.03 ~ 2025.02'처럼 원문 표기 그대로, organization은 회사 이름,
+  role은 부서 · 직무 · 직급, duties는 맡은 일 한 줄이다.
 - experiences: 프로젝트 · 주요 업무 경험. 경험마다 한 행. project는 이름, actions는 본인이 한 일(팀이 한 일은 빼고 본인
   역할만), result는 원문에 적힌 성과(수치가 있으면 '무엇 전 → 후' 그대로).
   성과가 없으면 비운다.
 - skills: 기술 · 도구 이름. certificates: 자격증 · 어학 · 수상 한 줄씩 (이름과 연월).
-{_COMMON}
+{_COMMON}"""
+
+PORTFOLIO_RULES = f"""- projects: 프로젝트마다 하나, 원문 순서대로. title은 프로젝트 이름(없으면 다룬 주제),
+  problem은 해결하려던 문제, solution은 본인이 한 해결(팀이 한 일은 빼고 본인 역할만),
+  skills는 그 프로젝트에 쓴 기술 · 도구 이름(원문 표기 그대로),
+  result는 원문에 적힌 성과(수치가 있으면 '무엇 전 → 후' 그대로).
+{_COMMON}"""
+
+RESUME_SYSTEM = f"""너는 이력서 한 건을 담당자가 훑어보기 좋은 표로 정리한다.
+
+{RESUME_RULES}
 
 {UNTRUSTED_RULE}"""
 
 PORTFOLIO_SYSTEM = f"""너는 포트폴리오 한 건을 프로젝트마다 카드로 정리한다.
 
-- projects: 프로젝트마다 하나, 원문 순서대로. title은 프로젝트 이름(없으면 다룬 주제), problem은 해결하려던 문제,
-  solution은 본인이 한 해결(팀이 한 일은 빼고 본인 역할만),
-  skills는 그 프로젝트에 쓴 기술 · 도구 이름(원문 표기 그대로),
-  result는 원문에 적힌 성과(수치가 있으면 '무엇 전 → 후' 그대로).
-{_COMMON}
+{PORTFOLIO_RULES}
 
 {UNTRUSTED_RULE}"""
 
@@ -92,16 +97,8 @@ PROJECT_COLUMNS = ["문제", "해결", "성과"]
 _NUMBER = re.compile(r"\d[\d,.]*")
 
 
-async def digest(
-    llm: LlmClient, documents: Sequence[ApplicantDocument], *, blind: bool = False
-) -> list[DocumentDigest]:
-    """이력서 · 포트폴리오를 문서마다 한 번씩 물어 정리한다. 자기소개서는 문항별 요약(summarize)이 맡는다."""
-    targets = [document for document in documents if document.type in (DocumentType.RESUME, DocumentType.PORTFOLIO)]
-    results = await asyncio.gather(*(_digest(llm, document, blind) for document in targets))
-    return [result for result in results if result.sections]
-
-
-async def _digest(llm: LlmClient, document: ApplicantDocument, blind: bool) -> DocumentDigest:
+async def digest_document(llm: LlmClient, document: ApplicantDocument, *, blind: bool = False) -> DocumentDigest:
+    """이력서 · 포트폴리오 정리만 묻는다. 서류 읽기(reading)가 추출과 함께 묻다가 출력 한도에서 잘리면 쓴다."""
     if document.type == DocumentType.RESUME:
         resume = await ask(
             llm,

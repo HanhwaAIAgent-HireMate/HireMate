@@ -1,10 +1,9 @@
 from uuid import uuid4
 
-from hiremate_ai.agents.analysis.application.highlight import _Highlight, _Highlights, check_highlights, highlight
+from hiremate_ai.agents.analysis.application.highlight import Highlight, check_highlights, experiences
 from hiremate_ai.agents.analysis.application.judge import verification_claims
 from hiremate_ai.agents.analysis.application.types import Actor, CriterionResult, Fact, Note, Quote
 from hiremate_ai.contract import ApplicantDocument, CriterionCategory, CriterionType, DocumentType, Verdict
-from hiremate_ai.llm.fake import FakeLlm
 
 
 def fact(statement: str, sentence: str, actor: Actor = Actor.SELF) -> Fact:
@@ -21,11 +20,11 @@ TUNE = fact("배치 처리 시간을 줄였다", "쿼리를 나눠 처리 시간
 TEAM = fact("팀이 정산 시스템을 이관했다", "팀이 정산 시스템을 이관했습니다.", Actor.TEAM)
 
 
-async def test_same_work_is_grouped_with_its_metric() -> None:
-    grouped = _Highlight(title="정산 배치 개선", detail="배치 작성", metric="40분 → 12분", sources=["F1", "F2"])
-    llm = FakeLlm(_Highlights(items=[grouped]))
+def test_same_work_is_grouped_with_its_metric() -> None:
+    grouped = Highlight(title="정산 배치 개선", detail="배치 작성", metric="40분 → 12분", sources=["F1", "F2"])
+    numbered = experiences([BUILD, TUNE, TEAM])
 
-    notes = await highlight(llm, [BUILD, TUNE, TEAM])
+    notes = check_highlights(dict(numbered), [grouped])
 
     # 화면 카드가 제목 · 내용 · 지표를 따로 보이도록 나눠 담고, text는 셋을 이은 한 줄이다
     assert notes == [
@@ -38,22 +37,19 @@ async def test_same_work_is_grouped_with_its_metric() -> None:
         )
     ]
     # 팀 경험은 묶을 후보로 넘기지 않는다
-    assert "팀이 정산 시스템을 이관했다" not in llm.calls[0].user
+    assert [number for number, _ in numbered] == [1, 2]
 
 
-async def test_one_own_fact_needs_no_grouping() -> None:
-    llm = FakeLlm()
-
-    assert await highlight(llm, [BUILD, TEAM]) == []
-    assert llm.calls == []
+def test_one_own_fact_needs_no_grouping() -> None:
+    assert experiences([BUILD, TEAM]) == []
 
 
 def test_groups_with_unknown_sources_or_invented_numbers_are_dropped() -> None:
     facts = {1: BUILD, 2: TUNE}
     items = [
-        _Highlight(title="없는 근거", detail="배치 작성", sources=["F9"]),
-        _Highlight(title="지어낸 숫자", detail="처리 시간 70% 단축", sources=["F2"]),
-        _Highlight(title="정산 배치 개선", detail="처리 시간 40분 → 12분", sources=["f2"]),
+        Highlight(title="없는 근거", detail="배치 작성", sources=["F9"]),
+        Highlight(title="지어낸 숫자", detail="처리 시간 70% 단축", sources=["F2"]),
+        Highlight(title="정산 배치 개선", detail="처리 시간 40분 → 12분", sources=["f2"]),
     ]
 
     assert [note.text for note in check_highlights(facts, items)] == ["정산 배치 개선 — 처리 시간 40분 → 12분"]
@@ -87,7 +83,7 @@ def test_verification_sees_the_paragraph_of_each_quote() -> None:
 def test_dropped_measurement_condition_is_put_back() -> None:
     # 원문 괄호 속 단서(다른 효과 포함)를 지표에서 빼면 성과가 과장돼 보여 다시 붙인다
     tuned = fact("대기 시간을 줄였다", "평균 대기 38초 → 21초(같은 시기 보상 개편 효과 포함)로 줄었습니다.")
-    item = _Highlight(title="매칭 개선", detail="매칭 구조 개선", metric="평균 대기 38초 → 21초", sources=["F1", "F2"])
+    item = Highlight(title="매칭 개선", detail="매칭 구조 개선", metric="평균 대기 38초 → 21초", sources=["F1", "F2"])
 
     [note] = check_highlights({1: BUILD, 2: tuned}, [item])
 
@@ -102,7 +98,7 @@ def test_team_work_paragraph_is_marked_when_own_role_is_missing() -> None:
     document = ApplicantDocument(type=DocumentType.PORTFOLIO, file_id=uuid4(), file_name="", size=1, text=text)
     rebuilt = fact("집계 배치를 다시 만들었다", "3명이 함께 재고 집계 배치를 다시 만들었습니다.")
     faster = fact("집계 시간을 줄였다", "집계 시간이 2시간에서 30분으로 줄었습니다.", Actor.UNCLEAR)
-    item = _Highlight(title="재고 집계 재구축", detail="집계 배치 재작성", metric="2시간 → 30분", sources=["F1", "F2"])
+    item = Highlight(title="재고 집계 재구축", detail="집계 배치 재작성", metric="2시간 → 30분", sources=["F1", "F2"])
 
     [note] = check_highlights({1: rebuilt, 2: faster}, [item], [document])
 
@@ -120,7 +116,7 @@ def test_team_project_shows_the_stated_own_role() -> None:
         "집계 배치를 재구축했다", "재고 집계 재구축 (사내) | 역할: 설계 · 구현 리드 (운영팀 3명) | 인원: 3명"
     )
     faster = fact("집계 시간을 줄였다", "집계 시간을 2시간에서 30분으로 줄였습니다.")
-    item = _Highlight(title="재고 집계 재구축", detail="집계 배치 재작성", metric="2시간 → 30분", sources=["F1", "F2"])
+    item = Highlight(title="재고 집계 재구축", detail="집계 배치 재작성", metric="2시간 → 30분", sources=["F1", "F2"])
 
     [note] = check_highlights({1: rebuilt, 2: faster}, [item], [document])
 

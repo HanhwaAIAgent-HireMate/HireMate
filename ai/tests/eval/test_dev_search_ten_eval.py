@@ -1,27 +1,20 @@
 """고정된 가상 지원자 10명으로 검색 후보와 판정 변동을 실제 모델에 평가한다."""
 
 import json
-import time
 from collections.abc import Mapping, Sequence
-from datetime import date
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import pytest
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
-from eval.test_dev_search_eval import dev_context
-from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, extract_documents, merge
-from hiremate_ai.agents.guardrails import evidence_source
+from hiremate_ai.agents.analysis.application.extract import ExtractedFacts
 from hiremate_ai.agents.root.find import CriteriaResult, RecheckItem, RecheckResult
-from hiremate_ai.config import settings
-from hiremate_ai.contract import ApplicantDetail, CompanyProfile, PostingContent
 from hiremate_ai.llm.call_log import CallRecord
 from hiremate_ai.llm.chat import ToolAgent
-from hiremate_ai.llm.client import LlmClient, build_llm
+from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.fake import FakeLlm
 from hiremate_ai.tools.candidates import CandidateMatch, CandidateSearch
 from hiremate_ai.tools.scope import ToolScope
@@ -115,71 +108,3 @@ def capture_search(search: CandidateSearch, captured: list[CandidateMatch]) -> C
         return found
 
     return capture
-
-
-@pytest.mark.skipif(not settings.llm_eval, reason="LLM_EVAL=true일 때 실제 모델로 평가한다")
-async def test_ten_document_extraction_with_real_model(
-    sample_applicants: dict[str, ApplicantDetail],
-    sample_company: CompanyProfile,
-    sample_posting: PostingContent,
-) -> None:
-    context = dev_context(sample_applicants, sample_company, sample_posting, "")
-    metrics = Metrics()
-    llm = build_llm(metrics)
-    for row in context.candidates:
-        if row.name not in GOLD["candidates"]:
-            continue
-        docs = context.documents[row.application_id]
-        observer = ExtractionObserver(llm)
-        started = time.monotonic()
-        before_calls = len(metrics.records)
-        reviewed = []
-        for document in docs:
-            reviewed.extend(await extract_documents(observer, [document], 1, review=True))
-        assert len(observer.first) == len(docs)
-        first, _ = merge(docs, observer.first, date(2026, 11, 5))
-        after, _ = merge(docs, reviewed, date(2026, 11, 5))
-        before_statements = {fact.statement for fact in first}
-        after_statements = {fact.statement for fact in after}
-        verified = [
-            evidence_source(quote.sentence, [doc for doc in docs if doc.type == quote.document]) == quote.document
-            for fact in after
-            for quote in fact.quotes
-        ]
-        refs = [
-            (case["id"], entry["quote"])
-            for case in GOLD["cases"]
-            for entry in case["include"]
-            if entry["name"] == row.name
-        ]
-
-        def contains_anchor(facts: list[Any], text: str) -> bool:
-            return any(
-                text in quote.sentence or (len(quote.sentence) >= 20 and quote.sentence in text)
-                for fact in facts
-                for quote in fact.quotes
-            )
-
-        records = metrics.records[before_calls:]
-        event = {
-            "name": row.name,
-            "documents": len(docs),
-            "first_facts": len(first),
-            "reviewed_facts": len(after),
-            "new_or_reworded": len(after_statements - before_statements),
-            "removed_or_reworded": len(before_statements - after_statements),
-            "added_facts": [fact.model_dump(mode="json") for fact in after if fact.statement not in before_statements],
-            "removed_facts": [fact.model_dump(mode="json") for fact in first if fact.statement not in after_statements],
-            "reviewed_quotes": len(verified),
-            "verified_quotes": sum(verified),
-            "anchors": [
-                {"case": case, "first": contains_anchor(first, quote), "reviewed": contains_anchor(after, quote)}
-                for case, quote in refs
-            ],
-            "calls": len(records),
-            "input_tokens": sum(record.input_tokens or 0 for record in records),
-            "output_tokens": sum(record.output_tokens or 0 for record in records),
-            "seconds": round(time.monotonic() - started, 2),
-        }
-        print(json.dumps(event, ensure_ascii=True), flush=True)
-        assert all(verified)

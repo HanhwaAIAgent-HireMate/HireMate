@@ -87,7 +87,6 @@ async def analyze(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> Appl
             request.posting,
             request.rubric,
             budget_seconds=settings.application_timeout_seconds,
-            review_extraction=True,
         )
     except RubricScopeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -111,7 +110,6 @@ async def candidate(request: AnalyzeRequest, llm: LlmDep, store: StoreDep) -> Ca
             request.posting,
             request.rubric,
             budget_seconds=settings.application_card_timeout_seconds,
-            review_extraction=True,
         )
     except RubricScopeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
