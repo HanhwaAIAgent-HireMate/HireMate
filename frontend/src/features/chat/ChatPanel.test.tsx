@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
@@ -118,6 +118,23 @@ describe('ChatPanel', () => {
     panel.show('t1')
     expect(await screen.findByText(ANSWER.message)).toBeInTheDocument()
     expect(screen.getByText('금융 경험 찾아줘')).toBeInTheDocument()
+  })
+
+  it('멘션하고 보내면 입력창의 멘션 칩은 지우고 보낸 질문에만 남긴다', async () => {
+    const server = mockServer()
+    renderPanel()
+    const input = screen.getByRole('textbox', { name: 'AI Chat 입력' })
+    expect(input).toHaveAttribute('placeholder', '@이름으로 지원자를 멘션해 물어보세요')
+    await waitFor(() => expect(screen.getByRole('button', { name: '보내기' })).toBeInTheDocument())
+    act(() => useStageUi.getState().addMention({ applicationId: 'a1', name: '김지현' }))
+
+    fireEvent.change(input, { target: { value: '경력 알려줘' } })
+    fireEvent.submit(input.closest('form') as HTMLFormElement)
+    await waitFor(() => expect(server.asked).toEqual(['/api/stages/s1/tabs/t1/chat']))
+
+    expect(useStageUi.getState().mentions).toEqual([])
+    expect(screen.queryByRole('button', { name: '김지현 참조 해제' })).not.toBeInTheDocument()
+    expect(screen.getByText('@김지현')).toBeInTheDocument()
   })
 
   it('질문에 질문한 담당자 이름을 붙이고, 첫 답 뒤에 온 탭 제목으로 탭 이름을 바꾼다', async () => {

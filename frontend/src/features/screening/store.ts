@@ -64,14 +64,14 @@ export const useStageUi = create<StageUiState>((set) => ({
         (id) => !state.selection?.includes(id) || selection.includes(id),
       ),
     })),
-  // 행이나 카드를 누르면 카드가 열리고 Chat 입력창에 칩이 들어간다 (STG-06)
+  // 행이나 카드를 누르면 카드가 열리고 Chat 입력창에 칩이 더해진다 (STG-06). 여러 명을 차례로 누르면 모두 멘션된다
   open: (candidate) =>
     set((state) => ({
       openId: candidate?.applicationId ?? null,
       mentions:
         candidate &&
         !state.mentions.some((mention) => mention.applicationId === candidate.applicationId)
-          ? [candidate]
+          ? [...state.mentions, candidate]
           : state.mentions,
     })),
   // 표를 열면 열린 카드를 닫는다. 표에서 지원자를 열면 카드가 표 위에 열리고, 뒤로 가면 표로 돌아온다

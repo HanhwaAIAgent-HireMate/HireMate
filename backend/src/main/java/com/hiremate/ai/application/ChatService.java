@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -120,6 +121,7 @@ public class ChatService {
             mentions = mentions.stream().filter(interviewerRoles::containsKey).toList();
             checked = checked.stream().filter(interviewerRoles::containsKey).toList();
         }
+        mentions = withNamed(message, mentions, candidates);
         List<ChatContext.Stage> stages = recruitment.stages().stream()
                 .map(other -> new ChatContext.Stage(other.id(), other.name(), other.type(), other.status()))
                 .toList();
@@ -152,6 +154,43 @@ public class ChatService {
                 assessmentScores, asker, interviewerId != null, chatTabs(companyId, stageId, tabId, interviewerId));
         return new ChatInput(companyId, stageId, tabId, asker == null ? null : asker.memberId(), stage.status(),
                 candidates, context, interviewerRoles);
+    }
+
+    /**
+     * 문장에 이름을 그대로 쓴 지원자도 멘션한 것처럼 넘긴다(@ 없이 "신예준 단점 알려줘"). 멘션 뒤에 문장에 나온 순서로
+     * 붙인다. 같은 이름이 둘 이상이면 누구인지 알 수 없어 붙이지 않고, 다른 이름 안에 든 짧은 이름(김민 ⊂ 김민수)은 긴
+     * 이름만 친다.
+     */
+    static List<UUID> withNamed(String message, List<UUID> mentions, List<CandidateRow> candidates) {
+        if (message == null || message.isBlank()) {
+            return mentions;
+        }
+        Map<String, List<UUID>> byName = new HashMap<>();
+        candidates.stream().filter(row -> row.name() != null && row.name().strip().length() >= 2)
+                .forEach(row -> byName.computeIfAbsent(row.name().strip(), name -> new ArrayList<>())
+                        .add(row.applicationId()));
+        // 긴 이름부터 찾고 찾은 자리는 지워, 김민수 속의 김민을 따로 치지 않는다
+        List<String> names = byName.keySet().stream()
+                .sorted((left, right) -> right.length() - left.length()).toList();
+        String rest = message;
+        Map<Integer, UUID> named = new TreeMap<>();
+        for (String name : names) {
+            int index = rest.indexOf(name);
+            if (index < 0) {
+                continue;
+            }
+            List<UUID> ids = byName.get(name);
+            if (ids.size() == 1) {
+                named.put(index, ids.getFirst());
+            }
+            rest = rest.replace(name, "*".repeat(name.length()));
+        }
+        if (named.isEmpty()) {
+            return mentions;
+        }
+        List<UUID> merged = new ArrayList<>(mentions);
+        named.values().stream().filter(id -> !merged.contains(id)).forEach(merged::add);
+        return List.copyOf(merged);
     }
 
     /** 다른 탭의 선택 지원자를 가리킬 수 있게 HR 공유 탭을 넘긴다. 면접관 모드는 자기 탭만 쓰므로 넘기지 않는다. */
