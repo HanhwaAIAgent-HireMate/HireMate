@@ -26,7 +26,12 @@ from hiremate_ai.agents.analysis.application.judge import CriteriaJudgement
 from hiremate_ai.agents.analysis.application.present import to_analysis, to_candidate_analysis
 from hiremate_ai.agents.analysis.application.review import ReviewJudgement
 from hiremate_ai.agents.analysis.application.service import match_criteria
-from hiremate_ai.agents.analysis.application.types import ApplicationReview, CriterionResult, ScreeningRubric
+from hiremate_ai.agents.analysis.application.types import (
+    ApplicationReview,
+    CriterionResult,
+    EvaluationRules,
+    ScreeningRubric,
+)
 from hiremate_ai.contract import (
     ApplicantDetail,
     CertificateStatus,
@@ -499,3 +504,32 @@ async def test_metrics_come_from_the_applicant_ledger_once(
     assert sum(call.output is Ledger for call in llm.calls) == 1
     review_call = next(call.user for call in llm.calls if call.output is ReviewJudgement)
     assert "R1. 주장" in review_call
+
+
+async def test_posting_lines_without_rules_keep_their_number_and_required_mark(
+    sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
+) -> None:
+    # backend는 평가 기준 입력이 없는 공고 줄을 판정 기준 없이 보낸다.
+    # 번호 · 필수 표시는 공고에서 온 값이라 그대로 쓰고,
+    # 판정 기준만 초안으로 채운다 (기준선이 같은 번호의 판정으로 필수 조건을 가른다)
+    rubric = make_rubric()
+    blank = EvaluationRules(met="", unmet="")
+    rubric = rubric.model_copy(
+        update={
+            "criteria": [
+                criterion.model_copy(update={"evaluation_rules": blank, "important": criterion.criterion_id == "Q-03"})
+                if criterion.criterion_id in ("Q-02", "Q-03")
+                else criterion
+                for criterion in rubric.criteria
+            ]
+        }
+    )
+    llm = scripted(Script(extract={"결제플랫폼팀": YUMIN_EXTRACT}))
+
+    review = await review_of(llm, sample_applicants["정유민"], sample_posting, rubric)
+
+    lines = {item.criterion_id: item for item in review.criteria}
+    assert lines["Q-03"].important and not lines["Q-02"].important
+    assert lines["Q-01"].important  # 판정 기준이 있는 항목은 그대로다
+    blank_notes = [note.text for note in review.checks if "평가 기준이 없어" in note.text]
+    assert len(blank_notes) == 2

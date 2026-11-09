@@ -235,7 +235,8 @@ class AgentReportTests extends IntegrationTest {
 
     private Stage startDocumentStage(int applicants, String stagePlan) throws Exception {
         TestApi hr = newHr();
-        TestFixtures.Posting posting = TestFixtures.publish(hr, false, stagePlan);
+        // 평가 항목 10개(Q-01 … P-05), 필수는 Q-01 · Q-02 (공고 작성 화면의 '필수' 표시)
+        TestFixtures.Posting posting = TestFixtures.publishWithRubricLines(hr, stagePlan);
         for (int i = 1; i <= applicants; i++) {
             Map<String, Object> form = TestFixtures.form("applicant" + i + "@example.com", false);
             form.put("name", "지원자" + i);
