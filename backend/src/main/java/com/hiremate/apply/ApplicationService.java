@@ -50,15 +50,18 @@ public class ApplicationService {
     private final FileService files;
     private final ApplicationEventPublisher events;
     private final RecruitService recruits;
+    private final DemoApplicantPhotos demoPhotos;
 
     public ApplicationService(JobApplicationRepository applications, ApplicationDocumentRepository documents,
-            PostingService postings, FileService files, ApplicationEventPublisher events, RecruitService recruits) {
+            PostingService postings, FileService files, ApplicationEventPublisher events, RecruitService recruits,
+            DemoApplicantPhotos demoPhotos) {
         this.applications = applications;
         this.documents = documents;
         this.postings = postings;
         this.files = files;
         this.events = events;
         this.recruits = recruits;
+        this.demoPhotos = demoPhotos;
     }
 
     /** 필수 항목이 비면 접수하지 않는다. 같은 채용에 같은 이메일로 두 번 지원할 수 없다 (NFR-06). */
@@ -338,13 +341,20 @@ public class ApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public FileContent photoContent(UUID companyId, UUID recruitmentId, UUID applicationId) {
+    public ApplicationPhoto photoContent(UUID companyId, UUID recruitmentId, UUID applicationId) {
         JobApplication application = application(companyId, applicationId);
-        if (!application.getRecruitmentId().equals(recruitmentId) || application.getPhotoFileId() == null
-                || new Identity(companyId).hides(application)) {
+        if (!application.getRecruitmentId().equals(recruitmentId) || new Identity(companyId).hides(application)) {
             throw notFound();
         }
-        return files.read(companyId, application.getPhotoFileId());
+        if (application.getPhotoFileId() == null) {
+            if (!demoPhotos.enabled(recruitmentId)) {
+                throw notFound();
+            }
+            return new ApplicationPhoto(files.exampleApplicantPhoto(DemoApplicantPhotos.index(applicationId,
+                    application.getName())), "image/png", true);
+        }
+        FileContent content = files.read(companyId, application.getPhotoFileId());
+        return new ApplicationPhoto(content.bytes(), content.info().contentType(), false);
     }
 
     private static String photoType(byte[] bytes) {

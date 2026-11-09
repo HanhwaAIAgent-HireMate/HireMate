@@ -9,6 +9,7 @@ import static com.hiremate.TestFixtures.publishBlind;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 
 import com.hiremate.IntegrationTest;
@@ -34,6 +35,9 @@ class ApplyTests extends IntegrationTest {
     @MockitoSpyBean
     private FileStorage storage;
 
+    @MockitoSpyBean
+    private DemoApplicantPhotos demoPhotos;
+
     @Autowired
     private ApplicationService applications;
 
@@ -54,6 +58,34 @@ class ApplyTests extends IntegrationTest {
         assertThat(hr.getBytes(path).body()).isEqualTo(photo);
         expect(newHr().get(path), 404);
         expect(anonymous().get(path), 401);
+    }
+
+    @Test
+    void showsExamplePhotoOnlyWhenIdentityIsVisibleAndPhotoIsMissing() throws Exception {
+        byte[] example = new byte[] {1, 2, 3, 4};
+        for (int i = 0; i < 8; i++) {
+            storage.save("example-applicants/" + i + ".png", example);
+        }
+        TestApi hr = newHr();
+        Posting posting = publish(hr, false);
+        expect(anonymous().multipart(posting.applyPath(), form("example@example.com", false)), 201);
+        String applicationId = json(expect(hr.get("/api/recruitments/" + posting.recruitmentId() + "/applications"),
+                200)).path("items").get(0).path("applicationId").asString();
+        String path = "/api/recruitments/" + posting.recruitmentId() + "/applications/" + applicationId + "/photo";
+        expect(hr.get(path), 404);
+        doReturn(true).when(demoPhotos).enabled(UUID.fromString(posting.recruitmentId()));
+        var response = hr.getBytes(path);
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo(example);
+        expect(newHr().get(path), 404);
+        expect(anonymous().get(path), 401);
+
+        Posting blind = publishBlind(hr);
+        doReturn(true).when(demoPhotos).enabled(UUID.fromString(blind.recruitmentId()));
+        expect(anonymous().multipart(blind.applyPath(), form("blind-example@example.com", false)), 201);
+        String blindId = json(expect(hr.get("/api/recruitments/" + blind.recruitmentId() + "/applications"),
+                200)).path("items").get(0).path("applicationId").asString();
+        expect(hr.get("/api/recruitments/" + blind.recruitmentId() + "/applications/" + blindId + "/photo"), 404);
     }
 
     @Test

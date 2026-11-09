@@ -2,6 +2,7 @@ package com.hiremate.apply.api;
 
 import com.hiremate.apply.ApplicationForm;
 import com.hiremate.apply.ApplicationPage;
+import com.hiremate.apply.ApplicationPhoto;
 import com.hiremate.apply.ApplicationService;
 import com.hiremate.apply.SchoolCheck;
 import com.hiremate.apply.SubmittedApplication;
@@ -86,9 +87,10 @@ public class ApplyController {
     @GetMapping("/api/recruitments/{recruitmentId}/applications/{applicationId}/photo")
     public ResponseEntity<byte[]> photo(AuthenticatedMember member, @PathVariable UUID recruitmentId,
             @PathVariable UUID applicationId) {
-        FileContent content = applications.photoContent(member.companyId(), recruitmentId, applicationId);
-        return ResponseEntity.ok().contentType(MediaType.parseMediaType(content.info().contentType()))
+        ApplicationPhoto content = applications.photoContent(member.companyId(), recruitmentId, applicationId);
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(content.contentType()))
                 .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .header("X-Example-Photo", Boolean.toString(content.example()))
                 .header("X-Content-Type-Options", "nosniff").body(content.bytes());
     }
 
