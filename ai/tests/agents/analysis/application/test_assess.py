@@ -84,7 +84,9 @@ async def test_one_call_returns_verdicts_ledger_warnings_and_job_fit(sample_post
 
     [call] = llm.calls
     assert UNTRUSTED_RULE in call.system
-    assert all(f"[{index}." in call.system for index in range(1, 5))  # 네 가지를 한 번에 묻는다
+    assert all(f"## {index}." in call.system for index in range(1, 5))  # 네 가지를 한 번에 묻는다
+    # 미충족 · 미확인으로 두기 전에 다른 문서까지 다시 찾게 한다 (한 문서만 보고 놓치지 않게)
+    assert "포트폴리오)에서 다시 찾는다" in call.system and "# 출력 (이 순서로 쓴다)" in call.system
     assert "1. 한빛카드" in call.user and "2. 새솔은행" in call.user  # 경력표 하나에 번호를 붙인다
     q01, q02 = found.results
     # 모델이 두 기간을 골라도 직무 관련(YES)인 한빛카드 2년 3개월만 센다 (요건 3년 미만)
