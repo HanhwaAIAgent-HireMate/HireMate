@@ -92,7 +92,11 @@ async def design_poster(
                     "명시적인 CC0 SVG 제공처, 요소 배치·폰트 수정, 기존 장식의 움직임 수정, "
                     "이전 후보 선택과 일반 질문은 OTHER다. "
                     "이전 후보를 본 뒤 별도 자체 생성 지시 없이 '다른 걸로 다시 만들어줘'는 STATIC이다. "
-                    "INITIAL, STATIC, MOTION의 query에는 회사 업종, 직무, 분위기를 영어 검색어로 적는다. "
+                    "모든 검색 query는 회사 업종과 직무명만 반복하지 말고 관련 업무와 시각 소재를 영어로 확장한다. "
+                    "직무별 핵심 검색어를 먼저 두고 회사 분위기나 장면을 뒤에 적는다. "
+                    "예: 프론트엔드 개발은 frontend UI interface design web product workspace, "
+                    "인사 담당은 HR people recruitment resume document team onboarding. "
+                    "resume이나 document는 시각 소재이며 이력서나 지원서 자체를 찾으라는 뜻이 아니다. "
                     "담당자의 현재 요청만 분류하고 디자인이나 설명을 생성하지 않는다.\n" + UNTRUSTED_RULE
                 ),
                 user=data_block(
@@ -101,6 +105,7 @@ async def design_poster(
                 )
                 + data_block("company", context.company.model_dump_json())
                 + data_block("job", context.posting.job_category)
+                + data_block("posting-title", context.posting.title)
                 + _recent_dialogue(context)
                 + "\n담당자 요청: "
                 + message,
