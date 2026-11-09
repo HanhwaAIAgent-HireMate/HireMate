@@ -113,6 +113,23 @@ class Fact(_Record):
     supported: bool = True  # 검토에서 근거가 주장을 받쳐 주지 않으면 False
 
 
+class Achievement(_Record):
+    """지원자 단위 성과 장부의 한 줄: 본인 행동 뒤에 좋아진 측정값과, 그 성과가 결과인 평가 항목.
+
+    서류 전체를 한 번 보고 정해서, 같은 성과가 항목마다 다르게 다뤄지지 않게 한다. 화면 지표는 이 칸들로 코드가 만든다.
+    """
+
+    id: str  # R1, R2 … (검증 주장 번호)
+    what: str  # 무엇이 바뀌었나 (예: 검색 정답률)
+    before: str  # 원문 숫자 · 단위 그대로
+    after: str
+    action: str = ""  # 본인이 한 조치
+    action_quotes: list[Quote] = []  # 본인 조치를 적은 원문 문장 (검증이 조치와 결과를 함께 본다)
+    condition: str = ""  # 측정 조건 (예: 120문항 기준)
+    quotes: list[Quote]  # 전후 값이 든 원문 문장 (한두 개)
+    criteria: list[str] = []  # 이 성과가 결과인 평가 항목 번호
+
+
 class Period(_Record):
     company: str
     role: str
