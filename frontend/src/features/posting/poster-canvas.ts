@@ -864,34 +864,129 @@ async function importTemplatedTheme(
   const width = Number(root.getAttribute('width'))
   const height = Number(root.getAttribute('height'))
   const bodyTop = Number(root.getAttribute('data-body-top'))
+  const photo = root.getAttribute('data-templated-photo')
+  const artwork = root.getAttribute('data-templated-artwork') === 'true'
+  const imageLayer = artwork ? root.querySelector('[data-templated-photo]') : null
   if (
     width < 300 ||
     width > 5000 ||
-    height < width ||
+    height < (artwork ? 300 : width) ||
     height > 5000 ||
-    !Number.isFinite(bodyTop) ||
-    bodyTop < 100 ||
-    bodyTop > height * 0.7
+    (!artwork && (!Number.isFinite(bodyTop) || bodyTop < 100 || bodyTop > height * 0.7))
   )
     throw new Error('외부 테마 크기를 확인하지 못했어요.')
+  if (photo && !/^[A-Za-z0-9+/=]{1,94000}$/.test(photo))
+    throw new Error('Templated 배너 이미지를 확인하지 못했어요.')
+  root.removeAttribute('data-templated-photo')
+  const title = artwork
+    ? [...root.querySelectorAll('[data-kind="TEXT"]')]
+        .map((node) => ({
+          left: Number(node.getAttribute('data-x')),
+          top: Number(node.getAttribute('data-y')),
+          width: Number(node.getAttribute('data-width')),
+          size: Number(node.querySelector('text')?.getAttribute('font-size')),
+        }))
+        .filter((slot) => slot.width > width * 0.2 && slot.top >= 0 && slot.top < height * 0.8)
+        .sort((a, b) => b.size - a.size)[0]
+    : undefined
+  if (artwork) {
+    const layer = imageLayer
+    const jpeg = layer?.getAttribute('data-templated-photo') ?? ''
+    if (!layer || !/^[A-Za-z0-9+/=]{1,94000}$/.test(jpeg))
+      throw new Error('Templated 배너 이미지를 확인하지 못했어요.')
+    const image = parsed.createElementNS(root.namespaceURI, 'image')
+    for (const key of ['x', 'y', 'width', 'height'])
+      image.setAttribute(key, layer.getAttribute(`data-${key}`) ?? '0')
+    image.setAttribute('href', `data:image/jpeg;base64,${jpeg}`)
+    image.setAttribute('preserveAspectRatio', 'xMidYMid slice')
+    image.setAttribute('data-hiremate-photo', 'true')
+    layer.replaceWith(image)
+    for (const shape of root.querySelectorAll(
+      '[data-kind="SHAPE"] [width], [data-kind="SHAPE"] [height]',
+    )) {
+      const owner = shape.closest('[data-kind="SHAPE"]')
+      for (const key of ['width', 'height']) {
+        const value = shape.getAttribute(key)
+        if (value?.endsWith('%')) {
+          shape.setAttribute(
+            key,
+            String((Number.parseFloat(value) / 100) * Number(owner?.getAttribute(`data-${key}`))),
+          )
+        }
+      }
+    }
+  }
   // 원본 예시 문구는 저장·렌더링하지 않는다. 테마의 벡터 배경만 읽는다.
   parsed.querySelectorAll('text, tspan, title, desc').forEach((node) => node.remove())
-  const loaded = await F.loadSVGFromString(new XMLSerializer().serializeToString(root))
+  const loaded = await F.loadSVGFromString(
+    new XMLSerializer().serializeToString(root),
+    (element, object) => {
+      if (element.hasAttribute('data-hiremate-photo')) object.set('id', 'templated-photo')
+    },
+  )
+  if (imageLayer) {
+    const imageIndex = loaded.objects.findIndex((object) => object?.get('id') === 'templated-photo')
+    const left = Math.max(0, Number(imageLayer.getAttribute('data-x')))
+    const top = Math.max(0, Number(imageLayer.getAttribute('data-y')))
+    const right = Math.min(
+      width,
+      Number(imageLayer.getAttribute('data-x')) + Number(imageLayer.getAttribute('data-width')),
+    )
+    const bottom = Math.min(
+      height,
+      Number(imageLayer.getAttribute('data-y')) + Number(imageLayer.getAttribute('data-height')),
+    )
+    const blockers = loaded.objects
+      .slice(imageIndex + 1)
+      .filter(
+        (object): object is InstanceType<typeof F.Rect> =>
+          object instanceof F.Rect &&
+          object.visible &&
+          object.angle === 0 &&
+          !object.rx &&
+          !object.ry &&
+          typeof object.fill === 'string' &&
+          object.opacity * new F.Color(object.fill).getAlpha() >= 0.95,
+      )
+      .map((object) => object.getBoundingRect())
+    let visible = 0
+    for (let row = 0; row < 10; row++) {
+      for (let column = 0; column < 10; column++) {
+        const x = left + ((column + 0.5) * (right - left)) / 10
+        const y = top + ((row + 0.5) * (bottom - top)) / 10
+        if (
+          !blockers.some(
+            (box) =>
+              x >= box.left && x < box.left + box.width && y >= box.top && y < box.top + box.height,
+          )
+        )
+          visible++
+      }
+    }
+    if (imageIndex < 0 || right <= left || bottom <= top || visible < 15)
+      throw new Error('원본 도형에 가려 배너 사진이 보이지 않아요.')
+  }
   const target = new F.StaticCanvas(document.createElement('canvas'), { width, height })
   try {
+    if (photo) {
+      const image = await F.FabricImage.fromURL(`data:image/jpeg;base64,${photo}`)
+      image.set({ left: 0, top: 0, originX: 'left', originY: 'top' })
+      target.add(image)
+    }
     target.add(...loaded.objects.filter((node) => node !== null))
     const background = target.toDataURL({
       format: 'jpeg',
       quality: 0.8,
-      multiplier: Math.min(1, 600 / width),
+      multiplier: Math.min(1, 600 / width, artwork ? 1200 / height : 1),
     })
+    const sectionTop = artwork ? height : bodyTop + 20
     const regions = [
-      { id: 'left', text: '', left: 40, top: bodyTop + 20, width: width * 0.4, height: 100 },
+      { id: 'left', text: '', left: 40, top: sectionTop, width: width * 0.4, height: 100 },
       {
         id: 'right',
         text: '',
         left: width * 0.55,
-        top: bodyTop + 20,
+        top: sectionTop,
         width: width * 0.4,
         height: 100,
       },
@@ -916,8 +1011,32 @@ async function importTemplatedTheme(
       },
       posting,
       color,
+      photo ? bodyTop : undefined,
+      artwork
+        ? { title, paper: root.querySelector('svg > rect')?.getAttribute('fill') }
+        : undefined,
     )
     const doc = readPosterCanvas(result)
+    if (artwork && doc.nativeLayout) {
+      const fills = loaded.objects.flatMap((node) => {
+        if (!node || typeof node.fill !== 'string' || node.type.toLowerCase() === 'image') return []
+        const paint = new F.Color(node.fill)
+        const [red, green, blue, alpha] = paint.getSource()
+        if (alpha < 0.65 || Math.max(red, green, blue) - Math.min(red, green, blue) < 38) return []
+        return [
+          { color: `#${paint.toHex()}`, area: node.getScaledWidth() * node.getScaledHeight() },
+        ]
+      })
+      const accent = fills.sort((a, b) => b.area - a.area)[0]?.color ?? color
+      const palette = posterPalette(accent) as Record<string, string>
+      doc.nativeLayout = templatedBodyLayout(
+        doc.nativeLayout,
+        width / height,
+        accent,
+        `#${new F.Color(palette['--poster-soft']).toHex()}`,
+        palette['--poster-on-primary'],
+      )
+    }
     doc.source = {
       id: template.id,
       name: template.name,
@@ -929,6 +1048,73 @@ async function importTemplatedTheme(
     return encoded
   } finally {
     await target.dispose()
+  }
+}
+
+/** 본문이 없는 원본은 가로 비율과 장식색에 맞는 편집 가능한 레이아웃으로 확장한다. */
+function templatedBodyLayout(
+  base: NativeLayout,
+  ratio: number,
+  accent: string,
+  surface: string,
+  cardInk: string,
+): NativeLayout {
+  const appearance: NonNullable<NativeLayout['appearance']> =
+    ratio >= 1.25
+      ? { body: 'EDITORIAL', process: 'TIMELINE', documents: 'ROWS', edition: 4 }
+      : ratio >= 0.9
+        ? { body: 'PANELS', process: 'RAIL', documents: 'TICKETS', edition: 4 }
+        : { body: 'SIDEBAR', process: 'STEPS', documents: 'CHECKLIST', edition: 4 }
+  type Row = [string[], NonNullable<NativeLayout['sections'][number]['variant']>]
+  const profiles: Record<string, Row[]> = {
+    EDITORIAL: [
+      [['intro'], 'QUOTE'],
+      [['conditions'], 'RULE'],
+      [['duties', 'qualifications'], 'RULE'],
+      [['preferred', 'benefits'], 'RULE'],
+    ],
+    PANELS: [
+      [['intro'], 'RULE'],
+      [['conditions', 'benefits'], 'TILE'],
+      [['duties', 'qualifications'], 'CHECKLIST'],
+      [['preferred'], 'RIBBON'],
+    ],
+    SIDEBAR: [
+      [['intro'], 'RULE'],
+      [['conditions'], 'RIBBON'],
+      [['duties'], 'RULE'],
+      [['qualifications'], 'CHECKLIST'],
+      [['preferred', 'benefits'], 'TILE'],
+    ],
+  }
+  const exemplar = base.sections[0]
+  const rows: Row[] = [
+    ...profiles[appearance.body],
+    [['period'], 'RULE'],
+    [['notices'], 'RULE'],
+    [['stages'], 'RULE'],
+    [['documents'], 'RULE'],
+  ]
+  return {
+    ...base,
+    appearance,
+    sections: rows.flatMap(([bindings, variant], row) =>
+      bindings.map((binding, column) => ({
+        ...exemplar,
+        binding,
+        variant,
+        left: column === 0 ? 40 : 312,
+        top: base.headerBottom + 32 + row * 140,
+        width: bindings.length === 2 ? 248 : 520,
+        height: 120,
+        accent,
+        heading: { ...exemplar.heading, fontSize: 18, fontFamily: POSTER_FONT },
+        rule: surface,
+        card: accent,
+        lastCard: accent,
+        cardInk,
+      })),
+    ),
   }
 }
 
@@ -1165,6 +1351,11 @@ export async function importCanvaPoster(
   imported: Schemas['CanvaImport'],
   posting: PosterPosting,
   color: string,
+  minimumHeaderHeight = 260,
+  artwork?: {
+    title?: { left: number; top: number; width: number; size: number }
+    paper?: string | null
+  },
 ): Promise<string> {
   const { template, mapping } = imported
   if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(template.background))
@@ -1174,7 +1365,7 @@ export async function importCanvaPoster(
   const image = await F.FabricImage.fromURL(template.background)
   const scale = 600 / template.width
   const pixels = image.toCanvasElement()
-  const cleaned = clearCanvaLogoPlaceholder(pixels)
+  const cleaned = !artwork && clearCanvaLogoPlaceholder(pixels)
   const backgroundSource = cleaned ? pixels.toDataURL('image/jpeg', 0.8) : template.background
   const context = pixels.getContext('2d')
   const sample = (left: number, top: number, fallback: string) => {
@@ -1202,7 +1393,7 @@ export async function importCanvaPoster(
     .filter((r) => r !== undefined)
   const bodyTop = Math.min(...body.map((r) => r.top * scale), template.height * scale * 0.55)
   const columns = !body.length || body.some((r) => r.left * scale > 300) ? 2 : 1
-  const paper = sample(24, bodyTop + 8, '#f8f6f0')
+  const paper = artwork ? (artwork.paper ?? '#f8f6f0') : sample(24, bodyTop + 8, '#f8f6f0')
   const header = sample(24, 60, '#082858')
   const rgb = [1, 3, 5].map((at) => Number.parseInt(header.slice(at, at + 2), 16))
   const onHeader = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 < 140 ? '#ffffff' : '#24313e'
@@ -1211,7 +1402,7 @@ export async function importCanvaPoster(
     bodyRgb[0] * 0.2126 + bodyRgb[1] * 0.7152 + bodyRgb[2] * 0.0722 < 140 ? '#ffffff' : '#24313e'
   let accent = color
   // 원본 본문의 짧은 컬러 장식에서 강조색을 읽는다. 글자나 회사 사실은 복사하지 않는다.
-  if (context) {
+  if (context && !artwork) {
     const area = context.getImageData(0, 0, pixels.width, pixels.height).data
     let strongest = 45
     for (
@@ -1252,8 +1443,8 @@ export async function importCanvaPoster(
       fontFamily: POSTER_FONT,
       originX: 'left',
       originY: 'top',
-      splitByGrapheme: true,
-      lineHeight: 1.6,
+      splitByGrapheme: !artwork || binding !== 'title',
+      lineHeight: artwork && row < 0 ? 1.16 : 1.6,
       fontWeight: ['company', 'title'].includes(binding) ? 'bold' : 'normal',
       styles:
         row >= 0
@@ -1272,23 +1463,70 @@ export async function importCanvaPoster(
   }
   const companyRegion = mapping.bindings.find((m) => m.binding === 'company')
   const company = template.regions.find((r) => r.id === companyRegion?.elementId)
+  const titleLeft = artwork ? Math.max(24, Math.min(330, (artwork.title?.left ?? 0) * scale)) : 40
+  const titleTop = artwork
+    ? Math.max(68, Math.min(template.height * scale - 130, (artwork.title?.top ?? 0) * scale))
+    : 96
+  const titleWidth = artwork
+    ? Math.min(600 - titleLeft - 24, Math.max(240, (artwork.title?.width ?? 0) * scale))
+    : 450
+  const captionWidth = Math.min(600 - titleLeft - 12, Math.max(titleWidth, 360))
+  const captionSamples = [0.1, 0.5, 0.9].flatMap((x) =>
+    [titleTop - 28, titleTop + 16, titleTop + 70].map((y) => {
+      const sampled = sample(titleLeft + captionWidth * x, y, '#082858')
+      const [r, g, b] = new F.Color(sampled).getSource()
+      return r * 0.2126 + g * 0.7152 + b * 0.0722
+    }),
+  )
+  const captionNeedsBacking =
+    artwork && Math.min(...captionSamples) < 175 && Math.max(...captionSamples) > 100
+  const headerInk = artwork
+    ? !captionNeedsBacking && Math.min(...captionSamples) >= 175
+      ? '#17212b'
+      : '#ffffff'
+    : onHeader
   const companyHeight = text(
     'company',
-    company ? company.left * scale : 40,
-    company ? company.top * scale : 36,
+    company ? company.left * scale : titleLeft,
+    company ? company.top * scale : artwork ? titleTop - 38 : 36,
     company ? Math.max(200, Math.min(company.width * scale, 360)) : 360,
     17,
-    onHeader,
+    headerInk,
     -1,
   )
-  const titleHeight = text('title', 40, 96, 450, 40, onHeader, -1)
-  const tagsTop = 96 + titleHeight + 22
-  const tagsHeight = text('tags', 40, tagsTop, 520, 13, onHeader, -1)
+  const titleSize = artwork ? Math.max(25, Math.min(48, (artwork.title?.size ?? 0) * scale)) : 40
+  const titleHeight = text('title', titleLeft, titleTop, titleWidth, titleSize, headerInk, -1)
+  const tagsTop = titleTop + titleHeight + (artwork ? 12 : 22)
+  const tagsHeight = text(
+    'tags',
+    titleLeft,
+    tagsTop,
+    artwork ? captionWidth : 520,
+    13,
+    headerInk,
+    -1,
+  )
   const headerHeight = Math.max(
-    260,
+    artwork ? template.height * scale : minimumHeaderHeight,
     tagsTop + tagsHeight + 48,
     (company ? company.top * scale : 36) + companyHeight + 48,
   )
+  const artworkCaption = captionNeedsBacking
+    ? {
+        ...new F.Rect({
+          left: titleLeft - 12,
+          top: titleTop - 47,
+          width: captionWidth + 24,
+          height: tagsTop + tagsHeight - titleTop + 58,
+          originX: 'left',
+          originY: 'top',
+          fill: 'rgba(8, 16, 30, 0.72)',
+          rx: 6,
+          ry: 6,
+        }).toObject(),
+        hmId: 'templated-caption',
+      }
+    : null
   image.set({
     left: 0,
     top: 0,
@@ -1375,6 +1613,7 @@ export async function importCanvaPoster(
     nativeLayout: { version: 1, paper, headerBottom: headerHeight, sections: regions },
     objects: [
       background,
+      ...(artworkCaption ? [artworkCaption] : []),
       ...objects.filter((object) =>
         ['company', 'title', 'tags', 'tagline'].includes(String(object.binding)),
       ),

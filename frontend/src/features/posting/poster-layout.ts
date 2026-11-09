@@ -63,6 +63,7 @@ export type NativeLayout = {
 /** 선택한 원본의 영역만 전달한다. 현재 기업의 사실이나 공고 문구는 코드가 채운다. */
 export function nativeRegions(svg: string) {
   const root = parse(svg)
+  if (root.documentElement.getAttribute('data-templated-artwork') === 'true') return []
   return [...root.querySelectorAll('[data-layer]')].map((node, index) => ({
     id: `source-${index}`,
     text: node.getAttribute('data-kind') === 'TEXT' ? (node.textContent ?? '') : '',
@@ -550,6 +551,20 @@ export async function layoutNativePoster(
       )
         node.set({ top: Math.max(node.top, previous.top + previous.getScaledHeight() + 20) })
   })
+  const caption = headerObjects.find(
+    (object, index) =>
+      object.get('hmId') === 'templated-caption' ||
+      doc.objects[index]?.hmId === 'templated-caption',
+  )
+  if (caption && arranged.length) {
+    caption.set({
+      top: arranged[0].top - 10,
+      height:
+        Math.max(...arranged.map((node) => node.top + node.getScaledHeight())) -
+        arranged[0].top +
+        20,
+    })
+  }
   const portraitCover = target
     .getObjects()
     .find(
