@@ -61,14 +61,25 @@ class PortfolioReading(DocumentReading):
     portfolio: PortfolioDigest = Field(default_factory=PortfolioDigest, description="포트폴리오 프로젝트 카드")
 
 
-def _system(heading: str, lead: str, rules: str) -> str:
+def _system(field: str, title: str, lead: str, rules: str) -> str:
     return f"""너는 채용 서류 한 건을 읽고 두 가지를 한 번에 정리한다. 판단이나 점수는 매기지 않는다.
 
-[사실과 기간] facts, periods
-- 지원자에 관한 사실과 근무 · 활동 기간을 뽑는다.
+# 입력
+- 서류: 제출 문서 한 건의 원문.
+
+# 출력 (이 순서로 쓴다)
+1. facts, periods: 지원자에 관한 사실과 근무 · 활동 기간.
+2. {field}: {title}.
+
+# 공통 원칙
+- 서류 처음부터 끝까지 모두 본다. 표 · 목록 · 문단의 내용을 빠뜨리지 않는다.
+- 근거 문장(evidence)은 원문 글자 그대로 옮긴다. 원문에 없는 문장을 만들지 않는다.
+- 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 쓰지 않는다.
+
+## 1. 사실과 기간 (facts, periods)
 {EXTRACT_RULES}
 
-[{heading}]
+## 2. {title} ({field})
 - {lead}
 {rules}
 
@@ -85,17 +96,17 @@ class _Kind:
 _KINDS: dict[DocumentType, _Kind] = {
     DocumentType.RESUME: _Kind(
         ResumeReading,
-        _system("이력서 정리] resume", "이력서 한 건을 담당자가 훑어보기 좋은 표로 정리한다.", RESUME_RULES),
+        _system("resume", "이력서 정리", "이력서 한 건을 담당자가 훑어보기 좋은 표로 정리한다.", RESUME_RULES),
         "위 이력서에서 사실과 기간을 뽑고, 이력서를 표로 정리해 줘.",
     ),
     DocumentType.COVER_LETTER: _Kind(
         LetterReading,
-        _system("자기소개서 요약] sections", "자기소개서 한 건을 문항마다 요약한다.", SUMMARY_RULES),
+        _system("sections", "자기소개서 요약", "자기소개서 한 건을 문항마다 요약한다.", SUMMARY_RULES),
         "위 자기소개서에서 사실과 기간을 뽑고, 문항마다 요약해 줘.",
     ),
     DocumentType.PORTFOLIO: _Kind(
         PortfolioReading,
-        _system("포트폴리오 정리] portfolio", "포트폴리오 한 건을 프로젝트마다 카드로 정리한다.", PORTFOLIO_RULES),
+        _system("portfolio", "포트폴리오 정리", "포트폴리오 한 건을 프로젝트마다 카드로 정리한다.", PORTFOLIO_RULES),
         "위 포트폴리오에서 사실과 기간을 뽑고, 프로젝트마다 정리해 줘.",
     ),
 }
@@ -166,7 +177,8 @@ async def _read(llm: LlmClient, document: ApplicantDocument, blind: bool) -> tup
         answer = DocumentReading(facts=extracted.facts, periods=extracted.periods)
         return settle(document, answer, blind=blind), answer
     try:
-        answer = await ask(llm, kind.output, system=kind.system, user=f"{document_block(document)}\n\n{kind.request}")
+        user = f"# 서류\n{document_block(document)}\n\n# 요청\n{kind.request}"
+        answer = await ask(llm, kind.output, system=kind.system, user=user)
     except Exception as error:
         if not truncated(error):
             raise

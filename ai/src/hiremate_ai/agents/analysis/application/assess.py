@@ -34,19 +34,37 @@ from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block, documents_block
 
 ASSESS_SYSTEM = f"""너는 지원자 한 명의 서류 전체를 보고 아래 네 가지를 한 번에 답한다. 점수와 중요도는 다루지 않는다.
 
-[1. 항목 판정] verdicts
+# 입력
+- 평가 항목: 판정할 항목 번호(Q-01 …), 유형, 판정 기준(충족 · 부분 충족 · 미충족).
+- 경력표: 코드가 뽑은 근무 · 활동 기간과 개월 수. 번호가 붙어 있고, career_periods와 jobs는 이 번호로 답한다.
+- 제출한 자격증, 성과를 연결할 항목, 채용 직무와 공고 주요 업무.
+- 서류: 제출 문서 원문 (이력서 · 자기소개서 · 포트폴리오).
+- facts: 서류 문장을 하나씩 분석해 뽑은 경험 목록.
+
+# 출력 (이 순서로 쓴다)
+1. verdicts: 평가 항목마다 판정. 가장 중요한 답이다. 항목마다 빠짐없이 쓴다.
+2. achievements: 수치 성과 장부.
+3. warnings: 담당자가 주의해서 볼 신호.
+4. jobs: 경력표의 재직(EMPLOYMENT) 기간마다 직무 관련 여부.
+
+# 공통 원칙
+- 서류 전체(이력서 · 자기소개서 · 포트폴리오)를 모두 본다. 같은 일의 행동 · 결과가 다른 문서에 나뉘어 있을 수 있다.
+- 근거 문장은 원문 글자 그대로 옮긴다. 원문에 없는 문장을 만들지 않는다.
+- 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 판단에 쓰지 않는다.
+
+## 1. 항목 판정 (verdicts)
 - 지원 서류를 공고의 평가 항목에 대조해 항목마다 판정한다.
 {JUDGE_RULES}
 
-[2. 성과 장부] achievements
+## 2. 성과 장부 (achievements)
 - 서류 전체의 수치 성과를 한 번에 정리하고, 성과마다 그 결과인 평가 항목을 정한다. 판정 · 점수는 매기지 않는다.
 - 연결할 수 있는 항목은 '성과를 연결할 항목' 목록에 있는 번호뿐이다.
 {LEDGER_RULES}
 
-[3. 주의 신호] warnings
+## 3. 주의 신호 (warnings)
 {WARNING_RULES}
 
-[4. 직무 관련 경력] jobs
+## 4. 직무 관련 경력 (jobs)
 - 경력표의 재직(EMPLOYMENT) 기간마다 채용 직무와 관련된 경력인지 경력표 번호(number)로 고른다. 지원자를 평가하지 않는다.
 {JOB_RULES}
 
@@ -79,17 +97,17 @@ async def assess(
     targets = [criterion for criterion in criteria if linkable(criterion)]
     periods = list(evidence.periods)
     parts = [
-        criteria_listing(asked) if asked else "평가 항목: (모델이 판정할 항목 없음)",
+        criteria_listing(asked) if asked else "# 평가 항목\n(모델이 판정할 항목 없음)",
         career_block(periods),
-        "제출한 자격증:\n" + data_block("certificates", evidence.certificates or "(없음)"),
-        "성과를 연결할 항목:\n"
+        "# 제출한 자격증\n" + data_block("certificates", evidence.certificates or "(없음)"),
+        "# 성과를 연결할 항목\n"
         + data_block("criteria", "\n".join(f"[{c.criterion_id}] {c.text}" for c in targets) or "(없음)"),
-        f"채용 직무: {posting.title} ({posting.job_category})\n공고 주요 업무:\n"
+        f"# 채용 직무\n{posting.title} ({posting.job_category})\n공고 주요 업무:\n"
         + data_block("duties", "\n".join(posting.duties) or "(없음)"),
-        "서류:\n" + documents_block(usable),
-        data_block("facts", fact_lines(evidence.facts) or "(없음)"),
-        "항목마다 판정하고, 수치 성과를 정리해 항목에 연결하고, 주의 신호를 찾고, "
-        "경력표의 재직(EMPLOYMENT) 기간마다 직무 관련 여부를 골라 줘.",
+        "# 서류\n" + documents_block(usable),
+        "# facts\n" + data_block("facts", fact_lines(evidence.facts) or "(없음)"),
+        "# 요청\n항목마다 판정하고(verdicts), 수치 성과를 정리해 항목에 연결하고(achievements), "
+        "주의 신호를 찾고(warnings), 경력표의 재직(EMPLOYMENT) 기간마다 직무 관련 여부를 골라 줘(jobs).",
     ]
     answer = await ask(llm, ApplicantAssessment, system=ASSESS_SYSTEM, user="\n\n".join(parts))
     fits = job_fits(periods, answer.jobs)

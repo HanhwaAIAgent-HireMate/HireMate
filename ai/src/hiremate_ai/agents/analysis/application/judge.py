@@ -62,13 +62,13 @@ _TYPE_LABEL = {
 }
 
 # 항목 판정 규칙. 지원자 종합 판정(assess)이 성과 · 주의 신호 · 직무 경력과 함께 한 번에 묻고, 재판정도 쓴다
-JUDGE_RULES = """[자료]
+JUDGE_RULES = """### 자료
 - facts는 서류 문장을 하나씩 분석해 뽑은 경험 목록이다 ([종류 · 본인 여부] 진술 (근거: 원문 문장)). facts를 먼저 보고,
   facts에 없는 내용만 원문에서 찾는다. 둘이 어긋나면 원문을 따른다.
 - 항목마다 relevance(한 일이 항목과 관련되는가), role(SELF 본인이 했다 / TEAM 팀 · 조직의 일만 적었다 / UNCLEAR 알 수
   없다), scope(요구한 일을 어디까지 했는가)를 확인하고, 셋을 종합해 판정 기준 가운데 하나로 판정한다.
 
-[근거의 원칙]
+### 근거의 원칙
 - 근거는 본인이 실제로 한 일이다. 회사 · 서비스의 구성 설명, 팀이 한 일, 계획 · 예정 · 학습 중인 일은 본인이 수행한
   근거가 아니다. 같은 문맥에 실제로 만든 결과물이 적혀 있으면 그 문장이 근거다. 배우는 중이라도 그 기술로 실제로 만든
   것(개인 · 교육 과정 프로젝트의 API 등)이 적혀 있으면 그 기술을 사용한 경험이다. 실무인지는 항목이 '실무'를 요구할
@@ -85,7 +85,7 @@ JUDGE_RULES = """[자료]
   경험으로 합치지 않는다. 기준에 맞는 경험이 여럿이면 가장 잘 맞는 경험으로 판정한다.
 - 판정 기준에 없는 조건을 더하지 않는다. 자격증만으로 경험 항목을 채웠다고 보지 않는다.
 
-[기준의 해석]
+### 기준의 해석
 - 판정 기준이 나열을 어떻게 볼지(모두 · 어느 하나) 정했으면 그대로 따른다. 정하지 않았으면 나열(쉼표 · 빗금(/) ·
   '와/과' · '및')은 '또는' · '혹은' · '중 하나'가 없으면 적힌 것을 모두 요구한다 (예: 'A/B 구축'은 A 구축과
   B 구축이 모두 있어야 한다). 나열 끝에 '등'이 붙으면 적힌 것은 예시라서 그 가운데 하나만 해도 충족이다 (예:
@@ -103,7 +103,7 @@ JUDGE_RULES = """[자료]
 - 기준이 정하지 않은 다른 값 때문에 충족 여부가 실제로 갈리면 setting_note에 그 점을 쓰고 UNKNOWN으로 둔다. 지원자에게
   더 물을 것이 없으면 unknown_parts는 비운다. 기준이 넓거나 추상적이라는 이유로는 쓰지 않는다. 그 밖에는 비운다.
 
-[판정]
+### 판정
 - MET: 충족 기준에 해당하는 근거가 있다.
 - PARTIAL: 복합 경험형에서 일부만 확인됐다. satisfied_parts와 unsatisfied_parts를 모두 쓴다. 불확실하다는 뜻으로 쓰지
   않고, 부분 충족 기준이 '없음'인 항목에는 쓰지 않는다.
@@ -114,8 +114,10 @@ JUDGE_RULES = """[자료]
   그 일이 항목이 말하는 상황이었는지나 결과까지 이어졌는지 분명하지 않아도 직접 한 흔적이다.
 - NO_RECORD: 항목의 일을 직접 한 흔적이 없다. 같은 분야의 다른 일, 비슷한 일반 업무처럼 직접적이지 않은 흔적만 있어도
   NO_RECORD다. 경험이 없다고 단정하지 않는다.
+- NOT_MET · UNKNOWN · NO_RECORD로 두거나 parts의 found를 false로 쓰기 전에, 그 부분을 제출 서류 전체(이력서 ·
+  자기소개서 · 포트폴리오)에서 다시 찾는다. 한 문서에 없다는 것으로 확인되지 않았다고 보지 않는다.
 
-[출력]
+### 출력
 - criterion_id는 요청의 번호 그대로 쓴다 (예: Q-01). 대괄호는 넣지 않는다.
 - parts에는 항목 문장이 요구하는 것을 나눠 쓰고, 부분마다 서류에서 본인이 한 것으로 확인됐는지 found로 쓴다.
   나열이면 하나씩 나눈다 (예: 'A/B 구축' → A 구축, B 구축). 어느 하나만 있어도 되는 것('A 또는 B', 'A, B 등')은 한
@@ -137,6 +139,7 @@ JUDGE_RULES = """[자료]
 
 JUDGE_SYSTEM = f"""너는 지원 서류를 공고의 평가 항목에 대조해 항목마다 판정한다. 점수와 중요도는 다루지 않는다.
 
+## 항목 판정 (verdicts)
 {JUDGE_RULES}
 
 {UNTRUSTED_RULE}"""
@@ -212,7 +215,7 @@ def criteria_listing(criteria: Sequence[Criterion], reasons: dict[str, str] | No
         if reasons and criterion.criterion_id in reasons:
             line += f"\n  - 앞 판정 이유: {reasons[criterion.criterion_id]}"
         lines.append(line)
-    return "평가 항목:\n" + "\n".join(lines)
+    return "# 평가 항목\n" + "\n".join(lines)
 
 
 async def recheck_criteria(
@@ -235,10 +238,10 @@ async def recheck_criteria(
     if any(_CAREER_YEARS.search(criterion.text) for criterion in asked):
         parts.append(career_block(evidence.periods))
     parts += [
-        "제출한 자격증:\n" + data_block("certificates", evidence.certificates or "(없음)"),
-        "서류:\n" + documents_block(usable),
-        data_block("facts", fact_lines(evidence.facts) or "(없음)"),
-        RECHECK_NOTE,
+        "# 제출한 자격증\n" + data_block("certificates", evidence.certificates or "(없음)"),
+        "# 서류\n" + documents_block(usable),
+        "# facts\n" + data_block("facts", fact_lines(evidence.facts) or "(없음)"),
+        "# 요청\n" + RECHECK_NOTE,
     ]
     answer = await ask(llm, CriteriaJudgement, system=JUDGE_SYSTEM, user="\n\n".join(parts))
     again = {
@@ -572,7 +575,7 @@ def _employment_months(periods: Sequence[Period], numbers: Sequence[int], today:
 
 def career_block(periods: Sequence[Period]) -> str:
     """판정 프롬프트의 번호 붙은 경력표. 모델은 번호로 답한다 (career_periods)."""
-    return "경력표 (코드가 계산한 개월 수):\n" + data_block("career", numbered_career_table(periods))
+    return "# 경력표 (코드가 계산한 개월 수, 번호로 답한다)\n" + data_block("career", numbered_career_table(periods))
 
 
 def numbered_career_table(periods: Sequence[Period]) -> str:

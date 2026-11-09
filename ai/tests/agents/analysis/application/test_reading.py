@@ -57,7 +57,10 @@ async def test_each_document_is_read_once_with_its_summary() -> None:
     # 서류마다 한 번 묻고, 한 호출에서 사실과 정리를 함께 받는다
     assert [call.output for call in llm.calls] == [LetterReading, PortfolioReading]
     assert all(UNTRUSTED_RULE in call.system and '<data kind="document"' in call.user for call in llm.calls)
-    assert "[사실과 기간]" in llm.calls[0].system and "[자기소개서 요약] sections" in llm.calls[0].system
+    assert (
+        "## 1. 사실과 기간 (facts, periods)" in llm.calls[0].system
+        and "## 2. 자기소개서 요약 (sections)" in llm.calls[0].system
+    )
     assert readings[0].extracted.facts == [FACT]
     assert [section.title for section in readings[0].sections] == ["지원 동기"]
     assert readings[1].digest is not None and readings[1].digest.sections[0].rows[0].title == "주문 조회 개선"
