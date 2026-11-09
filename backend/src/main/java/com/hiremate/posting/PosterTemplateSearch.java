@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import javax.imageio.ImageIO;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,15 @@ public class PosterTemplateSearch {
 
     public PosterTemplateSearch(WebClient.Builder builder) {
         http = builder.codecs(config -> config.defaultCodecs().maxInMemorySize(1024 * 1024)).build();
+    }
+
+    /** 검색 풀의 정렬 힌트다. 두 글자 약어는 다른 단어의 일부와 일치시키지 않는다. */
+    static int keywordScore(String description, String query) {
+        String text = description.toLowerCase(Locale.ROOT);
+        Set<String> tokens = new HashSet<>(List.of(text.split("[^\\p{L}\\p{N}]+")));
+        return (int) java.util.Arrays.stream(query.toLowerCase(Locale.ROOT).split("\\s+"))
+                .filter(word -> word.length() >= 2).distinct()
+                .filter(word -> word.length() == 2 ? tokens.contains(word) : text.contains(word)).count();
     }
 
     public Result combine(List<FreeTemplate> templates, List<CanvaDesign> designs) {

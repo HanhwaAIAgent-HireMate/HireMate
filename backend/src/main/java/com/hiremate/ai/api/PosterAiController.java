@@ -117,7 +117,7 @@ public class PosterAiController {
             String unavailable = "";
             String searched = "";
             try {
-                candidates.addAll(templates.search(proposal.externalQuery(), excluded));
+                candidates.addAll(templates.searchGallery(proposal.externalQuery(), excluded));
                 searched = "Templated";
             } catch (ApiException exception) {
                 unavailable = "TEMPLATED_NOT_CONFIGURED".equals(exception.code())
@@ -176,6 +176,16 @@ public class PosterAiController {
         boolean motion = mode == PosterProposal.CandidateMode.MOTION;
         List<PosterProposal.FreeTemplate> external = new ArrayList<>();
         String unavailable = "";
+        boolean foundTemplated = false;
+        if (mode == PosterProposal.CandidateMode.INITIAL) {
+            try {
+                var found = templates.searchGallery(proposal.externalQuery(), excluded).stream().limit(1).toList();
+                external.addAll(found);
+                foundTemplated = !found.isEmpty();
+            } catch (ApiException exception) {
+                unavailable += " Templated 후보를 불러오지 못했어요.";
+            }
+        }
         try {
             external.addAll(orshot.search(proposal.externalQuery(), excluded, motion)
                     .stream().limit(motion ? 2 : 1).toList());
@@ -184,7 +194,7 @@ public class PosterAiController {
         }
         List<PosterProposal.Recommendation> generated = motion ? List.of()
                 : generateAlternatives(context, message, logo).stream()
-                        .limit(mode == PosterProposal.CandidateMode.INITIAL ? 2 : 1).toList();
+                        .limit(mode == PosterProposal.CandidateMode.INITIAL && !foundTemplated ? 2 : 1).toList();
         if (!generated.isEmpty()) {
             var first = generated.getFirst();
             ObjectNode canvas = (ObjectNode) new JsonMapper().readTree(first.design().canvasJson());

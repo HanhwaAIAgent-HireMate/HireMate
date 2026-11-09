@@ -2,10 +2,16 @@ package com.hiremate.posting;
 
 import com.hiremate.global.ApiException;
 import com.hiremate.posting.PosterProposal.FreeTemplate;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -14,18 +20,27 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.imageio.ImageIO;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.BodyExtractors;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import tools.jackson.databind.JsonNode;
 
-/** 공개 테마를 조회하고 담당자가 요청한 생성 양식을 등록한다. API 키는 서버에서만 사용한다. */
+/** 공개 갤러리와 명시적으로 허용한 공용 테마만 읽는다. 기업 공고와 키를 AI에 보내지 않는다. */
 @Service
 public class TemplatedLibrary {
+    private static final String RECRUITMENT = "recruitment hiring vacancy careers";
+    private static final String BANNER_TOPICS = "business corporate technology office finance education event";
+    private static final Set<String> VISUAL_CATEGORIES = Set.of(
+            "Open Graph", "Social Media", "YouTube Thumbnail", "Marketing");
+    private static final String PUBLIC_ASSET =
+            "https://templated-assets\\.s3\\.amazonaws\\.com/(?:public/pixabay-images/[0-9]+|upload/[a-fA-F0-9-]{36})";
     private final WebClient http;
     private final String key;
     private final List<String> sharedIds;
@@ -40,6 +55,10 @@ public class TemplatedLibrary {
                 .filter(id -> id.matches("[a-fA-F0-9-]{36}")).limit(3).toList();
     }
 
+    public List<FreeTemplate> searchGallery(String query, Set<String> excluded) {
+        return search(query, excluded, true, false);
+    }
+
     public List<FreeTemplate> search(String query) {
         return search(query, Set.of());
     }
@@ -49,6 +68,11 @@ public class TemplatedLibrary {
     }
 
     public List<FreeTemplate> search(String query, Set<String> excluded, boolean includeRelated) {
+        return search(query, excluded, includeRelated, true);
+    }
+
+    private List<FreeTemplate> search(String query, Set<String> excluded, boolean includeRelated,
+            boolean includeShared) {
         if (key.isEmpty()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "TEMPLATED_NOT_CONFIGURED",
                     "외부 템플릿 서비스 연결 설정이 필요해요.");
@@ -56,7 +80,7 @@ public class TemplatedLibrary {
         try {
             List<JsonNode> rows = gallery(query);
             // 계정 전체 라이브러리를 조회하지 않는다. 관리자가 승인한 공용 디자인만 포함한다.
-            for (String id : sharedIds) {
+            for (String id : includeShared ? sharedIds : List.<String>of()) {
                 JsonNode shared = get("/v1/template/" + id + "?includeLayers=true");
                 if (shared != null && shared.isObject()) {
                     rows.add(shared);
@@ -65,12 +89,30 @@ public class TemplatedLibrary {
             List<JsonNode> eligible = rows.stream()
                     .filter(row -> !excluded.contains("templated:" + row.path("id").asString("")))
                     .toList();
-            List<FreeTemplate> matched = candidates(eligible, query);
+            List<FreeTemplate> matched = candidates(includeShared ? eligible : eligible.stream()
+                    .filter(row -> score(row, RECRUITMENT) > 0).toList(), query);
             if (includeRelated && matched.isEmpty()) {
                 List<JsonNode> related = gallery("recruitment hiring").stream()
                         .filter(row -> !excluded.contains("templated:" + row.path("id").asString("")))
                         .toList();
-                return candidates(related, "recruitment hiring vacancy careers");
+                List<FreeTemplate> relatedMatches = candidates(related, RECRUITMENT);
+                if (!relatedMatches.isEmpty() || includeShared) {
+                    return relatedMatches;
+                }
+                List<FreeTemplate> banners = publicBanners(query, excluded);
+                if (!banners.isEmpty()) {
+                    return banners;
+                }
+                List<JsonNode> approved = new ArrayList<>();
+                for (String id : sharedIds) {
+                    if (!excluded.contains("templated:" + id)) {
+                        JsonNode template = get("/v1/template/" + id + "?includeLayers=true");
+                        if (template != null && template.isObject()) {
+                            approved.add(template);
+                        }
+                    }
+                }
+                return candidates(approved, RECRUITMENT);
             }
             return matched;
         } catch (ApiException exception) {
@@ -81,10 +123,157 @@ public class TemplatedLibrary {
         }
     }
 
+    private List<FreeTemplate> publicBanners(String query, Set<String> excluded) {
+        JsonNode gallery = get("/v1/templates/gallery?limit=100&includeLayers=true");
+        if (gallery == null || !gallery.isArray()) {
+            return List.of();
+        }
+        List<JsonNode> rows = new ArrayList<>();
+        gallery.forEach(rows::add);
+        List<FreeTemplate> results = new ArrayList<>();
+        Set<String> photos = new HashSet<>();
+        for (JsonNode row : rows.stream()
+                .filter(item -> score(item, BANNER_TOPICS) > 0
+                        || (VISUAL_CATEGORIES.contains(item.path("categoryName").asString(""))
+                        && score(item, query) > 0)
+                        || ("Open Graph".equals(item.path("categoryName").asString(""))
+                        && PosterTemplateSearch.keywordScore("frontend web interface", query) > 0))
+                .sorted(Comparator.comparingInt((JsonNode item) -> score(item, query)).reversed()).toList()) {
+            String id = "templated:" + row.path("id").asString("");
+            String name = row.path("name").asString("").strip();
+            if (!id.matches("templated:[a-fA-F0-9-]{36}") || excluded.contains(id) || name.isEmpty()) {
+                continue;
+            }
+            JsonNode layer = bannerPhoto(row);
+            if (layer == null) {
+                continue;
+            }
+            String photo = layer.path("image_url").asString("");
+            if (photo.isEmpty() || !photos.add(photo)) {
+                continue;
+            }
+            String jpeg = loadBannerPhoto(photo);
+            if (!jpeg.isEmpty()) {
+                String svg = bannerPreview(row, layer, jpeg);
+                if (svg.length() <= 100000) {
+                    results.add(new FreeTemplate(id, name.substring(0, Math.min(name.length(), 100)),
+                            "https://templated.io/templates/", "Templated 테마", svg, ""));
+                }
+            }
+            if (results.size() == 3 || photos.size() == 5) {
+                break;
+            }
+        }
+        return List.copyOf(results);
+    }
+
+    private static JsonNode bannerPhoto(JsonNode row) {
+        int width = row.path("width").asInt();
+        int height = row.path("height").asInt();
+        if (width < 300 || width > 5000 || height < 300 || height > 5000
+                || row.path("layers").size() > 150) {
+            return null;
+        }
+        for (JsonNode layer : row.path("layers")) {
+            String url = layer.path("image_url").asString("");
+            if (layer.path("type").asString("").equals("image") && !layer.path("hide").asBoolean(false)
+                    && dimension(layer, "width") >= width * 0.65
+                    && dimension(layer, "height") >= height * 0.45 && url.matches(PUBLIC_ASSET)) {
+                return layer;
+            }
+        }
+        return null;
+    }
+
+    private static String bannerPreview(JsonNode row, JsonNode photo, String jpeg) {
+        int width = row.path("width").asInt();
+        int height = row.path("height").asInt();
+        String paper = color(row.path("background").asString(""), "#f7f5ef");
+        StringBuilder svg = new StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"")
+                .append(width).append("\" height=\"").append(height).append("\" data-templated-artwork=\"true\">")
+                .append("<rect width=\"").append(width).append("\" height=\"").append(height)
+                .append("\" fill=\"").append(paper).append("\"/>");
+        for (JsonNode layer : row.path("layers")) {
+            if (layer.path("hide").asBoolean(false)) {
+                continue;
+            }
+            if (layer == photo) {
+                svg.append("<g data-templated-photo=\"").append(jpeg).append("\" data-x=\"")
+                        .append(coordinate(layer, "x")).append("\" data-y=\"").append(coordinate(layer, "y"))
+                        .append("\" data-width=\"").append(dimension(layer, "width"))
+                        .append("\" data-height=\"").append(dimension(layer, "height")).append("\"/>");
+            } else if (Set.of("shape", "text").contains(layer.path("type").asString(""))) {
+                appendLayer(svg, layer, false);
+            }
+        }
+        return svg.append("</svg>").toString();
+    }
+
+    private String loadBannerPhoto(String url) {
+        try {
+            // 공개 이미지 요청에는 Templated 키를 붙이지 않는다.
+            // 일부 공개 이미지의 Content-Type은 jpg 또는 png라서 MIME 파싱 없이 원본을 읽는다.
+            byte[] bytes = http.get().uri(URI.create(url)).exchangeToMono(response -> {
+                if (!response.statusCode().is2xxSuccessful()) {
+                    return response.releaseBody().then(reactor.core.publisher.Mono.empty());
+                }
+                return DataBufferUtils.join(response.body(BodyExtractors.toDataBuffers()), 8 * 1024 * 1024)
+                        .map(buffer -> {
+                            try {
+                                byte[] body = new byte[buffer.readableByteCount()];
+                                buffer.read(body);
+                                return body;
+                            } finally {
+                                DataBufferUtils.release(buffer);
+                            }
+                        });
+            })
+                    .block(Duration.ofSeconds(5));
+            if (bytes == null) {
+                return "";
+            }
+            try (var stream = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+                var readers = ImageIO.getImageReaders(stream);
+                if (!readers.hasNext()) {
+                    return "";
+                }
+                var reader = readers.next();
+                try {
+                    reader.setInput(stream);
+                    if (reader.getWidth(0) > 8192 || reader.getHeight(0) > 8192) {
+                        return "";
+                    }
+                    return bannerJpeg(reader.read(0));
+                } finally {
+                    reader.dispose();
+                }
+            }
+        } catch (Exception exception) {
+            return "";
+        }
+    }
+
+    private static String bannerJpeg(BufferedImage image) throws java.io.IOException {
+        double scale = Math.min(1, 650d / Math.max(image.getWidth(), image.getHeight()));
+        int width = Math.max(1, (int) Math.round(image.getWidth() * scale));
+        int height = Math.max(1, (int) Math.round(image.getHeight() * scale));
+        BufferedImage banner = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        var graphics = banner.createGraphics();
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            graphics.drawImage(image, 0, 0, width, height, java.awt.Color.WHITE, null);
+        } finally {
+            graphics.dispose();
+        }
+        var output = new ByteArrayOutputStream();
+        ImageIO.write(banner, "jpg", output);
+        return output.size() <= 70000 ? Base64.getEncoder().encodeToString(output.toByteArray()) : "";
+    }
+
     private List<JsonNode> gallery(String query) {
         List<JsonNode> rows = new ArrayList<>();
         for (String word : java.util.Arrays.stream(query.split("\\s+"))
-                .filter(word -> word.length() > 2).distinct().limit(4).toList()) {
+                .filter(word -> word.length() >= 2).distinct().limit(4).toList()) {
             JsonNode page = get("/v1/templates/gallery?limit=100&includeLayers=true&query="
                     + URLEncoder.encode(word, StandardCharsets.UTF_8));
             if (page != null && page.isArray()) {
@@ -99,7 +288,6 @@ public class TemplatedLibrary {
                 .bodyToMono(JsonNode.class).block(Duration.ofSeconds(30));
     }
 
-    /** 요청별 생성 양식만 등록한다. 재조회 실패 뒤 다시 요청해도 같은 원본을 중복 생성하지 않는다. */
     public RegisteredTemplate register(UUID companyId, String sourceId, String name, String svg, int height) {
         if (key.isEmpty()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "TEMPLATED_NOT_CONFIGURED",
@@ -230,13 +418,7 @@ public class TemplatedLibrary {
     private static int score(JsonNode row, String query) {
         String words = (row.path("name").asString("") + " " + row.path("description").asString(""))
                 .toLowerCase(Locale.ROOT);
-        int score = 0;
-        for (String word : query.toLowerCase(Locale.ROOT).split("\\s+")) {
-            if (word.length() > 2 && words.contains(word)) {
-                score++;
-            }
-        }
-        return score;
+        return PosterTemplateSearch.keywordScore(words, query);
     }
 
     /** 임의 HTML, 스크립트, 이미지 URL은 복사하지 않고 지원하는 벡터·텍스트만 재구성한다. */
@@ -281,8 +463,12 @@ public class TemplatedLibrary {
     }
 
     private static void appendLayer(StringBuilder svg, JsonNode layer) {
-        double x = dimension(layer, "x");
-        double y = dimension(layer, "y");
+        appendLayer(svg, layer, true);
+    }
+
+    private static void appendLayer(StringBuilder svg, JsonNode layer, boolean copyText) {
+        double x = coordinate(layer, "x");
+        double y = coordinate(layer, "y");
         double width = dimension(layer, "width");
         double height = dimension(layer, "height");
         String type = layer.path("type").asString("");
@@ -290,7 +476,7 @@ public class TemplatedLibrary {
                 .append("\" data-kind=\"").append(type.equals("text") ? "TEXT" : "SHAPE")
                 .append("\" data-x=\"").append(x).append("\" data-y=\"").append(y)
                 .append("\" data-width=\"").append(width).append("\" data-height=\"").append(height)
-                .append("\">");
+                .append("\" opacity=\"").append(layerOpacity(layer)).append("\">");
         if (type.equals("shape")) {
             String shape = safeShape(layer.path("html").asString(""));
             if (!shape.isEmpty()) {
@@ -308,7 +494,7 @@ public class TemplatedLibrary {
                 size = "24";
             }
             double fontSize = Double.parseDouble(size);
-            String text = layer.path("text").asString("").replaceAll("<[^>]*>", " ");
+            String text = copyText ? layer.path("text").asString("").replaceAll("<[^>]*>", " ") : "";
             svg.append("<text x=\"").append(x).append("\" y=\"").append(y + fontSize)
                     .append("\" font-family=\"Noto Sans KR, sans-serif\" font-size=\"").append(size)
                     .append("\" font-weight=\"").append("bold".equals(layer.path("font_weight").asString(""))
@@ -347,6 +533,16 @@ public class TemplatedLibrary {
     private static double dimension(JsonNode layer, String key) {
         double value = layer.path(key).asDouble();
         return Double.isFinite(value) ? Math.max(0, Math.min(10000, value)) : 0;
+    }
+
+    private static double coordinate(JsonNode layer, String key) {
+        double value = layer.path(key).asDouble();
+        return Double.isFinite(value) ? Math.clamp(value, -10000, 10000) : 0;
+    }
+
+    private static double layerOpacity(JsonNode layer) {
+        double opacity = layer.path("opacity").asDouble(1);
+        return Double.isFinite(opacity) && opacity >= 0 && opacity <= 1 ? opacity : 1;
     }
 
     private static String color(String value, String fallback) {
