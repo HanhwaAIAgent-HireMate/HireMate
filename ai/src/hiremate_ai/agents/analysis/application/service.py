@@ -137,8 +137,9 @@ async def analyze_application(
 def match_criteria(posting: PostingContent, rubric: ScreeningRubric) -> tuple[tuple[Criterion, ...], tuple[Note, ...]]:
     """공고의 자격요건 · 우대사항을 평가 기준 항목과 글로 짝짓는다.
 
-    차별 조건은 평가하지 않는다 (아키텍처 규칙 6). 공고 문장에 맞는 평가 기준이 없으면 평가 설정 오류로 알리고,
-    단일 능력 · 경험형(0 · 1)에 중요 표시 없이 공고 문장 그대로 판정한다.
+    차별 조건은 평가하지 않는다 (아키텍처 규칙 6). 공고 문장에 맞는 평가 기준이 없거나 판정 기준이 비었으면 알리고,
+    단일 능력 · 경험형(0 · 1)으로 공고 문장 그대로(판정 기준 초안으로) 판정한다. backend가 공고 줄로 보낸 항목이면
+    번호 · 중요(필수) 표시는 그대로 쓴다. 없는 항목이면 공고 순서로 번호를 매기고 중요 표시 없이 둔다.
     """
     saved = {(criterion.category, _compact(criterion.text)): criterion for criterion in rubric.criteria}
     criteria: list[Criterion] = []
@@ -154,23 +155,30 @@ def match_criteria(posting: PostingContent, rubric: ScreeningRubric) -> tuple[tu
                 )
                 continue
             found = saved.get((category, _compact(text)))
-            if found is None:
+            if found is None or not _has_rules(found):
                 notes.append(
                     Note(
                         text=f"'{text}'에 맞는 평가 기준이 없어 AI가 만든 판정 기준 초안으로 판정했어요.",
                         source=CRITERIA_SOURCE,
                     )
                 )
+                # backend가 공고 줄로 항목을 보냈으면(판정 기준만 빔) 그 번호 · 필수 표시를 그대로 쓴다.
+                # 기준선이 같은 번호의 판정으로 필수 조건을 가르기 때문이다
                 found = Criterion(
-                    criterion_id=f"{prefix}-{number:02d}",
+                    criterion_id=found.criterion_id if found is not None else f"{prefix}-{number:02d}",
                     category=category,
                     text=text,
-                    important=False,
+                    important=found.important if found is not None else False,
                     criterion_type=CriterionType.SINGLE,
                     evaluation_rules=fallback_rules(text),
                 )
             criteria.append(found)
     return tuple(criteria), tuple(notes)
+
+
+def _has_rules(criterion: Criterion) -> bool:
+    """판정 기준이 있는 항목인가. backend는 평가 기준 입력이 없는 공고 줄을 판정 기준 없이 보낸다."""
+    return bool(criterion.evaluation_rules.met.strip() and criterion.evaluation_rules.unmet.strip())
 
 
 def _compact(text: str) -> str:
