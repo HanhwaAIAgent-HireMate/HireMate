@@ -3,10 +3,15 @@ package com.hiremate.posting;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -16,6 +21,79 @@ import tools.jackson.databind.json.JsonMapper;
 
 class TemplatedLibraryTests {
     private final JsonMapper json = new JsonMapper();
+
+    @Test
+    void searchesPublicGalleryWithoutCreatingOrListingAccountTemplates() {
+        List<String> calls = new ArrayList<>();
+        TemplatedLibrary library = new TemplatedLibrary(WebClient.builder().exchangeFunction(request -> {
+            calls.add(request.method() + " " + request.url());
+            String rows = "[" + template(1, "banking recruitment", "shape") + ","
+                    + template(2, "banking recruitment alternate", "shape") + "]";
+            return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "application/json")
+                    .body(rows).build());
+        }), "test-key", "00000000-0000-0000-0000-000000000009");
+        var result = library.searchGallery("banking recruitment",
+                Set.of("templated:00000000-0000-0000-0000-000000000001"));
+        assertThat(result).extracting(PosterProposal.FreeTemplate::id)
+                .containsExactly("templated:00000000-0000-0000-0000-000000000002");
+        assertThat(calls).hasSize(2).allSatisfy(call ->
+                assertThat(call).startsWith("GET https://api.templated.io/v1/templates/gallery?"));
+        assertThat(calls).anySatisfy(call -> assertThat(call).contains("query=banking"));
+        assertThat(calls).anySatisfy(call -> assertThat(call).contains("query=recruitment"));
+    }
+
+    @Test
+    void usesOnlyUnappliedApprovedRecruitmentTemplatesWhenPublicGalleryIsEmpty() {
+        String id = "00000000-0000-0000-0000-000000000009";
+        List<String> paths = new ArrayList<>();
+        TemplatedLibrary library = new TemplatedLibrary(WebClient.builder().exchangeFunction(request -> {
+            String path = request.url().getPath();
+            paths.add(path);
+            String body = path.endsWith("/gallery")
+                    ? "[]" : template(9, "Editorial Recruitment Poster", "shape").toString();
+            return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "application/json")
+                    .body(body).build());
+        }), "test-key", id);
+
+        assertThat(library.searchGallery("banking", Set.of())).extracting(PosterProposal.FreeTemplate::id)
+                .containsExactly("templated:" + id);
+        paths.clear();
+        assertThat(library.searchGallery("banking", Set.of("templated:" + id))).isEmpty();
+        assertThat(paths).allMatch(path -> path.endsWith("/gallery"));
+    }
+
+    @Test
+    void usesPublicPhotoBannerWithoutCopyingOriginalTextOrSendingTheKeyToTheAssetHost() throws Exception {
+        var photo = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(600, 400, BufferedImage.TYPE_INT_RGB), "png", photo);
+        String publicUrl = "https://templated-assets.s3.amazonaws.com/public/pixabay-images/123";
+        String row = """
+                {"id":"00000000-0000-0000-0000-000000000004","name":"Technology announcement",
+                 "width":1200,"height":720,"layers":[
+                   {"type":"image","image_url":"%s","x":80,"width":1120,"height":720},
+                   {"type":"shape","x":12,"y":34,"width":80,"height":60,"fill":"#133557"},
+                   {"type":"text","x":110,"y":150,"width":500,"text":"Original sample copy"}]}
+                """.formatted(publicUrl);
+        TemplatedLibrary library = new TemplatedLibrary(WebClient.builder().exchangeFunction(request -> {
+            if (request.url().toString().equals(publicUrl)) {
+                assertThat(request.headers().getFirst("Authorization")).isNull();
+                return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "png")
+                        .body(reactor.core.publisher.Flux.just(
+                                DefaultDataBufferFactory.sharedInstance.wrap(photo.toByteArray()))).build());
+            }
+            assertThat(request.url().getPath()).endsWith("/gallery");
+            return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "application/json")
+                    .body(request.url().getQuery().contains("query=") ? "[]" : "[" + row + "]").build());
+        }), "test-key", "00000000-0000-0000-0000-000000000009");
+
+        assertThat(library.searchGallery("backend recruitment", Set.of())).singleElement()
+                .satisfies(template -> assertThat(template.svg()).contains("data-templated-artwork=\"true\"",
+                        "data-templated-photo=", "data-x=\"80.0\"", "data-x=\"110.0\"", "#133557")
+                        .doesNotContain("Original sample copy", publicUrl));
+        assertThat(library.searchGallery("backend recruitment",
+                Set.of("templated:00000000-0000-0000-0000-000000000004",
+                        "templated:00000000-0000-0000-0000-000000000009"))).isEmpty();
+    }
 
     @Test
     void registersThenRetrievesOncePerCompanyAndGeneratedSource() {
