@@ -12,6 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { ApplicantAvatar } from '@/components/ApplicantAvatar'
 import { Button } from '@/components/ui/button'
 import { attendeeState, type InterviewAttendance } from '@/features/interview/live'
 import { RoleTag } from '@/features/interview/RoleTag'
@@ -102,6 +103,8 @@ export function InterviewSessionBar({
   return (
     <section aria-label="면접 진행 현황" className="space-y-3 border-b bg-surface/50 px-5 py-4">
       <div className="flex flex-wrap items-center gap-3">
+        {/* HR 선택 지원자 상세처럼 이름 옆에 원형 예시 사진을 둔다 */}
+        <ApplicantAvatar applicationId={interview.applicationId} name={interview.applicantName} />
         <div className="mr-auto min-w-0">
           <h2 className="flex items-center gap-2 text-lg font-bold">
             {interview.applicantName}
