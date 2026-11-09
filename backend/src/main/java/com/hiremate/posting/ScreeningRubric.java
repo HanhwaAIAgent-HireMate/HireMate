@@ -6,8 +6,9 @@ import java.util.UUID;
 
 /**
  * 서류 평가 기준. 공고의 자격요건 · 우대사항마다 유형 · 중요 표시 · 판정 기준을 두고, 선발 인원을 둔다. 서류 점수에서는
- * 영역 안의 항목이 모두 같은 비중이다. 사람이 정해 확정하고 Agent는 항목 · 유형 · 중요 표시를 바꾸지 않는다. 공고 작성 화면에서 입력하기 전까지는
- * 설정(hiremate.dummy.screening-rubric)의 더미를 모든 채용에 쓴다.
+ * 영역 안의 항목이 모두 같은 비중이다. 사람이 정해 확정하고 Agent는 항목 · 유형 · 중요 표시를 바꾸지 않는다. 항목과 중요(필수) 표시는
+ * 공고 줄과 공고 작성 화면의 '필수' 표시로 정하고, 유형 · 판정 기준은 입력 화면이 생기기 전까지 설정(hiremate.dummy.screening-rubric)의
+ * 더미에서 같은 글의 항목을 찾아 쓴다 (PostingRubric).
  *
  * @param criteriaVersion 평가 기준 버전. 분석 결과에 함께 남고, 바뀌면 저장된 분석 결과를 다시 쓰지 않는다
  * @param hireCount 선발 인원. 서류 전형의 AI 추천은 이 인원의 10배수까지다
@@ -34,7 +35,8 @@ public record ScreeningRubric(UUID companyId, UUID recruitmentId, String criteri
      * 평가 항목 하나.
      *
      * @param criterionId 예: Q-01, P-01
-     * @param important 중요 표시. 면접 질문을 정리할 때 참고하고 서류 점수에는 쓰지 않는다
+     * @param important 중요(필수) 표시. 공고 작성 화면에서 '필수'로 표시한 줄이다. 서류 전형 기준선은 필수 자격요건을 모두
+     *        충족했는지로 가르고, 면접 질문을 정리할 때도 참고한다. 서류 점수에는 쓰지 않는다
      * @param certificates 자격증 보유 조건이면 인정하는 자격증 이름
      */
     public record Criterion(String criterionId, Category category, String text, boolean important,

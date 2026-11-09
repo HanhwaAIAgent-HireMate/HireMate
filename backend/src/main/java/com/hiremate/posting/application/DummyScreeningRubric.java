@@ -7,7 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * 공고 담당이 평가 기준 입력을 만들기 전까지 쓰는 서류 평가 기준 (application.yml의 hiremate.dummy.screening-rubric).
- * 실제 입력이 생기면 이 설정 대신 공고에 저장한 값을 쓴다.
+ * 항목 · 필수 표시는 공고에서 정하고(PostingRubric), 이 설정에서는 같은 글의 항목의 유형 · 판정 기준 · 인정 자격증만 쓴다.
+ * 여기의 중요 표시와 항목 번호는 쓰지 않는다.
  */
 @ConfigurationProperties("hiremate.dummy.screening-rubric")
 public record DummyScreeningRubric(String criteriaVersion, int hireCount, List<ScreeningRubric.Criterion> criteria) {

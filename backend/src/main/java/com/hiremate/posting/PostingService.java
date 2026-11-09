@@ -131,13 +131,13 @@ public class PostingService {
     }
 
     /**
-     * 서류 평가 기준(우대 사항 가중치 · 선발 인원). 공고 작성 화면에서 입력하기 전까지는 설정의 더미를 쓴다.
-     * 다른 기업의 채용이면 404다.
+     * 서류 평가 기준. 항목은 공고의 자격요건 · 우대사항 줄이고, 필수 표시는 공고 작성 화면에서 '필수'로 표시한 줄이다 (PostingRubric).
+     * 유형 · 판정 기준은 평가 기준 입력 화면이 생기기 전까지 설정의 더미에서 같은 글의 항목을 찾아 쓴다. 다른 기업의 채용이면 404다.
      */
     @Transactional(readOnly = true)
     public ScreeningRubric screeningRubric(UUID companyId, UUID recruitmentId) {
-        posting(companyId, recruitmentId);
-        return dummyRubric.of(companyId, recruitmentId);
+        JobPosting posting = posting(companyId, recruitmentId);
+        return PostingRubric.of(dummyRubric.of(companyId, recruitmentId), posting.content(), posting.required());
     }
 
     /**
