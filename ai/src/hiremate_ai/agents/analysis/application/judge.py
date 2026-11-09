@@ -7,7 +7,7 @@
   뽑힌 문장이면 본인 역할로 본다. 모델 응답 누락도 미충족이 아니라 확인 필요다.
 - 'N년 이상' 경력 기간: 모델이 고른, 요건의 직무 · 기술에 해당하는 재직 기간만 더해 계산한다 (전체 재직 기간이 아니다).
 - 자격증 보유: 인정 자격증 이름으로 찾고 확인 상태(본인 기재 · 증빙 제출)를 남긴다.
-- 정량 지표: 경험형 항목의 근거에 있는 숫자로 된 성과 · 규모를 모델이 옮기면, 원문에 있고 숫자가 들어 있을 때만 남긴다.
+- 정량 지표는 여기서 고르지 않는다. 성과 장부(achievements)가 지원자 단위로 정한 성과 · 항목 연결을 검증 뒤에 붙인다.
   화면은 경험과 지표가 함께 있으면 상, 경험만 있으면 중으로 보여 준다.
 """
 
@@ -28,7 +28,6 @@ from hiremate_ai.agents.analysis.application.context import (
     fact_lines,
     readable,
     related,
-    sentences,
     terms,
 )
 from hiremate_ai.agents.analysis.application.extract import locate, quotes_in
@@ -57,16 +56,6 @@ from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block, documents_block
 SHORTFALL_LENGTH = 12
 # 서류에 관련 기록이 아예 없는 항목(언급 없음)의 카드 요약
 NO_RECORD_BRIEF = "서류에 해당 내용 없음"
-# 지표 검증 주장의 id 꼬리 (예: Q-01#metric)
-METRIC_CLAIM = "#metric"
-# 지표가 빈 충족 항목의 검증에 붙이는 표시. 검증 모델이 맥락에서 전후 성과 수치를 찾아 원문 그대로 옮긴다
-RESULT_SEARCH = "[성과 수치 찾기]"
-# 첫 검증에서 성과 수치를 찾지 못한 항목에 한 번 더 묻는 주장의 id 꼬리
-RESULT_CLAIM = "#result"
-RESULT_CONTEXT_CHARS = 1500
-RESULT_AROUND_CHARS = 900
-RESULT_SENTENCES = 2
-_PERCENTILE = re.compile(r"(?<![A-Za-z0-9])[pP]\d{2,3}(?:\.\d)?(?![0-9])")
 QUOTE_HEAD = 20
 RELATED_OVERLAP = 3
 RELATED_LINES = 6
@@ -142,19 +131,8 @@ JUDGE_SYSTEM = f"""너는 지원 서류를 공고의 평가 항목에 대조해 
 - MET · PARTIAL이면 evidence에 근거 문장을 원문 글자 그대로 옮긴다. 기준의 부분마다 받치는 문장과 결과 문장을 모두
   옮기고, 본인 행동이 드러난 문장을 먼저 둔다. 옮길 문장이 없으면 그 판정을 쓰지 않는다.
   UNKNOWN · NO_RECORD여도 판단에 쓴 흔적 문장이 있으면 evidence에 옮긴다 (담당자가 무엇을 보고 판정했는지 알 수 있게).
-- 유효한 수치 성과를 경험보다 훨씬 높게 친다. 유효한 수치 성과는 본인 행동 뒤에 바뀐 결과 수치다 (전후로 줄어든 처리 ·
-  소요 시간, 오류율, 건수 등). 있으면 metric에 그 부분을 한 문장에서 원문 글자 그대로, 같은 문장의 측정 조건까지 짧게
-  옮긴다. 운영 · 팀 규모, 만든 것의 개수, 근무 · 재직 기간, 연도, 버전 번호, 바꾼 설정값(크기 · 개수 · 주기 같은 값을
-  얼마에서 얼마로 바꿨다는 것은 행동이지 결과가 아니다), 본인 기여를 나눌 수 없는 팀 성과, 원문이 본인 조치 밖의
-  다른 효과(다른 팀 · 회사의 개편 등)가 섞였다고 밝힌 수치는 결과가 아니라 metric에 넣지 않고, 조건과 함께 brief에
-  쓴다. 본인이 여러 조치를 함께 해서 낸 결과(예: 인덱스 재설계와 캐시 적용)는 결과로 쓰고, metric_note에 함께 적용한
-  조치를 짧게 쓴다 (예: '인덱스 + 캐시 함께 적용'). metric이 있으면 metric_summary에 '무엇 전 값 → 후 값' 형식으로
-  30자 안팎의 요약을 쓴다 (예: '조회 p95 1.2초 → 140ms'). 숫자는 원문 그대로 쓴다.
-  그 항목이 묻는 일 자체를 바꿔서 생긴 결과만 그 항목의 metric이다:
-  도구 · 언어 · 원칙 항목은 그것을 적용한 변경으로 생긴 결과만 넣고(예: 캐시를 붙여 줄어든 응답 시간 → 캐시 항목),
-  그 도구로 만든 서비스의 다른 개선 수치는 넣지 않는다.
-  다른 환경(실서비스와 개인 · 테스트 환경)의 수치를 섞지 않는다.
-  없으면 비운다.
+- 수치 성과(전후 값)는 다른 단계가 지원자 단위로 한 번 정리해 항목에 연결한다. 여기서는 본인이 한 일로 판정만 한다.
+  수치의 조건 · 한계(체감치, 팀 공동, 다른 효과 포함 등)가 판정에 영향을 주면 brief에 쓴다.
 - brief는 화면 카드에 보일 판정 요약 한 줄이다. 40자 안팎으로, 길이를 맞추려고 수치의 조건 · 한계를 빼지 않는다.
   MET · PARTIAL · NOT_MET은 한 일과 모자란 점을 명사형으로 끝낸다 (예: '○○ 구현은 확인, ○○ 운영은 미확인').
   UNKNOWN은 서류에 있는 흔적과 담당자가 확인할 것을 함께 쓰고 '확인 필요'로 끝낸다 (예: '○○ 프로젝트 API 담당은
@@ -195,14 +173,6 @@ class CriterionVerdict(BaseModel):
     evidence: list[str] = Field(default=[], description="근거 문장. 원문 글자 그대로")
     career_periods: list[int] = Field(default=[], description="경력 기간 항목이면 해당하는 경력표 번호")
     shortfall: str = Field(default="", description="자격요건 NOT_MET이면 이름 옆에 붙일 아주 짧은 표시")
-    metric: str = Field(default="", description="근거의 정량 지표(숫자로 된 성과 · 규모). 원문 글자 그대로")
-    metric_note: str = Field(
-        default="", description="본인이 여러 조치를 함께 한 결과면 함께 적용한 조치. 없으면 비운다"
-    )
-    metric_summary: str = Field(
-        default="",
-        description="metric의 짧은 요약 '무엇 전 값 → 후 값' (예: '조회 p95 1.2초 → 140ms'). 숫자는 원문 그대로",
-    )
 
 
 class CriteriaJudgement(BaseModel):
@@ -317,19 +287,7 @@ def settle(criterion: Criterion, verdict: CriterionVerdict | None, evidence: Evi
         composite = criterion.criterion_type == CriterionType.COMPOSITE
         level = Verdict.PARTIAL if composite and found_parts else Verdict.NOT_MET
     quotes = quotes_in(evidence.documents, verdict.evidence)
-    metric = (
-        _metric(verdict.metric, evidence.documents)
-        if level in (Verdict.MET, Verdict.PARTIAL) and criterion.criterion_type != CriterionType.CONDITION
-        else ""
-    )
-    # 판정이 지표를 비워 두면 같은 문단의 본인 수치 문장을 후보로 고른다 (유효한지는 근거 검증이 본다)
-    if not metric and level in (Verdict.MET, Verdict.PARTIAL) and criterion.criterion_type != CriterionType.CONDITION:
-        metric = _metric_candidate(quotes, evidence)
-    # 지표 문장도 근거에 넣는다. 검증 모델이 구현 문장만 보고 운영 · 성과를 과장이라고 보지 않게 한다
-    if metric and (found := _metric_quote(metric, evidence.documents)) and found not in quotes:
-        quotes.append(found)
-    # 화면에는 짧은 요약을 쓰고(원문 문장은 근거에 남는다), 여러 조치를 함께 한 결과면 조건을 붙인다
-    metric = with_note(summarized(metric, verdict.metric_summary), verdict.metric_note)
+    # 지표는 여기서 고르지 않는다. 성과 장부(achievements)가 지원자 단위로 정한 연결을 검증 뒤에 붙인다
     role = _role(verdict.role, quotes, evidence.facts)
     result = base.model_copy(
         update={
@@ -346,7 +304,6 @@ def settle(criterion: Criterion, verdict: CriterionVerdict | None, evidence: Evi
             "unknown_parts": verdict.unknown_parts,
             # 하 · 확인 필요도 판단에 쓴 흔적 문장을 남긴다 (담당자가 무엇을 보고 판정했는지 알 수 있게)
             "quotes": _own_first(quotes, evidence.facts),
-            "metric": metric,
         }
     )
     if missing_parts:
@@ -443,54 +400,23 @@ def verification_claims(
         for result in results
         if result.verdict in (Verdict.MET, Verdict.PARTIAL) and result.quotes and result.certificate_status is None
     ]
-    claims = [
+    return [
         Claim(
             result.criterion_id,
             f"'{result.text}'을 {VERDICT_LABEL[result.verdict]}했다. 판정 이유: {result.reason}"
-            + _rule_text(result, rules)
-            + (f" {RESULT_SEARCH}" if _searches_result(result) else ""),
+            + _rule_text(result, rules),
             result.quotes,
-            _result_context(result, documents) if _searches_result(result) else paragraphs(result.quotes, documents),
-        )
-        for result in judged
-    ]
-    # 지표는 따로 검증한다: 본인 행동 뒤에 바뀐 결과 수치여야 상의 근거가 된다
-    claims += [
-        Claim(
-            f"{result.criterion_id}{METRIC_CLAIM}",
-            f"다음 수치는 '{result.text}'에 해당하는 지원자 본인의 행동 뒤에 바뀐 결과(처리 · 소요 시간, "
-            f"오류율, 건수 같은 성과)다. 운영 · 팀 규모, 본인이 바꾼 설정값, 본인 조치 밖의 다른 효과가 섞였다고 "
-            f"밝힌 수치(본인이 함께 적용한 여러 조치의 결과는 해당한다), "
-            f"본인 기여를 나눌 수 없는 팀 성과가 아니다: {result.metric}",
-            [quote for quote in result.quotes if _compact(result.metric) in _compact(quote.sentence)] or result.quotes,
             paragraphs(result.quotes, documents),
         )
         for result in judged
-        if result.metric
     ]
-    return claims
 
 
-def apply_verification(
-    results: Sequence[CriterionResult],
-    reviews: dict[str, ClaimReview],
-    documents: Sequence[ApplicantDocument] = (),
-) -> list[CriterionResult]:
-    """근거가 판정을 받쳐 주지 않으면 확인 필요로, 복합 경험형의 충족이 과장이면 부분 충족으로 낮춘다.
-
-    지표가 빈 충족 · 부분 충족 항목에 검증이 찾은 성과 수치 문장(result_quotes)이 있으면, 원문에 그대로 있고 숫자가
-    둘 이상(전후 값)이며 기준 없는 수치가 아닐 때 지표로 쓰고 근거 문장에 더한다.
-    """
+def apply_verification(results: Sequence[CriterionResult], reviews: dict[str, ClaimReview]) -> list[CriterionResult]:
+    """근거가 판정을 받쳐 주지 않으면 확인 필요로, 복합 경험형의 충족이 과장이면 부분 충족으로 낮춘다."""
     checked = []
     for result in results:
-        metric_review = reviews.get(f"{result.criterion_id}{METRIC_CLAIM}")
-        if metric_review is not None and metric_review.verdict != "SUPPORTED":
-            result = result.model_copy(update={"metric": ""})
         review = reviews.get(result.criterion_id)
-        if review is not None and review.verdict != "UNSUPPORTED" and _searches_result(result):
-            result = _with_found_result(
-                result, review.result_quotes, documents, review.result_note, review.result_summary
-            )
         if review is None or review.verdict == "SUPPORTED":
             checked.append(result)
         elif (
@@ -514,141 +440,6 @@ def apply_verification(
             reason = f"검증에서 근거가 판정을 받쳐 주지 않는다고 봤어요. {review.reason}".strip()
             checked.append(_unknown(result, reason))
     return checked
-
-
-def _searches_result(result: CriterionResult) -> bool:
-    """검증에서 성과 수치를 함께 찾을 항목: 지표가 빈 충족 · 부분 충족 경험 항목."""
-    return (
-        result.verdict in (Verdict.MET, Verdict.PARTIAL)
-        and not result.metric
-        and result.criterion_type != CriterionType.CONDITION
-        and result.certificate_status is None
-    )
-
-
-def _result_context(result: CriterionResult, documents: Sequence[ApplicantDocument]) -> str:
-    """성과 수치를 찾을 맥락: 근거 문장 앞뒤 글과, 다른 문서에서 같은 일을 가리키는 숫자 있는 줄.
-    결과는 근거 문장과 다른 문단(같은 프로젝트 설명의 앞뒤)이나 이력서 · 포트폴리오의 요약 줄에만 있곤 해서
-    문단 경계 대신 앞뒤 글자 수로 넉넉히 본다."""
-    found = _around(result.quotes, documents) or paragraphs(result.quotes, documents, limit=RESULT_CONTEXT_CHARS)
-    words = _tokens(" ".join(quote.sentence for quote in result.quotes))
-    lines = []
-    for document in readable(documents):
-        for line in document.text.splitlines():
-            text = " ".join(line.split())
-            if (
-                re.search(r"\d", text)
-                and _compact(text) not in _compact(found)
-                and len(words & _tokens(text)) >= RELATED_OVERLAP
-                and text not in lines
-            ):
-                lines.append(text)
-    related = " / ".join(lines[:RELATED_LINES])
-    return found + (f" / (같은 일을 적은 다른 줄) {related}" if related else "")
-
-
-def _around(quotes: Sequence[Quote], documents: Sequence[ApplicantDocument]) -> str:
-    """근거 문장마다 그 문장이 나온 문서에서 앞뒤 RESULT_AROUND_CHARS자씩. 겹치는 구간은 한 번만 쓴다."""
-    spans: dict[int, list[tuple[int, int]]] = {}
-    usable = readable(documents)
-    for quote in quotes:
-        head = quote.sentence.strip()[:QUOTE_HEAD]
-        for index, document in enumerate(usable):
-            at = document.text.find(head) if document.type == quote.document and head else -1
-            if at >= 0:
-                begin, end = max(0, at - RESULT_AROUND_CHARS), at + len(quote.sentence) + RESULT_AROUND_CHARS
-                spans.setdefault(index, []).append((begin, end))
-                break
-    parts = []
-    for index, ranges in spans.items():
-        merged: list[list[int]] = []
-        for begin, end in sorted(ranges):
-            if merged and begin <= merged[-1][1]:
-                merged[-1][1] = max(merged[-1][1], end)
-            else:
-                merged.append([begin, end])
-        text = usable[index].text
-        parts += [" ".join(text[begin:end].split()) for begin, end in merged]
-    return " / ".join(parts)
-
-
-def _tokens(text: str) -> set[str]:
-    return set(re.findall(r"[가-힣A-Za-z_]{2,}", text))
-
-
-def summarized(metric: str, summary: str) -> str:
-    """화면에 보일 지표. 요약의 숫자가 원문 지표에 모두 있고 전후 값(둘 이상)이면 요약을, 아니면 원문 지표를 쓴다."""
-    summary = " ".join(summary.split())
-    values = re.findall(r"\d[\d,.]*", _PERCENTILE.sub("", summary))
-    source = _compact(metric)
-    if not metric or not summary or len(values) < 2 or any(value not in source for value in values):
-        return metric
-    return summary
-
-
-def with_note(metric: str, note: str) -> str:
-    """지표 뒤에 함께 적용한 조치를 괄호로 붙인다. 지표가 없거나 이미 붙어 있으면 그대로다."""
-    note = " ".join(note.split()).strip("() ")
-    if not metric or not note or note in metric:
-        return metric
-    return f"{metric} ({note})"
-
-
-def result_search_claims(results: Sequence[CriterionResult], documents: Sequence[ApplicantDocument]) -> list[Claim]:
-    """첫 검증에서 성과 수치를 찾지 못한 항목에 한 번 더 묻는 주장. 판정은 다시 보지 않고 결과 수치만 찾는다."""
-    return [
-        Claim(
-            f"{result.criterion_id}{RESULT_CLAIM}",
-            f"'{result.text}' 판정은 이미 검토를 마쳤다. {RESULT_SEARCH} 이 항목의 본인 행동 뒤에 바뀐 결과 수치만 "
-            "다시 찾는다. 판정 근거로 고른 문장 밖(같은 프로젝트의 앞뒤 설명, 다른 문서의 요약 줄)도 본다.",
-            result.quotes,
-            _result_context(result, documents),
-        )
-        for result in results
-        if _searches_result(result) and result.quotes
-    ]
-
-
-def apply_found_results(
-    results: Sequence[CriterionResult], reviews: dict[str, ClaimReview], documents: Sequence[ApplicantDocument]
-) -> list[CriterionResult]:
-    """다시 찾은 성과 수치를 지표로 쓴다 (판정은 바꾸지 않는다)."""
-    found = []
-    for result in results:
-        review = reviews.get(f"{result.criterion_id}{RESULT_CLAIM}")
-        if review is not None and _searches_result(result):
-            result = _with_found_result(
-                result, review.result_quotes, documents, review.result_note, review.result_summary
-            )
-        found.append(result)
-    return found
-
-
-def _with_found_result(
-    result: CriterionResult,
-    sentences: Sequence[str],
-    documents: Sequence[ApplicantDocument],
-    note: str = "",
-    summary: str = "",
-) -> CriterionResult:
-    """검증이 찾은 성과 수치 문장을 지표로 쓴다. 원문에 그대로 있는 문장만, 숫자가 둘 이상(전후 값)일 때만이다."""
-    bodies = [_compact(document.text) for document in readable(documents)]
-    found = [
-        " ".join(sentence.split())
-        for sentence in sentences
-        if sentence.strip() and any(_compact(sentence) in body for body in bodies)
-    ]
-    # 결과 하나의 전후 문장만 쓴다 (서로 다른 결과를 이어 붙이지 않는다)
-    metric = " … ".join(list(dict.fromkeys(found))[:RESULT_SENTENCES])
-    # p95 · p99 같은 지표 이름의 숫자는 값이 아니다
-    values = re.findall(r"\d[\d,.]*", _PERCENTILE.sub("", metric))
-    if len(values) < 2 or baseless_number(metric):
-        return result
-    quotes = list(result.quotes)
-    for quote in quotes_in(readable(documents), list(dict.fromkeys(found))[:RESULT_SENTENCES]):
-        if quote not in quotes:
-            quotes.append(quote)
-    return result.model_copy(update={"metric": with_note(summarized(metric, summary), note), "quotes": quotes})
 
 
 def _rule_text(result: CriterionResult, rules: dict[str, EvaluationRules]) -> str:
@@ -678,12 +469,6 @@ def paragraphs(
                 if _compact(quote.sentence) in _compact(paragraph) and text not in found:
                     found.append(text[:limit] if limit else text)
     return " / ".join(found)
-
-
-def _metric_quote(metric: str, documents: Sequence[ApplicantDocument]) -> Quote | None:
-    """정량 지표가 들어 있는 원문 문장."""
-    needle = _compact(metric)
-    return next((quote for quote in sentences(readable(documents)) if needle in _compact(quote.sentence)), None)
 
 
 def short_label(text: str) -> str:
@@ -886,46 +671,6 @@ def baseless_number(text: str) -> bool:
     """기준값 없는 수치인가: 숫자가 모두 %나 배로 크기만 말하고 전후 값 · 비교 기준이 없다 ('300% 개선, 5배 향상')."""
     units = re.findall(r"\d[\d,.]*\s*(%|배)?", text)
     return bool(units) and all(units) and not BASELINE.search(text)
-
-
-# 전후 변화가 드러난 수치 ('38초에서 21초로', '1,840ms → 290ms', '37건 → 0건')
-_CHANGE = re.compile(r"\d[\d,.]*\s*[^\s\d]{0,8}\s*(?:에서|→|->)\s*[^\d\s]{0,4}\s*\d")
-
-
-def _metric_candidate(quotes: Sequence[Quote], evidence: Evidence) -> str:
-    """판정이 지표를 비워 둘 때 코드가 고르는 후보: 판정이 근거로 고른 문장 가운데 전후 변화가 드러난 수치 문장.
-
-    같은 문단의 다른 문장은 보지 않는다 (항목과 관계없는 수치가 붙지 않게). 사실 추출이 본인(또는 주어가 불분명한)
-    경험으로 뽑고 원문에서 확인된 문장만 쓰고, 유효한지는 근거 검증이 다시 본다.
-    """
-    own = {
-        _compact(quote.sentence)
-        for fact in evidence.facts
-        if fact.actor != Actor.TEAM and fact.supported
-        for quote in fact.quotes
-    }
-    for quote in quotes:
-        sentence = " ".join(quote.sentence.split())
-        compact = _compact(sentence)
-        mine = any(compact in fact or fact in compact for fact in own)  # 근거와 사실이 문장을 조금 다르게 끊어도 맞춘다
-        if _CHANGE.search(sentence) and not baseless_number(sentence) and mine:
-            return sentence
-    return ""
-
-
-def _metric(text: str, documents: Sequence[ApplicantDocument]) -> str:
-    """모델이 옮긴 정량 지표. 숫자가 없거나, 원문에 없거나, 기준값 없는 수치('300% 개선')면 버린다.
-
-    여러 구절을 ';'로 이어 붙였으면 원문에 그대로 있는 첫 구절만 남긴다 (이어 붙인 지표는 원문에 없는 문장이다).
-    """
-    bodies = [_compact(document.text) for document in readable(documents)]
-    for piece in text.split(";"):
-        metric = " ".join(piece.split())
-        if not re.search(r"\d", metric) or baseless_number(metric):
-            continue
-        if any(_compact(metric) in body for body in bodies):
-            return metric
-    return ""
 
 
 def _line_quote(name: str, document: ApplicantDocument) -> Quote | None:

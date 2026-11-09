@@ -75,14 +75,12 @@ def test_verification_sees_the_paragraph_of_each_quote() -> None:
         criterion_type=CriterionType.COMPOSITE,
         verdict=Verdict.MET,
         reason="구현과 운영",
-        metric="응답 시간 단축",
         quotes=[Quote(document=DocumentType.PORTFOLIO, sentence="API를 구현했습니다.")],
     )
 
-    [claim, _] = verification_claims([result], [document])
+    [claim] = verification_claims([result], [document])
 
     # 인용은 한 문장이어도 같은 문단의 운영 문장을 맥락으로 함께 넘기고, 다른 문단은 넘기지 않는다
-    # (지표가 빈 항목은 성과 수치를 찾느라 맥락을 더 넓게 준다: test_judge)
     assert claim.context == "## 담당 범위 API를 구현했습니다. 운영 중 쿼리를 고쳤습니다."
 
 

@@ -13,6 +13,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from hiremate_ai.agents.analysis.application.achievements import Ledger
 from hiremate_ai.agents.analysis.application.digest import PortfolioDigest, ResumeDigest
 from hiremate_ai.agents.analysis.application.extract import (
     ExtractedFacts,
@@ -132,6 +133,7 @@ class Script:
     rechecks: (항목 id, 재확인 차수) → 재확인 판정 (없으면 첫 판정을 다시 쓴다).
     reviews: 주장 id → 검토 결과 (없으면 SUPPORTED). omit: 답에서 빠뜨릴 항목 id. summary: 자기소개서 요약.
     warnings: 서류 주의 신호 (없으면 신호 없음). jobs: 회사 → 직무 관련 판단 (없으면 YES).
+    ledger: 지원자 단위 성과 장부 (없으면 성과 없음).
     """
 
     extract: dict[str, ExtractedFacts] = field(default_factory=dict)
@@ -142,6 +144,7 @@ class Script:
     summary: LetterSummary = field(default_factory=LetterSummary)
     resume_digest: ResumeDigest = field(default_factory=ResumeDigest)
     portfolio_digest: PortfolioDigest = field(default_factory=PortfolioDigest)
+    ledger: Ledger = field(default_factory=Ledger)
     warnings: _Warnings = field(default_factory=lambda: _Warnings(items=[]))
     jobs: dict[str, str] = field(default_factory=dict)
 
@@ -156,6 +159,8 @@ class Script:
             return self.resume_digest
         if call.output is PortfolioDigest:
             return self.portfolio_digest
+        if call.output is Ledger:
+            return self.ledger
         if call.output is _Warnings:
             return self.warnings
         if call.output is JobCareer:
@@ -176,7 +181,7 @@ class Script:
                 answers.append(self.rechecks.get((criterion_id, round_no), first) if round_no else first)
             return CriteriaJudgement(verdicts=answers)
         if call.output is ReviewJudgement:
-            ids = re.findall(r"^([QP]-\d+|F\d+)\. 주장", call.user, re.MULTILINE)
+            ids = re.findall(r"^([QP]-\d+|F\d+|R\d+)\. 주장", call.user, re.MULTILINE)
             return ReviewJudgement(
                 reviews=[
                     ClaimReview(id=id, verdict=self.reviews.get(id, "SUPPORTED"), reason="검토 이유") for id in ids
