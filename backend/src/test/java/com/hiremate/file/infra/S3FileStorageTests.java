@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -20,12 +21,16 @@ class S3FileStorageTests {
     @Test
     void storesAndReadsAnObjectUsingSignedUrl() throws Exception {
         AtomicReference<byte[]> saved = new AtomicReference<>();
+        AtomicBoolean deleted = new AtomicBoolean();
         AtomicReference<String> readQuery = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/bucket/company/file", exchange -> {
             if ("PUT".equals(exchange.getRequestMethod())) {
                 saved.set(exchange.getRequestBody().readAllBytes());
                 exchange.sendResponseHeaders(200, -1);
+            } else if ("DELETE".equals(exchange.getRequestMethod())) {
+                deleted.set(true);
+                exchange.sendResponseHeaders(204, -1);
             } else {
                 readQuery.set(exchange.getRequestURI().getRawQuery());
                 byte[] content = saved.get();
@@ -49,6 +54,8 @@ class S3FileStorageTests {
 
             assertThat(storage.load("company/file")).isEqualTo(content);
             assertThat(readQuery.get()).contains("X-Amz-Signature=");
+            storage.delete("company/file");
+            assertThat(deleted).isTrue();
         } finally {
             server.stop(0);
         }

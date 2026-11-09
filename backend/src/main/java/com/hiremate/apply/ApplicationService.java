@@ -79,12 +79,20 @@ public class ApplicationService {
         if (missing) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "Fill in the required items.");
         }
+        String photoType = form.photo() == null ? null : photoType(form.photo().content());
+        if (form.photo() != null && (target.blind() || photoType == null)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PHOTO", "Invalid photo.");
+        }
         if (applications.existsByRecruitmentIdAndEmail(target.recruitmentId(), email)) {
             throw new ApiException(HttpStatus.CONFLICT, "ALREADY_APPLIED", "This email has already applied.");
         }
         JobApplication application = applications.save(new JobApplication(target.recruitmentId(),
                 target.companyId(), postingId, applications.maxApplicationNo(target.recruitmentId()) + 1, name, email,
                 phone, certificates));
+        if (form.photo() != null) {
+            application.setPhotoFileId(files.storePhoto(target.companyId(), photoType,
+                    form.photo().content()).fileId());
+        }
         saveDocument(application, DocumentType.RESUME, form.resume(), target.blind());
         saveDocument(application, DocumentType.COVER_LETTER, form.coverLetter(), target.blind());
         if (form.portfolio() != null) {
@@ -327,6 +335,38 @@ public class ApplicationService {
         StoredFileInfo info = content.info();
         return new FileContent(new StoredFileInfo(info.fileId(), blindFileName(application, type), info.contentType(),
                 info.size()), content.bytes());
+    }
+
+    @Transactional(readOnly = true)
+    public FileContent photoContent(UUID companyId, UUID recruitmentId, UUID applicationId) {
+        JobApplication application = application(companyId, applicationId);
+        if (!application.getRecruitmentId().equals(recruitmentId) || application.getPhotoFileId() == null
+                || new Identity(companyId).hides(application)) {
+            throw notFound();
+        }
+        return files.read(companyId, application.getPhotoFileId());
+    }
+
+    private static String photoType(byte[] bytes) {
+        if (bytes.length > 5 * 1024 * 1024) {
+            return null;
+        }
+        if (startsWith(bytes, new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff})) {
+            return "image/jpeg";
+        }
+        if (startsWith(bytes, new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a})) {
+            return "image/png";
+        }
+        if (bytes.length >= 12 && startsWith(bytes, new byte[] {0x52, 0x49, 0x46, 0x46})
+                && bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) {
+            return "image/webp";
+        }
+        return null;
+    }
+
+    private static boolean startsWith(byte[] bytes, byte[] signature) {
+        return bytes.length >= signature.length && java.util.Arrays.equals(bytes, 0, signature.length,
+                signature, 0, signature.length);
     }
 
     /** 블라인드 채용이면 본문의 학교 이름과 학점을 가려 저장한다. AI는 이 본문만 읽는다. 원본 PDF는 그대로 둔다. */
