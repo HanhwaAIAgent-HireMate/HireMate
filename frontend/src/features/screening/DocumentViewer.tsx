@@ -44,8 +44,7 @@ const TABS: { key: Tab; label: string }[] = [
 
 /**
  * 서류 전형의 문서 Viewer (STG-06). 서류 분석 결과는 AI 분석 탭(첫 탭)에서만 보여 준다.
- * 이력서 · 포트폴리오는 원문 글 없이 AI 정리(표 · 카드)만 보여 준다. 자기소개서는 문항별 요약을 먼저 보여 주고, 원문
- * 보기에서는 정제 문서(서류 원문)를 그대로 그려 근거 문장에 밑줄을 친다 (정제 전이면 PDF 본문). 원본은 PDF로 연다.
+ * 각 서류는 요약과 원문을 전환하고 원본은 PDF로 열 수 있다.
  * 칸 높이를 묶지 않아 스크롤은 바깥(지원자 카드)에서 한다.
  */
 export function DocumentViewer({
@@ -58,7 +57,7 @@ export function DocumentViewer({
   detail: CandidateDetail
 }) {
   const [tab, setTab] = useState<Tab>('PROFILE')
-  // 자기소개서는 문항별 요약을 먼저 보여 주고, 원문은 눌러서 본다
+  // 서류 요약을 먼저 보여 주고, 원문은 눌러서 본다
   const [fullText, setFullText] = useState(false)
   const analysis = useCandidateAnalysis(
     stageId,
@@ -73,8 +72,7 @@ export function DocumentViewer({
   const highlights = (analysis.data?.highlights ?? [])
     .filter((item) => item.document === tab)
     .map((item) => item.sentence)
-  // 이력서 · 포트폴리오는 원문 글 없이 AI 정리만 보여 준다
-  const digestOnly = tab === 'RESUME' || tab === 'PORTFOLIO'
+  const hasDigest = tab === 'RESUME' || tab === 'PORTFOLIO'
   const digest = (analysis.data?.digests ?? []).find(
     (item) => item.document === tab && item.sections.length > 0,
   )
@@ -106,12 +104,14 @@ export function DocumentViewer({
       {tab === 'PROFILE' ? (
         <AnalysisBox
           stageId={stageId}
+          recruitmentId={recruitmentId}
           applicationId={detail.row.applicationId}
           status={detail.row.analysisStatus}
           loading={analysis.isPending}
           analysis={analysis.data}
           documents={detail.documents}
           normalized={detail.normalized}
+          originalsWithName={detail.originalsWithName}
         />
       ) : (
         // 높이를 묶지 않고 AI 분석 탭처럼 칸 전체를 쓴다. 스크롤은 바깥(지원자 카드)에서 한다
@@ -126,13 +126,13 @@ export function DocumentViewer({
             <>
               <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
                 <span>{document.fileName}</span>
-                {!digestOnly && sections.length > 0 && (
+                {(hasDigest || sections.length > 0) && (
                   <button
                     type="button"
                     onClick={() => setFullText((value) => !value)}
                     className="mr-3 ml-auto hover:text-foreground"
                   >
-                    {fullText ? '문항별 요약 보기' : '원문 보기'}
+                    {fullText ? (hasDigest ? '정리 보기' : '문항별 요약 보기') : '원문 보기'}
                   </button>
                 )}
                 <OriginalPdfLink
@@ -140,7 +140,7 @@ export function DocumentViewer({
                   showsName={originalShowsName}
                 />
               </div>
-              {digestOnly ? (
+              {hasDigest && !fullText ? (
                 digest ? (
                   <DigestView digest={digest} />
                 ) : analysis.isPending || detail.row.analysisStatus === 'PENDING' ? (
@@ -255,20 +255,24 @@ type Ability = {
  */
 function AnalysisBox({
   stageId,
+  recruitmentId,
   applicationId,
   status,
   loading,
   analysis,
   documents,
   normalized,
+  originalsWithName,
 }: {
   stageId: string
+  recruitmentId: string
   applicationId: string
   status: CandidateDetail['row']['analysisStatus']
   loading: boolean
   analysis?: ReturnType<typeof useCandidateAnalysis>['data']
   documents: CandidateDetail['documents']
   normalized: CandidateDetail['normalized']
+  originalsWithName: CandidateDetail['originalsWithName']
 }) {
   const [view, setView] = useState<AnalysisView>('DETAIL')
   const talents = useTalentFit(stageId, applicationId, status)
@@ -331,12 +335,15 @@ function AnalysisBox({
           <section className="space-y-2 border-t pt-3">
             <h4 className="text-xs font-medium text-muted-foreground">역량 분석</h4>
             <AbilityAnalysis
+              recruitmentId={recruitmentId}
+              applicationId={applicationId}
               analysis={analysis}
               labels={labels}
               talents={talents.data}
               talentsLoading={talents.isPending}
               documents={documents}
               normalized={normalized}
+              originalsWithName={originalsWithName}
             />
           </section>
         </div>
@@ -463,19 +470,25 @@ function conditionNote(line: CriterionLine) {
  * 항목마다 판정 이유 한 줄과 원문 근거
  */
 function AbilityAnalysis({
+  recruitmentId,
+  applicationId,
   analysis,
   labels,
   talents,
   talentsLoading,
   documents,
   normalized,
+  originalsWithName,
 }: {
+  recruitmentId: string
+  applicationId: string
   analysis: CandidateAnalysis
   labels: Map<string, string>
   talents: TalentFit | undefined
   talentsLoading: boolean
   documents: CandidateDetail['documents']
   normalized: CandidateDetail['normalized']
+  originalsWithName: CandidateDetail['originalsWithName']
 }) {
   const [filter, setFilter] = useState<LevelFilter>('ALL')
   // 항목을 누르면 근거를 원문 문맥과 함께 모달로 본다
@@ -592,6 +605,8 @@ function AbilityAnalysis({
       {opened && (
         <EvidenceDialog
           open
+          recruitmentId={recruitmentId}
+          applicationId={applicationId}
           onOpenChange={(open) => !open && setOpened(null)}
           title={opened.label}
           badge={<MarkChip mark={opened.mark} />}
@@ -600,6 +615,7 @@ function AbilityAnalysis({
           quotes={opened.evidence}
           documents={documents}
           normalized={normalized}
+          originalsWithName={originalsWithName}
         />
       )}
       {filter === 'ALL' && (analysis.notable.length > 0 || checks.length > 0) && (

@@ -11,6 +11,7 @@ import {
 } from '@/features/screening/evidence'
 import { matchEvidence, normalizedOf } from '@/features/screening/normalized'
 import { NormalizedDocumentView } from '@/features/screening/NormalizedDocumentView'
+import { OriginalPdfLink } from '@/features/screening/OriginalPdfLink'
 import { cn } from '@/lib/utils'
 
 const DOCUMENT_LABELS: Partial<Record<DocumentType, string>> = {
@@ -28,6 +29,8 @@ const DOCUMENT_LABELS: Partial<Record<DocumentType, string>> = {
  */
 export function EvidenceDialog({
   open,
+  recruitmentId,
+  applicationId,
   onOpenChange,
   title,
   badge,
@@ -36,8 +39,11 @@ export function EvidenceDialog({
   quotes,
   documents,
   normalized,
+  originalsWithName,
 }: {
   open: boolean
+  recruitmentId: string
+  applicationId: string
   onOpenChange: (open: boolean) => void
   title: string
   badge?: ReactNode
@@ -46,6 +52,7 @@ export function EvidenceDialog({
   quotes: EvidenceQuote[]
   documents: CandidateDetail['documents']
   normalized?: CandidateDetail['normalized']
+  originalsWithName: CandidateDetail['originalsWithName']
 }) {
   const groups = groupByDocument(quotes, documents)
   const [tab, setTab] = useState<DocumentType | null>(null)
@@ -118,6 +125,16 @@ export function EvidenceDialog({
                     </span>
                   </button>
                 ))}
+              </div>
+            )}
+            {current && (
+              <div className="flex justify-end text-xs text-muted-foreground">
+                {current.type !== 'CERTIFICATE' && (
+                  <OriginalPdfLink
+                    href={`/api/recruitments/${recruitmentId}/applications/${applicationId}/documents/${current.type}`}
+                    showsName={originalsWithName.includes(current.type)}
+                  />
+                )}
               </div>
             )}
             {current && (

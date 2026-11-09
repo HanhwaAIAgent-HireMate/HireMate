@@ -6,7 +6,7 @@ type Row = Section['rows'][number]
 
 /**
  * 이력서 · 포트폴리오 정리 보기. AI가 서류에 적힌 것만 짧게 옮긴 표(경력 · 주요 경험)와 카드(포트폴리오 프로젝트:
- * 문제 · 해결 · 기술 · 성과), 기술 칩 · 자격 줄을 보여 준다. 원문 글은 보여 주지 않고, 원본은 PDF로 본다.
+ * 문제와 해결, 기술과 성과를 보여 준다.
  */
 export function DigestView({ digest }: { digest: Digest }) {
   return (
@@ -127,5 +127,17 @@ function Tags({ tags }: { tags: string[] }) {
 }
 
 function Cell({ value }: { value?: string }) {
-  return value ? value : <span className="text-muted-foreground">-</span>
+  if (!value) return <span className="text-muted-foreground">-</span>
+  const lines = value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length <= 1) return value
+  return (
+    <ul className="list-disc space-y-0.5 pl-4">
+      {lines.map((line, index) => (
+        <li key={index}>{line}</li>
+      ))}
+    </ul>
+  )
 }
