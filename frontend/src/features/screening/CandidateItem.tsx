@@ -1,6 +1,7 @@
-import { ArrowUp, Minus, Plus, UserRound } from 'lucide-react'
+import { ArrowUp, Minus, Plus } from 'lucide-react'
 import type { ReactNode } from 'react'
 
+import { ApplicantIcon } from '@/components/ApplicantIcon'
 import { Checkbox } from '@/components/ui/checkbox'
 import { careerLabel, type CandidateRow } from '@/features/screening/api'
 import { cn } from '@/lib/utils'
@@ -65,12 +66,7 @@ export function CandidateItem({
             gray ? 'text-muted-foreground' : documentStage ? 'font-bold' : 'font-semibold',
           )}
         >
-          <span
-            aria-hidden
-            className="flex size-[18px] shrink-0 items-center justify-center rounded-full border border-foreground text-foreground"
-          >
-            <UserRound className="size-3" />
-          </span>
+          <ApplicantIcon />
           <span className="truncate">{row.name}</span>
         </div>
         <div className={cn('truncate text-xs text-muted-foreground', gray && 'opacity-80')}>

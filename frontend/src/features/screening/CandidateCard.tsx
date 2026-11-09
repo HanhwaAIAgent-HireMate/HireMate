@@ -2,6 +2,7 @@ import { ArrowLeft, ChevronDown, NotebookPen, RotateCw } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+import { ApplicantAvatar } from '@/components/ApplicantAvatar'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -73,6 +74,8 @@ export function CandidateCard({
                   onCheckedChange={(value) => toggleChecked(applicationId, value === true)}
                 />
               )}
+              {/* 이름 옆 원형 사진 (예시 사진). 블라인드 · 성별을 모르는 이름은 아이콘 */}
+              <ApplicantAvatar applicationId={applicationId} name={detail.data.row.name} />
               {overview.type === 'INTERVIEW' ? (
                 <div>
                   <h3 className="text-lg font-bold">{detail.data.row.name}</h3>
