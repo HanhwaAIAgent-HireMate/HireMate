@@ -7,6 +7,7 @@ import { errorMessage } from '@/lib/api/client'
 import { toReportView, useAgentReport } from './api'
 import { ReportModal } from './ReportModal'
 import { ReportProgress } from './ReportProgress'
+import { AdminRequestButton } from '@/components/AdminRequestButton'
 
 /**
  * 리포트 ID로 여는 모달. Report Agent가 쓰는 동안은 진행 화면을 보여 주고, 다 쓰면 리포트를 그린다.
@@ -38,11 +39,16 @@ export function AgentReportModal({
         <DialogDescription asChild>
           <div className="flex flex-col gap-3 text-sm text-muted-foreground">
             {failed ? (
-              <p>
-                {report.isError
-                  ? errorMessage(report.error)
-                  : '잠시 뒤 다시 요청해 주세요. 리포트는 채용 상태를 바꾸지 않아요.'}
-              </p>
+              <>
+                <p>
+                  {report.isError
+                    ? errorMessage(report.error)
+                    : '잠시 뒤 다시 요청해 주세요. 리포트는 채용 상태를 바꾸지 않아요.'}
+                </p>
+                <div>
+                  <AdminRequestButton />
+                </div>
+              </>
             ) : (
               <>
                 <p className="flex items-center gap-2">

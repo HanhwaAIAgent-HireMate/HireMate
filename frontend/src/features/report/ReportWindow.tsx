@@ -1,7 +1,6 @@
 import { cn } from 'cn'
 import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
-import { toast } from 'sonner'
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -12,6 +11,8 @@ import { toReportView, useAgentReport, useReportDistribution, useRequestCompareR
 import { DistributionView } from './DistributionView'
 import { ReportBody, ReportTitle } from './ReportBody'
 import { ReportProgress } from './ReportProgress'
+import { AdminRequestButton } from '@/components/AdminRequestButton'
+import { toastAiError } from '@/lib/admin-request'
 
 export type ReportTab = 'deep' | 'distribution'
 
@@ -51,7 +52,7 @@ export function ReportWindow({
           setReportId(requested.reportId)
           setTab('deep')
         },
-        onError: (error) => toast.error(errorMessage(error)),
+        onError: toastAiError,
       },
     )
 
@@ -183,11 +184,14 @@ function DeepReport({
   }
   if (report.isError || report.data?.status === 'FAILED') {
     return (
-      <p className="py-10 text-center text-sm text-muted-foreground">
-        {report.isError
-          ? errorMessage(report.error)
-          : '리포트를 만들지 못했어요. 잠시 뒤 다시 요청해 주세요.'}
-      </p>
+      <div className="flex flex-col items-center gap-3 py-10 text-center text-sm text-muted-foreground">
+        <p>
+          {report.isError
+            ? errorMessage(report.error)
+            : '리포트를 만들지 못했어요. 잠시 뒤 다시 요청해 주세요.'}
+        </p>
+        <AdminRequestButton />
+      </div>
     )
   }
   return (

@@ -13,6 +13,7 @@ import { CandidateItem, RowButton } from '@/features/screening/CandidateItem'
 import type { StageTab } from '@/features/screening/tabs'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
+import { toastAiError } from '@/lib/admin-request'
 
 /** 비교 리포트의 지원자 수 범위. backend와 같다 */
 const MIN_COMPARED = 2
@@ -61,7 +62,7 @@ export function SelectionPanel({
       {
         onSuccess: (requested) =>
           isDocument ? openWindow('deep', requested.reportId) : setReportId(requested.reportId),
-        onError: fail,
+        onError: toastAiError,
       },
     )
   }

@@ -15,8 +15,9 @@ import {
 } from '@/features/report/api'
 import { ReportBody, ReportTitle } from '@/features/report/ReportBody'
 import { ReportProgress } from '@/features/report/ReportProgress'
-import { errorMessage } from '@/lib/api/client'
 import { formatShortDateTime } from '@/lib/format'
+import { AdminRequestButton } from '@/components/AdminRequestButton'
+import { toastAiError } from '@/lib/admin-request'
 
 // RPT-01 최종 채용 리포트. 채용 종료 때 Report Agent가 모든 전형을 그래프로 정리하는 문서이며 채용 상태를 바꾸지 않는다
 export function ReportPage() {
@@ -73,9 +74,7 @@ function NoFinalReport({
             size="sm"
             className="border-ai/30 text-ai hover:bg-ai-soft hover:text-ai"
             disabled={create.isPending}
-            onClick={() =>
-              create.mutate(undefined, { onError: (error) => toast.error(errorMessage(error)) })
-            }
+            onClick={() => create.mutate(undefined, { onError: toastAiError })}
           >
             <FileChartColumn />
             그래프 리포트 만들기
@@ -118,12 +117,11 @@ function FinalReport({
               variant="outline"
               size="sm"
               disabled={reopen.isPending}
-              onClick={() =>
-                reopen.mutate(undefined, { onError: (error) => toast.error(errorMessage(error)) })
-              }
+              onClick={() => reopen.mutate(undefined, { onError: toastAiError })}
             >
               다시 만들기
             </Button>
+            <AdminRequestButton />
           </div>
         ) : (
           <>

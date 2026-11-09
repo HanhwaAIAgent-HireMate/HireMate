@@ -14,6 +14,7 @@ import {
 import type { RegisterAnswerSave } from '@/features/interview/pending-saves'
 import { ApiError, errorMessage } from '@/lib/api/client'
 import { clearDraft, readDraft, useInterviewDraftKey, writeDraft } from './drafts'
+import { toastAiError } from '@/lib/admin-request'
 
 /** 💾 타이핑을 멈추고 이만큼 지나면 DB에만 자동 저장한다 (분석은 하지 않는다) */
 export const AUTOSAVE_MS = 2_000
@@ -374,7 +375,7 @@ function FollowUpArea({
       setFound(result.suggestions)
       setMode(result.needed && result.suggestions.length ? 'suggestions' : 'none')
     } catch (error) {
-      toast.error(errorMessage(error))
+      toastAiError(error)
       setMode(back)
     }
   }

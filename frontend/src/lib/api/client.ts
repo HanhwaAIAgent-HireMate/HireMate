@@ -146,19 +146,47 @@ const MESSAGES: Record<string, string> = {
     '비교 · 전형 결과 리포트는 서류 전형에서만 만들어요. 전형 흐름은 채용 최종 리포트에서 볼 수 있어요.',
 }
 
-/** 다시 시도만으로 풀리지 않을 수 있어 관리자 확인 요청 버튼을 함께 보여 줄 오류 (AI 서버 · 서버 오류) */
-export function needsAdmin(error: unknown) {
+/** 브라우저의 인터넷 연결이 끊겼다. 이때는 서버 문제가 아니라 관리자에게 요청할 수도 없다 */
+function offline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+/**
+ * 서버에 닿지 못한 요청. fetch가 응답 없이 실패했거나(TypeError: Failed to fetch),
+ * 서버 앞단이 서버를 찾지 못해 problem+json 없이 5xx를 돌려준 경우다.
+ * (개발 중 Vite 프록시는 backend가 꺼져 있으면 500, 배포의 Nginx는 502 · 504를 돌려준다)
+ */
+export function isNetworkError(error: unknown) {
   return (
-    error instanceof ApiError &&
-    (error.code === 'AI_UNAVAILABLE' || error.code === 'INTERNAL_ERROR')
+    error instanceof TypeError ||
+    (error instanceof ApiError && error.code === 'UNKNOWN' && error.status >= 500)
   )
 }
+
+/**
+ * 다시 시도만으로 풀리지 않을 수 있어 관리자 확인 요청 버튼을 함께 보여 줄 오류
+ * (AI 서버 · 서버 오류, 인터넷은 되는데 서버에 닿지 못한 경우). 내 인터넷이 끊긴 경우는 뺀다
+ */
+export function needsAdmin(error: unknown) {
+  if (
+    error instanceof ApiError &&
+    (error.code === 'AI_UNAVAILABLE' || error.code === 'INTERNAL_ERROR')
+  ) {
+    return true
+  }
+  return isNetworkError(error) && !offline()
+}
+
+const OFFLINE_MESSAGE = '인터넷 연결이 끊겼어요. 연결을 확인한 뒤 다시 시도해 주세요.'
+const UNREACHABLE_MESSAGE =
+  '서버에 연결하지 못했어요. 잠시 후 다시 시도하고, 계속되면 관리자에게 확인을 요청해 주세요.'
 
 /** 화면에 보여 줄 오류 문구. 모르는 오류는 일반 문구로 바꾼다. */
 export function errorMessage(
   error: unknown,
   fallback = '요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.',
 ) {
+  if (isNetworkError(error)) return offline() ? OFFLINE_MESSAGE : UNREACHABLE_MESSAGE
   if (error instanceof ApiError) {
     if (error.code === 'INVALID_CSRF') resetCsrf()
     return MESSAGES[error.code] ?? fallback

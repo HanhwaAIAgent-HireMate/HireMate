@@ -42,8 +42,9 @@ import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPane
 import { errorReply } from '@/features/posting/errorReply'
 import { careersPath, RECRUITMENT_STATUS_LABELS } from '@/features/recruit/labels'
 import { useStageOverview } from '@/features/screening/api'
-import { errorMessage } from '@/lib/api/client'
+import { errorMessage, needsAdmin } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
+import { AdminRequestButton } from '@/components/AdminRequestButton'
 
 const EXAMPLES = [
   '불합격 안내 말투를 조금 더 따뜻하게 바꿔줘',
@@ -115,6 +116,7 @@ export function NoticeEditorPage() {
         stageName={overview.data.name}
         closePath={closePath}
         error={prepare.isError ? errorMessage(prepare.error) : null}
+        admin={prepare.isError && needsAdmin(prepare.error)}
         onRetry={() => void prepare.refetch()}
       />
     )
@@ -137,12 +139,15 @@ function Drafting({
   stageName,
   closePath,
   error,
+  admin,
   onRetry,
 }: {
   notice: Notice
   stageName: string
   closePath: string
   error: string | null
+  /** AI 서버 · 서버 오류라 [관리자에게 확인 요청]을 함께 보인다 */
+  admin: boolean
   onRetry: () => void
 }) {
   return (
@@ -161,7 +166,10 @@ function Drafting({
             <>
               <p className="font-semibold">초안을 쓰지 못했어요</p>
               <p className="text-sm text-muted-foreground">{error}</p>
-              <Button onClick={onRetry}>다시 쓰기</Button>
+              <div className="flex justify-center gap-2">
+                {admin && <AdminRequestButton />}
+                <Button onClick={onRetry}>다시 쓰기</Button>
+              </div>
             </>
           ) : (
             <>

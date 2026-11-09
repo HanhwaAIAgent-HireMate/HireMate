@@ -23,6 +23,8 @@ import { DocumentViewer } from '@/features/screening/DocumentViewer'
 import { useStageUi } from '@/features/screening/store'
 import { errorMessage } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
+import { AdminRequestButton } from '@/components/AdminRequestButton'
+import { toastAiError } from '@/lib/admin-request'
 
 /** 가운데 영역의 지원자 카드. 전형 종류에 맞는 Viewer를 보여 주고, 결정은 위쪽 체크박스와 맨 아래 버튼으로 한다. */
 export function CandidateCard({
@@ -155,6 +157,7 @@ function RetryAnalysis({
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
       <span>AI 분석에 실패했어요. 다시 분석하면 끝나는 대로 결과가 반영돼요.</span>
+      <AdminRequestButton />
       <Button
         size="sm"
         variant="outline"
@@ -162,7 +165,7 @@ function RetryAnalysis({
         onClick={() =>
           retry.mutate(undefined, {
             onSuccess: () => toast.success('다시 분석을 요청했어요.'),
-            onError: (error) => toast.error(errorMessage(error)),
+            onError: toastAiError,
           })
         }
       >
