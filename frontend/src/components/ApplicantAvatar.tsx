@@ -3,21 +3,15 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ApplicantIcon } from '@/components/ApplicantIcon'
 import { api } from '@/lib/api/client'
-import { applicantPhoto } from '@/lib/applicant-photo'
 
 export function ApplicantAvatar({
   applicationId,
-  name,
   recruitmentId,
 }: {
   applicationId: string
-  name: string
-  recruitmentId?: string
+  recruitmentId: string
 }) {
-  if (recruitmentId) {
-    return <StoredAvatar recruitmentId={recruitmentId} applicationId={applicationId} />
-  }
-  return <ExampleAvatar applicationId={applicationId} name={name} />
+  return <StoredAvatar recruitmentId={recruitmentId} applicationId={applicationId} />
 }
 
 function StoredAvatar({
@@ -38,13 +32,15 @@ function StoredAvatar({
         },
       )
       if (!result.response.ok) return null
-      return result.data ?? null
+      return result.data
+        ? { blob: result.data, example: result.response.headers.get('X-Example-Photo') === 'true' }
+        : null
     },
     retry: false,
   })
   const image = useRef<HTMLImageElement>(null)
   const [failed, setFailed] = useState<Blob | null>(null)
-  const blob = photo.data ?? null
+  const blob = photo.data?.blob ?? null
   useEffect(() => {
     if (!blob || !image.current) return
     const url = URL.createObjectURL(blob)
@@ -58,21 +54,6 @@ function StoredAvatar({
       alt=""
       aria-hidden
       onError={() => setFailed(blob)}
-      className="size-20 shrink-0 rounded-full border object-cover object-top"
-    />
-  )
-}
-
-function ExampleAvatar({ applicationId, name }: { applicationId: string; name: string }) {
-  const src = applicantPhoto(applicationId, name)
-  const [failed, setFailed] = useState(false)
-  if (!src || failed) return <ApplicantIcon />
-  return (
-    <img
-      src={src}
-      alt=""
-      aria-hidden
-      onError={() => setFailed(true)}
       className="size-20 shrink-0 rounded-full border object-cover object-top"
     />
   )

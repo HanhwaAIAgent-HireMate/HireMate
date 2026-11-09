@@ -104,7 +104,10 @@ export function InterviewSessionBar({
     <section aria-label="면접 진행 현황" className="space-y-3 border-b bg-surface/50 px-5 py-4">
       <div className="flex flex-wrap items-center gap-3">
         {/* HR 선택 지원자 상세처럼 이름 옆에 원형 예시 사진을 둔다 */}
-        <ApplicantAvatar applicationId={interview.applicationId} name={interview.applicantName} />
+        <ApplicantAvatar
+          applicationId={interview.applicationId}
+          recruitmentId={interview.recruitmentId}
+        />
         <div className="mr-auto min-w-0">
           <h2 className="flex items-center gap-2 text-lg font-bold">
             {interview.applicantName}

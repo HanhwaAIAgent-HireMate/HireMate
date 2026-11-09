@@ -78,7 +78,6 @@ export function CandidateCard({
               <ApplicantAvatar
                 recruitmentId={overview.recruitmentId}
                 applicationId={applicationId}
-                name={detail.data.row.name}
               />
               {overview.type === 'INTERVIEW' ? (
                 <div>
