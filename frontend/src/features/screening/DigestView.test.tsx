@@ -60,4 +60,15 @@ describe('이력서 · 포트폴리오 정리 보기', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
     expect(screen.queryByText('원문')).not.toBeInTheDocument()
   })
+
+  it('성과가 여러 줄이면 각각 보여 주고 기존 세미콜론은 나누지 않는다', () => {
+    const updated = structuredClone(digest)
+    updated.sections[1].rows[0].cells[2] = '오류 37건 → 0건\n응답 5초 → 1초'
+    updated.sections[0].rows[0].cells[2] = '코드 예시: a; b'
+    render(<DigestView digest={updated} />)
+
+    expect(screen.getByText('오류 37건 → 0건')).toBeInTheDocument()
+    expect(screen.getByText('응답 5초 → 1초')).toBeInTheDocument()
+    expect(screen.getByText('코드 예시: a; b')).toBeInTheDocument()
+  })
 })

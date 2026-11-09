@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import type { CandidateDetail } from '@/features/screening/api'
@@ -24,6 +24,9 @@ describe('판정 근거 모달', () => {
         metric="12분"
         quotes={[{ document: 'PORTFOLIO', sentence: '재고 대장을 바코드로 바꿨습니다.' }]}
         documents={documents}
+        recruitmentId="recruit-1"
+        applicationId="app-1"
+        originalsWithName={['PORTFOLIO']}
       />,
     )
 
@@ -31,6 +34,11 @@ describe('판정 근거 모달', () => {
     expect(screen.getByText(/매장 리뉴얼 프로젝트/)).toBeInTheDocument()
     const marks = document.querySelectorAll('mark')
     expect([...marks].map((mark) => mark.textContent)).toEqual(['재고 대장을 바코드로 바꿨습니다.'])
+    expect(screen.getByRole('link', { name: '원본 PDF' })).toHaveAttribute(
+      'href',
+      '/api/recruitments/recruit-1/applications/app-1/documents/PORTFOLIO',
+    )
+    expect(screen.getByText('원본에는 이름이 보여요')).toBeInTheDocument()
   })
 
   it('원문에서 찾지 못한 근거만 있으면 알린다', () => {
@@ -43,9 +51,41 @@ describe('판정 근거 모달', () => {
         metric=""
         quotes={[{ document: 'PORTFOLIO', sentence: '서류에 없는 문장입니다.' }]}
         documents={documents}
+        recruitmentId="recruit-1"
+        applicationId="app-1"
+        originalsWithName={[]}
       />,
     )
 
     expect(screen.getByText('서류에서 근거 문장을 찾지 못했어요.')).toBeInTheDocument()
+  })
+
+  it('근거 서류 탭을 바꾸면 해당 서류의 원본 PDF를 연다', () => {
+    const multiple = [
+      ...documents,
+      { type: 'RESUME', fileName: 'r.pdf', text: '재고 관리 업무를 수행했습니다.' },
+    ] as CandidateDetail['documents']
+    render(
+      <EvidenceDialog
+        open
+        onOpenChange={() => {}}
+        title="재고 관리"
+        reason=""
+        metric=""
+        quotes={[
+          { document: 'PORTFOLIO', sentence: '재고 대장을 바코드로 바꿨습니다.' },
+          { document: 'RESUME', sentence: '재고 관리 업무를 수행했습니다.' },
+        ]}
+        documents={multiple}
+        recruitmentId="recruit-1"
+        applicationId="app-1"
+        originalsWithName={[]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: /이력서/ }))
+    expect(screen.getByRole('link', { name: '원본 PDF' })).toHaveAttribute(
+      'href',
+      '/api/recruitments/recruit-1/applications/app-1/documents/RESUME',
+    )
   })
 })
