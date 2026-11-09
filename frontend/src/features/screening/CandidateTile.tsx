@@ -1,6 +1,6 @@
-import { UserRound } from 'lucide-react'
 import type { ReactNode } from 'react'
 
+import { ApplicantIcon } from '@/components/ApplicantIcon'
 import { careerYearsLabel, type CandidateRow } from '@/features/screening/api'
 import { cn } from '@/lib/utils'
 
@@ -64,12 +64,7 @@ export function CandidateTile({
           gray ? 'text-muted-foreground' : 'font-bold',
         )}
       >
-        <span
-          aria-hidden
-          className="flex size-[18px] shrink-0 items-center justify-center rounded-full border border-foreground text-foreground"
-        >
-          <UserRound className="size-3" />
-        </span>
+        <ApplicantIcon />
         <span className="truncate">{row.name}</span>
       </button>
       <span className={cn('truncate text-xs text-muted-foreground', gray && 'opacity-80')}>

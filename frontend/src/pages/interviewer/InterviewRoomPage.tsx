@@ -2,6 +2,7 @@ import { CalendarClock, CalendarX, NotebookPen } from 'lucide-react'
 import { useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
 
+import { ApplicantIcon } from '@/components/ApplicantIcon'
 import { useHeaderCrumb } from '@/app/header-store'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -155,7 +156,13 @@ function CandidateColumn({
                   !slot.scheduledAt && 'text-muted-foreground',
                 )}
               >
-                <b className={cn(row.status === 'ABSENT' && 'line-through')}>{row.applicantName}</b>
+                {/* 전형 화면의 지원자 목록처럼 이름 앞에 지원자 아이콘을 둔다 */}
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <ApplicantIcon />
+                  <b className={cn('truncate', row.status === 'ABSENT' && 'line-through')}>
+                    {row.applicantName}
+                  </b>
+                </span>
                 {row.status === 'ABSENT' && (
                   <span
                     className={cn(
