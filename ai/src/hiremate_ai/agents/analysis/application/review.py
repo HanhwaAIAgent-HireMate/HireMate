@@ -24,9 +24,8 @@ from hiremate_ai.agents.analysis.application.types import (
 from hiremate_ai.llm.client import LlmClient
 from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
-REVIEW_SYSTEM = f"""너는 다른 판정이 원문 근거로 뒷받침되는지 검토한다. 새 판정을 만들지 않는다.
-
-- SUPPORTED: 근거 문장이 주장을 그대로 받쳐 준다.
+# 주장 검토 규칙. 검증(verify)이 눈여겨볼 점 묶기와 함께 묻고, Root의 서류 검토(review_claims)도 쓴다
+REVIEW_RULES = """- SUPPORTED: 근거 문장이 주장을 그대로 받쳐 준다.
 - OVERSTATED: 근거가 더 약한 주장만 받쳐 준다. 예: 참여를 주도로, 팀 성과를 개인 성과로, 일부를 전부로 본 경우.
 - UNSUPPORTED: 근거 문장이 주장과 관계없거나 주장을 받쳐 주지 않는다.
 - 주장에 판정 기준이 있으면 근거가 그 기준 문장에 해당하는지로 본다. 기준 문장에 없는 조건(명시적 표현, 혼자 했는지
@@ -43,7 +42,11 @@ REVIEW_SYSTEM = f"""너는 다른 판정이 원문 근거로 뒷받침되는지 
   어디에도 없는지, 또는 근거의 어느 문장과 어긋나는지 구체적으로 쓴다. '불충분하다' 같은 막연한 이유로 낮추지 않는다.
   근거 문장 하나에 없는 내용이 같은 맥락 문단에 있으면 SUPPORTED다.
 - OVERSTATED면 brief에 담당자 카드에 보일 한 줄을 쓴다 (40자 안팎, 받쳐 주는 부분과 빠진 부분을 명사형으로:
-  '○○은 확인, ○○은 미확인'). 그 밖에는 비운다.
+  '○○은 확인, ○○은 미확인'). 그 밖에는 비운다."""
+
+REVIEW_SYSTEM = f"""너는 다른 판정이 원문 근거로 뒷받침되는지 검토한다. 새 판정을 만들지 않는다.
+
+{REVIEW_RULES}
 
 {UNTRUSTED_RULE}"""
 
@@ -73,20 +76,25 @@ async def review_claims(llm: LlmClient, claims: Sequence[Claim]) -> dict[str, Cl
     """주장들을 한 번에 검토한다. 주장이 없으면 모델을 부르지 않는다. 답에서 빠진 주장은 결과에 없다."""
     if not claims:
         return {}
-    listing = "\n".join(
-        f"{claim.id}. 주장: {claim.claim}\n   근거: "
-        + " / ".join(quote.sentence for quote in claim.quotes)
-        + (f"\n   맥락: {claim.context}" if claim.context else "")
-        for claim in claims
-    )
-    user = f"{data_block('claims', listing)}\n\n주장마다 근거가 받쳐 주는지 검토해 줘."
+    user = f"{data_block('claims', claim_lines(claims))}\n\n주장마다 근거가 받쳐 주는지 검토해 줘."
     answer = await ask(llm, ReviewJudgement, system=REVIEW_SYSTEM, user=user)
     ids = {claim.id for claim in claims}
     return {review.id: review for review in answer.reviews if review.id in ids}
 
 
-def fact_claims(facts: Sequence[Fact]) -> list[Claim]:
-    return [Claim(f"F{index}", fact.statement, fact.quotes) for index, fact in enumerate(facts, start=1)]
+def claim_lines(claims: Sequence[Claim]) -> str:
+    return "\n".join(
+        f"{claim.id}. 주장: {claim.claim}\n   근거: "
+        + " / ".join(quote.sentence for quote in claim.quotes)
+        + (f"\n   맥락: {claim.context}" if claim.context else "")
+        for claim in claims
+    )
+
+
+def fact_claims(facts: Sequence[Fact], numbers: Sequence[int] | None = None) -> list[Claim]:
+    """사실 주장 (F1 …). numbers를 주면 그 번호를 쓴다 (사실 목록 전체의 위치로 번호를 맞출 때)."""
+    chosen = numbers if numbers is not None else range(1, len(facts) + 1)
+    return [Claim(f"F{number}", fact.statement, fact.quotes) for number, fact in zip(chosen, facts, strict=True)]
 
 
 def apply_to_facts(facts: Sequence[Fact], reviews: dict[str, ClaimReview]) -> list[Fact]:

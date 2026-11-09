@@ -7,8 +7,9 @@ from datetime import date
 from uuid import uuid4
 
 from hiremate_ai.agents.analysis.application.context import readable
-from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, extract_documents, extraction_recipe, merge
+from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, extract_documents, merge
 from hiremate_ai.agents.analysis.application.graph import REVIEW_VERSION, ReviewInput, run_review
+from hiremate_ai.agents.analysis.application.reading import reading_recipe
 from hiremate_ai.agents.analysis.application.review import fact_claims, review_claims
 from hiremate_ai.agents.analysis.application.rubric_draft import RubricDraftStore, draft_fallback_rules, fallback_rules
 from hiremate_ai.agents.analysis.application.store import ReviewStore, input_hash
@@ -72,7 +73,6 @@ async def analyze_application(
     budget_seconds: float,
     today: date | None = None,
     artifacts: AnalysisArtifactStore | None = None,
-    review_extraction: bool = False,
 ) -> ApplicationReview:
     """지원서를 분석하고 결과 원본을 돌려준다. 같은 입력의 저장 결과가 있으면 모델을 부르지 않는다.
 
@@ -90,8 +90,7 @@ async def analyze_application(
         REVIEW_VERSION,
         today=analysis_date,
         recipe=recipe if recipe is not None else {"unsupported": str(uuid4())},
-        review_extraction=review_extraction,
-        extraction_version=extraction_recipe(llm, review=review_extraction),
+        reading_version=reading_recipe(llm),
     )
     stored = (
         await store.find(
@@ -127,7 +126,6 @@ async def analyze_application(
             deadline=deadline,
             company_id=rubric.company_id,
             artifacts=saved_artifacts,
-            review_extraction=review_extraction,
         )
         review = await run_review(llm, context)
     await store.save(review, applicant, rubric)

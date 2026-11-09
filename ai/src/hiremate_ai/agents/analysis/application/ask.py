@@ -19,11 +19,11 @@ async def ask[T: BaseModel](llm: LlmClient, output: type[T], *, system: str, use
         try:
             return await llm.structured(output, agent=AGENT, system=system, user=user)
         except Exception as error:
-            if attempt == ATTEMPTS or not _truncated(error):
+            if attempt == ATTEMPTS or not truncated(error):
                 raise
     raise AssertionError("ATTEMPTS는 1 이상이다")
 
 
-def _truncated(error: Exception) -> bool:
+def truncated(error: Exception) -> bool:
     """OpenAI 호환 SDK가 출력 한도로 답을 끊었을 때 내는 오류인가 (openai.LengthFinishReasonError)."""
     return type(error).__name__ == "LengthFinishReasonError"

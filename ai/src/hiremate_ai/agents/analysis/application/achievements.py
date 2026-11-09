@@ -15,20 +15,14 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from hiremate_ai.agents.analysis.application.ask import ask
-from hiremate_ai.agents.analysis.application.context import readable
 from hiremate_ai.agents.analysis.application.extract import quotes_in
 from hiremate_ai.agents.analysis.application.judge import paragraphs
 from hiremate_ai.agents.analysis.application.review import Claim, ClaimReview
 from hiremate_ai.agents.analysis.application.types import Achievement, Criterion, CriterionResult
 from hiremate_ai.contract import ApplicantDocument, CriterionType, Verdict
-from hiremate_ai.llm.client import LlmClient
-from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block, documents_block
 
-LEDGER_SYSTEM = f"""너는 지원 서류 전체에서 수치 성과를 한 번에 정리하고, 성과마다 그 결과인 평가 항목을 정한다.
-판정 · 점수는 매기지 않는다.
-
-[성과]
+# 성과 장부 규칙. 지원자 종합 판정(assess)이 항목 판정과 함께 한 번에 묻는다
+LEDGER_RULES = """[성과]
 - 지원자 본인의 행동 뒤에 바뀐 결과의 전후 값이다 (처리 · 소요 시간, 오류율, 건수, 정확도 · 재현율, 비용, 사용 비율 등).
   바뀌기 전 값과 바뀐 뒤 값이 모두 원문에 적힌 것만 뽑는다.
 - 운영 · 팀 규모, 사용량 · 질의 수, 만든 것의 개수, 기간, 버전, 바꾼 설정값(크기 · 개수 · 주기를 얼마에서 얼마로
@@ -60,9 +54,7 @@ LEDGER_SYSTEM = f"""너는 지원 서류 전체에서 수치 성과를 한 번�
 - 이해 · 원리를 묻는 항목은 그 원리를 적용한 변경으로 생긴 결과만 연결한다. 도구 · 언어를 묻는 항목은 그 도구 · 언어로
   만든 변경의 결과만 연결하고, 같은 서비스의 다른 개선은 연결하지 않는다.
 - 소통 · 협업 항목은 협의 · 조율 행동 자체로 바뀐 결과만 연결한다 (그 서비스 전체의 효과는 연결하지 않는다).
-- 해당하는 항목이 없으면 비운다. 목록에 없는 번호를 쓰지 않는다.
-
-{UNTRUSTED_RULE}"""
+- 해당하는 항목이 없으면 비운다. 목록에 없는 번호를 쓰지 않는다."""
 
 # 측정하지 않은 값이라고 밝힌 말
 _ESTIMATED = re.compile(r"체감|추정|내외|어림|대략")
@@ -73,7 +65,7 @@ _NUMBER = re.compile(r"\d[\d,.]*")
 MAX_QUOTES = 2
 
 
-class _Entry(BaseModel):
+class Entry(BaseModel):
     what: str = Field(description="무엇이 바뀌었나 (15자 안팎 명사구)")
     before: str = Field(description="바뀌기 전 값. 원문 숫자 · 단위 그대로")
     after: str = Field(description="바뀐 뒤 값. 원문 숫자 · 단위 그대로")
@@ -89,7 +81,7 @@ class _Entry(BaseModel):
 
 
 class Ledger(BaseModel):
-    results: list[_Entry] = []
+    results: list[Entry] = []
 
 
 def linkable(criterion: Criterion) -> bool:
@@ -97,24 +89,7 @@ def linkable(criterion: Criterion) -> bool:
     return criterion.criterion_type != CriterionType.CONDITION and not criterion.certificates
 
 
-async def collect_achievements(
-    llm: LlmClient, documents: Sequence[ApplicantDocument], criteria: Sequence[Criterion]
-) -> list[Achievement]:
-    """서류 전체를 한 번 보고 성과 장부를 만든다. 연결할 항목이나 읽을 서류가 없으면 모델을 부르지 않는다."""
-    targets = [criterion for criterion in criteria if linkable(criterion)]
-    usable = readable(documents)
-    if not targets or not usable:
-        return []
-    listing = "\n".join(f"[{criterion.criterion_id}] {criterion.text}" for criterion in targets)
-    user = (
-        f"{documents_block(usable)}\n\n{data_block('criteria', listing)}\n\n"
-        "서류의 수치 성과를 정리하고 성과마다 그 결과인 항목을 골라 줘."
-    )
-    ledger = await ask(llm, Ledger, system=LEDGER_SYSTEM, user=user)
-    return accept(ledger.results, usable, {criterion.criterion_id for criterion in targets})
-
-
-def accept(entries: Sequence[_Entry], documents: Sequence[ApplicantDocument], allowed: set[str]) -> list[Achievement]:
+def accept(entries: Sequence[Entry], documents: Sequence[ApplicantDocument], allowed: set[str]) -> list[Achievement]:
     """받을 수 있는 성과만 장부에 남긴다. 번호(R1 …)는 남긴 순서대로 매긴다."""
     kept: list[Achievement] = []
     seen: set[tuple[str, str, str]] = set()

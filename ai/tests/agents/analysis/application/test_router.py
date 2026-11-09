@@ -121,7 +121,6 @@ def test_candidate_card_reuses_worker_review(
             make_posting(sample_posting),
             rubric,
             budget_seconds=20,
-            review_extraction=True,
         )
     )
     calls = len(llm.calls)
@@ -145,7 +144,6 @@ def saved_yesterday(store: MemoryStore, applicant: ApplicantDetail, posting: Pos
             make_rubric(),
             budget_seconds=20,
             today=date(2026, 1, 1),
-            review_extraction=True,
         )
     )
 

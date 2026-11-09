@@ -5,19 +5,16 @@ from uuid import uuid4
 import pytest
 
 from hiremate_ai.agents.analysis.application.achievements import (
-    Ledger,
-    _Entry,
+    Entry,
     accept,
     achievement_claims,
     apply_achievement_reviews,
     attach,
-    collect_achievements,
     display,
 )
 from hiremate_ai.agents.analysis.application.review import ClaimReview
 from hiremate_ai.agents.analysis.application.types import Criterion, CriterionResult, EvaluationRules
 from hiremate_ai.contract import ApplicantDocument, CriterionCategory, CriterionType, DocumentType, Verdict
-from hiremate_ai.llm.fake import FakeLlm
 
 PORTFOLIO = ApplicantDocument(
     type=DocumentType.PORTFOLIO,
@@ -47,8 +44,8 @@ def criterion(criterion_id: str, criterion_type: CriterionType = CriterionType.C
     )
 
 
-def entry(**update: object) -> _Entry:
-    base = _Entry(
+def entry(**update: object) -> Entry:
+    base = Entry(
         what="검색 정답률",
         before="64%",
         after="81%",
@@ -180,21 +177,6 @@ def test_each_achievement_is_verified_once_and_dropped_when_unsupported() -> Non
 
     assert [claim.id for claim in claims] == ["R1", "R2"]
     assert [achievement.id for achievement in kept] == ["R1"]
-
-
-async def test_no_model_call_without_linkable_criteria() -> None:
-    condition = criterion("Q-01", CriterionType.CONDITION)
-
-    assert await collect_achievements(FakeLlm(), [PORTFOLIO], [condition]) == []
-
-
-async def test_ledger_is_collected_once_for_all_criteria() -> None:
-    llm = FakeLlm(Ledger(results=[entry()]))
-
-    ledger = await collect_achievements(llm, [PORTFOLIO], [criterion("P-01"), criterion("P-02")])
-
-    assert [achievement.criteria for achievement in ledger] == [["P-01", "P-02"]]
-    assert len(llm.calls) == 1
 
 
 def test_verification_sees_the_action_sentence_from_another_paragraph() -> None:

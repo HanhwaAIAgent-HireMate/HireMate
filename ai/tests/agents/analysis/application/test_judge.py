@@ -10,8 +10,8 @@ from hiremate_ai.agents.analysis.application.judge import (
     RequirementPart,
     apply_verification,
     baseless_number,
-    judge_criteria,
-    recheck_criterion,
+    judge_answers,
+    recheck_criteria,
 )
 from hiremate_ai.agents.analysis.application.review import ClaimReview
 from hiremate_ai.agents.analysis.application.types import (
@@ -49,32 +49,30 @@ def evidence(sample_applicants: dict[str, ApplicantDetail]) -> Evidence:
 
 
 @pytest.mark.parametrize("returned_id", ["Q-01", " Q-01 ", "[Q-01]", "  [ Q-01 ]  "])
-async def test_display_brackets_match_the_requested_criterion(
+def test_display_brackets_match_the_requested_criterion(
     criterion: Criterion,
     evidence: Evidence,
     returned_id: str,
 ) -> None:
-    llm = FakeLlm(CriteriaJudgement(verdicts=[verdict(returned_id, "MET", YUMIN_API)]))
-    [result] = await judge_criteria(llm, [criterion], evidence, 8000)
+    [result] = judge_answers([criterion], [verdict(returned_id, "MET", YUMIN_API)], evidence)
     assert result.criterion_id == "Q-01"
     assert result.verdict == Verdict.MET
     assert result.quotes and result.quotes[0].sentence in evidence.documents[0].text
 
 
 @pytest.mark.parametrize("returned_id", ["Q-1", "[Q-99]", "[[Q-01]]", "Q-01 extra", "[P-01]"])
-async def test_unknown_or_ambiguous_id_is_not_guessed(
+def test_unknown_or_ambiguous_id_is_not_guessed(
     criterion: Criterion,
     evidence: Evidence,
     returned_id: str,
 ) -> None:
-    llm = FakeLlm(CriteriaJudgement(verdicts=[verdict(returned_id, "MET", YUMIN_API)]))
-    [result] = await judge_criteria(llm, [criterion], evidence, 8000)
+    [result] = judge_answers([criterion], [verdict(returned_id, "MET", YUMIN_API)], evidence)
     assert result.verdict == Verdict.UNKNOWN
     assert "모델 응답에 이 항목이 없어" in result.reason
 
 
 @pytest.mark.parametrize("reverse", [True, False])
-async def test_conflicting_duplicate_cannot_be_overwritten(
+def test_conflicting_duplicate_cannot_be_overwritten(
     criterion: Criterion,
     evidence: Evidence,
     reverse: bool,
@@ -83,48 +81,43 @@ async def test_conflicting_duplicate_cannot_be_overwritten(
     if reverse:
         answers.reverse()
     answers.append(verdict("[ Q-01 ]", "MET", YUMIN_API))
-    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=answers)), [criterion], evidence, 8000)
+    [result] = judge_answers([criterion], answers, evidence)
     assert result.verdict == Verdict.UNKNOWN
     assert "서로 달라" in result.reason
 
 
-async def test_identical_duplicate_is_safe(criterion: Criterion, evidence: Evidence) -> None:
+def test_identical_duplicate_is_safe(criterion: Criterion, evidence: Evidence) -> None:
     answer = verdict("Q-01", "MET", YUMIN_API)
     wrapped = answer.model_copy(update={"criterion_id": "[Q-01]"})
-    [result] = await judge_criteria(
-        FakeLlm(CriteriaJudgement(verdicts=[answer, wrapped])),
-        [criterion],
-        evidence,
-        8000,
-    )
+    [result] = judge_answers([criterion], [answer, wrapped], evidence)
     assert result.verdict == Verdict.MET
 
 
 @pytest.mark.parametrize("invalid_evidence", ["", "Redis로 분산 락을 구현해 결제 중복을 막았습니다."])
-async def test_matching_id_does_not_bypass_evidence_checks(
+def test_matching_id_does_not_bypass_evidence_checks(
     criterion: Criterion,
     evidence: Evidence,
     invalid_evidence: str,
 ) -> None:
     answer = verdict("[Q-01]", "MET", *([invalid_evidence] if invalid_evidence else []))
-    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [criterion], evidence, 8000)
+    [result] = judge_answers([criterion], [answer], evidence)
     assert result.verdict == Verdict.UNKNOWN
     assert "근거 문장" in result.reason
 
 
-async def test_matching_id_does_not_turn_team_work_into_personal_work(
+def test_matching_id_does_not_turn_team_work_into_personal_work(
     criterion: Criterion,
     evidence: Evidence,
 ) -> None:
     answer = verdict("[Q-01]", "MET", YUMIN_API, role="TEAM")
-    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [criterion], evidence, 8000)
+    [result] = judge_answers([criterion], [answer], evidence)
     assert result.verdict == Verdict.UNKNOWN
     assert "본인이 직접" in result.reason
 
 
-async def test_recheck_uses_the_same_id_rules(criterion: Criterion, evidence: Evidence) -> None:
-    previous = CriterionResult(
-        criterion_id="Q-01",
+def unknown(criterion: Criterion) -> CriterionResult:
+    return CriterionResult(
+        criterion_id=criterion.criterion_id,
         category=criterion.category,
         text=criterion.text,
         important=False,
@@ -132,34 +125,39 @@ async def test_recheck_uses_the_same_id_rules(criterion: Criterion, evidence: Ev
         verdict=Verdict.UNKNOWN,
         reason="본인 역할 확인",
     )
-    result = await recheck_criterion(
-        FakeLlm(CriteriaJudgement(verdicts=[verdict("[ Q-01 ]", "MET", YUMIN_API)])),
-        criterion,
-        previous,
-        evidence,
-        1,
-    )
-    assert result is not None and result.verdict == Verdict.MET and result.recheck_count == 1
+
+
+async def test_recheck_uses_the_same_id_rules(criterion: Criterion, evidence: Evidence) -> None:
+    llm = FakeLlm(CriteriaJudgement(verdicts=[verdict("[ Q-01 ]", "MET", YUMIN_API)]))
+
+    [result] = await recheck_criteria(llm, [criterion], [unknown(criterion)], evidence)
+
+    assert result.verdict == Verdict.MET and result.recheck_count == 1
+    # 앞 판정 이유와 제출 문서 전체를 함께 주고 한 번에 다시 묻는다
+    assert "앞 판정 이유: 본인 역할 확인" in llm.calls[0].user and "재확인" in llm.calls[0].user
 
 
 async def test_recheck_does_not_pick_the_first_conflicting_answer(criterion: Criterion, evidence: Evidence) -> None:
-    previous = CriterionResult(
-        criterion_id="Q-01",
-        category=criterion.category,
-        text=criterion.text,
-        important=False,
-        criterion_type=criterion.criterion_type,
-        verdict=Verdict.UNKNOWN,
-        reason="본인 역할 확인",
-    )
-    result = await recheck_criterion(
-        FakeLlm(CriteriaJudgement(verdicts=[verdict("Q-01", "MET", YUMIN_API), verdict("[Q-01]", "NOT_MET")])),
-        criterion,
-        previous,
-        evidence,
-        1,
-    )
-    assert result is not None and result.verdict == Verdict.UNKNOWN and "서로 달라" in result.reason
+    llm = FakeLlm(CriteriaJudgement(verdicts=[verdict("Q-01", "MET", YUMIN_API), verdict("[Q-01]", "NOT_MET")]))
+
+    [result] = await recheck_criteria(llm, [criterion], [unknown(criterion)], evidence)
+
+    assert result.verdict == Verdict.UNKNOWN and "서로 달라" in result.reason
+
+
+async def test_recheck_asks_only_unknown_items_once(criterion: Criterion, evidence: Evidence) -> None:
+    other = criterion.model_copy(update={"criterion_id": "Q-02", "text": "Spring Boot 경험"})
+    settled = unknown(other).model_copy(update={"verdict": Verdict.MET})
+    llm = FakeLlm(CriteriaJudgement(verdicts=[verdict("Q-01", "MET", YUMIN_API)]))
+
+    results = await recheck_criteria(llm, [criterion, other], [unknown(criterion), settled], evidence)
+
+    assert [result.verdict for result in results] == [Verdict.MET, Verdict.MET]
+    assert results[1] == settled  # 확인 필요가 아닌 항목은 그대로 둔다
+    assert len(llm.calls) == 1 and "[Q-02]" not in llm.calls[0].user
+    assert await recheck_criteria(FakeLlm(), [other], [settled], evidence) == [
+        settled
+    ]  # 물을 항목이 없으면 묻지 않는다
 
 
 YUMIN_LATENCY = "하루 120만 건 승인 트랜잭션을 처리하는 승인 서버의 응답 시간을 180ms에서 90ms로 줄였습니다."
@@ -172,7 +170,7 @@ def _self_fact(evidence: Evidence, sentence: str, actor: Actor = Actor.SELF) -> 
 
 
 @pytest.mark.parametrize(("fact_actor", "expected"), [(Actor.SELF, Verdict.MET), (Actor.TEAM, Verdict.UNKNOWN)])
-async def test_unclear_role_follows_the_fact_extracted_from_the_same_sentence(
+def test_unclear_role_follows_the_fact_extracted_from_the_same_sentence(
     criterion: Criterion,
     evidence: Evidence,
     fact_actor: Actor,
@@ -180,30 +178,30 @@ async def test_unclear_role_follows_the_fact_extracted_from_the_same_sentence(
 ) -> None:
     with_fact = replace(evidence, facts=[_self_fact(evidence, YUMIN_API, fact_actor)])
     answer = verdict("Q-01", "MET", YUMIN_API, role="UNCLEAR")
-    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [criterion], with_fact, 8000)
+    [result] = judge_answers([criterion], [answer], with_fact)
     assert result.verdict == expected
 
 
-async def test_team_answer_is_not_overridden_by_a_self_fact(criterion: Criterion, evidence: Evidence) -> None:
+def test_team_answer_is_not_overridden_by_a_self_fact(criterion: Criterion, evidence: Evidence) -> None:
     with_fact = replace(evidence, facts=[_self_fact(evidence, YUMIN_API)])
     answer = verdict("Q-01", "MET", YUMIN_API, role="TEAM")
-    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [criterion], with_fact, 8000)
+    [result] = judge_answers([criterion], [answer], with_fact)
     assert result.verdict == Verdict.UNKNOWN
 
 
-async def test_own_action_sentence_comes_before_other_quotes(criterion: Criterion, evidence: Evidence) -> None:
+def test_own_action_sentence_comes_before_other_quotes(criterion: Criterion, evidence: Evidence) -> None:
     # 모델이 다른 문장을 먼저 옮겨도, 본인 경험(SELF)으로 뽑힌 문장을 화면에 먼저 보인다
     with_fact = replace(evidence, facts=[_self_fact(evidence, YUMIN_LATENCY)])
     answer = verdict("Q-01", "MET", YUMIN_API, YUMIN_LATENCY)
-    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [criterion], with_fact, 8000)
+    [result] = judge_answers([criterion], [answer], with_fact)
     assert [quote.sentence for quote in result.quotes][0] in YUMIN_LATENCY
 
 
-async def test_undecided_criterion_is_kept_apart_from_the_applicant(criterion: Criterion, evidence: Evidence) -> None:
+def test_undecided_criterion_is_kept_apart_from_the_applicant(criterion: Criterion, evidence: Evidence) -> None:
     # 기준이 규모를 정하지 않아 판정이 갈리는 점은 지원자 확인할 점이 아니라 평가 설정 검토로 남긴다
     note = "기준에 '대규모'의 규모가 정해져 있지 않음"
     answer = verdict("Q-01", "UNKNOWN", YUMIN_LATENCY).model_copy(update={"setting_note": note, "unknown_parts": []})
-    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [criterion], evidence, 8000)
+    [result] = judge_answers([criterion], [answer], evidence)
     assert result.verdict == Verdict.UNKNOWN
     assert result.setting_note == note
 
@@ -217,13 +215,13 @@ async def test_undecided_criterion_is_kept_apart_from_the_applicant(criterion: C
         (CriterionType.SINGLE, True, Verdict.MET),
     ],
 )
-async def test_every_required_part_must_be_found(
+def test_every_required_part_must_be_found(
     criterion: Criterion, evidence: Evidence, criterion_type: CriterionType, found_second: bool, expected: Verdict
 ) -> None:
     listed = criterion.model_copy(update={"text": "A, B 등 활용 경험", "criterion_type": criterion_type})
     parts = [RequirementPart(part="A", found=True), RequirementPart(part="B", found=found_second)]
     answer = verdict("Q-01", "MET", YUMIN_API).model_copy(update={"parts": parts})
-    [result] = await judge_criteria(FakeLlm(CriteriaJudgement(verdicts=[answer])), [listed], evidence, 8000)
+    [result] = judge_answers([listed], [answer], evidence)
     assert result.verdict == expected
     if expected != Verdict.MET:
         assert (result.satisfied_parts, result.unsatisfied_parts) == (["A"], ["B"])

@@ -29,7 +29,7 @@ def test_hash_invalidates_date_actual_recipe_and_scope(
     first = digest()
     assert digest(today=date(2026, 10, 28)) != first
     assert digest(recipe={"model": "two"}) != first
-    assert digest(review_extraction=True) != first
+    assert digest(reading_version="next") != first
     assert (
         input_hash(
             applicant,
@@ -97,20 +97,20 @@ async def test_unknown_model_identity_never_reuses_review(
     assert first.input_hash != second.input_hash
 
 
-def test_review_cache_changes_when_extraction_recipe_changes(
+def test_review_cache_changes_when_reading_recipe_changes(
     sample_applicants: dict[str, ApplicantDetail], sample_posting: PostingContent
 ) -> None:
     applicant = sample_applicants["정유민"]
     rubric = make_rubric()
-    options: dict[str, Any] = {"today": date(2026, 10, 27), "recipe": {"model": "one"}, "review_extraction": True}
+    options: dict[str, Any] = {"today": date(2026, 10, 27), "recipe": {"model": "one"}}
 
-    first = input_hash(applicant, sample_posting, rubric, "version", extraction_version="first", **options)
-    second = input_hash(applicant, sample_posting, rubric, "version", extraction_version="second", **options)
+    first = input_hash(applicant, sample_posting, rubric, "version", reading_version="first", **options)
+    second = input_hash(applicant, sample_posting, rubric, "version", reading_version="second", **options)
 
     assert first != second
 
 
-async def test_application_does_not_reuse_review_after_extraction_policy_changes(
+async def test_application_does_not_reuse_review_after_reading_policy_changes(
     db_session: AsyncSession,
     sample_applicants: dict[str, ApplicantDetail],
     sample_posting: PostingContent,
@@ -120,9 +120,9 @@ async def test_application_does_not_reuse_review_after_extraction_policy_changes
 
     applicant = sample_applicants["정유민"].model_copy(update={"documents": []})
     store = DbReviewStore(sessions_of(db_session))
-    monkeypatch.setattr(service, "extraction_recipe", lambda llm, *, review: "first", raising=False)
+    monkeypatch.setattr(service, "reading_recipe", lambda llm: "first")
     first = await analyze_application(FakeLlm(), store, applicant, sample_posting, make_rubric(), budget_seconds=20)
-    monkeypatch.setattr(service, "extraction_recipe", lambda llm, *, review: "second")
+    monkeypatch.setattr(service, "reading_recipe", lambda llm: "second")
     second = await analyze_application(FakeLlm(), store, applicant, sample_posting, make_rubric(), budget_seconds=20)
 
     assert first.input_hash != second.input_hash

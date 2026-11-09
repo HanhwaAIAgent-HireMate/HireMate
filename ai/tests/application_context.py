@@ -1,6 +1,6 @@
 """Application Agent 테스트가 같이 쓰는 공고 · 평가 기준과 가짜 모델 대본.
 
-모델 호출은 문서별 추출 · 영역별 판정 · 재확인이 동시에 나가므로
+모델 호출은 서류 읽기(서류마다) · 종합 판정 · 검증 · 재판정이고 서류 읽기는 동시에 나가므로
 FakeLlm에는 호출 내용을 보고 답하는 대본(Script)을 넣는다.
 """
 
@@ -14,17 +14,21 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from hiremate_ai.agents.analysis.application.achievements import Ledger
+from hiremate_ai.agents.analysis.application.assess import ApplicantAssessment
 from hiremate_ai.agents.analysis.application.digest import PortfolioDigest, ResumeDigest
-from hiremate_ai.agents.analysis.application.extract import (
-    ExtractedFacts,
-    ExtractedPeriod,
-    ExtractionCorrections,
-    LetterSummary,
-)
-from hiremate_ai.agents.analysis.application.job_career import JobCareer, JobFit
+from hiremate_ai.agents.analysis.application.extract import ExtractedFacts, ExtractedPeriod, LetterSummary
+from hiremate_ai.agents.analysis.application.highlight import Highlight
+from hiremate_ai.agents.analysis.application.job_career import JobFit
 from hiremate_ai.agents.analysis.application.judge import CriteriaJudgement, CriterionVerdict
+from hiremate_ai.agents.analysis.application.reading import (
+    DocumentReading,
+    LetterReading,
+    PortfolioReading,
+    ResumeReading,
+)
 from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
 from hiremate_ai.agents.analysis.application.types import Criterion, EvaluationRules, ScreeningRubric
+from hiremate_ai.agents.analysis.application.verify import Verification
 from hiremate_ai.agents.analysis.application.warnings import _Warnings
 from hiremate_ai.contract import CriterionCategory, CriterionType, PostingContent
 from hiremate_ai.llm.fake import FakeLlm, LlmCall
@@ -130,10 +134,10 @@ class Script:
     """호출 내용을 보고 답하는 가짜 모델의 대본.
 
     extract: 문서 본문 일부 → 추출 결과. verdicts: 항목 id → 첫 판정 (없으면 NOT_MET).
-    rechecks: (항목 id, 재확인 차수) → 재확인 판정 (없으면 첫 판정을 다시 쓴다).
+    rechecks: (항목 id, 1) → 재판정 (없으면 첫 판정을 다시 쓴다).
     reviews: 주장 id → 검토 결과 (없으면 SUPPORTED). omit: 답에서 빠뜨릴 항목 id. summary: 자기소개서 요약.
     warnings: 서류 주의 신호 (없으면 신호 없음). jobs: 회사 → 직무 관련 판단 (없으면 YES).
-    ledger: 지원자 단위 성과 장부 (없으면 성과 없음).
+    ledger: 지원자 단위 성과 장부 (없으면 성과 없음). highlights: 눈여겨볼 점 묶음 (없으면 비움).
     """
 
     extract: dict[str, ExtractedFacts] = field(default_factory=dict)
@@ -147,46 +151,58 @@ class Script:
     ledger: Ledger = field(default_factory=Ledger)
     warnings: _Warnings = field(default_factory=lambda: _Warnings(items=[]))
     jobs: dict[str, str] = field(default_factory=dict)
+    highlights: list[Highlight] = field(default_factory=list)
+
+    def _extracted(self, user: str) -> ExtractedFacts:
+        return next((value for key, value in self.extract.items() if key in user), ExtractedFacts())
+
+    def _verdicts(self, user: str, round_no: int) -> list[CriterionVerdict]:
+        # 평가 항목 목록(경력표 앞)의 번호만 본다. '성과를 연결할 항목' 목록에도 번호가 나온다
+        listing = user.split("경력표 (코드가 계산한")[0].split("제출한 자격증")[0]
+        ids = list(dict.fromkeys(re.findall(r"^\[([QP]-\d+)\]", listing, re.MULTILINE)))
+        answers = []
+        for criterion_id in [found for found in ids if found not in self.omit]:
+            first = self.verdicts.get(criterion_id, verdict(criterion_id, "NOT_MET"))
+            answers.append(self.rechecks.get((criterion_id, round_no), first) if round_no else first)
+        return answers
 
     def __call__(self, call: LlmCall) -> BaseModel:
         if call.output is ExtractedFacts:
-            return next((value for key, value in self.extract.items() if key in call.user), ExtractedFacts())
-        if call.output is ExtractionCorrections:
-            return ExtractionCorrections()
+            return self._extracted(call.user)
+        if call.output in (DocumentReading, ResumeReading, LetterReading, PortfolioReading):
+            found = self._extracted(call.user)
+            if call.output is LetterReading:
+                return LetterReading(facts=found.facts, periods=found.periods, sections=self.summary.sections)
+            if call.output is ResumeReading:
+                return ResumeReading(facts=found.facts, periods=found.periods, resume=self.resume_digest)
+            if call.output is PortfolioReading:
+                return PortfolioReading(facts=found.facts, periods=found.periods, portfolio=self.portfolio_digest)
+            return DocumentReading(facts=found.facts, periods=found.periods)
         if call.output is LetterSummary:
             return self.summary
         if call.output is ResumeDigest:
             return self.resume_digest
         if call.output is PortfolioDigest:
             return self.portfolio_digest
-        if call.output is Ledger:
-            return self.ledger
-        if call.output is _Warnings:
-            return self.warnings
-        if call.output is JobCareer:
-            listed = re.findall(r"^(\d+)\. (.+?) \|", call.user, re.MULTILINE)
-            return JobCareer(
-                periods=[
+        if call.output is ApplicantAssessment:
+            employed = re.findall(r"^(\d+)\. (.+?) · .*? · EMPLOYMENT · ", call.user, re.MULTILINE)
+            return ApplicantAssessment(
+                verdicts=self._verdicts(call.user, 0),
+                achievements=self.ledger.results,
+                warnings=self.warnings.items,
+                jobs=[
                     JobFit(number=int(number), reason="맡은 일", related=self.jobs.get(company, "YES"))
-                    for number, company in listed
-                ]
+                    for number, company in employed
+                ],
             )
         if call.output is CriteriaJudgement:
-            ids = re.findall(r"^\[([QP]-\d+)\]", call.user, re.MULTILINE)
-            found = re.search(r"([12])차 재확인", call.user)
-            round_no = int(found.group(1)) if found else 0
-            answers = []
-            for criterion_id in [found for found in ids if found not in self.omit]:
-                first = self.verdicts.get(criterion_id, verdict(criterion_id, "NOT_MET"))
-                answers.append(self.rechecks.get((criterion_id, round_no), first) if round_no else first)
-            return CriteriaJudgement(verdicts=answers)
-        if call.output is ReviewJudgement:
+            return CriteriaJudgement(verdicts=self._verdicts(call.user, 1 if "재확인" in call.user else 0))
+        if call.output in (Verification, ReviewJudgement):
             ids = re.findall(r"^([QP]-\d+|F\d+|R\d+)\. 주장", call.user, re.MULTILINE)
-            return ReviewJudgement(
-                reviews=[
-                    ClaimReview(id=id, verdict=self.reviews.get(id, "SUPPORTED"), reason="검토 이유") for id in ids
-                ]
-            )
+            reviews = [ClaimReview(id=id, verdict=self.reviews.get(id, "SUPPORTED"), reason="검토 이유") for id in ids]
+            if call.output is ReviewJudgement:
+                return ReviewJudgement(reviews=reviews)
+            return Verification(reviews=reviews, highlights=self.highlights)
         raise AssertionError(f"대본에 없는 호출이다: {call.output.__name__}")
 
 

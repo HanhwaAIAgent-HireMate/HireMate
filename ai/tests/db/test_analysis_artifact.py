@@ -6,7 +6,8 @@ from application_context import make_posting, make_rubric, scripted, yumin_scrip
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hiremate_ai.agents.analysis.application.extract import ExtractedFact, ExtractedFacts, extraction_recipe
+from hiremate_ai.agents.analysis.application.extract import ExtractedFact, ExtractedFacts
+from hiremate_ai.agents.analysis.application.reading import DocumentReading, reading_recipe, reading_type
 from hiremate_ai.agents.analysis.application.review import ClaimReview, ReviewJudgement
 from hiremate_ai.agents.analysis.application.service import analyze_application, review_application_documents
 from hiremate_ai.agents.analysis.application.store import DbReviewStore
@@ -194,12 +195,13 @@ async def test_independent_application_saves_document_artifacts_for_readonly_reu
     await analyze_application(
         llm, store, applicant, make_posting(sample_posting), make_rubric(), budget_seconds=20, today=date(2026, 10, 27)
     )
-    recipe = extraction_recipe(llm)
+    recipe = reading_recipe(llm)
     assert recipe is not None
     artifacts = session_artifacts(db_session)
     for document in applicant.documents:
         assert (
-            await artifacts.find_extraction(
+            await artifacts.find_reading(
+                reading_type(document),
                 company_id=make_rubric().company_id,
                 recruitment_id=applicant.info.recruitment_id,
                 application_id=applicant.info.application_id,
@@ -218,4 +220,5 @@ async def test_independent_application_saves_document_artifacts_for_readonly_reu
         budget_seconds=20,
         today=date(2026, 10, 28),
     )
-    assert not any(call.output is ExtractedFacts for call in another.calls)
+    # 날짜가 바뀌어 다시 분석해도 서류는 다시 읽지 않는다
+    assert not any(issubclass(call.output, DocumentReading) for call in another.calls)

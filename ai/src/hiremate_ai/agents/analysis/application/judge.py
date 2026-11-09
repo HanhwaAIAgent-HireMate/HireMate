@@ -11,7 +11,6 @@
   화면은 경험과 지표가 함께 있으면 상, 경험만 있으면 중으로 보여 준다.
 """
 
-import asyncio
 import re
 import unicodedata
 from collections.abc import Sequence
@@ -23,13 +22,7 @@ from pydantic import BaseModel, Field
 
 from hiremate_ai.agents.analysis.application.ask import ask
 from hiremate_ai.agents.analysis.application.career import EMPLOYMENT, month_index
-from hiremate_ai.agents.analysis.application.context import (
-    evidence_text,
-    fact_lines,
-    readable,
-    related,
-    terms,
-)
+from hiremate_ai.agents.analysis.application.context import fact_lines, readable
 from hiremate_ai.agents.analysis.application.extract import locate, quotes_in
 from hiremate_ai.agents.analysis.application.review import Claim, ClaimReview
 from hiremate_ai.agents.analysis.application.types import (
@@ -68,9 +61,8 @@ _TYPE_LABEL = {
     CriterionType.COMPOSITE: "복합 경험형",
 }
 
-JUDGE_SYSTEM = f"""너는 지원 서류를 공고의 평가 항목에 대조해 항목마다 판정한다. 점수와 중요도는 다루지 않는다.
-
-[자료]
+# 항목 판정 규칙. 지원자 종합 판정(assess)이 성과 · 주의 신호 · 직무 경력과 함께 한 번에 묻고, 재판정도 쓴다
+JUDGE_RULES = """[자료]
 - facts는 서류 문장을 하나씩 분석해 뽑은 경험 목록이다 ([종류 · 본인 여부] 진술 (근거: 원문 문장)). facts를 먼저 보고,
   facts에 없는 내용만 원문에서 찾는다. 둘이 어긋나면 원문을 따른다.
 - 항목마다 relevance(한 일이 항목과 관련되는가), role(SELF 본인이 했다 / TEAM 팀 · 조직의 일만 적었다 / UNCLEAR 알 수
@@ -131,7 +123,7 @@ JUDGE_SYSTEM = f"""너는 지원 서류를 공고의 평가 항목에 대조해 
 - MET · PARTIAL이면 evidence에 근거 문장을 원문 글자 그대로 옮긴다. 기준의 부분마다 받치는 문장과 결과 문장을 모두
   옮기고, 본인 행동이 드러난 문장을 먼저 둔다. 옮길 문장이 없으면 그 판정을 쓰지 않는다.
   UNKNOWN · NO_RECORD여도 판단에 쓴 흔적 문장이 있으면 evidence에 옮긴다 (담당자가 무엇을 보고 판정했는지 알 수 있게).
-- 수치 성과(전후 값)는 다른 단계가 지원자 단위로 한 번 정리해 항목에 연결한다. 여기서는 본인이 한 일로 판정만 한다.
+- 수치 성과(전후 값)는 성과 장부가 지원자 단위로 한 번 정리해 항목에 연결한다. 판정은 본인이 한 일로만 한다.
   수치의 조건 · 한계(체감치, 팀 공동, 다른 효과 포함 등)가 판정에 영향을 주면 brief에 쓴다.
 - brief는 화면 카드에 보일 판정 요약 한 줄이다. 40자 안팎으로, 길이를 맞추려고 수치의 조건 · 한계를 빼지 않는다.
   MET · PARTIAL · NOT_MET은 한 일과 모자란 점을 명사형으로 끝낸다 (예: '○○ 구현은 확인, ○○ 운영은 미확인').
@@ -141,15 +133,19 @@ JUDGE_SYSTEM = f"""너는 지원 서류를 공고의 평가 항목에 대조해 
 - 경력 기간 항목은 기간을 코드가 계산한다. career_periods에 항목의 직무 · 기술에 맞는 경력표 번호만 고른다. 인턴과
   교육 · 개인 프로젝트는 실무 경력이 아니다. 기간이 모자라도 직무 · 기술이 맞으면 MET로 답한다.
 - 자격요건을 NOT_MET으로 판정하면 shortfall에 확인되지 않은 것을 요건의 낱말로 아주 짧게 쓴다 (12자 이내).
-- 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 판단에 쓰지 않는다.
+- 나이, 성별, 출신 지역, 혼인 여부, 신체 조건은 판단에 쓰지 않는다."""
+
+JUDGE_SYSTEM = f"""너는 지원 서류를 공고의 평가 항목에 대조해 항목마다 판정한다. 점수와 중요도는 다루지 않는다.
+
+{JUDGE_RULES}
 
 {UNTRUSTED_RULE}"""
 
-RECHECK_NOTES = {
-    1: "1차 재확인: 앞 판정은 확인 필요였다. 이유: {reason}\n근거 문장의 주변 문맥과 본인 역할을 다시 보고 판정해 줘.",
-    2: "2차 재확인: 앞 판정은 확인 필요였다. 이유: {reason}\n"
-    "다른 제출 문서에 보완하거나 어긋나는 근거가 있는지 보고 판정해 줘. 그래도 정할 수 없으면 UNKNOWN으로 둔다.",
-}
+RECHECK_NOTE = (
+    "재확인: 위 항목은 앞 판정이 확인 필요였다 (항목마다 '앞 판정 이유'). 근거 문장의 주변 문맥과 본인 역할, "
+    "다른 제출 문서에 보완하거나 어긋나는 근거가 있는지 함께 보고 다시 판정해 줘. "
+    "그래도 정할 수 없으면 UNKNOWN으로 둔다."
+)
 
 
 class RequirementPart(BaseModel):
@@ -190,55 +186,66 @@ class Evidence:
     today: date
 
 
-async def judge_criteria(
-    llm: LlmClient, criteria: Sequence[Criterion], evidence: Evidence, full_text_chars: int
+def judge_answers(
+    criteria: Sequence[Criterion], verdicts: Sequence[CriterionVerdict], evidence: Evidence
 ) -> list[CriterionResult]:
-    """항목을 판정한다. 자격증 보유 조건은 코드가, 나머지는 영역(자격요건 · 우대사항)마다 한 번씩 모델이 본다."""
-    by_code = {c.criterion_id: certificate_result(c, evidence) for c in criteria if c.certificates}
-    asked = [criterion for criterion in criteria if not criterion.certificates]
-    groups = [group for category in CriterionCategory if (group := [c for c in asked if c.category == category])]
-    answers = await asyncio.gather(
-        *(
-            _ask(
-                llm, group, evidence, evidence_text(evidence.documents, evidence.facts, _words(group), full_text_chars)
-            )
-            for group in groups
-        )
-    )
-    verdicts: dict[str, CriterionVerdict | None] = {}
-    for group, answer in zip(groups, answers, strict=True):
-        verdicts.update(_index_verdicts(answer.verdicts, {criterion.criterion_id for criterion in group}))
+    """모델 판정에 코드 규칙을 적용한다. 자격증 보유 조건은 코드가 판정하고 모델 답은 쓰지 않는다."""
+    indexed = _index_verdicts(verdicts, {criterion.criterion_id for criterion in asked_criteria(criteria)})
     return [
-        by_code.get(criterion.criterion_id) or _settle_answer(criterion, verdicts, evidence) for criterion in criteria
+        certificate_result(criterion, evidence)
+        if criterion.certificates
+        else _settle_answer(criterion, indexed, evidence)
+        for criterion in criteria
     ]
 
 
-async def recheck_criterion(
-    llm: LlmClient, criterion: Criterion, previous: CriterionResult, evidence: Evidence, round_no: int
-) -> CriterionResult | None:
-    """확인 필요 항목 하나를 다시 판정한다.
+def asked_criteria(criteria: Sequence[Criterion]) -> list[Criterion]:
+    """모델에 묻는 항목. 자격증 보유 조건은 코드가 인정 자격증 이름으로 찾는다."""
+    return [criterion for criterion in criteria if not criterion.certificates]
 
-    1차는 근거 · 관련 문장이 나온 문서의 원문 전체로 주변 문맥 · 본인 역할을, 2차는 제출 문서 전체로 다른 문서의
-    보완 · 상충 근거를 본다. 2차 자료가 1차와 같으면 같은 질문이라 묻지 않는다(None).
+
+def criteria_listing(criteria: Sequence[Criterion], reasons: dict[str, str] | None = None) -> str:
+    """판정 프롬프트의 평가 항목 목록. reasons가 있으면 항목마다 앞 판정 이유를 붙인다 (재판정)."""
+    lines = []
+    for criterion in criteria:
+        line = criterion_listing(criterion)
+        if reasons and criterion.criterion_id in reasons:
+            line += f"\n  - 앞 판정 이유: {reasons[criterion.criterion_id]}"
+        lines.append(line)
+    return "평가 항목:\n" + "\n".join(lines)
+
+
+async def recheck_criteria(
+    llm: LlmClient, criteria: Sequence[Criterion], previous: Sequence[CriterionResult], evidence: Evidence
+) -> list[CriterionResult]:
+    """확인 필요 항목을 모아 한 번에 다시 판정한다. 제출 문서 전체와 뽑은 사실로 주변 문맥 · 본인 역할과 다른 문서의
+    보완 · 상충 근거를 함께 본다. 다시 판정한 항목은 recheck_count를 1 올리고, 그 밖의 항목은 그대로 돌려준다.
     """
-    usable = readable(evidence.documents)
-    near = _near_documents(criterion, previous, usable)
-    if round_no == 1:
-        documents = near
-    elif {document.type for document in near} == {document.type for document in usable}:
-        return None
-    else:
-        documents = usable
-    parts = [
-        documents_block(documents),
-        data_block("facts", fact_lines(evidence.facts) or "(없음)"),
-        RECHECK_NOTES[round_no].format(reason=previous.reason),
+    by_id = {criterion.criterion_id: criterion for criterion in criteria}
+    targets = [
+        result
+        for result in previous
+        if result.verdict == Verdict.UNKNOWN and result.certificate_status is None and result.criterion_id in by_id
     ]
-    answer = await _ask(llm, [criterion], evidence, "\n\n".join(parts))
-    verdicts = _index_verdicts(answer.verdicts, {criterion.criterion_id})
-    return _settle_answer(criterion, verdicts, evidence).model_copy(
-        update={"recheck_count": previous.recheck_count + 1}
-    )
+    usable = readable(evidence.documents)
+    if not targets or not usable:
+        return list(previous)
+    asked = [by_id[result.criterion_id] for result in targets]
+    parts = [criteria_listing(asked, {result.criterion_id: result.reason for result in targets})]
+    if any(_CAREER_YEARS.search(criterion.text) for criterion in asked):
+        parts.append(career_block(evidence.periods))
+    parts += [
+        "제출한 자격증:\n" + data_block("certificates", evidence.certificates or "(없음)"),
+        "서류:\n" + documents_block(usable),
+        data_block("facts", fact_lines(evidence.facts) or "(없음)"),
+        RECHECK_NOTE,
+    ]
+    answer = await ask(llm, CriteriaJudgement, system=JUDGE_SYSTEM, user="\n\n".join(parts))
+    again = {
+        result.criterion_id: result.model_copy(update={"recheck_count": before.recheck_count + 1})
+        for result, before in zip(judge_answers(asked, answer.verdicts, evidence), targets, strict=True)
+    }
+    return [again.get(result.criterion_id, result) for result in previous]
 
 
 def _index_verdicts(verdicts: Sequence[CriterionVerdict], allowed: set[str]) -> dict[str, CriterionVerdict | None]:
@@ -497,17 +504,7 @@ def _labelled(text: str, tail: str) -> str:
     return f"{head} {tail}" if head and len(head) <= 6 else tail
 
 
-async def _ask(llm: LlmClient, group: Sequence[Criterion], evidence: Evidence, material: str) -> CriteriaJudgement:
-    parts = ["평가 항목:\n" + "\n".join(_listing(criterion) for criterion in group)]
-    if any(_CAREER_YEARS.search(criterion.text) for criterion in group):
-        parts.append("경력표 (코드가 계산한 개월 수):\n" + data_block("career", _career_table(evidence.periods)))
-    parts.append("제출한 자격증:\n" + data_block("certificates", evidence.certificates or "(없음)"))
-    parts.append("서류:\n" + material)
-    parts.append("항목마다 판정해 줘.")
-    return await ask(llm, CriteriaJudgement, system=JUDGE_SYSTEM, user="\n\n".join(parts))
-
-
-def _listing(criterion: Criterion) -> str:
+def criterion_listing(criterion: Criterion) -> str:
     rules = criterion.evaluation_rules
     text = _CAREER_SPAN.sub("", criterion.text).strip()
     span = " (기간은 코드가 경력표로 확인한다)" if _CAREER_YEARS.search(criterion.text) else ""
@@ -520,10 +517,6 @@ def _listing(criterion: Criterion) -> str:
             f"  - 미충족: {rules.unmet}",
         ]
     )
-
-
-def _words(group: Sequence[Criterion]) -> list[str]:
-    return terms([text for c in group for text in (c.text, c.evaluation_rules.met, c.evaluation_rules.partial or "")])
 
 
 def _career(result: CriterionResult, verdict: CriterionVerdict, years: int, evidence: Evidence) -> CriterionResult:
@@ -577,7 +570,12 @@ def _employment_months(periods: Sequence[Period], numbers: Sequence[int], today:
     return total
 
 
-def _career_table(periods: Sequence[Period]) -> str:
+def career_block(periods: Sequence[Period]) -> str:
+    """판정 프롬프트의 번호 붙은 경력표. 모델은 번호로 답한다 (career_periods)."""
+    return "경력표 (코드가 계산한 개월 수):\n" + data_block("career", numbered_career_table(periods))
+
+
+def numbered_career_table(periods: Sequence[Period]) -> str:
     if not periods:
         return "(서류에서 찾은 근무 기간이 없음)"
     return "\n".join(
@@ -585,19 +583,6 @@ def _career_table(periods: Sequence[Period]) -> str:
         f"{period.start} ~ {period.end or '현재'} · {period.months}개월"
         for number, period in enumerate(periods, start=1)
     )
-
-
-def _near_documents(
-    criterion: Criterion, previous: CriterionResult, documents: Sequence[ApplicantDocument]
-) -> list[ApplicantDocument]:
-    """근거나 관련 문장이 나온 문서. 없으면 이력서(또는 첫 문서)."""
-    words = terms([criterion.text, criterion.evaluation_rules.met])
-    types = {quote.document for quote in previous.quotes} | {quote.document for quote in related(documents, words)}
-    near = [document for document in documents if document.type in types]
-    if near:
-        return near
-    resume = [document for document in documents if document.type == DocumentType.RESUME]
-    return resume or list(documents[:1])
 
 
 def _base(criterion: Criterion) -> CriterionResult:

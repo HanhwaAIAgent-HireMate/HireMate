@@ -10,16 +10,14 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel, Field
 
-from hiremate_ai.agents.analysis.application.ask import ask
 from hiremate_ai.agents.analysis.application.judge import baseless_number, paragraphs
 from hiremate_ai.agents.analysis.application.types import Actor, Fact, Note
 from hiremate_ai.contract import ApplicantDocument
-from hiremate_ai.llm.client import LlmClient
-from hiremate_ai.llm.prompt import UNTRUSTED_RULE, data_block
 
 HIGHLIGHT_LIMIT = 2
-HIGHLIGHT_SYSTEM = f"""지원자 서류에서 뽑은 본인 경험 목록을 HR이 눈여겨볼 핵심 기여 1~2개로 묶는다.
-- 같은 프로젝트 · 같은 서비스의 경험(구현, 운영, 개선, 성과)은 하나로 묶는다. 서로 다른 일만 따로 둔다.
+# 눈여겨볼 점 묶기 규칙. 검증(verify)이 주장 검토와 함께 한 번에 묻는다
+HIGHLIGHT_RULES = """- 같은 프로젝트 · 같은 서비스의 경험(구현, 운영, 개선, 성과)은 하나로 묶는다.
+  서로 다른 일만 따로 둔다.
   같은 프로젝트의 기술 작업을 두 묶음으로 나누지 않는다. 다른 팀 · 사람과 기준을 맞추거나 조율한 경험은 기술 작업과
   같은 프로젝트여도 따로 한 묶음으로 둔다. 회사 업무와 개인 프로젝트처럼 다른 프로젝트 · 환경의 일은 주제가 같아도
   한 묶음으로 합치지 않는다.
@@ -32,43 +30,35 @@ HIGHLIGHT_SYSTEM = f"""지원자 서류에서 뽑은 본인 경험 목록을 HR�
 - sources는 묶은 경험 번호다 (예: F1, F3). 목록에 없는 번호를 지어내지 않는다. 묶음마다 [본인] 경험이 하나는 있어야
   한다. [불분명] 경험은 같은 일의 [본인] 경험과 묶을 때만 쓴다 (예: 주어 없이 적힌 그 일의 성과 수치).
 - 경험 목록에 없는 사실을 더하지 않는다. 팀 성과를 본인 성과로 바꿔 쓰지 않는다. '제가' 같은 1인칭을 쓰지 않고
-  '본인이 마련한 절차'처럼 쓴다.
-
-{UNTRUSTED_RULE}"""
+  '본인이 마련한 절차'처럼 쓴다."""
 
 
-class _Highlight(BaseModel):
+class Highlight(BaseModel):
     title: str
     detail: str
     metric: str = ""
     sources: list[str] = Field(default=[], description="묶은 경험 번호 (F1, F3)")
 
 
-class _Highlights(BaseModel):
-    items: list[_Highlight]
-
-
-async def highlight(llm: LlmClient, facts: Sequence[Fact], documents: Sequence[ApplicantDocument] = ()) -> list[Note]:
-    """본인 경험이 둘 이상일 때만 모델에 묻는다. 하나뿐이면 묶을 것이 없다.
-    주어 없이 적힌 성과 문장('응답 시간이 줄었다')은 본인 여부가 불분명으로 뽑혀서, 불분명한 경험도 본인 경험과 묶을
-    후보로 넘긴다. 팀 경험은 넘기지 않는다.
-    """
+def experiences(facts: Sequence[Fact]) -> list[tuple[int, Fact]]:
+    """묶을 후보: (사실 번호, 사실). 번호는 facts 안의 위치(1부터)다. 본인 경험과, 주어 없이 적혀 본인 여부가 불분명한
+    경험(같은 일의 성과 문장)만 넘긴다. 팀 경험은 넘기지 않는다. 본인 경험이 하나뿐이면 묶을 것이 없어 비운다."""
     numbered = [
         (number, fact)
         for number, fact in enumerate(facts, start=1)
         if fact.actor in (Actor.SELF, Actor.UNCLEAR) and fact.supported
     ]
-    if sum(fact.actor == Actor.SELF for _, fact in numbered) < 2:
-        return []
-    listing = "\n".join(
+    return numbered if sum(fact.actor == Actor.SELF for _, fact in numbered) >= 2 else []
+
+
+def experience_lines(numbered: Sequence[tuple[int, Fact]]) -> str:
+    return "\n".join(
         f"F{number}. [{_ACTOR[fact.actor]}] {fact.statement} (근거: {_quote(fact)})" for number, fact in numbered
     )
-    answer = await ask(llm, _Highlights, system=HIGHLIGHT_SYSTEM, user=data_block("facts", listing))
-    return check_highlights(dict(numbered), answer.items, documents)
 
 
 def check_highlights(
-    facts: dict[int, Fact], items: Sequence[_Highlight], documents: Sequence[ApplicantDocument] = ()
+    facts: dict[int, Fact], items: Sequence[Highlight], documents: Sequence[ApplicantDocument] = ()
 ) -> list[Note]:
     """근거 번호가 넘긴 경험을 가리키고 본인 경험이 있으며, 내용 · 지표의 숫자가 모두 근거에 있는 묶음만 남긴다.
 
