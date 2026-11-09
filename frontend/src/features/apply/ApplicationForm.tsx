@@ -31,6 +31,7 @@ import {
   type ApplicationInput,
   type SchoolCheck,
 } from '@/features/apply/api'
+import { PhotoField } from '@/features/apply/PhotoField'
 import type { PublicPosting } from '@/features/posting/api'
 import { ApiError, errorMessage } from '@/lib/api/client'
 import { formatDateTime } from '@/lib/format'
@@ -194,6 +195,12 @@ export function ApplicationForm({
             {posting.content.title} · 마감 {formatDateTime(posting.closeAt)}
           </p>
         </div>
+        {/* 증명사진은 선택이고, 블라인드 채용이면 받지 않는다 (지금은 화면 미리보기만 하고 보내지 않는다) */}
+        {!posting.content.blind && (
+          <Field id="photo" label="증명사진" required={false}>
+            <PhotoField />
+          </Field>
+        )}
         <Field id="basic" label="기본 정보" required error={hasError(sections[0])}>
           <div className="grid grid-cols-3 gap-2">
             <Input
