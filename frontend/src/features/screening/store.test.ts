@@ -8,6 +8,18 @@ describe('useStageUi', () => {
     useStageUi.getState().reset('s1')
   })
 
+  it('지원자를 차례로 열면 멘션이 쌓이고 같은 사람은 한 번만 들어간다', () => {
+    const { open } = useStageUi.getState()
+    open({ applicationId: 'a', name: '김지현' })
+    open({ applicationId: 'b', name: '신예준' })
+    open({ applicationId: 'a', name: '김지현' })
+
+    expect(useStageUi.getState().mentions.map((mention) => mention.name)).toEqual([
+      '김지현',
+      '신예준',
+    ])
+  })
+
   it('선택 지원자에서 빠진 지원자의 체크를 푼다', () => {
     const { syncSelection, setChecked } = useStageUi.getState()
     syncSelection(['a', 'b', 'c'])

@@ -1,4 +1,4 @@
-import { ArrowUp, AtSign, Bot, History, Sparkles, X } from 'lucide-react'
+import { ArrowUp, Bot, History, Sparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { AdminRequestButton } from '@/components/AdminRequestButton'
@@ -7,6 +7,7 @@ import type { ChatStep } from '@/features/chat/steps'
 import type { NcsSource } from '@/features/posting/api'
 import { NcsSources } from '@/features/posting/NcsSources'
 import { cn } from '@/lib/utils'
+import { useAutoHeight } from '@/lib/use-auto-height'
 
 const WAITING: ChatStep = { text: '수정안을 만들고 있어요', depth: 0 }
 
@@ -56,6 +57,9 @@ export function AiRequestPanel({
   onReset?: () => void
 }) {
   const [text, setText] = useState('')
+  const input = useRef<HTMLTextAreaElement>(null)
+  // 글이 길어지면 입력칸이 여러 줄로 늘어난다 (최대 160px, 넘으면 안에서 스크롤)
+  useAutoHeight(input, text)
   const bottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -160,20 +164,28 @@ export function AiRequestPanel({
         </div>
       )}
       <form
-        className="m-3 flex items-center gap-2 rounded-xl border px-3 py-2"
+        className="m-3 flex items-end gap-2 rounded-xl border px-3 py-2"
         onSubmit={(event) => {
           event.preventDefault()
           send(text)
         }}
       >
-        <AtSign className="size-4 shrink-0 text-muted-foreground" />
-        <input
+        <textarea
+          ref={input}
+          rows={1}
           aria-label="수정할 내용"
           value={text}
           disabled={disabled}
           onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            // Enter는 보내기, Shift + Enter는 줄바꿈. 한글을 조합하는 중의 Enter는 글자를 마치는 것이라 보내지 않는다
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault()
+              send(text)
+            }
+          }}
           placeholder={focus ? '고른 줄을 어떻게 고칠지 입력' : '수정할 내용을 입력'}
-          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          className="min-w-0 flex-1 resize-none bg-transparent py-1 text-sm leading-5 outline-none placeholder:text-muted-foreground"
         />
         <button
           type="submit"

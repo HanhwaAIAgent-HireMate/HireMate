@@ -130,4 +130,18 @@ describe('AI 수정 요청 패널', () => {
     expect(onClear).toHaveBeenCalled()
     expect(onSend).toHaveBeenCalledWith('포트폴리오도 필수로 받아줘', { example: true })
   })
+
+  it('입력칸은 여러 줄이고, Enter는 보내고 Shift + Enter는 보내지 않는다', () => {
+    const onSend = vi.fn()
+    render(<AiRequestPanel {...base} onSend={onSend} />)
+    const input = screen.getByRole('textbox', { name: '수정할 내용' })
+    expect(input.tagName).toBe('TEXTAREA')
+
+    fireEvent.change(input, { target: { value: '우대 사항을 더 구체적으로' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    expect(onSend).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledWith('우대 사항을 더 구체적으로')
+  })
 })

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowUp, AtSign, Check, FileChartColumn, Sparkles, X } from 'lucide-react'
+import { AlertCircle, ArrowUp, Check, FileChartColumn, Sparkles, X } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { AdminRequestButton } from '@/components/AdminRequestButton'
@@ -21,6 +21,7 @@ import type { StageTab } from '@/features/screening/tabs'
 import { errorMessage, needsAdmin } from '@/lib/api/client'
 import { useMe } from '@/lib/auth'
 import { cn } from '@/lib/utils'
+import { useAutoHeight } from '@/lib/use-auto-height'
 
 const EMPTY: ChatMessage[] = []
 const RECENT = 6
@@ -57,7 +58,7 @@ export function ChatPanel({
   const messages = useChatStore((state) => state.threads[tabId] ?? EMPTY)
   const { append, load } = useChatStore()
   const history = useChatHistory(stageId, tabId)
-  const { mentions, removeMention, addMention, checked } = useStageUi()
+  const { mentions, removeMention, addMention, clearMentions, checked } = useStageUi()
   const me = useMe()
   const queryClient = useQueryClient()
   // 답을 기다리는 탭. 그 탭의 기록을 다시 받아도 방금 보낸 질문을 지우지 않는다
@@ -83,8 +84,11 @@ export function ChatPanel({
   const [text, setText] = useState('')
   const [expanded, setExpanded] = useState(false)
   const [reportId, setReportId] = useState<string | null>(null)
-  const bottom = useRef<HTMLDivElement>(null)
-  const input = useRef<HTMLInputElement>(null)
+  const list = useRef<HTMLDivElement>(null)
+  const content = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLTextAreaElement>(null)
+  // 글이 길어지면 입력칸이 여러 줄로 늘어난다 (최대 160px, 넘으면 안에서 스크롤)
+  useAutoHeight(input, text)
   const mentionQuery = /@([^\s@]*)$/.exec(text)?.[1]
   const remote = useMentionCandidates(
     stageId,
@@ -117,8 +121,19 @@ export function ChatPanel({
 
   const waitingHere = chat.isPending && chat.variables?.tabId === tabId
   const waitingElsewhere = chat.isPending && !waitingHere
+  // 맨 아래를 보고 있으면 답이 길어지거나 단계가 늘어도 맨 아래를 따라간다. 위로 올려 읽는 중이면 두고, 질문을 보내면 다시 따라간다
+  const follow = useRef(true)
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: 'end' })
+    const element = list.current
+    if (!element) return
+    const toBottom = () => {
+      if (follow.current) element.scrollTop = element.scrollHeight
+    }
+    toBottom()
+    if (typeof ResizeObserver === 'undefined' || !content.current) return
+    const observer = new ResizeObserver(toBottom)
+    observer.observe(content.current)
+    return () => observer.disconnect()
   }, [messages.length, waitingHere, progress.items.length])
 
   const send = (raw: string) => {
@@ -127,7 +142,10 @@ export function ChatPanel({
     // 답이 올 때 지금 탭이 바뀌어 있어도 물은 탭에 쌓는다
     const tab = tabId
     append(tab, { role: 'user', text: message, mentions, asker: me.data?.name ?? null })
+    // 멘션은 이번 질문에만 쓴다. 칩은 보낸 질문에 남고 입력창에서는 지운다
+    clearMentions()
     asking.current = tab
+    follow.current = true
     setText('')
     steps.current = []
     setProgress(NO_PROGRESS)
@@ -168,45 +186,53 @@ export function ChatPanel({
           AI Chat
         </div>
       </div>
-      <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 pb-4">
-        {messages.length > RECENT && !expanded && (
-          <button
-            onClick={() => setExpanded(true)}
-            className="block w-full text-center text-xs text-muted-foreground hover:text-foreground"
-          >
-            ··· 이전 대화
-          </button>
-        )}
-        {messages.length === 0 && (
-          <div className="space-y-2 pt-2">
-            <p className="text-xs text-muted-foreground">
-              {overview.name} 지원자 {overview.counts.total}명을 대상으로 물어볼 수 있어요. @로
-              지원자를 고를 수도 있어요.
-            </p>
-            {examples.map((example) => (
-              <button
-                key={example}
-                onClick={() => send(example)}
-                className="block w-full rounded-xl border px-3 py-2 text-left text-sm hover:bg-muted"
-              >
-                {example}
-              </button>
-            ))}
-          </div>
-        )}
-        {visible.map((message, index) => (
-          <Fragment key={index}>{renderMessage(message, setReportId)}</Fragment>
-        ))}
-        {waitingHere && (
-          <div className="flex gap-2">
-            <Sparkles className="mt-0.5 size-4 shrink-0 text-ai" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <LiveSteps steps={progress.steps.length ? progress.steps : [WAITING]} />
-              {progress.items.length > 0 && <ItemList items={progress.items} />}
+      <div
+        ref={list}
+        onScroll={(event) => {
+          const element = event.currentTarget
+          follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40
+        }}
+        className="min-h-0 flex-1 overflow-auto px-4 pb-4"
+      >
+        <div ref={content} className="space-y-4">
+          {messages.length > RECENT && !expanded && (
+            <button
+              onClick={() => setExpanded(true)}
+              className="block w-full text-center text-xs text-muted-foreground hover:text-foreground"
+            >
+              ··· 이전 대화
+            </button>
+          )}
+          {messages.length === 0 && (
+            <div className="space-y-2 pt-2">
+              <p className="text-xs text-muted-foreground">
+                {overview.name} 지원자 {overview.counts.total}명을 대상으로 물어볼 수 있어요. @로
+                지원자를 고를 수도 있어요.
+              </p>
+              {examples.map((example) => (
+                <button
+                  key={example}
+                  onClick={() => send(example)}
+                  className="block w-full rounded-xl border px-3 py-2 text-left text-sm hover:bg-muted"
+                >
+                  {example}
+                </button>
+              ))}
             </div>
-          </div>
-        )}
-        <div ref={bottom} />
+          )}
+          {visible.map((message, index) => (
+            <Fragment key={index}>{renderMessage(message, setReportId)}</Fragment>
+          ))}
+          {waitingHere && (
+            <div className="flex gap-2">
+              <Sparkles className="mt-0.5 size-4 shrink-0 text-ai" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <LiveSteps steps={progress.steps.length ? progress.steps : [WAITING]} />
+                {progress.items.length > 0 && <ItemList items={progress.items} />}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
       <div className="relative m-3">
         {suggesting && (
@@ -244,9 +270,8 @@ export function ChatPanel({
             event.preventDefault()
             send(text)
           }}
-          className="flex items-center gap-2 rounded-xl border px-3 py-2"
+          className="flex items-end gap-2 rounded-xl border px-3 py-2"
         >
-          <AtSign className="size-4 shrink-0 text-muted-foreground" />
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
             {mentions.map((mention) => (
               <span
@@ -263,8 +288,9 @@ export function ChatPanel({
                 </button>
               </span>
             ))}
-            <input
+            <textarea
               ref={input}
+              rows={1}
               value={text}
               aria-label="AI Chat 입력"
               aria-controls={suggesting ? 'chat-mentions' : undefined}
@@ -300,6 +326,11 @@ export function ChatPanel({
                 if (event.key === 'Backspace' && text === '' && mentions.length > 0) {
                   removeMention(mentions[mentions.length - 1].applicationId)
                 }
+                // Enter는 보내기, Shift + Enter는 줄바꿈
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  send(text)
+                }
               }}
               placeholder={
                 waitingElsewhere
@@ -308,9 +339,9 @@ export function ChatPanel({
                     ? ''
                     : checked.length
                       ? `체크한 ${checked.length}명에 대해 물어보기`
-                      : '조건이나 궁금한 점'
+                      : '@이름으로 지원자를 멘션해 물어보세요'
               }
-              className="min-w-16 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              className="min-w-16 flex-1 resize-none bg-transparent py-1 text-sm leading-5 outline-none placeholder:text-muted-foreground"
             />
           </div>
           <button
