@@ -91,8 +91,8 @@ JUDGE_RULES = """### 자료
   B 구축이 모두 있어야 한다). 나열 끝에 '등'이 붙으면 적힌 것은 예시라서 그 가운데 하나만 해도 충족이다 (예:
   'A, B 등 활용 경험'은 A만 써도 충족이고, 그 결과에 유효한 수치가 있으면 상의 근거가 된다).
   가운뎃점(·)은 기호만으로 정하지 않고 문맥으로 본다 (같은 종류의 기술 · 단계를 묶으면
-  모두 요구한다). 일부만 확인되면
-  복합 경험형은 PARTIAL, 그 밖의 유형은 충족이 아니다. 없는 쪽을 서류가 '해 본 적 없다'고 밝혔으면 NOT_MET이다.
+  모두 요구한다). 일부만 확인되면 복합 경험형은 부분 충족 기준 문장에 해당하는지 보고(아래 '판정'의 PARTIAL),
+  그 밖의 유형은 충족이 아니다. 없는 쪽을 서류가 '해 본 적 없다'고 밝혔으면 NOT_MET이다.
 - 규모를 나타내는 말(대용량, 대규모 등)이 붙은 경험은 두 부분을 함께 요구한다 (parts도 둘로 나눈다).
   ① 규모: 몰리는 요청 · 늘어난 처리량이 병목 · 지연 · 오류의 원인으로 서류에 적혀 있다. 기준선 수치로 판정하지 않는다.
   ② 해결: 실서비스(실제 사용자가 쓰는 운영 환경)에서 본인이 병목 · 지연 · 오류를 분석하고 개선했다. 개인 · 교육 과정
@@ -104,9 +104,17 @@ JUDGE_RULES = """### 자료
   더 물을 것이 없으면 unknown_parts는 비운다. 기준이 넓거나 추상적이라는 이유로는 쓰지 않는다. 그 밖에는 비운다.
 
 ### 판정
+- 서류를 충족 → 부분 충족 → 미충족 기준 문장 순서로 대조해, 처음 해당하는 판정을 쓴다.
 - MET: 충족 기준에 해당하는 근거가 있다.
-- PARTIAL: 복합 경험형에서 일부만 확인됐다. satisfied_parts와 unsatisfied_parts를 모두 쓴다. 불확실하다는 뜻으로 쓰지
-  않고, 부분 충족 기준이 '없음'인 항목에는 쓰지 않는다.
+- PARTIAL: 복합 경험형에서 부분 충족 기준 문장에 해당한다. satisfied_parts와 unsatisfied_parts를 모두 쓴다.
+  불확실하다는 뜻으로 쓰지 않고, 부분 충족 기준이 '없음'인 항목에는 쓰지 않는다.
+  - 부분 충족 기준 문장에 해당하는 기록이 있으면 PARTIAL이다. 그 기록을 '같은 분야의 다른 일'로 보아 NO_RECORD ·
+    NOT_MET으로 쓰지 않는다 (예: 기준이 '테이블 설계는 했지만 설계서는 드러나지 않는다'이고 테이블 설계 기록이 있으면
+    PARTIAL).
+  - 기준 문장이 어느 부분이 확인되는 경우인지 정했으면(예: 'A는 했지만 B는 드러나지 않는다') 그 경우만 PARTIAL이다.
+    반대 경우(B만 확인)는 기준 문장에 '또는 그 반대'가 있을 때만 PARTIAL이고, 없으면 미충족 기준에 해당하면 NOT_MET,
+    직접 한 흔적이 없으면 NO_RECORD다. 기준 문장이 '일부만 했다'처럼 넓으면 요구한 부분 가운데 일부만 확인된 경우가
+    PARTIAL이다.
 - NOT_MET: 미충족 기준에 해당한다고 서류에 적혀 있다 (하지 않았다, 다른 사람이 맡았다 등).
 - UNKNOWN: 항목의 일을 직접 한 흔적은 있지만 충족인지 정할 수 없다 (본인 역할 · 범위 · 문서 간 일치, 또는 항목이
   요구하는 도구 · 방식을 썼는지가 적혀 있지 않다). 예: 그 기술을 배우는 과정의 프로젝트에서 그 일을 맡았다고만 적혔다.
@@ -121,7 +129,9 @@ JUDGE_RULES = """### 자료
 - criterion_id는 요청의 번호 그대로 쓴다 (예: Q-01). 대괄호는 넣지 않는다.
 - parts에는 항목 문장이 요구하는 것을 나눠 쓰고, 부분마다 서류에서 본인이 한 것으로 확인됐는지 found로 쓴다.
   나열이면 하나씩 나눈다 (예: 'A/B 구축' → A 구축, B 구축). 어느 하나만 있어도 되는 것('A 또는 B', 'A, B 등')은 한
-  부분으로 쓴다 (예: 'A, B 등 활용 경험' → 'A 또는 B 활용'). 요구가 하나면 하나만 쓴다. verdict는 parts와 맞아야 한다.
+  부분으로 쓴다 (예: 'A, B 등 활용 경험' → 'A 또는 B 활용'). 판정 기준 문장이 '~하거나' · '중 하나'로 하나만
+  요구해도 한 부분이다 (예: 충족 기준 '개발하거나 운영했다' → '개발 또는 운영' 한 부분). 요구가 하나면 하나만 쓴다.
+  verdict는 parts와 맞아야 한다.
 - MET · PARTIAL이면 evidence에 근거 문장을 원문 글자 그대로 옮긴다. 기준의 부분마다 받치는 문장과 결과 문장을 모두
   옮기고, 본인 행동이 드러난 문장을 먼저 둔다. 옮길 문장이 없으면 그 판정을 쓰지 않는다.
   UNKNOWN · NO_RECORD여도 판단에 쓴 흔적 문장이 있으면 evidence에 옮긴다 (담당자가 무엇을 보고 판정했는지 알 수 있게).
@@ -619,12 +629,30 @@ def _unknown(result: CriterionResult, reason: str, label: str | None = None) -> 
 
 
 def _parts(criterion: Criterion, verdict: CriterionVerdict) -> tuple[list[str], list[str]]:
-    """모델이 나눈 요건 부분 가운데 확인된 것과 확인되지 않은 것. 조건형이거나 부분이 하나뿐이면 나누지 않는다."""
+    """모델이 나눈 요건 부분 가운데 확인된 것과 확인되지 않은 것. 조건형이거나 부분이 하나뿐이면 나누지 않는다.
+
+    충족 기준이 '~하거나' · '또는' · '중 하나'로 하나만 요구하면(either_of), 모델이 그 요구를 여러 부분으로 나눴더라도
+    하나가 확인되면 모자란 부분이 없는 것으로 본다 (나열을 모두 요구하는 규칙으로 충족을 낮추지 않는다).
+    """
     if criterion.criterion_type == CriterionType.CONDITION or len(verdict.parts) < 2:
         return [], []
     found = [" ".join(item.part.split()) for item in verdict.parts if item.found]
     missing = [" ".join(item.part.split()) for item in verdict.parts if not item.found]
+    if found and either_of(criterion):
+        return found, []
     return found, missing
+
+
+# 충족 기준이 하나만 요구한다는 말과, 여럿을 함께 요구한다는 말
+_EITHER = re.compile(r"거나|또는|혹은|(?:중|가운데)\s*(?:하나|한\s*가지)|어느\s*하나")
+_BOTH = re.compile(r"하고|했고|이고|모두|함께|및|그리고|[와과]\s")
+
+
+def either_of(criterion: Criterion) -> bool:
+    """충족 기준이 여러 행동 가운데 하나만 요구하는가 (예: '개발하거나 운영했다'). 함께 요구하는 말이 섞였으면
+    (예: '설계하고 운영하거나 개선했다') 어느 것이 하나만인지 코드가 가를 수 없어 아니라고 본다."""
+    met = criterion.evaluation_rules.met
+    return bool(_EITHER.search(met)) and not _BOTH.search(met)
 
 
 def _own_first(quotes: Sequence[Quote], facts: Sequence[Fact]) -> list[Quote]:
