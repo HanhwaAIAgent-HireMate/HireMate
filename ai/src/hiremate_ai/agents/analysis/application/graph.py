@@ -17,6 +17,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
+from hiremate_ai.agents.analysis.application.achievements import (
+    achievement_claims,
+    apply_achievement_reviews,
+    attach,
+    collect_achievements,
+)
 from hiremate_ai.agents.analysis.application.career import career_years, last_company
 from hiremate_ai.agents.analysis.application.context import readable
 from hiremate_ai.agents.analysis.application.digest import digest
@@ -25,17 +31,16 @@ from hiremate_ai.agents.analysis.application.highlight import TEAM_ROLE_CHECK, h
 from hiremate_ai.agents.analysis.application.job_career import JobFit, job_notes, job_periods, job_related
 from hiremate_ai.agents.analysis.application.judge import (
     Evidence,
-    apply_found_results,
     apply_verification,
     asks_career_years,
     judge_criteria,
     recheck_criterion,
-    result_search_claims,
     verification_claims,
 )
 from hiremate_ai.agents.analysis.application.review import apply_to_facts, fact_claims, review_claims
 from hiremate_ai.agents.analysis.application.types import (
     VERDICT_LABEL,
+    Achievement,
     Actor,
     ApplicationReview,
     Criterion,
@@ -52,7 +57,7 @@ from hiremate_ai.contract import ApplicantDetail, CriterionCategory, PostingCont
 from hiremate_ai.db.analysis_store import AnalysisArtifactStore
 from hiremate_ai.llm.client import LlmClient
 
-REVIEW_VERSION = "2026-11-09.1"
+REVIEW_VERSION = "2026-11-09.3"
 # 카드의 '눈여겨볼 점' 후보로 검토하는 사실 수
 NOTABLE_CANDIDATES = 6
 NOTABLE_KINDS = ("ACHIEVEMENT", "PROJECT", "EXPERIENCE")
@@ -86,6 +91,8 @@ class ReviewState(TypedDict, total=False):
     periods: list[Period]
     sections: list[DocumentSection]
     digests: list[DocumentDigest]
+    # 지원자 단위 성과 장부. 항목의 지표는 여기서 연결된 성과로만 붙인다
+    achievements: list[Achievement]
     results: list[CriterionResult]
     notable: list[Note]
     warnings: list[Note]
@@ -116,12 +123,13 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
                 )
                 for document in documents
             ]
-        extracted, sections, digests = await asyncio.gather(
+        extracted, sections, digests, achievements = await asyncio.gather(
             extract_documents(
                 llm, documents, settings.application_concurrency, cached=cached, review=context.review_extraction
             ),
             summarize(llm, documents, blind=context.posting.blind),
             digest(llm, documents, blind=context.posting.blind),
+            collect_achievements(llm, documents, context.criteria),
         )
         if artifacts is not None and recipe is not None and context.company_id is not None:
             for document, result in zip(documents, extracted, strict=True):
@@ -134,7 +142,13 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
                     extracted=result,
                 )
         facts, periods = merge(documents, extracted, context.today, blind=context.posting.blind)
-        return {"facts": facts, "periods": periods, "sections": sections, "digests": digests}
+        return {
+            "facts": facts,
+            "periods": periods,
+            "sections": sections,
+            "digests": digests,
+            "achievements": achievements,
+        }
 
     async def judge(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
         context = runtime.context
@@ -164,19 +178,21 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
         results = state.get("results") or []
         notable = _notable_candidates(facts)
         documents = runtime.context.applicant.documents
-        # 지표가 빈 충족 항목은 같은 검증에서 성과 수치(전후 값)도 찾는다 (줄글 · 두 문장에 나뉜 경우 포함)
-        claims = verification_claims(results, documents, runtime.context.criteria)
-        reviews = await review_claims(llm, [*fact_claims(notable), *claims])
+        achievements = state.get("achievements") or []
+        # 판정 검증은 그 항목에 연결된 성과 문장까지 근거로 본다 (구현 문장만 보고 운영 · 성과를 과장이라 보지 않게).
+        # 성과 자체는 항목마다가 아니라 성과마다 한 번 검증한다
+        claims = verification_claims(attach(results, achievements, metric=False), documents, runtime.context.criteria)
+        reviews = await review_claims(
+            llm, [*fact_claims(notable), *claims, *achievement_claims(achievements, documents)]
+        )
+        achievements = apply_achievement_reviews(achievements, reviews)
         # notable은 facts의 같은 객체를 고른 것이라 객체 id로 짝을 짓는다 (리스트 필드가 있어 해시할 수 없다)
         reviewed = {id(fact): new for fact, new in zip(notable, apply_to_facts(notable, reviews), strict=True)}
         checked = [reviewed.get(id(fact), fact) for fact in facts]
-        checked_results = apply_verification(results, reviews, documents)
-        # 성과 수치를 못 찾은 충족 항목은 시간이 있으면 한 번 더 찾는다 (판정은 다시 보지 않는다)
-        retry = result_search_claims(checked_results, documents)
-        if retry and _has_time(runtime.context):
-            checked_results = apply_found_results(checked_results, await review_claims(llm, retry), documents)
+        checked_results = attach(apply_verification(results, reviews), achievements)
         return {
             "facts": checked,
+            "achievements": achievements,
             "results": checked_results,
             # 검토를 통과한 본인 경험을 같은 일끼리 묶은 눈여겨볼 점
             "notable": await highlight(llm, checked, readable(documents)),
@@ -202,7 +218,8 @@ def build_review_graph(llm: LlmClient) -> CompiledStateGraph[ReviewState, Review
             if not any(result.verdict == Verdict.UNKNOWN for result in results) or not _has_time(context):
                 break
             results = list(await asyncio.gather(*(one(result, round_no) for result in results)))
-        return {"results": results}
+        # 재확인으로 충족이 된 항목에도 같은 장부의 성과를 붙인다
+        return {"results": attach(results, state.get("achievements") or [])}
 
     def finalize(state: ReviewState, runtime: Runtime[ReviewInput]) -> ReviewState:
         return {"review": _finalize(state, runtime.context)}

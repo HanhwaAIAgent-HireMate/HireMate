@@ -1,5 +1,7 @@
 import asyncio
+from typing import Literal
 
+import pytest
 from application_context import (
     CRITERIA_VERSION,
     PREFERRED,
@@ -11,6 +13,7 @@ from application_context import (
     verdict,
 )
 
+from hiremate_ai.agents.analysis.application.achievements import Ledger, _Entry
 from hiremate_ai.agents.analysis.application.extract import (
     ExtractedFact,
     ExtractedFacts,
@@ -28,6 +31,7 @@ from hiremate_ai.contract import (
     ApplicantDetail,
     CertificateStatus,
     CriterionCategory,
+    CriterionType,
     DocumentType,
     PostingContent,
     Verdict,
@@ -453,3 +457,45 @@ async def test_cover_letter_sections_are_summarized_with_checked_quotes(
     assert sum(call.output is LetterSummary for call in llm.calls) == 1
     card = to_candidate_analysis(review, sample_applicants["정유민"].documents)
     assert card.summaries[0].evidence[0].document.value == "COVER_LETTER"
+
+
+@pytest.mark.parametrize("ledger_review", ["SUPPORTED", "UNSUPPORTED"])
+async def test_metrics_come_from_the_applicant_ledger_once(
+    sample_applicants: dict[str, ApplicantDetail],
+    sample_posting: PostingContent,
+    ledger_review: Literal["SUPPORTED", "UNSUPPORTED"],
+) -> None:
+    # 성과는 지원자마다 한 번 정리하고, 연결된 항목에는 같은 지표가 붙는다. 성과 검증에서 떨어지면 어느 항목에도 없다
+    linked = ["Q-01", "Q-02", "Q-03", "P-01"]
+    entry = _Entry(
+        what="승인 응답 시간",
+        before="180ms",
+        after="90ms",
+        quotes=[LATENCY],
+        owner="SELF",
+        criteria=linked,
+    )
+    script = Script(
+        extract={"결제플랫폼팀": YUMIN_EXTRACT},
+        verdicts=YUMIN,
+        ledger=Ledger(results=[entry]),
+        reviews={"R1": ledger_review},
+    )
+    llm = scripted(script)
+
+    review = await review_of(llm, sample_applicants["정유민"], sample_posting)
+
+    shown = {
+        item.criterion_id: item.metric
+        for item in review.criteria
+        if item.criterion_id in linked
+        and item.verdict in (Verdict.MET, Verdict.PARTIAL)
+        and item.criterion_type != CriterionType.CONDITION
+    }
+    assert shown  # 연결된 충족 · 부분 충족 경험형 항목이 있다
+    expected = "승인 응답 시간 180ms → 90ms" if ledger_review == "SUPPORTED" else ""
+    assert set(shown.values()) == {expected}
+    assert all(not item.metric for item in review.criteria if item.criterion_id not in linked)
+    assert sum(call.output is Ledger for call in llm.calls) == 1
+    review_call = next(call.user for call in llm.calls if call.output is ReviewJudgement)
+    assert "R1. 주장" in review_call
