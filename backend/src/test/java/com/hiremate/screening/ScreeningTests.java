@@ -20,10 +20,12 @@ import com.hiremate.interview.InterviewView;
 import com.hiremate.interview.InterviewerRole;
 import java.math.BigDecimal;
 import java.net.http.HttpResponse;
+import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -467,7 +469,8 @@ class ScreeningTests extends IntegrationTest {
         String guides = "/api/recruitments/" + recruitment + "/stage-guides";
         String guidePath = "/api/stages/"
                 + json(expect(hr.get(guides), 200)).get(0).path("stageId").asString() + "/guide";
-        LocalDate first = LocalDate.now().plusDays(10);
+        // 면접 시간 배정은 주말을 건너뛰므로, 바꿔 넣는 다음 날(화요일)까지 평일이 되게 월요일로 정한다
+        LocalDate first = LocalDate.now().plusDays(10).with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
         String firstText = first.format(DateTimeFormatter.ofPattern("yyyy년 M월 d일(E)", Locale.KOREAN));
         expect(hr.put(guidePath, Map.of("schedule", first.toString(), "method", "ONLINE", "place", "",
                 "preparation", "신분증", "note", "11월 1일까지 참석 여부를 알려 주세요.\n\n 건물 주차는 지원되지 않습니다. ")),
