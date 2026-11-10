@@ -47,3 +47,9 @@ jobs:
         env:
           ACTION: ${{ inputs.action }}
         run: bash scripts/demo/baseline.sh "$ACTION"
+
+      # 취소되거나 시간 제한에 걸리면 위 단계의 스크립트는 서비스를 다시 띄우지 못하고 DB 작업도 남는다.
+      # 남은 작업을 끝내고 서비스를 다시 띄운다
+      - name: 취소 · 실패 뒤 정리
+        if: (cancelled() || failure()) && inputs.action != 'status' && inputs.confirm == inputs.action
+        run: bash scripts/demo/baseline.sh cleanup
