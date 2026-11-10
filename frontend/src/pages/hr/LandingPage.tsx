@@ -19,21 +19,6 @@ function Cover() {
     <div className="flex min-h-screen flex-col overflow-hidden bg-surface text-foreground">
       <header className="flex flex-wrap items-center justify-between gap-4 px-4 pt-7 sm:px-8 lg:px-14">
         <span className="text-[22px] font-black tracking-[-0.05em]">Hire-mate</span>
-        <nav aria-label="계정" className="flex items-center gap-2">
-          <Link
-            to="/login"
-            className="inline-flex h-11 items-center px-4 text-[15px] font-medium hover:text-neutral-600"
-          >
-            로그인
-          </Link>
-          <Link
-            to="/signup"
-            className="inline-flex h-11 items-center gap-2 rounded-full bg-primary px-5 text-[15px] font-bold text-primary-foreground hover:bg-primary/85"
-          >
-            기업 가입
-            <ArrowRight className="size-4" strokeWidth={2.25} />
-          </Link>
-        </nav>
       </header>
 
       <main className="flex flex-1 flex-wrap items-center gap-12 px-4 pt-14 pb-18 sm:px-8 lg:px-14">
