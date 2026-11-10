@@ -19,7 +19,7 @@ export function AuthLayout({
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center justify-center gap-2 font-semibold">
           <LogoMark />
-          HireMate
+          Hire-mate
         </div>
         <div className="rounded-2xl border bg-card p-7 shadow-xs">
           <h1 className="text-xl font-bold">{title}</h1>

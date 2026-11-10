@@ -36,7 +36,7 @@ export function CanvaConnection() {
     mutationFn: () => unwrap(api.DELETE('/api/companies/me/canva')),
     onSuccess: () => {
       void query.invalidateQueries({ queryKey: connectionKey })
-      toast.success('HireMate의 Canva 연결을 해제했어요.')
+      toast.success('Hire-mate의 Canva 연결을 해제했어요.')
     },
     onError: (error) => toast.error(errorMessage(error)),
   })
@@ -69,7 +69,7 @@ export function CanvaConnection() {
   return (
     <SettingsSection title="Canva 연결">
       <p className="text-sm text-muted-foreground">
-        내 Canva 계정을 연결하고 현재 사용할 수 있는 기능을 확인해요. 연결은 현재 HireMate 로그인
+        내 Canva 계정을 연결하고 현재 사용할 수 있는 기능을 확인해요. 연결은 현재 Hire-mate 로그인
         세션 동안 유지돼요.
       </p>
       {connection.isError && <p role="alert">Canva 연결 상태를 불러오지 못했어요.</p>}

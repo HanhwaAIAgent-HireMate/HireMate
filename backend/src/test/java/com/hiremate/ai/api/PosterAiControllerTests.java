@@ -146,7 +146,7 @@ class PosterAiControllerTests {
                 new PosterAiController.PosterAiRequest("상단 물결을 움직이게", design, List.of(), List.of()), session);
         assertThat(result.recommendations().getFirst().design()).isEqualTo(design);
         if (externalSearch) {
-            assertThat(result.reply()).contains("HireMate에서 새 디자인 1개");
+            assertThat(result.reply()).contains("Hire-mate에서 새 디자인 1개");
         }
     }
 }

@@ -152,7 +152,7 @@ public class PosterAiController {
                     ? "가져올 수 있는 새 외부 템플릿을 찾지 못했어요."
                     : searched + "에서 아직 추가하지 않은 외부 템플릿 " + count + "개를 찾았어요.";
             if (!generated.isEmpty()) {
-                reply += " 요청에 맞춰 HireMate에서 새 디자인 " + generated.size() + "개도 만들었어요.";
+                reply += " 요청에 맞춰 Hire-mate에서 새 디자인 " + generated.size() + "개도 만들었어요.";
             }
             return new PosterProposal(reply + unavailable, generated, combined.templates(),
                     null, null, combined.designs());
