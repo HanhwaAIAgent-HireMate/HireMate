@@ -14,6 +14,7 @@ services:
       - /var/www/certbot:/var/www/certbot:ro
     depends_on:
       - backend
+      - mailpit
     restart: unless-stopped
 
   backend:
@@ -30,11 +31,14 @@ services:
       HIREMATE_FILES_STORAGE: s3
       HIREMATE_DUMMY_ASSESSMENT: "false"
       AWS_REGION: ap-northeast-2
+      MAIL_HOST: mailpit
+      MAIL_PORT: "1025"
     volumes:
       - /opt/hiremate/rds-ca-bundle.pem:/etc/ssl/certs/rds-ca-bundle.pem:ro
     depends_on:
       - redis
       - ai
+      - mailpit
     restart: unless-stopped
 
   ai:
@@ -94,6 +98,26 @@ services:
       - redis-data:/data
     restart: unless-stopped
 
+  # 안내 메일을 실제로 보내지 않고 받아 두는 SMTP 서버(로컬 compose.yaml과 같은 Mailpit).
+  # 메일함은 Nginx의 /mailpit/ 경로로만 열고, 로그인 계정은 서버의 htpasswd 파일에 둔다
+  mailpit:
+    image: axllent/mailpit:v1.31
+    environment:
+      MP_WEBROOT: /mailpit/
+      MP_UI_AUTH_FILE: /etc/mailpit/ui-auth
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "5000"
+    volumes:
+      - type: bind
+        source: /opt/hiremate/mailpit-ui-auth
+        target: /etc/mailpit/ui-auth
+        read_only: true
+        bind:
+          create_host_path: false
+      - mailpit-data:/data
+    restart: unless-stopped
+
 volumes:
   redis-data:
+  mailpit-data:
   embedding-model-cache:
