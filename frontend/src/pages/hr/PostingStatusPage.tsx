@@ -49,7 +49,7 @@ export function PostingStatusPage() {
 }
 
 /** 최근 지원자 한 쪽에 보이는 수 */
-const APPLICANT_PAGE_SIZE = 5
+const APPLICANT_PAGE_SIZE = 10
 
 function StatusView({ posting }: { posting: Posting }) {
   const close = useClosePosting(posting.recruitmentId)
