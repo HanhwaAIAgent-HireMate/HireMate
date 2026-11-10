@@ -144,6 +144,65 @@
   }
 }
 
+/* 첫 진입 표지의 움직임 (LandingPage) */
+@keyframes cover-roll {
+  0%,
+  20% {
+    transform: translateY(0);
+  }
+  25%,
+  45% {
+    transform: translateY(-1.15em);
+  }
+  50%,
+  70% {
+    transform: translateY(-2.3em);
+  }
+  75%,
+  95% {
+    transform: translateY(-3.45em);
+  }
+  100% {
+    transform: translateY(-4.6em);
+  }
+}
+
+@keyframes cover-draw {
+  from {
+    stroke-dashoffset: 260;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes cover-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes cover-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes cover-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  to {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
 /* 면접 카드에 새로 들어온 질문 강조 (InterviewViewer) */
 @keyframes question-new {
   from {
