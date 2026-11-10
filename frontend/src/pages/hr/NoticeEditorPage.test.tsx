@@ -1,7 +1,7 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '@/app/query-client'
 import type { Notice } from '@/features/notice/api'
@@ -91,6 +91,16 @@ function renderEditor() {
 // 테스트용 브라우저(jsdom)에는 스크롤이 없어서, AI 패널이 대화 끝으로 내릴 때 쓰는 함수를 비워 둔다
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn()
+})
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
 })
 
 afterEach(() => {

@@ -4,6 +4,7 @@ import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import {
   Select,
   SelectContent,
@@ -420,8 +421,8 @@ export function PostingEditor({
           변경 내용은 이 탭에 임시 보관돼요. 공고에 반영하려면 임시 저장을 눌러 주세요.
         </p>
       )}
-      <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-auto">
+      <ResizablePanelGroup id="posting-editor" className="min-h-0 flex-1">
+        <ResizablePanel id="posting-content" minSize={420} className="overflow-auto">
           <div className="mx-auto max-w-[760px] space-y-6 px-6 py-6">
             {!isDraft && (
               <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
@@ -703,19 +704,29 @@ export function PostingEditor({
               )}
             </FixedBox>
           </div>
-        </div>
-        <AiRequestPanel
-          messages={messages}
-          examples={EXAMPLES}
-          hint={editable ? '줄 앞의 · 을 누르면 그 줄만 고쳐 달라고 할 수 있어요.' : undefined}
-          pending={ai.isPending || save.isPending}
-          disabled={!editable}
-          focus={picked ? { label: focusLabel(picked), onClear: () => setFocus(null) } : undefined}
-          steps={steps}
-          onSend={(message, options) => void sendRequest(message, options?.example)}
-          onReset={() => setMessages([])}
-        />
-      </div>
+        </ResizablePanel>
+        <ResizableHandle withHandle aria-label="AI 수정 요청 너비 조절" />
+        <ResizablePanel
+          id="posting-ai-request"
+          defaultSize={300}
+          minSize={280}
+          groupResizeBehavior="preserve-pixel-size"
+        >
+          <AiRequestPanel
+            messages={messages}
+            examples={EXAMPLES}
+            hint={editable ? '줄 앞의 · 을 누르면 그 줄만 고쳐 달라고 할 수 있어요.' : undefined}
+            pending={ai.isPending || save.isPending}
+            disabled={!editable}
+            focus={
+              picked ? { label: focusLabel(picked), onClear: () => setFocus(null) } : undefined
+            }
+            steps={steps}
+            onSend={(message, options) => void sendRequest(message, options?.example)}
+            onReset={() => setMessages([])}
+          />
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   )
 }

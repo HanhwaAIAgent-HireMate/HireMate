@@ -83,7 +83,7 @@ export function AiRequestPanel({
   }
 
   return (
-    <aside className="flex min-h-0 w-[300px] shrink-0 flex-col border-l">
+    <aside className="flex h-full min-h-0 w-full flex-col">
       <div className="flex h-12 shrink-0 items-center justify-between px-4">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Sparkles className="size-4 text-ai" />
