@@ -21,6 +21,7 @@ function input(overrides: Partial<SuggestionInput> = {}): SuggestionInput {
     features: FEATURES,
     mentions: 0,
     checked: 0,
+    interviewed: 0,
     ...overrides,
   }
 }
@@ -85,14 +86,22 @@ describe('suggestQuestions', () => {
     ])
   })
 
-  it('면접 전형은 점수가 있을 때만 점수로 찾는다', () => {
-    const base = { type: 'INTERVIEW' as const, features: [] }
-    expect(suggestQuestions(input(base))).toEqual([
-      '면접에서 프로젝트 역할을 꼭 확인해야 할 지원자 찾아줘',
+  it('면접 전에는 서류에서 본인 역할을 확인할 지원자를 찾는다', () => {
+    expect(suggestQuestions(input({ type: 'INTERVIEW', features: [] }))).toEqual([
+      '서류에서 팀 성과와 본인 역할이 구분되지 않는 지원자 찾아줘',
     ])
-    expect(suggestQuestions(input({ ...base, hasScores: true }))[0]).toBe(
-      '면접 점수가 높은 지원자 5명 찾아줘',
-    )
+  })
+
+  it('면접을 마친 지원자가 있으면 답변과 서류의 차이를 먼저 권한다', () => {
+    const base = { type: 'INTERVIEW' as const, features: [], interviewed: 2 }
+    expect(suggestQuestions(input(base))).toEqual([
+      '면접을 마친 지원자 중 답변이 서류 내용과 다른 사람 있어?',
+      '서류에서 팀 성과와 본인 역할이 구분되지 않는 지원자 찾아줘',
+    ])
+    // 범위를 스스로 정한 질문이라 '미결정 N명 중'을 붙이지 않는다
+    expect(
+      suggestQuestions(input({ ...base, counts: { pending: 3, pass: 2, fail: 1, total: 6 } }))[0],
+    ).toBe('면접을 마친 지원자 중 답변이 서류 내용과 다른 사람 있어?')
   })
 
   it('체크한 지원자가 있으면 그 지원자에 대한 질문을 먼저 권한다', () => {

@@ -1,3 +1,4 @@
+import { useStageInterviewProgress } from '@/features/interview/live'
 import type { AssignedInterview, InterviewerWorkspace } from '@/features/interview/sessions'
 import type { StageOverview } from '@/features/screening/api'
 import { useStageUi } from '@/features/screening/store'
@@ -9,6 +10,8 @@ const LIMIT = 3
 const LABEL_MAX = 20
 /** 한 번에 비교할 만한 지원자 수 */
 const COMPARE_MAX = 5
+/** 면접을 마친 사람의 답변을 서류와 견준다. 범위를 스스로 정해 '미결정 N명 중'을 앞에 붙이지 않는다 */
+const ANSWERS_VS_DOCUMENTS = '면접을 마친 지원자 중 답변이 서류 내용과 다른 사람 있어?'
 
 export type SuggestionInput = Pick<StageOverview, 'type' | 'status' | 'counts' | 'hasScores'> & {
   /** 공고의 자격요건 · 우대사항 · 인재상 열. 서류 전형에서만 쓴다 */
@@ -17,6 +20,8 @@ export type SuggestionInput = Pick<StageOverview, 'type' | 'status' | 'counts' |
   mentions: number
   /** 목록에서 체크한 지원자 수 */
   checked: number
+  /** 면접을 마친 지원자 수. 면접 전형에서만 쓴다 */
+  interviewed: number
 }
 
 /**
@@ -43,7 +48,7 @@ export function suggestQuestions(input: SuggestionInput): string[] {
   const within =
     counts.pending > 0 && counts.pending < counts.total ? `미결정 ${counts.pending}명 중 ` : ''
   const finds = stageFinds(input)
-  if (finds.length > 0) finds[0] = within + finds[0]
+  if (finds.length > 0 && finds[0] !== ANSWERS_VS_DOCUMENTS) finds[0] = within + finds[0]
   picks.push(...finds)
   return picks.slice(0, LIMIT)
 }
@@ -59,7 +64,7 @@ function targetQuestion({ type, status, mentions, checked }: SuggestionInput): s
 }
 
 /** 진행 중인 전형에서 지원자를 찾는 질문. 전형 종류와 쌓인 자료에 맞춘다 */
-function stageFinds({ type, hasScores, features }: SuggestionInput): string[] {
+function stageFinds({ type, hasScores, features, interviewed }: SuggestionInput): string[] {
   switch (type) {
     case 'DOCUMENT': {
       const finds: string[] = []
@@ -80,18 +85,21 @@ function stageFinds({ type, hasScores, features }: SuggestionInput): string[] {
             '평가 점수는 높은데 서류 내용과 차이가 큰 지원자 있어?',
           ]
         : ['평가 결과가 아직 없는 지원자 보여줘']
+    // 면접 전형에는 점수가 없다. 면접 전에는 서류에서 역할을 확인할 사람을, 면접 뒤에는 답변과 서류의 차이를 찾는다
     case 'INTERVIEW':
       return [
-        ...(hasScores ? ['면접 점수가 높은 지원자 5명 찾아줘'] : []),
-        '면접에서 프로젝트 역할을 꼭 확인해야 할 지원자 찾아줘',
+        ...(interviewed > 0 ? [ANSWERS_VS_DOCUMENTS] : []),
+        '서류에서 팀 성과와 본인 역할이 구분되지 않는 지원자 찾아줘',
       ]
   }
 }
 
-/** HR 전형 화면 Chat의 추천 질문. 공고 기준 열은 서류 전형에서만 불러온다 */
+/** HR 전형 화면 Chat의 추천 질문. 공고 기준 열은 서류 전형에서만, 면접 진행 현황은 면접 전형에서만 불러온다 */
 export function useStageSuggestions(overview: StageOverview): string[] {
   const document = overview.type === 'DOCUMENT'
+  const interview = overview.type === 'INTERVIEW'
   const table = useCandidateTable(overview.stageId, document)
+  const progress = useStageInterviewProgress(overview.stageId, interview)
   const mentions = useStageUi((state) => state.mentions.length)
   const checked = useStageUi((state) => state.checked.length)
   return suggestQuestions({
@@ -102,6 +110,9 @@ export function useStageSuggestions(overview: StageOverview): string[] {
     features: document ? (table.data?.features ?? []) : [],
     mentions,
     checked,
+    interviewed: interview
+      ? (progress.data ?? []).filter((session) => session.status === 'ENDED').length
+      : 0,
   })
 }
 
