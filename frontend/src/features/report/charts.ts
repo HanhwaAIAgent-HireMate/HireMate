@@ -76,6 +76,8 @@ const BAR_WIDTH = 18
 const VALUE_LABEL = { color: INK, fontSize: 11.5 }
 /** 도넛의 바깥 반지름(px). 원 오른쪽에 범례를 세로로 두어 휴대폰 폭(카드 약 290px)에도 함께 들어가는 크기다 */
 const RING = 60
+/** 도넛 안쪽 구멍의 지름(px). 가운데 글자가 이 안에 들어가야 한다 */
+const HOLE = 2 * Math.round(RING * 0.68)
 
 function valueAxis(max: number, extra: Record<string, unknown> = {}) {
   return {
@@ -327,26 +329,35 @@ export function chartFor(block: Block, ctx: ChartContext): Chart {
           color: SLICES[i % SLICES.length],
         })),
         option: base({
+          // 범례가 원 옆에 이름과 값을 이미 적으므로 툴팁은 띄우지 않는다. 좁은 그림 안에 갇힌 툴팁이 링을 가린다
+          tooltip: { show: false },
+          // 제목 상자를 그림 가운데에 둔다. textAlign까지 'center'로 주면 상자가 왼쪽으로 반 폭 밀려 링에 겹친다
           title: {
             text: `${Math.round((100 * parts[biggest].value) / total)}%`,
             subtext: names[biggest],
             left: 'center',
-            top: size / 2 - 20,
-            textAlign: 'center',
+            top: 'middle',
             itemGap: 2,
             textStyle: { fontSize: 20, fontWeight: 700, color: INK, fontFamily: FONT },
-            subtextStyle: { fontSize: 11, color: MUTED, fontFamily: FONT },
+            // 구멍 지름 안에 들어가도록 긴 이름은 자른다
+            subtextStyle: {
+              fontSize: 11,
+              color: MUTED,
+              fontFamily: FONT,
+              width: HOLE - 12,
+              overflow: 'truncate',
+            },
           },
           series: [
             {
               type: 'pie',
-              radius: [Math.round(RING * 0.68), RING],
+              radius: [HOLE / 2, RING],
               center: ['50%', '50%'],
               padAngle: 1.5,
               itemStyle: { borderRadius: 3 },
               label: { show: false },
               data: parts.map((p, i) => ({
-                name: `${names[i]}  ${p.value}${p.unit}`,
+                name: names[i],
                 value: p.value,
                 itemStyle: { color: SLICES[i % SLICES.length] },
               })),
