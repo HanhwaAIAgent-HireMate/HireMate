@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
@@ -410,169 +411,187 @@ function Editor({
             </Link>
           ))}
         </aside>
-        <div className="min-w-0 flex-1 overflow-auto bg-surface/40 p-6">
-          <Tabs
-            value={view}
-            onValueChange={(value) => void changeView(value)}
-            className="mx-auto mb-3 max-w-[560px]"
+        <ResizablePanelGroup id="notice-editor" className="min-w-0 flex-1">
+          <ResizablePanel
+            id="notice-content"
+            minSize={420}
+            className="overflow-auto bg-surface/40 p-6"
           >
-            <TabsList>
-              <TabsTrigger value="edit">편집</TabsTrigger>
-              <TabsTrigger value="preview">보낼 모습</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          {view === 'preview' ? (
-            <div className="mx-auto w-fit">
-              <MailFrame
-                preview={preview.data}
-                title={`${notice.label} 미리보기`}
-                settingsLink="메일 색 · 로고 바꾸기"
-                scale={PREVIEW_SCALE}
-              />
-            </div>
-          ) : (
-            <div className="mx-auto max-w-[560px] rounded-xl border bg-background p-5 text-sm">
-              <div className="flex items-center gap-3 border-b pb-3">
-                <span className="text-xs text-muted-foreground">제목</span>
-                <VariableField
-                  aria-label="제목"
-                  value={draft.subject}
-                  onChange={(subject) => setDraft((current) => ({ ...current, subject }))}
-                  className="flex-1 font-semibold"
+            <Tabs
+              value={view}
+              onValueChange={(value) => void changeView(value)}
+              className="mx-auto mb-3 max-w-[560px]"
+            >
+              <TabsList>
+                <TabsTrigger value="edit">편집</TabsTrigger>
+                <TabsTrigger value="preview">보낼 모습</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {view === 'preview' ? (
+              <div className="mx-auto w-fit">
+                <MailFrame
+                  preview={preview.data}
+                  title={`${notice.label} 미리보기`}
+                  settingsLink="메일 색 · 로고 바꾸기"
+                  scale={PREVIEW_SCALE}
                 />
               </div>
-              <div className="space-y-2 py-3">
-                <VariableField
-                  aria-label="인사말"
-                  value={draft.greeting}
-                  onChange={(greeting) => setDraft((current) => ({ ...current, greeting }))}
-                />
-                {proposal !== null ? (
-                  <div className="space-y-2 px-3">
-                    <p className="leading-6">
-                      {sentenceDiff(draft.content, proposal).map((part, index) => (
-                        <span
-                          key={index}
-                          className={cn(
-                            part.kind === 'removed' && 'bg-fail text-fail-foreground line-through',
-                            part.kind === 'added' && 'bg-pass',
-                          )}
-                        >
-                          {part.text}{' '}
-                        </span>
-                      ))}
-                    </p>
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={apply}>
-                        적용
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setProposal(null)}>
-                        되돌리기
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <Textarea
-                    aria-label="안내 내용"
-                    value={draft.content}
-                    disabled={!editable}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, content: event.target.value }))
-                    }
-                    rows={5}
-                    className="resize-none border-dashed"
+            ) : (
+              <div className="mx-auto max-w-[560px] rounded-xl border bg-background p-5 text-sm">
+                <div className="flex items-center gap-3 border-b pb-3">
+                  <span className="text-xs text-muted-foreground">제목</span>
+                  <VariableField
+                    aria-label="제목"
+                    value={draft.subject}
+                    onChange={(subject) => setDraft((current) => ({ ...current, subject }))}
+                    className="flex-1 font-semibold"
                   />
-                )}
-                {final && editable ? (
-                  <div id={ONBOARDING_ID} className="space-y-2 rounded-lg bg-muted/50 px-3 py-3">
-                    <p className="text-xs text-muted-foreground">
-                      <span className="font-semibold text-foreground">입사 안내</span> · 본문 아래에
-                      목록으로 붙어요. 모두 비워 두면 &lsquo;{ONBOARDING_LATER}&rsquo;가 들어가요
-                    </p>
-                    <GuideFields
-                      name="입사 안내"
-                      fields={ONBOARDING_FIELDS}
-                      values={onboarding}
+                </div>
+                <div className="space-y-2 py-3">
+                  <VariableField
+                    aria-label="인사말"
+                    value={draft.greeting}
+                    onChange={(greeting) => setDraft((current) => ({ ...current, greeting }))}
+                  />
+                  {proposal !== null ? (
+                    <div className="space-y-2 px-3">
+                      <p className="leading-6">
+                        {sentenceDiff(draft.content, proposal).map((part, index) => (
+                          <span
+                            key={index}
+                            className={cn(
+                              part.kind === 'removed' &&
+                                'bg-fail text-fail-foreground line-through',
+                              part.kind === 'added' && 'bg-pass',
+                            )}
+                          >
+                            {part.text}{' '}
+                          </span>
+                        ))}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={apply}>
+                          적용
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setProposal(null)}>
+                          되돌리기
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Textarea
+                      aria-label="안내 내용"
+                      value={draft.content}
                       disabled={!editable}
-                      onChange={(key, value) =>
-                        setOnboarding((current) => ({ ...current, [key]: value }))
+                      onChange={(event) =>
+                        setDraft((current) => ({ ...current, content: event.target.value }))
                       }
+                      rows={5}
+                      className="resize-none border-dashed"
                     />
-                  </div>
-                ) : (
-                  notice.guide && (
+                  )}
+                  {final && editable ? (
+                    <div id={ONBOARDING_ID} className="space-y-2 rounded-lg bg-muted/50 px-3 py-3">
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-semibold text-foreground">입사 안내</span> · 본문
+                        아래에 목록으로 붙어요. 모두 비워 두면 &lsquo;{ONBOARDING_LATER}&rsquo;가
+                        들어가요
+                      </p>
+                      <GuideFields
+                        name="입사 안내"
+                        fields={ONBOARDING_FIELDS}
+                        values={onboarding}
+                        disabled={!editable}
+                        onChange={(key, value) =>
+                          setOnboarding((current) => ({ ...current, [key]: value }))
+                        }
+                      />
+                    </div>
+                  ) : (
+                    notice.guide && (
+                      <div className="space-y-1 rounded-lg bg-muted/50 px-3 py-2">
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Lock className="size-3.5" />
+                          {final ? (
+                            '보낸 입사 안내'
+                          ) : (
+                            <>
+                              보낼 때 붙는 다음 전형 안내 ·
+                              <Link to={guidesPath} className="underline">
+                                전형 결과 화면에서 고치기
+                              </Link>
+                            </>
+                          )}
+                        </p>
+                        <p className="leading-6 whitespace-pre-line">
+                          {notice.guide.split('\n').map((line, index) => (
+                            <Fragment key={index}>
+                              {index > 0 && '\n'}
+                              {line}
+                              {notice.interviewTimeHint && line.startsWith('- 일정:') && (
+                                <span className="ml-1.5 inline-block text-[11px] text-muted-foreground">
+                                  {INTERVIEW_TIME_HINT}
+                                </span>
+                              )}
+                            </Fragment>
+                          ))}
+                        </p>
+                      </div>
+                    )
+                  )}
+                  {notice.applicationNoLine && (
                     <div className="space-y-1 rounded-lg bg-muted/50 px-3 py-2">
                       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Lock className="size-3.5" />
-                        {final ? (
-                          '보낸 입사 안내'
-                        ) : (
-                          <>
-                            보낼 때 붙는 다음 전형 안내 ·
-                            <Link to={guidesPath} className="underline">
-                              전형 결과 화면에서 고치기
-                            </Link>
-                          </>
-                        )}
+                        블라인드 채용이라 보낼 때 붙는 지원번호 안내
                       </p>
-                      <p className="leading-6 whitespace-pre-line">
-                        {notice.guide.split('\n').map((line, index) => (
-                          <Fragment key={index}>
-                            {index > 0 && '\n'}
-                            {line}
-                            {notice.interviewTimeHint && line.startsWith('- 일정:') && (
-                              <span className="ml-1.5 inline-block text-[11px] text-muted-foreground">
-                                {INTERVIEW_TIME_HINT}
-                              </span>
-                            )}
-                          </Fragment>
-                        ))}
-                      </p>
+                      <p className="leading-6">{notice.applicationNoLine}</p>
                     </div>
-                  )
-                )}
-                {notice.applicationNoLine && (
-                  <div className="space-y-1 rounded-lg bg-muted/50 px-3 py-2">
-                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Lock className="size-3.5" />
-                      블라인드 채용이라 보낼 때 붙는 지원번호 안내
-                    </p>
-                    <p className="leading-6">{notice.applicationNoLine}</p>
-                  </div>
-                )}
-                <VariableField
-                  aria-label="맺음말"
-                  value={draft.closing}
-                  onChange={(closing) => setDraft((current) => ({ ...current, closing }))}
-                />
+                  )}
+                  <VariableField
+                    aria-label="맺음말"
+                    value={draft.closing}
+                    onChange={(closing) => setDraft((current) => ({ ...current, closing }))}
+                  />
+                </div>
+                <p className="flex items-center gap-1.5 border-t pt-3 text-xs text-muted-foreground">
+                  <Lock className="size-3.5" />
+                  {notice.requiredText}
+                </p>
               </div>
-              <p className="flex items-center gap-1.5 border-t pt-3 text-xs text-muted-foreground">
-                <Lock className="size-3.5" />
-                {notice.requiredText}
-              </p>
-            </div>
-          )}
-          {view === 'edit' && editable && dirty && (
-            <div className="mx-auto mt-3 flex max-w-[560px] justify-end">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={edit.isPending || saveOnboarding.isPending}
-                onClick={() => void save().then((ok) => ok && toast.success('초안을 저장했어요.'))}
-              >
-                저장
-              </Button>
-            </div>
-          )}
-        </div>
-        <AiRequestPanel
-          messages={messages}
-          examples={EXAMPLES}
-          pending={ai.isPending}
-          disabled={!editable}
-          onSend={(message) => void request(message)}
-          onReset={() => setMessages([])}
-        />
+            )}
+            {view === 'edit' && editable && dirty && (
+              <div className="mx-auto mt-3 flex max-w-[560px] justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={edit.isPending || saveOnboarding.isPending}
+                  onClick={() =>
+                    void save().then((ok) => ok && toast.success('초안을 저장했어요.'))
+                  }
+                >
+                  저장
+                </Button>
+              </div>
+            )}
+          </ResizablePanel>
+          <ResizableHandle withHandle aria-label="AI 수정 요청 너비 조절" />
+          <ResizablePanel
+            id="notice-ai-request"
+            defaultSize={300}
+            minSize={280}
+            groupResizeBehavior="preserve-pixel-size"
+          >
+            <AiRequestPanel
+              messages={messages}
+              examples={EXAMPLES}
+              pending={ai.isPending}
+              disabled={!editable}
+              onSend={(message) => void request(message)}
+              onReset={() => setMessages([])}
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     </div>
   )

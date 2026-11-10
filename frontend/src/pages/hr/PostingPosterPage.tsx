@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PosterTemplateDelete } from '@/features/company/PosterTemplateDelete'
 import { AiRequestPanel, type AiMessage } from '@/features/posting/AiRequestPanel'
@@ -1287,47 +1288,63 @@ function PosterEditor({ posting }: { posting: Posting }) {
             </fieldset>
           </div>
         </aside>
-        <section
-          aria-label="포스터 미리보기"
-          className={cn(
-            'min-h-0 min-w-0 flex-1 flex-col bg-surface/60 lg:flex',
-            smallPane === 'poster' ? 'flex' : 'hidden',
-          )}
+        <ResizablePanelGroup
+          id="poster-editor"
+          className={cn('min-w-0 flex-1 lg:flex', smallPane === 'options' ? 'hidden' : 'flex')}
         >
-          <div className="flex h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-5 text-xs text-muted-foreground">
-            <span>{preview ? 'AI 수정안 미리보기' : '포스터 미리보기'}</span>
-            {/* 켜져 있는 평소 상태는 따로 적지 않는다. 적용 전 수정안과 포스터를 끈 때만 알린다 */}
-            {(preview || !shown.enabled) && (
-              <span>{preview ? '적용 전' : '포스터 사용 안 함'}</span>
-            )}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 lg:px-6" data-poster-canvas>
-            <div ref={poster} className="mx-auto max-w-[780px]">
-              <PostingPoster
-                posting={posting}
-                design={shown}
-                logoUrl={logoUrl}
-                careersUrl={
-                  !editable
-                    ? new URL(`/careers/${posting.postingId}`, window.location.origin).href
-                    : undefined
-                }
-                changes={changes}
-              />
-            </div>
-          </div>
-        </section>
-        {editable && (
-          <div
-            aria-label="포스터 AI 챗"
-            className={cn(
-              'min-h-0 w-full shrink-0 lg:flex lg:w-[300px]',
-              smallPane === 'chat' ? 'flex' : 'hidden',
-            )}
+          <ResizablePanel
+            id="poster-preview"
+            minSize={420}
+            className={cn(smallPane === 'poster' ? 'flex' : 'hidden', 'lg:flex')}
           >
-            <div className="flex min-h-0 w-full [&>aside]:w-full">{chatPanel}</div>
-          </div>
-        )}
+            <section
+              aria-label="포스터 미리보기"
+              className="flex h-full min-h-0 w-full min-w-0 flex-col bg-surface/60"
+            >
+              <div className="flex h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-5 text-xs text-muted-foreground">
+                <span>{preview ? 'AI 수정안 미리보기' : '포스터 미리보기'}</span>
+                {/* 켜져 있는 평소 상태는 따로 적지 않는다. 적용 전 수정안과 포스터를 끈 때만 알린다 */}
+                {(preview || !shown.enabled) && (
+                  <span>{preview ? '적용 전' : '포스터 사용 안 함'}</span>
+                )}
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 lg:px-6" data-poster-canvas>
+                <div ref={poster} className="mx-auto max-w-[780px]">
+                  <PostingPoster
+                    posting={posting}
+                    design={shown}
+                    logoUrl={logoUrl}
+                    careersUrl={
+                      !editable
+                        ? new URL(`/careers/${posting.postingId}`, window.location.origin).href
+                        : undefined
+                    }
+                    changes={changes}
+                  />
+                </div>
+              </div>
+            </section>
+          </ResizablePanel>
+          {editable && (
+            <>
+              <ResizableHandle
+                withHandle
+                aria-label="AI 수정 요청 너비 조절"
+                className="hidden lg:flex"
+              />
+              <ResizablePanel
+                id="poster-ai-request"
+                defaultSize={300}
+                minSize={280}
+                groupResizeBehavior="preserve-pixel-size"
+                aria-label="포스터 AI 챗"
+                className={cn('min-h-0 lg:flex', smallPane === 'chat' ? 'flex' : 'hidden')}
+              >
+                {chatPanel}
+              </ResizablePanel>
+            </>
+          )}
+        </ResizablePanelGroup>
       </div>
     </>
   )
