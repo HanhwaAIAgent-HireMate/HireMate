@@ -1,10 +1,11 @@
-import { createBrowserRouter, Navigate, type RouteObject } from 'react-router'
+import { createBrowserRouter, type RouteObject } from 'react-router'
 
 import { HrLayout } from '@/app/HrLayout'
 import { InterviewerLayout } from '@/app/InterviewerLayout'
 import { ApplyPage } from '@/pages/careers/ApplyPage'
 import { PostingPage } from '@/pages/careers/PostingPage'
 import { DashboardPage } from '@/pages/hr/DashboardPage'
+import { LandingPage } from '@/pages/hr/LandingPage'
 import { LoginPage } from '@/pages/hr/LoginPage'
 import { NoticeEditorPage } from '@/pages/hr/NoticeEditorPage'
 import { PostingEditorPage } from '@/pages/hr/PostingEditorPage'
@@ -20,7 +21,7 @@ import { InterviewRoomPage } from '@/pages/interviewer/InterviewRoomPage'
 import { MyInterviewsPage } from '@/pages/interviewer/MyInterviewsPage'
 
 export const routes: RouteObject[] = [
-  { path: '/', element: <Navigate to="/hr" replace /> },
+  { path: '/', element: <LandingPage /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/signup', element: <SignupPage /> },
   {

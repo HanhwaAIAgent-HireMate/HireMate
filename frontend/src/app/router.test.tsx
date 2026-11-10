@@ -91,6 +91,27 @@ describe('routes', () => {
     expect(await screen.findByRole('heading', { level: 1, name: '채용' })).toBeInTheDocument()
   })
 
+  it('로그인하지 않은 방문자에게는 첫 진입 표지를 보여 준다', async () => {
+    mockServer(false)
+    renderAt('/')
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: '채용의 모든 단계, Hire-mate와 함께.' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '기업 가입하고 시작하기' })).toHaveAttribute(
+      'href',
+      '/signup',
+    )
+    expect(screen.getAllByRole('link', { name: '로그인' })[0]).toHaveAttribute('href', '/login')
+  })
+
+  it('면접관 계정은 첫 진입 표지 대신 면접관 모드로 보낸다', async () => {
+    mockServer(true, 'INTERVIEWER')
+    renderAt('/')
+
+    expect(await screen.findByRole('heading', { level: 1, name: '내 면접' })).toBeInTheDocument()
+  })
+
   it('로그인하지 않으면 HR 화면 대신 로그인 화면으로 보낸다', async () => {
     mockServer(false)
     renderAt('/hr/settings')
